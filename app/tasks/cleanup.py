@@ -2,12 +2,12 @@ import os
 import time
 import asyncio
 from sqlalchemy import select, delete, true
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 import aiodocker
 import logging
 
 from models import Project, Deployment, Alias
 from config import get_settings
-from db import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,12 @@ async def cleanup_team(ctx, team_id: str):
 async def cleanup_project(ctx, project_id: str, batch_size: int = 100):
     """Delete a project and related resources (e.g. containers, aliases, deployments) in batches."""
     settings = get_settings()
+
+    database_url = f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@pgsql:5432/{settings.postgres_db}"
+    engine = create_async_engine(database_url, echo=settings.db_echo)
+    AsyncSessionLocal = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with AsyncSessionLocal() as db:
         async with aiodocker.Docker(url=settings.docker_host) as docker_client:
@@ -162,6 +168,12 @@ async def cleanup_inactive_deployments(
 ):
     """Stop/remove containers for deployments no longer referenced by aliases."""
     settings = get_settings()
+
+    database_url = f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@pgsql:5432/{settings.postgres_db}"
+    engine = create_async_engine(database_url, echo=settings.db_echo)
+    AsyncSessionLocal = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with AsyncSessionLocal() as db:
         async with aiodocker.Docker(url=settings.docker_host) as docker_client:

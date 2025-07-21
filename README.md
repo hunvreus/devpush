@@ -1,164 +1,272 @@
-This is a simple and opiniated boilerplate for Flask apps (mostly ripped off from [Miguel Grinberg's awesome Flask Mega-Tutorial](https://blog.miguelgrinberg.com/post/the-flask-mega-tutorial-part-i-hello-world)).
+# DevPush
 
-# Main features
+A modern deployment platform built with FastAPI, Kubernetes, and Traefik. Deploy your applications with zero downtime and automatic scaling.
 
-- Code organized in [Blueprints](https://flask.palletsprojects.com/en/stable/blueprints/)
-- i18n support with [Flask-Babel](https://python-babel.github.io/flask-babel/)
-- Forms with [Flask-WTForms](https://flask-wtf.readthedocs.io/en/1.2.x/)
-- Database ORM with SQLAlchemy (defaults to SQLite).
-- Email with [Resend](https://resend.com) and email templates with [MJML](https://mjml.io/).
-- CSS with [Tailwind CSS](https://tailwindcss.com/).
-- Javascript with [Alpine.js](https://alpinejs.dev/) and (optionally) [HTMX](https://htmx.org/).
+## Features
 
-# Prerequisites
+- **Zero-downtime deployments** with rolling updates
+- **Automatic scaling** with KEDA (scale-to-zero for idle runners)
+- **GitHub integration** for seamless deployments
+- **Real-time logs** and monitoring
+- **Multi-environment support** (dev/prod)
+- **HTTPS support** with automatic SSL certificates
+- **Container orchestration** with Kubernetes
 
-- Python 3.
-- Node.js/npm for developement (CSS, email template, favicons, ...).
+## Architecture
 
-# Install & Run
+- **Backend**: FastAPI with async/await
+- **Database**: PostgreSQL with Alembic migrations
+- **Cache**: Redis for job queues and sessions
+- **Orchestration**: Kubernetes (K3s) with Traefik ingress
+- **Container Runtime**: Docker with Kubernetes API
+- **Monitoring**: Prometheus metrics integration
 
-1. **[Make a copy of this template](https://github.com/hunvreus/flask-basics/generate)** and `git clone` the repository you created.
-2. Create your virtual environment and activate it:
-    ```
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-3. Install the dependencies:
-    ```
-    pip install -r requirements.txt 
-    ```
-4. Initiate your database migrations and create the tables:
-    ```
-    flask db migrate # This will create a "migrations/" folder
-    flask db upgrade # This may create an "app.db" file
-    ```
-5. Create your local environment configuration file:
-    ```
+## Prerequisites
+
+- **macOS** (for local development)
+- **Docker Desktop** or **Colima**
+- **kubectl** (Kubernetes CLI)
+- **Helm** (Kubernetes package manager)
+- **Python 3.12+**
+
+## Quick Start
+
+### 1. Clone and Setup
+
+```bash
+git clone <your-repo>
+cd devpush
+```
+
+### 2. Install Dependencies
+
+```bash
+# Install Python dependencies
+pip install -r app/requirements.txt
+
+# Install system dependencies
+brew install kubectl helm
+```
+
+### 3. Environment Setup
+
+```bash
+# Copy environment template
     cp .env.example .env
-    ```
-6. Start the app:
-    ```
-    flask run
-    ```
-7. Need Redis (what port?) and have it running +` rq worker deployments`
 
-# Environment variables
-
-Variable | Default | Description
---- | --- | ---
-`APP_NAME` | `"App name"` | The name of the app displayed in the header, emails, user messagse, etc.
-`APP_DESCRIPTION` | `None` | The default `<meta>` description, can be overriden for any route by defining the description template variable.
-`APP_SOCIAL_IMAGE` | `'/social.png'` | The image used for social cards.
-`MAIL_SENDER_NAME` | `APP_NAME` | The name used when sending emails.
-`MAIL_SENDER_EMAIL` | `'noreply@example.com'` | The email used when sending emails.
-`MAIL_LOGO` | `'/logo/logo-72x72.png'` | Logo used in the HTML email template (see `app/templates/email/login.html`).
-`MAIL_FOOTER` | `None` | A text to be included in the footer of your emails (e.g. your business address).
-`SECRET_KEY` | `'random-unique-secret-key'` | [Secret key used for signing session cookies](https://flask.palletsprojects.com/en/stable/config/#SECRET_KEY). On MacOS/Linux, you can generate it with `openssl rand -base64 32`.
-`SQLALCHEMY_DATABASE_URI` | `None` | [A valid database connection URI](https://flask-sqlalchemy.readthedocs.io/en/stable/config/#flask_sqlalchemy.config.SQLALCHEMY_DATABASE_URI). If undefined, the app will use an SQLite database saved at `app.db`.
-`RESEND_API_KEY` | `None` | The [Resend](https://resend.com) API key. If no key is provided (e.g. when developing on local), the content of the emails sent will be displayed in your terminal.
-`TEMPLATES_AUTO_RELOAD` | `False` | [Hot reload templates](https://flask.palletsprojects.com/en/stable/config/#TEMPLATES_AUTO_RELOAD) when they change (for development).
-
-# Models
-
-Models are defined in `/app/models.py`. After making any change you will need to:
-
-1. Create the migration script:
-    ```
-    flask db migrate -m "users table"
-    ```
-2. Run the migration:
-    ```
-    flask db upgrade #undo with "downgrade"
-    ```
-
-# i18n
-
-To create translations of your app strings:
-
-1. Generate the `.pot` file:
-    ```
-    pybabel extract -F babel.cfg -k _l -o messages.pot .
-    ```
-2. Generate a language catalog for a language (in this example Spanish with `es`):
-    ```
-    pybabel init -i messages.pot -d app/translations -l es
-    ```
-3. Once you've added your translations in the language catalog generated in the previous step, you can compile translations to be used by Flask:
-    ```
-    pybabel compile -d app/translations
-    ```
-
-You'll need to add the support for additional languages in the `LANGUAGES` array in '`config.py`.
-
-Later on, if you need ot update translations you can run: 
-
-```
-pybabel extract -F babel.cfg -k _l -o messages.pot .
-pybabel update -i messages.pot -d app/translations
+# Edit environment variables
+nano .env
 ```
 
-# Assets (CSS, images, email template)
+### 4. Start Development Environment
 
-*To run any of the npm commands listed below, you need to install the dev depdendencies with `npm install`.*
+```bash
+# One-time setup (Colima + K3s + Traefik)
+./scripts/local/setup.sh
 
-- **CSS**: You can modify the `/app/src/main.css` file and run the build process with `npm run css:build`, or `npm run css:dev` if you want to watch changes.
-- **Favicon**: These files are saved in `app/static/favicon/`. You can generate these files by editing the `src/favicon.svg` file and then running `npm run favicon`.
-- **Social cards** (OG and Twitter/X): These files are saved in `app/static/social/`. You can generate these files by editing the `src/social.svg` file and then running `npm run social`.
-- **Logo**: The logo is saved in both SVG and PNG formats at multiple resolutions in `app/static/logo`. You can generate these files by editing the `src/logo.svg` file and then running `npm run logo`.
-- **Email template**: The login email templates (HTML and text) are saved in `app/templates/email/`. The HTML version can be generated from the [MJML](https://mjml.io/) template defined at `src/login.mjml` by running the `npm run email` command.
+# Daily development (build and deploy)
+./scripts/local/start.sh
+```
 
-You can generate all assets at once by running the `npm run build` command.
+Your app will be available at: **http://localhost:30080**
 
+## Development Workflow
 
-ENCRYPTION_KEY python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+### Daily Development
 
+```bash
+# Start development environment
+./scripts/local/start.sh
 
-colima start
+# After code changes
+./scripts/local/deploy.sh
+```
 
-docker build -t app-deploy -f docker/Dockerfile.deploy .
+### Clean Restart
 
-APP_ENV=dev docker-compose up --build
+```bash
+# Stop everything and clean up
+./scripts/local/clean.sh
 
-docker-compose up --build
+# Fresh setup
+./scripts/local/setup.sh
+```
 
+## Project Structure
 
-NUKE 
+```
+devpush/
+├── app/                    # FastAPI application
+│   ├── main.py            # Application entry point
+│   ├── models.py          # Database models
+│   ├── routers/           # API routes
+│   ├── services/          # Business logic
+│   └── templates/         # HTML templates
+├── k8s/                   # Kubernetes manifests
+│   ├── app-deployment.yaml
+│   ├── app-service.yaml
+│   ├── app-ingress.yaml
+│   ├── pgsql-deployment.yaml
+│   └── redis-deployment.yaml
+├── helm/                  # Helm configuration
+│   ├── values-dev.yaml    # Development Traefik config
+│   └── values-prod.yaml   # Production Traefik config
+├── scripts/
+│   ├── local/             # Local development scripts
+│   │   ├── setup.sh       # Environment setup
+│   │   ├── start.sh       # Daily development
+│   │   └── deploy.sh      # App deployment
+│   └── prod/              # Production deployment
+└── Docker/                # Docker configurations
+```
 
-# Stop all containers (running or stopped)
-docker stop $(docker ps -a -q) && docker rm $(docker ps -a -q) && docker rmi $(docker images -a -q) -f
+## Environment Variables
 
-# Remove all containers
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_NAME` | `/dev/push` | Application name |
+| `APP_DESCRIPTION` | `Build and deploy your Python app without touching a server.` | App description |
+| `URL_SCHEME` | `http` | URL scheme (http/https) |
+| `HOSTNAME` | `localhost` | Domain name for the application |
+| `DEPLOY_DOMAIN` | `localhost` | Domain for deployments |
+| `SECRET_KEY` | - | Application secret key |
+| `ENCRYPTION_KEY` | - | Encryption key for sensitive data |
+| `EMAIL_SENDER_NAME` | `/dev/push` | Email sender name |
+| `EMAIL_SENDER_ADDRESS` | `mail@devpu.sh` | Email sender address |
+| `RESEND_API_KEY` | - | Resend API key for emails |
+| `GITHUB_APP_ID` | - | GitHub App ID |
+| `GITHUB_APP_NAME` | - | GitHub App name |
+| `GITHUB_APP_PRIVATE_KEY` | - | GitHub App private key |
+| `GITHUB_APP_WEBHOOK_SECRET` | - | GitHub webhook secret |
+| `GITHUB_APP_CLIENT_SECRET` | - | GitHub App client secret |
+| `GOOGLE_CLIENT_ID` | - | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | - | Google OAuth client secret |
+| `POSTGRES_DB` | `devpush` | PostgreSQL database name |
+| `POSTGRES_USER` | `devpush-app` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | `devpush` | PostgreSQL password |
+| `LOG_LEVEL` | `INFO` | Logging level |
+| `DB_ECHO` | `false` | Echo SQL queries (debug) |
 
+## Database Migrations
 
-# Now you can remove images
+```bash
+# Create new migration
+uv run alembic revision --autogenerate -m "description"
 
-
-docker ps --filter "label=app.deployment_id=Qo0IS_JJgaHRI3q7xirdgA"
-
-
-
-
-
-Check logs from loki: 
-
-colima start --feature docker --log-driver loki --log-opt loki-url=http://host.docker.internal:3100/loki/api/v1/push
-
-`docker stop $(docker ps -a -q) && docker rm $(docker ps -a -q) && docker rmi $(docker images -a -q) -f`
-`docker-compose build runner && docker-compose down -v && docker-compose up --build --force-recreate`
-
-
-
-{ width: 1200, height: 630, name: 'social-card.png' }
-
-
-
-
-docker exec -it api bash
-
-uv run alembic revision --autogenerate -m "initial"
+# Apply migrations
 uv run alembic upgrade head
 
-postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@pgsql:5432/{settings.postgres_db}
+# Rollback migration
+uv run alembic downgrade -1
+```
 
+## Kubernetes Resources
 
-POSTGRES_HOST=localhost uv run alembic revision --autogenerate -m "initial"
+### Core Services
+
+- **App**: FastAPI application with workers
+- **PostgreSQL**: Persistent database with StatefulSet
+- **Redis**: Cache and job queue
+- **Traefik**: Ingress controller with Helm
+
+### Runner System
+
+- **Dynamic runners**: Created per deployment
+- **Scale-to-zero**: Idle runners scale down automatically
+- **Resource isolation**: Each runner in separate namespace
+- **Automatic cleanup**: Runners removed after deployment
+
+## Production Deployment
+
+### Infrastructure Setup
+
+```bash
+# Install K3s on Hetzner server
+curl -sfL https://get.k3s.io | sh -s -- --disable traefik
+
+# Install Traefik with production config
+helm install traefik traefik/traefik \
+  --namespace ingress-traefik --create-namespace \
+  -f helm/values-prod.yaml
+```
+
+### Application Deployment
+
+```bash
+# Deploy application
+kubectl apply -f k8s/
+
+# Check status
+kubectl get pods
+kubectl get services
+kubectl get ingress
+```
+
+## Monitoring
+
+### Prometheus Integration
+
+```bash
+# Install Prometheus
+helm install prometheus prometheus-community/kube-prometheus-stack
+
+# Access Grafana
+kubectl port-forward svc/prometheus-grafana 3000:80
+```
+
+### Application Metrics
+
+- **Runner metrics**: CPU, memory, network usage
+- **Deployment metrics**: Success rate, duration
+- **Queue metrics**: Job count, processing time
+
+## Troubleshooting
+
+### Common Issues
+
+**Colima not starting:**
+```bash
+colima stop
+colima start --kubernetes --kubernetes-disable=traefik
+```
+
+**App not accessible:**
+```bash
+kubectl get pods
+kubectl logs app-deployment-xxx
+kubectl get ingress
+```
+
+**Database connection issues:**
+```bash
+kubectl logs pgsql-deployment-xxx
+kubectl exec -it pgsql-deployment-xxx -- psql -U postgres
+```
+
+### Useful Commands
+
+```bash
+# Check all resources
+kubectl get all
+
+# View logs
+kubectl logs -f deployment/app
+
+# Access app shell
+kubectl exec -it deployment/app -- bash
+
+# Check Traefik status
+kubectl get pods -n ingress-traefik
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test with `./scripts/local/start.sh`
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.

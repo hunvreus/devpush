@@ -1,16 +1,19 @@
 #!/usr/bin/env sh
-# Drop and recreate the public schema of the Postgres DB defined in .env
+# Drop and recreate the public schema of the Postgres DB
 
 set -e
 
+# Load environment variables
 if [ -f .env ]; then
-    . .env
+    source .env
 fi
 
-DB_CONTAINER=${DB_CONTAINER:-pgsql}
-DB_USER=${POSTGRES_USER:-devpush}
-DB_NAME=${POSTGRES_DB:-devpush}
+echo "Dropping and recreating the public schema of the Postgres DB"
 
-echo "Dropping and recreating the public schema of the Postgres DB defined in .env"
+# Get PostgreSQL pod name
+PG_POD=$(kubectl get pods -l io.kompose.service=pgsql -o jsonpath='{.items[0].metadata.name}')
 
-docker-compose exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+# Execute SQL command
+kubectl exec "$PG_POD" -- psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+echo "✅ Database reset complete!"

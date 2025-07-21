@@ -1,21 +1,22 @@
 #!/bin/bash
 
-echo "Starting local environment..."
+echo "🚀 Starting development environment..."
 
-mkdir -p ./data/{traefik,upload}
+# Check if Colima is running
+if ! colima status > /dev/null 2>&1; then
+    echo "❌ Colima not running. Run ./scripts/local/setup.sh first."
+    exit 1
+fi
 
-NO_CACHE=true
-PRUNE=false
-for a in "$@"; do
-  [ "$a" = "--cache" ] && NO_CACHE=false
-  [ "$a" = "--prune" ] && PRUNE=true
-done
+# Check if Traefik is installed
+if ! kubectl get pods -n ingress-traefik | grep -q traefik; then
+    echo "❌ Traefik not found. Run ./scripts/local/setup.sh first."
+    exit 1
+fi
 
-CACHE_FLAG=""
-[ "$NO_CACHE" = true ] && CACHE_FLAG="--no-cache"
+# Update ConfigMap and deploy
+echo "📦 Building and deploying application..."
+./scripts/local/deploy.sh
 
-[ "$PRUNE" = true ] && docker image prune -f
-
-docker-compose -f docker-compose.yml -f docker-compose.override.dev.yml build $CACHE_FLAG runner && \
-docker-compose -f docker-compose.yml -f docker-compose.override.dev.yml down && \
-docker-compose -f docker-compose.yml -f docker-compose.override.dev.yml up --build --force-recreate
+echo "✅ Development environment ready!"
+echo "🌐 App available at: http://localhost:30080"

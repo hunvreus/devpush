@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: app
+  name: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: app
+  template:
+    metadata:
+      labels:
+        io.kompose.service: app
+    spec:
+      containers:
+        - env:
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: UPLOAD_DIR
+              value: /app/upload
+          envFrom:
+            - configMapRef:
+                name: env
+          image: app
+          imagePullPolicy: Never
+          name: app
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: upload-dir
+              mountPath: /app/upload
+            - name: app-code
+              mountPath: /app
+      restartPolicy: Always
+      volumes:
+        - name: upload-dir
+          persistentVolumeClaim:
+            claimName: upload
+        - name: app-code
+          hostPath:
+            path: ${REPO_ROOT}/app
+            type: Directory
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  labels:
+    io.kompose.service: app
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    io.kompose.service: app 
