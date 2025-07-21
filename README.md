@@ -1,11 +1,11 @@
 # DevPush
 
-A modern deployment platform built with FastAPI, Kubernetes, and Traefik. Deploy your applications with zero downtime and automatic scaling.
+A modern deployment platform built with FastAPI and Kubernetes. Deploy your applications with zero downtime and automatic scaling.
 
 ## Features
 
 - **Zero-downtime deployments** with rolling updates
-- **Automatic scaling** with KEDA (scale-to-zero for idle runners)
+- **Automatic scaling** with Kubernetes
 - **GitHub integration** for seamless deployments
 - **Real-time logs** and monitoring
 - **Multi-environment support** (dev/prod)
@@ -17,16 +17,14 @@ A modern deployment platform built with FastAPI, Kubernetes, and Traefik. Deploy
 - **Backend**: FastAPI with async/await
 - **Database**: PostgreSQL with Alembic migrations
 - **Cache**: Redis for job queues and sessions
-- **Orchestration**: Kubernetes (K3s) with Traefik ingress
+- **Orchestration**: Kubernetes with Traefik ingress
 - **Container Runtime**: Docker with Kubernetes API
-- **Monitoring**: Prometheus metrics integration
 
 ## Prerequisites
 
 - **macOS** (for local development)
-- **Docker Desktop** or **Colima**
+- **Colima** (container runtime)
 - **kubectl** (Kubernetes CLI)
-- **Helm** (Kubernetes package manager)
 - **Python 3.12+**
 
 ## Quick Start
@@ -42,17 +40,15 @@ cd devpush
 
 ```bash
 # Install Python dependencies
-pip install -r app/requirements.txt
-
-# Install system dependencies
-brew install kubectl helm
+cd app
+uv sync
 ```
 
 ### 3. Environment Setup
 
 ```bash
 # Copy environment template
-    cp .env.example .env
+cp .env.example .env
 
 # Edit environment variables
 nano .env
@@ -86,7 +82,7 @@ Your app will be available at: **http://localhost:30080**
 
 ```bash
 # Stop everything and clean up
-./scripts/local/clean.sh
+./scripts/local/cleanup.sh
 
 # Fresh setup
 ./scripts/local/setup.sh
@@ -103,19 +99,20 @@ devpush/
 │   ├── services/          # Business logic
 │   └── templates/         # HTML templates
 ├── k8s/                   # Kubernetes manifests
-│   ├── app-deployment.yaml
-│   ├── app-service.yaml
-│   ├── app-ingress.yaml
-│   ├── pgsql-deployment.yaml
-│   └── redis-deployment.yaml
-├── helm/                  # Helm configuration
-│   ├── values-dev.yaml    # Development Traefik config
-│   └── values-prod.yaml   # Production Traefik config
+│   ├── app.yaml           # App deployment + service
+│   ├── pgsql.yaml         # PostgreSQL deployment + service
+│   ├── redis.yaml         # Redis deployment + service
+│   ├── traefik.yaml       # Traefik ingress controller
+│   ├── app-ingress.yaml   # App ingress (dev)
+│   ├── app-ingress-prod.yaml # App ingress (prod)
+│   ├── db-persistentvolumeclaim.yaml
+│   └── upload-persistentvolumeclaim.yaml
 ├── scripts/
 │   ├── local/             # Local development scripts
 │   │   ├── setup.sh       # Environment setup
 │   │   ├── start.sh       # Daily development
-│   │   └── deploy.sh      # App deployment
+│   │   ├── deploy.sh      # App deployment
+│   │   └── cleanup.sh     # Cleanup
 │   └── prod/              # Production deployment
 └── Docker/                # Docker configurations
 ```
@@ -167,12 +164,11 @@ uv run alembic downgrade -1
 - **App**: FastAPI application with workers
 - **PostgreSQL**: Persistent database with StatefulSet
 - **Redis**: Cache and job queue
-- **Traefik**: Ingress controller with Helm
+- **Traefik**: Ingress controller
 
 ### Runner System
 
 - **Dynamic runners**: Created per deployment
-- **Scale-to-zero**: Idle runners scale down automatically
 - **Resource isolation**: Each runner in separate namespace
 - **Automatic cleanup**: Runners removed after deployment
 
@@ -185,9 +181,8 @@ uv run alembic downgrade -1
 curl -sfL https://get.k3s.io | sh -s -- --disable traefik
 
 # Install Traefik with production config
-helm install traefik traefik/traefik \
-  --namespace ingress-traefik --create-namespace \
-  -f helm/values-prod.yaml
+kubectl apply -f k8s/traefik.yaml
+kubectl apply -f k8s/app-ingress-prod.yaml
 ```
 
 ### Application Deployment
@@ -201,24 +196,6 @@ kubectl get pods
 kubectl get services
 kubectl get ingress
 ```
-
-## Monitoring
-
-### Prometheus Integration
-
-```bash
-# Install Prometheus
-helm install prometheus prometheus-community/kube-prometheus-stack
-
-# Access Grafana
-kubectl port-forward svc/prometheus-grafana 3000:80
-```
-
-### Application Metrics
-
-- **Runner metrics**: CPU, memory, network usage
-- **Deployment metrics**: Success rate, duration
-- **Queue metrics**: Job count, processing time
 
 ## Troubleshooting
 
@@ -258,6 +235,39 @@ kubectl exec -it deployment/app -- bash
 # Check Traefik status
 kubectl get pods -n ingress-traefik
 ```
+
+## TODO
+
+### Runner System Migration
+
+- [ ] **Create runner Docker image**
+  - [ ] Design `Docker/Dockerfile.runner` with runtime setup (git clone + pip install)
+  - [ ] Optimize for fast startup and minimal storage footprint
+  - [ ] Support project settings: root directory, build command, pre-deploy, start command
+
+- [ ] **Kubernetes runner deployment**
+  - [ ] Create `k8s/runner.yaml` template with Deployment + Service
+  - [ ] Add placeholders for dynamic values (project name, env vars, etc.)
+  - [ ] Test runner pod creation and lifecycle
+
+- [ ] **Update deployment service**
+  - [ ] Replace Docker client calls with Kubernetes manifest generation
+  - [ ] Implement clean methods: `create_container()`, `delete_container()`, `get_container_status()`
+  - [ ] Add manifest templating with variable substitution
+  - [ ] Remove dependency on Docker SDK
+
+- [ ] **Integration and testing**
+  - [ ] Update deployment flow to use Kubernetes runners
+  - [ ] Test end-to-end deployment process
+  - [ ] Verify real-time log streaming from runner pods
+  - [ ] Update any remaining Docker references
+
+### Architecture Decisions
+
+- **Runtime setup over pre-built images**: Using git clone + pip install at container startup to avoid storage bloat
+- **Single runner image**: Reusable base image with project-specific configuration via environment variables
+- **Kubernetes manifests**: Merged templates with variable substitution for cleaner deployment
+- **Local development**: Using Colima instead of Docker Desktop for better performance
 
 ## Contributing
 
