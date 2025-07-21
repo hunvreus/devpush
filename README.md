@@ -262,12 +262,19 @@ kubectl get pods -n ingress-traefik
   - [ ] Verify real-time log streaming from runner pods
   - [ ] Update any remaining Docker references
 
+- [ ] **Image registry (optional enhancement)**
+  - [ ] Deploy local registry (registry:2) for image distribution
+  - [ ] Update deployment service to push/pull from registry
+  - [ ] Reduce Docker daemon overhead by keeping fewer local images
+  - [ ] Enable scale-to-zero with image persistence
+
 ### Architecture Decisions
 
 - **Runtime setup over pre-built images**: Using git clone + pip install at container startup to avoid storage bloat
 - **Single runner image**: Reusable base image with project-specific configuration via environment variables
 - **Kubernetes manifests**: Merged templates with variable substitution for cleaner deployment
 - **Local development**: Using Colima instead of Docker Desktop for better performance
+- **Image registry**: Local registry for image distribution and Docker daemon cleanup (optional enhancement)
 
 ## Contributing
 
