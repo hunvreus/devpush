@@ -161,6 +161,9 @@ async def deploy_start(ctx, deployment_id: str):
 
                 image = deployment.config.get("image")
 
+                root_directory = deployment.config.get("root_directory") or "/app"
+
+
                 # Create and start container
                 container = await docker_client.containers.create_or_replace(
                     name=container_name,
@@ -168,7 +171,7 @@ async def deploy_start(ctx, deployment_id: str):
                         "Image": f"runner-{image}",
                         "Cmd": ["/bin/sh", "-c", " && ".join(commands)],
                         "Env": [f"{k}={v}" for k, v in env_vars_dict.items()],
-                        "WorkingDir": "/app",
+                        "WorkingDir": root_directory,
                         "Labels": labels,
                         "NetworkingConfig": {"EndpointsConfig": {"devpush_runner": {}}},
                         "HostConfig": {
