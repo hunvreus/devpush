@@ -98,11 +98,21 @@ async def deploy_start(ctx, deployment_id: str):
                         deployment.project.github_installation_id, db
                     )
                 )
+
+                # Handle root directory properly
+                # Clone to /app (repository root) first, then handle subdirectory
                 commands.append(
                     "git init -q && "
                     f"git fetch -q --depth 1 https://x-access-token:{github_installation.token}@github.com/{deployment.repo_full_name}.git {deployment.commit_sha} && "
                     f"git checkout -q FETCH_HEAD"
                 )
+
+                # If custom root directory is specified, cd into it for subsequent commands
+                if root_directory != "/app":
+                    # Create the subdirectory if it doesn't exist
+                    commands.append(f"mkdir -p {root_directory}")
+                    # Change to the subdirectory for subsequent commands
+                    commands.append(f"cd {root_directory}")
 
                 # Step 2: Install dependencies
                 if deployment.config.get("build_command"):
@@ -163,6 +173,9 @@ async def deploy_start(ctx, deployment_id: str):
 
                 root_directory = deployment.config.get("root_directory") or "/app"
 
+                # Always start in /app where the repository is cloned
+                # Custom root directory is handled via cd command in the script
+                working_dir = "/app"
 
                 # Create and start container
                 container = await docker_client.containers.create_or_replace(
@@ -171,7 +184,7 @@ async def deploy_start(ctx, deployment_id: str):
                         "Image": f"runner-{image}",
                         "Cmd": ["/bin/sh", "-c", " && ".join(commands)],
                         "Env": [f"{k}={v}" for k, v in env_vars_dict.items()],
-                        "WorkingDir": root_directory,
+                        "WorkingDir": working_dir,
                         "Labels": labels,
                         "NetworkingConfig": {"EndpointsConfig": {"devpush_runner": {}}},
                         "HostConfig": {
