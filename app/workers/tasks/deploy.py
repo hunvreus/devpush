@@ -86,6 +86,14 @@ async def deploy_start(ctx, deployment_id: str):
                 }
                 # env_vars_dict["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
 
+                # Get configuration values
+                image = deployment.config.get("image")
+                root_directory = deployment.config.get("root_directory") or "/app"
+
+                # Always start in /app where the repository is cloned
+                # Custom root directory is handled via cd command in the script
+                working_dir = "/app"
+
                 # Prepare commands
                 commands = []
 
@@ -168,14 +176,6 @@ async def deploy_start(ctx, deployment_id: str):
                     logger.warning(
                         f"{log_prefix} Invalid CPU/memory values in config, using defaults."
                     )
-
-                image = deployment.config.get("image")
-
-                root_directory = deployment.config.get("root_directory") or "/app"
-
-                # Always start in /app where the repository is cloned
-                # Custom root directory is handled via cd command in the script
-                working_dir = "/app"
 
                 # Create and start container
                 container = await docker_client.containers.create_or_replace(
