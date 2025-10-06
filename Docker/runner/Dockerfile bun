@@ -1,0 +1,26 @@
+FROM oven/bun-slim:latest
+
+# Create non-root user
+RUN addgroup --system appgroup && adduser --system --group appuser
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Set permissions
+RUN chown -R appuser:appgroup /app && \
+    mkdir -p /home/appuser/.npm && \
+    chown -R appuser:appgroup /home/appuser
+
+# Switch to non-root user
+USER appuser
+
+# Set npm to install packages in user's home
+ENV NPM_CONFIG_PREFIX=/home/appuser/.npm
+ENV PATH=/home/appuser/.npm/bin:$PATH
+ENV HOME=/home/appuser 

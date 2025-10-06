@@ -13,6 +13,10 @@
     {
       "slug": "node-20",
       "name": "Node.js 20"
+    },
+    {
+      "slug": "bun",
+      "name": "Bun"
     }
   ]
 }
