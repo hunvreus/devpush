@@ -1,4 +1,4 @@
-FROM oven/bun-slim:latest
+FROM oven/bun:slim
 
 # Create non-root user
 RUN addgroup --system appgroup && adduser --system --group appuser
