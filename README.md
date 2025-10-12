@@ -197,6 +197,10 @@ Variable | Comments | Default
 `EMAIL_SENDER_NAME` | Name displayed as email sender for invites/login. | `""`
 `EMAIL_SENDER_ADDRESS` | Email sender used for invites/login. | `""`
 `RESEND_API_KEY` | API key for [Resend](https://resend.com). | `""`
+`SMTP_HOST` | SMTP host. If SMTP data is provided, Resend is disabled automatically.| `""`
+`SMTP_PORT` | SMTP port. | `587`
+`SMTP_USERNAME` | SMTP username. | `""`
+`SMTP_PASSWORD` | SMTP password. | `""`
 `GITHUB_APP_ID` | GitHub App ID. | `""`
 `GITHUB_APP_NAME` | GitHub App name. | `""`
 `GITHUB_APP_PRIVATE_KEY` | GitHub App private key (PEM format). | `""`
