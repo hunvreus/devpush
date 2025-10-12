@@ -30,9 +30,9 @@ done
 
 [[ -f "$envf" ]] || { err "Not found: $envf"; exit 1; }
 
-# Required keys
+# Required keys (excluding email config which has alternatives)
 req=(
-  LE_EMAIL APP_HOSTNAME DEPLOY_DOMAIN EMAIL_SENDER_ADDRESS RESEND_API_KEY
+  LE_EMAIL APP_HOSTNAME DEPLOY_DOMAIN EMAIL_SENDER_ADDRESS
   GITHUB_APP_ID GITHUB_APP_NAME GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET
   GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET
   SECRET_KEY ENCRYPTION_KEY POSTGRES_PASSWORD SERVER_IP
@@ -43,6 +43,24 @@ for k in "${req[@]}"; do
   v="$(awk -F= -v k="$k" '$1==k{sub(/^[^=]*=/,""); print}' "$envf" | sed 's/^"\|"$//g')"
   [[ -n "$v" ]] || missing+=("$k")
 done
+
+# Check email configuration - either RESEND_API_KEY or all SMTP settings
+resend_key="$(awk -F= -v k="RESEND_API_KEY" '$1==k{sub(/^[^=]*=/,""); print}' "$envf" | sed 's/^"\|"$//g')"
+smtp_host="$(awk -F= -v k="SMTP_HOST" '$1==k{sub(/^[^=]*=/,""); print}' "$envf" | sed 's/^"\|"$//g')"
+smtp_port="$(awk -F= -v k="SMTP_PORT" '$1==k{sub(/^[^=]*=/,""); print}' "$envf" | sed 's/^"\|"$//g')"
+smtp_username="$(awk -F= -v k="SMTP_USERNAME" '$1==k{sub(/^[^=]*=/,""); print}' "$envf" | sed 's/^"\|"$//g')"
+smtp_password="$(awk -F= -v k="SMTP_PASSWORD" '$1==k{sub(/^[^=]*=/,""); print}' "$envf" | sed 's/^"\|"$//g')"
+
+if [[ -n "$resend_key" ]]; then
+  # RESEND_API_KEY is set, email config is valid
+  :
+elif [[ -n "$smtp_host" && -n "$smtp_port" && -n "$smtp_username" && -n "$smtp_password" ]]; then
+  # All SMTP settings are set, email config is valid
+  :
+else
+  # Neither RESEND_API_KEY nor complete SMTP config is present
+  missing+=("RESEND_API_KEY or (SMTP_HOST SMTP_PORT SMTP_USERNAME SMTP_PASSWORD)")
+fi
 
 if ((${#missing[@]})); then
   err "Missing values in $envf: ${missing[*]}"
