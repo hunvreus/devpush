@@ -9,7 +9,6 @@ import logging
 from typing import Any
 from authlib.jose import jwt
 from datetime import timedelta
-import resend
 
 from models import Project, Deployment, User, Team, TeamMember, utc_now, TeamInvite
 from dependencies import (
@@ -26,6 +25,7 @@ from dependencies import (
 from config import get_settings, Settings
 from db import get_db
 from utils.pagination import paginate
+from utils.email import send_email
 from utils.team import get_latest_teams
 from forms.team import (
     TeamDeleteForm,
@@ -513,33 +513,31 @@ def _send_member_invite(
         )
     )
 
-    resend.api_key = settings.resend_api_key
 
     try:
-        resend.Emails.send(
-            {
-                "from": f"{settings.email_sender_name} <{settings.email_sender_address}>",
-                "to": [invite.email],
-                "subject": _(
-                    'You have been invited to join the "%(team_name)s" team',
-                    team_name=team.name,
-                ),
-                "html": templates.get_template("email/team-invite.html").render(
-                    {
-                        "request": request,
-                        "email": invite.email,
-                        "invite_link": invite_link,
-                        "inviter_name": current_user.name,
-                        "team_name": team.name,
-                        "email_logo": settings.email_logo
-                        or request.url_for("assets", path="logo-email.png"),
-                        "app_name": settings.app_name,
-                        "app_description": settings.app_description,
-                        "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
-                    }
-                ),
-            }
+        send_email(
+            email = invite.email,
+            subject = _(
+                'You have been invited to join the "%(team_name)s" team',
+                team_name=team.name,
+            ),
+            data = templates.get_template("email/team-invite.html").render(
+                {
+                    "request": request,
+                    "email": invite.email,
+                    "invite_link": invite_link,
+                    "inviter_name": current_user.name,
+                    "team_name": team.name,
+                    "email_logo": settings.email_logo
+                    or request.url_for("assets", path="logo-email.png"),
+                    "app_name": settings.app_name,
+                    "app_description": settings.app_description,
+                    "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
+                }
+            ),
+            settings = settings,
         )
+
         flash(
             request,
             _(
