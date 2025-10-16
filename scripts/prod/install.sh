@@ -52,9 +52,37 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Persist ssl_provider selection if provided
+# Persist ssl_provider selection if provided, otherwise interactively ask (if TTY)
 if [[ -n "$ssl_provider" ]]; then
   persist_ssl_provider "$ssl_provider"
+else
+  # If interactive, prompt once; otherwise fall back to env/config/default
+  if [[ -t 0 && -t 1 ]]; then
+    echo ""
+    echo "Select SSL provider (arrow keys not needed, type number and press Enter):"
+    echo "  1) default        (HTTP-01 on :80 → auto-redirect to HTTPS)"
+    echo "  2) cloudflare     (DNS-01 via CF_DNS_API_TOKEN)"
+    echo "  3) route53        (DNS-01 via AWS creds)"
+    echo "  4) digitalocean   (DNS-01 via DO_AUTH_TOKEN)"
+    echo "  5) gcloud         (DNS-01 via GCE_PROJECT + service account)"
+    echo "  6) azure          (DNS-01 via Azure credentials)"
+    read -r -p "Choice [1-6] (default: 1): " choice || true
+    case "${choice:-1}" in
+      1) ssl_provider="default" ;;
+      2) ssl_provider="cloudflare" ;;
+      3) ssl_provider="route53" ;;
+      4) ssl_provider="digitalocean" ;;
+      5) ssl_provider="gcloud" ;;
+      6) ssl_provider="azure" ;;
+      *) ssl_provider="default" ;;
+    esac
+    persist_ssl_provider "$ssl_provider"
+    echo "Selected SSL provider: $ssl_provider"
+  else
+    # Non-interactive: resolve from env/config, fallback to default
+    ssl_provider="$(get_ssl_provider)"
+    persist_ssl_provider "$ssl_provider"
+  fi
 fi
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
