@@ -5,7 +5,15 @@ IFS=$'\n\t'
 # Capture stderr for error reporting
 exec 2> >(tee /tmp/install_error.log >&2)
 
-source "$(dirname "$0")/lib.sh"
+# Load lib.sh: prefer local; else try remote; else fail fast
+if [[ -f "$(dirname "$0")/lib.sh" ]]; then
+  source "$(dirname "$0")/lib.sh"
+elif command -v curl >/dev/null 2>&1 && source <(curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/lib.sh); then
+  :
+else
+  echo "ERR: Unable to load lib.sh (tried local and remote). Re-run via curl or clone the repo." >&2
+  exit 1
+fi
 
 LOG=/var/log/devpush-install.log
 mkdir -p "$(dirname "$LOG")" || true
