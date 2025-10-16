@@ -36,13 +36,13 @@ validate_core_env(){
 
 # Determine SSL provider (env > config > default)
 get_ssl_provider() {
-  local p
+  local p=""
   if [[ -n "${SSL_PROVIDER:-}" ]]; then
     p="$SSL_PROVIDER"
   elif [[ -f /var/lib/devpush/config.json ]]; then
     p="$(jq -r '.ssl_provider // empty' /var/lib/devpush/config.json 2>/dev/null || true)"
   fi
-  [[ -n "$p" ]] || p="default"
+  [[ -n "${p:-}" ]] || p="default"
   echo "$p"
 }
 
