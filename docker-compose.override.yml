@@ -4,6 +4,7 @@ services:
       - traefik.http.routers.app.entrypoints=websecure
       - traefik.http.routers.app.tls=true
       - traefik.http.routers.app.tls.certresolver=le
+      - traefik.http.routers.app.priority=10
     volumes:
       - /srv/devpush/traefik:/data/traefik
       - /srv/devpush/upload:/app/upload
@@ -20,22 +21,16 @@ services:
       - default
 
   traefik:
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.endpoint=tcp://docker-proxy:2375
-      - --providers.docker.watch=true
-      - --providers.file.directory=/etc/traefik/dynamic_conf
-      - --providers.file.watch=true
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --certificatesresolvers.le.acme.email=${LE_EMAIL}
-      - --certificatesresolvers.le.acme.storage=/etc/traefik/dynamic_conf/acme.json
-      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - /srv/devpush/traefik:/etc/traefik/dynamic_conf
+    labels:
+      - "traefik.http.routers.deployment-not-found-https.rule=HostRegexp(`^(.+)\\.${DEPLOY_DOMAIN}$`)"
+      - "traefik.http.routers.deployment-not-found-https.entrypoints=websecure"
+      - "traefik.http.routers.deployment-not-found-https.tls=true"
+      - "traefik.http.routers.deployment-not-found-https.tls.certresolver=le"
+      - "traefik.http.routers.deployment-not-found-https.priority=1"
+      - "traefik.http.routers.deployment-not-found-https.service=noop@internal"
+      - "traefik.http.routers.deployment-not-found-https.middlewares=deployment-redirect"

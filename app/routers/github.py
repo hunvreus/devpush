@@ -19,7 +19,7 @@ from dependencies import (
     get_db,
     get_translation as _,
     get_redis_client,
-    get_deployment_queue,
+    get_job_queue,
 )
 from models import User, UserIdentity, GithubInstallation, Project
 from services.github import GitHubService
@@ -340,7 +340,7 @@ async def github_webhook(
     webhook_data: tuple[dict, str] = Depends(_verify_github_webhook),
     db: AsyncSession = Depends(get_db),
     redis_client: Redis = Depends(get_redis_client),
-    deployment_queue: ArqRedis = Depends(get_deployment_queue),
+    job_queue: ArqRedis = Depends(get_job_queue),
 ):
     try:
         data, event = webhook_data
@@ -482,7 +482,7 @@ async def github_webhook(
                             commit=commit_data,
                             db=db,
                             redis_client=redis_client,
-                            deployment_queue=deployment_queue,
+                            deployment_queue=job_queue,
                             trigger="webhook",
                         )
 

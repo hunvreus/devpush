@@ -13,11 +13,12 @@ services:
       - internal
     env_file:
       - .env
+    volumes:
+      - /var/lib/devpush/version.json:/var/lib/devpush/version.json:ro
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.app.rule=Host(`${APP_HOSTNAME}`)"
       - "traefik.http.routers.app.service=app@docker"
-      - "traefik.http.routers.app.entrypoints=web"
       - "traefik.http.services.app.loadbalancer.server.port=8000"
       - "traefik.docker.network=devpush_default"
     healthcheck:
@@ -88,6 +89,8 @@ services:
   traefik:
     image: traefik:v3.3.2
     restart: always
+    depends_on:
+      - docker-proxy
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
@@ -96,8 +99,6 @@ services:
       - "--providers.file.directory=/etc/traefik/dynamic_conf"
       - "--providers.file.watch=true"
       - "--entrypoints.web.address=:80"
-    ports:
-      - "80:80"
     networks:
       - default
       - internal

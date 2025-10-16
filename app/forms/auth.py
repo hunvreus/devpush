@@ -8,6 +8,7 @@ from dependencies import get_lazy_translation as _l
 class EmailLoginForm(StarletteForm):
     email = StringField(
         _l("Email address"),
+        filters=[lambda v: v.strip() if v else v, lambda v: v.lower() if v else v],
         validators=[
             DataRequired(),
             Email(message=_l("Invalid email address")),

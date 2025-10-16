@@ -1,0 +1,28 @@
+{% extends "layouts/app.html" %}
+
+{% block app_content %}
+<div class="container max-w-screen-xl mx-auto p-8 space-y-6">
+  <h1 class="h1 flex items-center gap-x-3">
+    <a href="/" class="btn-sm-icon-outline" data-tooltip="{{ _('Back to home') }}" data-align="start">
+      {% include "icons/arrow-left.svg" %}
+    </a>
+    {{ _("Admin settings") }}
+  </h1>
+
+  <div class="flex flex-row-reverse gap-x-6">
+    <nav class="sticky top-[122px] min-w-64 h-full flex flex-col gap-y-1 max-lg:hidden">
+      <a href="#users" class="btn-sm-ghost justify-start">{{ _("Users") }}</a>
+      <a href="#system" class="btn-sm-ghost justify-start">{{ _("System") }}</a>
+    </nav>
+
+    <div class="space-y-6 w-full">
+      <section class="relative rounded-xl scroll-mt-[101px]" id="users">
+        {% include "admin/partials/_settings-users.html" %}
+      </section>
+      <section class="relative rounded-xl scroll-mt-[101px]" id="system">
+        {% include "admin/partials/_settings-system.html" %}
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}

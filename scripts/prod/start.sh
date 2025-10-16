@@ -2,14 +2,12 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
-err(){ echo -e "${RED}ERR:${NC} $*" >&2; }
-ok(){ echo -e "${GRN}$*${NC}"; }
-info(){ echo -e "${BLD}$*${NC}"; }
+# Common library
+source "$(dirname "$0")/lib.sh"
 
 usage(){
   cat <<USG
-Usage: start.sh [--app-dir <path>] [--env-file <path>] [--no-pull] [--migrate]
+Usage: start.sh [--app-dir <path>] [--env-file <path>] [--no-pull] [--migrate] [--ssl-provider <name>]
 
 Start production services via Docker Compose. Optionally run DB migrations.
 
@@ -17,18 +15,20 @@ Start production services via Docker Compose. Optionally run DB migrations.
   --env-file PATH   Path to .env (default: ./\.env)
   --no-pull         Do not pass --pull always to docker compose up
   --migrate         Run DB migrations after starting
+  --ssl-provider    One of: default|cloudflare|route53|gcloud|digitalocean|azure (default: from config or 'default')
   -h, --help        Show this help
 USG
   exit 0
 }
 
-app_dir="${APP_DIR:-$(pwd)}"; envf=".env"; pull_always=1; do_migrate=0
+app_dir="${APP_DIR:-$(pwd)}"; envf=".env"; pull_always=1; do_migrate=0; ssl_provider=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app-dir) app_dir="$2"; shift 2 ;;
     --env-file) envf="$2"; shift 2 ;;
     --no-pull) pull_always=0; shift ;;
     --migrate) do_migrate=1; shift ;;
+    --ssl-provider) ssl_provider="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -36,12 +36,22 @@ done
 
 cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 
-# Validate environment variables
-scripts/prod/check-env.sh --env-file "$envf"
+# Load persisted config if any and resolve ssl_provider precedence
+ssl_provider="${ssl_provider:-$(get_ssl_provider)}"
+persist_ssl_provider "$ssl_provider"
+
+# Ensure acme.json exists with strict perms
+ensure_acme_json
+
+# Validate provider env vars (reads from env or the .env file)
+validate_ssl_env "$ssl_provider" "$envf"
+
+# Validate core environment variables
+validate_core_env "$envf"
 
 # Start services
 info "Starting services..."
-args=(-p devpush)
+args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
 ((pull_always==1)) && pullflag=(--pull always) || pullflag=()
 docker compose "${args[@]}" up -d "${pullflag[@]}" --remove-orphans
 ok "Started."

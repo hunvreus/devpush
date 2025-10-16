@@ -34,6 +34,11 @@ if ! colima status >/dev/null 2>&1; then
     colima start --memory=4 --cpu=2 --disk=100
 fi
 
+# Ensure Docker CLI talks to Colima
+if command -v docker >/dev/null 2>&1 && command -v docker context >/dev/null 2>&1; then
+  docker context use colima >/dev/null 2>&1 || true
+fi
+
 # Light checks
 if ! command -v docker >/dev/null 2>&1; then
   echo "Warning: docker CLI not found in PATH. Ensure Docker is installed or Colima configured."
@@ -42,12 +47,20 @@ if ! command -v docker-compose >/dev/null 2>&1; then
   echo "Warning: docker-compose not found. Install it with Homebrew: brew install docker-compose"
 fi
 
-# Ensure Loki Docker logging plugin is installed
-if docker plugin inspect loki >/dev/null 2>&1; then
-    echo "Loki Docker plugin is already installed."
+# Ensure Loki Docker logging plugin is installed (best-effort)
+if docker plugin ls >/dev/null 2>&1; then
+  if docker plugin inspect loki >/dev/null 2>&1; then
+      echo "Loki Docker plugin is already installed."
+  else
+      echo "Installing Loki Docker plugin..."
+      if docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions >/dev/null 2>&1; then
+        echo "Loki Docker plugin installed."
+      else
+        echo "Warning: Loki plugin install failed; continuing without it."
+      fi
+  fi
 else
-    echo "Installing Loki Docker plugin..."
-    docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
+  echo "Warning: This Docker engine doesn't support plugins (or not available via CLI); skipping Loki plugin."
 fi
 
 echo "Colima + Loki setup complete."

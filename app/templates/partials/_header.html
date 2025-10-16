@@ -119,6 +119,11 @@
 		</nav>
 
 		<nav class="flex items-center gap-x-2" aria-label="User menu">
+			{% if current_user and is_superadmin(current_user) %}
+				<a href="{{ url_for('admin_settings') }}" class="btn-sm-icon-ghost rounded-full max-sm:hidden">
+					{% include "icons/settings.svg" %}
+				</a>
+			{% endif %}
 			{% set trigger %}
 				{% include "icons/circle-question-mark.svg" %}
 			{% endset %}
@@ -168,6 +173,7 @@
 						<div class="font-medium">{{ current_user.name if current_user.name else current_user.username }}</div>
 						<div class="text-muted-foreground">{{ current_user.email }}</div>
 					</header>
+					
 					<hr role="separator" />
 					<a href="{{ url_for('user_settings') }}" role="menuitem" hx-boost="true">{{ _('Account settings') }}</a>
 					<a href="/" role="menuitem" hx-boost="true">{{ _('Default team') }}</a>

@@ -135,7 +135,7 @@ async def deploy_start(ctx, deployment_id: str):
                 commands.append("echo 'Starting application...'")
                 commands.append(deployment.config.get("start_command"))
 
-                # Step 6: Setup container configuration
+                # Setup container configuration
                 container_name = f"runner-{deployment.id[:7]}"
                 router = f"deployment-{deployment.id}"
 
@@ -177,7 +177,7 @@ async def deploy_start(ctx, deployment_id: str):
 
                 image = deployment.config.get("image")
 
-                # Step 7: Create and start container
+                # Create and start container
                 container = await docker_client.containers.create_or_replace(
                     name=container_name,
                     config={
@@ -243,8 +243,8 @@ async def deploy_start(ctx, deployment_id: str):
                 logger.error(f"{log_prefix} Error updating deployment status: {e}")
 
     except Exception as e:
-        deployment_queue: ArqRedis = ctx["redis"]
-        await deployment_queue.enqueue_job("deploy_fail", deployment_id, reason=str(e))
+        job_queue: ArqRedis = ctx["redis"]
+        await job_queue.enqueue_job("deploy_fail", deployment_id, reason=str(e))
         logger.info(f"{log_prefix} Deployment startup failed.", exc_info=True)
 
 
@@ -344,8 +344,8 @@ async def deploy_finalize(ctx, deployment_id: str):
                 logger.error(f"{log_prefix} Failed to update Traefik config: {e}")
 
             # Cleanup inactive deployments
-            deployment_queue: ArqRedis = ctx["redis"]
-            await deployment_queue.enqueue_job(
+            job_queue: ArqRedis = ctx["redis"]
+            await job_queue.enqueue_job(
                 "cleanup_inactive_deployments", deployment.project_id
             )
             logger.info(

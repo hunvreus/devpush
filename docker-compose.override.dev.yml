@@ -3,12 +3,14 @@ services:
     build:
       dockerfile: Docker/Dockerfile.app.dev
     entrypoint: /entrypoint.app.dev.sh
+    labels:
+      - traefik.http.routers.app.entrypoints=web
+      - traefik.http.routers.app.priority=10
     volumes:
       - ./app:/app
       - ./data/upload:/app/upload
       - ./data/traefik:/data/traefik
       - ./access.json:/app/settings/access.json
-
   worker-arq:
     build:
       dockerfile: Docker/Dockerfile.app.dev
@@ -31,5 +33,7 @@ services:
       - default
 
   traefik:
+    ports:
+      - "80:80"
     volumes:
       - ./data/traefik:/etc/traefik/dynamic_conf

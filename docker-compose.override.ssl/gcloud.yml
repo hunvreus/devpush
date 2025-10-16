@@ -1,0 +1,35 @@
+services:
+  traefik:
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.endpoint=tcp://docker-proxy:2375"
+      - "--providers.docker.watch=true"
+      - "--providers.file.directory=/etc/traefik/dynamic_conf"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.le.acme.email=${LE_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/etc/traefik/dynamic_conf/acme.json"
+      - "--certificatesresolvers.le.acme.dnschallenge=true"
+      - "--certificatesresolvers.le.acme.dnschallenge.provider=gcloud"
+    environment:
+      - GCE_PROJECT=${GCE_PROJECT}
+      - GOOGLE_APPLICATION_CREDENTIALS=/etc/traefik/gcloud-sa.json
+    volumes:
+      - /srv/devpush/traefik:/etc/traefik/dynamic_conf
+      - /srv/devpush/gcloud-sa.json:/etc/traefik/gcloud-sa.json:ro
+    labels:
+      - "traefik.http.routers.cert-bootstrap.rule=Host(`${APP_HOSTNAME}`)"
+      - "traefik.http.routers.cert-bootstrap.entrypoints=websecure"
+      - "traefik.http.routers.cert-bootstrap.tls=true"
+      - "traefik.http.routers.cert-bootstrap.tls.certresolver=le"
+      - "traefik.http.routers.cert-bootstrap.priority=1"
+      - "traefik.http.routers.cert-bootstrap.service=noop@internal"
+      - "traefik.http.routers.cert-bootstrap.tls.domains[0].main=${DEPLOY_DOMAIN}"
+      - "traefik.http.routers.cert-bootstrap.tls.domains[0].sans=*.${DEPLOY_DOMAIN}"
+      - "traefik.http.routers.cert-bootstrap.tls.domains[1].main=${APP_HOSTNAME}"
+
+

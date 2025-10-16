@@ -38,7 +38,7 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 Log in your server, run the following command and follow instructions:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/install.sh | sudo bash -s -- [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
 ```
 
 You user must have sudo privileges.
@@ -46,6 +46,8 @@ You user must have sudo privileges.
 ## Install & Update
 
 ### Prerequisites
+
+#### Server
 
 You will need a fresh Ubuntu/Debian server you can SSH into with sudo privileges. We recommend a CPX31 from [Hetzner](https://www.hetzner.com).
 
@@ -55,10 +57,9 @@ You can use the provisioning script to get a server up and running:
 2. **Generate an API token**: [Creating an API token](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/)
 3. **Provision a server** (requires `--token`; optional: `--user`, `--name`, `--region`, `--type`):
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/provision-hetzner.sh | bash -s -- --token <hetzner_api_key> [--user <login_user>] [--name <hostname>] [--region <fsn1|nbg1|hel1|ash|hil|sin>] [--type <cpx11|cpx21|cpx31|cpx41|cpx51>]
+   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/provision/hetzner.sh | bash -s -- --token <hetzner_api_key> [--user <login_user>] [--name <hostname>] [--region <fsn1|nbg1|hel1|ash|hil|sin>] [--type <cpx11|cpx21|cpx31|cpx41|cpx51>]
    ```
-   Tip: run `curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/provision-hetzner.sh | bash -s -- --help` to list regions and types (with specs). Defaults: region `hil`, type `cpx31`.
-4. **Configure DNS Records**: Go to your DNS provider and create two A records pointing at the server IP for `APP_HOSTNAME` (e.g. `app.devpu.sh`) and a wildcard on subdomains of `DEPLOY_DOMAIN` (e.g. `*.devpush.app`). If you're using Cloudflare, set SSL/TLS to "Full (strict)" and keep the records proxied.
+   Tip: run `curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/provision/hetzner.sh | bash -s -- --help` to list regions and types (with specs). Defaults: region `hil`, type `cpx31`.
 5. **SSH into your new server**: The provision script will have created a user for you.
    ```bash
    ssh <login_user>@<server_ip>
@@ -69,6 +70,27 @@ You can use the provisioning script to get a server up and running:
   ```
 
 Even if you already have a server, we recommend you harden security (ufw, fail2ban, disabled root SSH, etc). You can do that using `scripts/prod/harden.sh`.
+
+#### DNS records
+
+- Create A record for `APP_HOSTNAME` (e.g., `app.devpu.sh`) → server IP
+- Create wildcard A record for `*.${DEPLOY_DOMAIN}` (e.g., `*.devpush.app`) → server IP
+- If using Cloudflare, set SSL/TLS to "Full (strict)" and keep records proxied.
+
+#### SSL strategy (optional)
+
+- Default (no flag): HTTP‑01 per-host certificates. Simple; each new deployed app issues a cert.
+- Recommended: DNS‑01 wildcard for deployments + SAN for `APP_HOSTNAME`:
+  - Faster deploys, avoids rate limits, works behind Cloudflare proxy.
+  - Pick provider with scripts (persisted to `/var/lib/devpush/config.json`):
+    - `--ssl-provider cloudflare|route53|gcloud|digitalocean|azure`
+  - Set required env vars in `.env`:
+    - Cloudflare: `CF_DNS_API_TOKEN`
+    - Route53: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
+    - Google Cloud DNS: `GCE_PROJECT` and mount `/srv/devpush/gcloud-sa.json`
+    - DigitalOcean: `DO_AUTH_TOKEN`
+    - Azure DNS: `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_RESOURCE_GROUP`
+  - Scripts ensure `/srv/devpush/traefik/acme.json` exists with correct permissions.
 
 ### Install
 
@@ -91,7 +113,7 @@ Even if you already have a server, we recommend you harden security (ufw, fail2b
   Tip: you will need to fill in at least the following: `LE_EMAIL`, `APP_HOSTNAME`, `DEPLOY_DOMAIN`, `EMAIL_SENDER_ADDRESS`, `RESEND_API_KEY` and your [GitHub app](#github-app) settings (see [environment-variables] for details). `SERVER_IP`, `SECRET_KEY`, `ENCRYPTION_KEY`, `POSTGRES_PASSWORD` should be pre-filled. **You can ignore all commented out environment variables**.
 5. Start services:
    ```bash
-   scripts/prod/start.sh --migrate
+  scripts/prod/start.sh --migrate [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
    ```
 6. Visit your URL: `https://<APP_HOSTNAME>`
 
@@ -116,6 +138,12 @@ You can update specific components:
 ```bash
 scripts/prod/update.sh --components <component_name>
 ```
+
+Notes:
+
+- Full mode will rebuild images and run DB migrations by default. Add `--no-migrate` to skip migrations.
+- By default, updates will pull registry images and use base image pulls during builds. Add `--no-pull` to skip both the top-level `pull` and the `--pull` during builds.
+- For non-interactive usage (CI), pass `--all` or `--components <csv>` to avoid the interactive selection prompt.
 
 ## Development
 
@@ -167,18 +195,14 @@ See the [scripts](#scripts) section for more dev utilities.
 | Dev | `scripts/dev/db-migrate.sh` | Apply Alembic migrations |
 | Dev | `scripts/dev/db-reset.sh` | Drop and recreate `public` schema in DB |
 | Dev | `scripts/dev/clean.sh` | Stop stack and clean dev data (`--hard` for global) |
-| Prod | `scripts/prod/provision-hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
+| Prod | `scripts/prod/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
 | Prod | `scripts/prod/install.sh` | Server setup: Docker, Loki plugin, user, clone repo, create `.env` |
 | Prod | `scripts/prod/harden.sh` | System hardening (UFW, fail2ban, unattended-upgrades); add `--ssh` to harden SSH |
-| Prod | `scripts/prod/start.sh` | Start services; optional `--migrate` |
+| Prod | `scripts/prod/start.sh` | Start services; optional `--migrate`; `--ssl-provider <prov>` |
 | Prod | `scripts/prod/stop.sh` | Stop services (`--down` for hard stop) |
-| Prod | `scripts/prod/restart.sh` | Restart services; optional `--migrate` |
-| Prod | `scripts/prod/update.sh` | Update by tag; `--all` (app+workers), `--full` (downtime), or `--components` |
+| Prod | `scripts/prod/restart.sh` | Restart services; optional `--migrate`; `--ssl-provider <prov>` |
+| Prod | `scripts/prod/update.sh` | Update by tag; `--all` (app+workers), `--full` (downtime), or `--components`; `--ssl-provider <prov>` |
 | Prod | `scripts/prod/db-migrate.sh` | Apply DB migrations in production |
-| Prod | `scripts/prod/check-env.sh` | Validate required keys exist in `.env` |
-| Prod | `scripts/prod/update/app.sh` | Blue‑green update for app |
-| Prod | `scripts/prod/update/worker-arq.sh` | Drain‑aware blue‑green update for `worker-arq` |
-| Prod | `scripts/prod/update/worker-monitor.sh` | Blue‑green update for `worker-monitor` |
 
 ## Environment variables
 

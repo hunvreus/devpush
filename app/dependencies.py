@@ -110,7 +110,7 @@ def get_redis_client() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=True)
 
 
-def get_deployment_queue(request: Request) -> ArqRedis:
+def get_job_queue(request: Request) -> ArqRedis:
     return request.app.state.redis_pool
 
 
@@ -322,6 +322,10 @@ async def get_deployment_by_id(
     return deployment
 
 
+def is_superadmin(user: User) -> bool:
+    return user.id == 1
+
+
 async def get_role(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -401,6 +405,7 @@ templates.env.globals["get_flashed_messages"] = get_flashed_messages
 templates.env.globals["toaster_header"] = settings.toaster_header
 templates.env.filters["time_ago"] = time_ago_filter
 templates.env.globals["get_access"] = get_access
+templates.env.globals["is_superadmin"] = is_superadmin
 
 
 def TemplateResponse(

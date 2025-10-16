@@ -29,14 +29,15 @@ from utils.color import get_color
 from utils.log import parse_log
 
 FORBIDDEN_TEAM_SLUGS = [
-    "auth",
+    "admin",
     "api",
-    "health",
     "assets",
+    "auth",
+    "deployment-not-found",
+    "health",
+    "new-team",
     "upload",
     "user",
-    "deployment-not-found",
-    "new-team",
 ]
 
 

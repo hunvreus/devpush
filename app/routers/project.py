@@ -18,7 +18,7 @@ from dependencies import (
     get_team_by_slug,
     get_github_service,
     get_redis_client,
-    get_deployment_queue,
+    get_job_queue,
     flash,
     get_translation as _,
     TemplateResponse,
@@ -433,7 +433,7 @@ async def project_deploy(
     settings: Settings = Depends(get_settings),
     github_service: GitHubService = Depends(get_github_service),
     redis_client: Redis = Depends(get_redis_client),
-    deployment_queue: ArqRedis = Depends(get_deployment_queue),
+    job_queue: ArqRedis = Depends(get_job_queue),
     github_installation_service: GitHubInstallationService = Depends(
         get_github_installation_service
     ),
@@ -468,7 +468,7 @@ async def project_deploy(
                 current_user=current_user,
                 db=db,
                 redis_client=redis_client,
-                deployment_queue=deployment_queue,
+                deployment_queue=job_queue,
             )
 
             flash(
@@ -583,7 +583,7 @@ async def project_redeploy(
     db: AsyncSession = Depends(get_db),
     github_service: GitHubService = Depends(get_github_service),
     redis_client: Redis = Depends(get_redis_client),
-    deployment_queue: ArqRedis = Depends(get_deployment_queue),
+    job_queue: ArqRedis = Depends(get_job_queue),
     github_installation_service: GitHubInstallationService = Depends(
         get_github_installation_service
     ),
@@ -620,7 +620,7 @@ async def project_redeploy(
                 current_user=current_user,
                 db=db,
                 redis_client=redis_client,
-                deployment_queue=deployment_queue,
+                deployment_queue=job_queue,
             )
 
             flash(
@@ -674,7 +674,7 @@ async def project_cancel(
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     deployment: Deployment = Depends(get_deployment_by_id),
     redis_client: Redis = Depends(get_redis_client),
-    deployment_queue: ArqRedis = Depends(get_deployment_queue),
+    job_queue: ArqRedis = Depends(get_job_queue),
 ):
     team, membership = team_and_membership
 
@@ -685,7 +685,7 @@ async def project_cancel(
             await DeploymentService().cancel(
                 project=project,
                 deployment=deployment,
-                deployment_queue=deployment_queue,
+                deployment_queue=job_queue,
                 redis_client=redis_client,
             )
 
@@ -867,7 +867,7 @@ async def project_settings(
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    deployment_queue: ArqRedis = Depends(get_deployment_queue),
+    job_queue: ArqRedis = Depends(get_job_queue),
 ):
     team, membership = team_and_membership
 
@@ -897,7 +897,7 @@ async def project_settings(
                     await db.commit()
 
                     # Project is marked as deleted, actual cleanup is delegated to a job
-                    await deployment_queue.enqueue_job("cleanup_project", project.id)
+                    await job_queue.enqueue_job("cleanup_project", project.id)
 
                     flash(
                         request,
@@ -1496,14 +1496,14 @@ async def project_deployment(
 
     if request.headers.get("HX-Request") and fragment == "header":
         if request.method == "POST" and await cancel_form.validate_on_submit():
-            deployment_queue = get_deployment_queue(request)
+            job_queue = get_job_queue(request)
             redis_client = get_redis_client()
 
             try:
                 await DeploymentService().cancel(
                     project=project,
                     deployment=deployment,
-                    deployment_queue=deployment_queue,
+                    deployment_queue=job_queue,
                     redis_client=redis_client,
                     db=db,
                 )

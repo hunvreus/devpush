@@ -2,11 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# colors
-RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
-err(){ echo -e "${RED}ERR:${NC} $*" >&2; }
-ok(){ echo -e "${GRN}$*${NC}"; }
-info(){ echo -e "${BLD}$*${NC}"; }
+source "$(dirname "$0")/lib.sh"
 
 # usage
 usage(){
@@ -36,7 +32,7 @@ done
 cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 
 # Validate environment variables
-scripts/prod/check-env.sh --env-file "$envf" --quiet
+ validate_core_env "$envf"
 
 # Wait for database
 info "Waiting for database..."

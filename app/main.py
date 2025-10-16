@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import logging
 
-from routers import auth, project, github, google, team, user, event
+from routers import auth, project, github, google, team, user, event, admin
 from config import get_settings, Settings
 from db import get_db, AsyncSessionLocal
 from models import User, Team, Deployment, Project
@@ -148,6 +148,7 @@ async def root(
 
 
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(user.router)
 app.include_router(project.router)
 app.include_router(github.router)

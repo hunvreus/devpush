@@ -2,13 +2,10 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
-err(){ echo -e "${RED}ERR:${NC} $*" >&2; }
-ok(){ echo -e "${GRN}$*${NC}"; }
-info(){ echo -e "${BLD}$*${NC}"; }
-
 # Capture stderr for error reporting
 exec 2> >(tee /tmp/install_error.log >&2)
+
+source "$(dirname "$0")/lib.sh"
 
 LOG=/var/log/devpush-install.log
 mkdir -p "$(dirname "$LOG")" || true
@@ -17,7 +14,7 @@ trap 's=$?; err "Install failed (exit $s). See $LOG"; echo -e "${RED}Last comman
 
 usage() {
   cat <<USG
-Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--user devpush] [--app-dir <path>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--no-telemetry]
+Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--user devpush] [--app-dir <path>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--no-telemetry] [--ssl-provider <name>]
 
 Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .env).
 
@@ -30,13 +27,13 @@ Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .e
   --harden               Run system hardening at the end (non-fatal)
   --harden-ssh           Run SSH hardening at the end (non-fatal)
   --no-telemetry         Do not send telemetry
-
+  --ssl-provider         SSL provider: default|cloudflare|route53|gcloud|digitalocean|azure
   -h, --help             Show this help
 USG
   exit 1
 }
 
-repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1
+repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,11 +46,16 @@ while [[ $# -gt 0 ]]; do
     --ssh-pub) ssh_pub="$2"; shift 2 ;;
     --harden) run_harden=1; shift ;;
     --harden-ssh) run_harden_ssh=1; shift ;;
-
+    --ssl-provider) ssl_provider="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
 done
+
+# Persist ssl_provider selection if provided
+if [[ -n "$ssl_provider" ]]; then
+  persist_ssl_provider "$ssl_provider"
+fi
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
 
@@ -69,8 +71,6 @@ command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 command -v curl >/dev/null || (apt-get update -yq && apt-get install -yq curl >/dev/null)
-
-# Defer resolving app_dir until after user creation
 
 # Helpers
 apt_install() {
@@ -88,21 +88,44 @@ gen_fernet(){ openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'; }
 
 # Install base packages
 info "Installing base packages..."
-apt_install ca-certificates git jq curl || { err "Base package install failed"; exit 1; }
+apt_install ca-certificates git jq curl gnupg || { err "Base package install failed"; exit 1; }
 
 # Install Docker
 info "Installing Docker..."
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release; echo $UBUNTU_CODENAME) stable" >/etc/apt/sources.list.d/docker.list
+arch="$(dpkg --print-architecture)"
+. /etc/os-release
+if [[ "${ID}" == "debian" || "${ID_LIKE:-}" == *debian* ]]; then
+  gpg_url="https://download.docker.com/linux/debian/gpg"
+  codename="${VERSION_CODENAME}"
+  repo_url="https://download.docker.com/linux/debian"
+else
+  gpg_url="https://download.docker.com/linux/ubuntu/gpg"
+  codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+  repo_url="https://download.docker.com/linux/ubuntu"
+fi
+curl -fsSL "$gpg_url" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${repo_url} ${codename} stable" >/etc/apt/sources.list.d/docker.list
 apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || { err "Docker install failed"; exit 1; }
 ok "Docker installed."
 
+# Ensure Docker service is running (best-effort)
+systemctl enable --now docker >/dev/null 2>&1 || true
+docker --version || true
+docker compose version || docker-compose --version || true
+
 # Install Loki driver
 info "Installing Loki Docker driver..."
-docker plugin inspect loki >/dev/null 2>&1 || docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
-docker plugin inspect loki >/dev/null 2>&1 || { err "Failed to install Loki driver"; exit 1; }
-ok "Loki driver ready."
+if docker plugin inspect loki >/dev/null 2>&1; then
+  ok "Loki Docker plugin already installed."
+else
+  if docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions >/dev/null 2>&1; then
+    ok "Loki driver ready."
+  else
+    echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
+  fi
+fi
 
 # Create user
 if ! id -u "$user" >/dev/null 2>&1; then
@@ -147,8 +170,10 @@ if [[ -z "$ref" ]]; then
 fi
 
 # Port conflicts warning
-if conflicts=$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/'); [[ -n "${conflicts:-}" ]]; then
-  echo -e "${YEL}Warning:${NC} ports 80/443 are in use. Traefik may fail to start later."
+if command -v ss >/dev/null 2>&1; then
+  if conflicts=$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/'); [[ -n "${conflicts:-}" ]]; then
+    echo -e "${YEL}Warning:${NC} ports 80/443 are in use. Traefik may fail to start later."
+  fi
 fi
 
 # Create app dir

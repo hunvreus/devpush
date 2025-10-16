@@ -5,10 +5,7 @@ IFS=$'\n\t'
 # Capture stderr for error reporting
 exec 2> >(tee /tmp/harden_error.log >&2)
 
-RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
-err(){ echo -e "${RED}ERR:${NC} $*" >&2; }
-ok(){ echo -e "${GRN}$*${NC}"; }
-info(){ echo -e "${BLD}$*${NC}"; }
+source "$(dirname "$0")/lib.sh"
 
 trap 's=$?; err "Harden failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/harden_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
 
