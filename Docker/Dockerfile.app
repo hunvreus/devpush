@@ -1,10 +1,11 @@
-FROM python:3.12-slim
+FROM python:3.12.12-bookworm
 
 # Create non-root user
 RUN addgroup --gid 1000 appgroup \
     && adduser  --uid 1000 --gid 1000 --system --home /app appuser
 
 # System dependencies
+RUN apt-get update && apt-get install -y build-essential python3-dev libpq-dev 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Install uv
@@ -25,6 +26,7 @@ ENV HOME=/app
 # Switch to non-root user
 USER appuser
 
+RUN uv sync
 EXPOSE 8000
 
 COPY Docker/entrypoint.app.sh /entrypoint.app.sh

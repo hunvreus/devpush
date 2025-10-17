@@ -5,6 +5,8 @@ services:
       dockerfile: Docker/Dockerfile.app
     entrypoint: /entrypoint.app.sh
     restart: always
+    ports:
+      - "8001:8000"
     depends_on:
       - redis
       - pgsql
