@@ -2,12 +2,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 import re
 
-from models import User, UserIdentity, TeamInvite
+from models import User, UserIdentity
 
 
 def sanitize_username(username: str) -> str:
-    sanitized = re.sub(r'[^\w-]', '-', username.lower())
-    return re.sub(r'-+', '-', sanitized).strip('-')
+    sanitized = re.sub(r"[^\w-]", "-", username.lower())
+    return re.sub(r"-+", "-", sanitized).strip("-")
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -17,7 +17,9 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def get_user_by_provider(db: AsyncSession, provider: str, provider_user_id: str) -> User | None:
+async def get_user_by_provider(
+    db: AsyncSession, provider: str, provider_user_id: str
+) -> User | None:
     result = await db.execute(
         select(User)
         .join(UserIdentity)
