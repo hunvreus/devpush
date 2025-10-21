@@ -2,13 +2,15 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+: "${LIB_URL:=https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/lib.sh}"
+
 # Capture stderr for error reporting
 exec 2> >(tee /tmp/install_error.log >&2)
 
 # Load lib.sh: prefer local; else try remote; else fail fast
 if [[ -f "$(dirname "$0")/lib.sh" ]]; then
   source "$(dirname "$0")/lib.sh"
-elif command -v curl >/dev/null 2>&1 && source <(curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/lib.sh); then
+elif command -v curl >/dev/null 2>&1 && source <(curl -fsSL "$LIB_URL"); then
   :
 else
   echo "ERR: Unable to load lib.sh (tried local and remote). Try again or clone the repo manually (https://github.com/hunvreus/devpush)." >&2

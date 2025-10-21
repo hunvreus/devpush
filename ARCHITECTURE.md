@@ -8,6 +8,7 @@ This document describes the high‑level architecture of /dev/push, how the main
 - [Traefik](https://github.com/traefik/traefik)
 - [Loki](https://github.com/grafana/loki)
 - [PostgreSQL](https://www.postgresql.org/)
+- [Redis](https://redis.io/)
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [arq](https://arq-docs.helpmanual.io/)
 - [HTMX](https://htmx.org)
