@@ -133,15 +133,32 @@ info "Installing Docker..."
 install -m 0755 -d /etc/apt/keyrings
 arch="$(dpkg --print-architecture)"
 . /etc/os-release
-if [[ "${ID}" == "debian" || "${ID_LIKE:-}" == *debian* ]]; then
-  gpg_url="https://download.docker.com/linux/debian/gpg"
-  codename="${VERSION_CODENAME}"
-  repo_url="https://download.docker.com/linux/debian"
-else
-  gpg_url="https://download.docker.com/linux/ubuntu/gpg"
-  codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
-  repo_url="https://download.docker.com/linux/ubuntu"
-fi
+case "${ID}" in
+  ubuntu)
+    gpg_url="https://download.docker.com/linux/ubuntu/gpg"
+    codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+    repo_url="https://download.docker.com/linux/ubuntu"
+    ;;
+  debian|raspbian)
+    gpg_url="https://download.docker.com/linux/debian/gpg"
+    codename="${VERSION_CODENAME}"
+    repo_url="https://download.docker.com/linux/debian"
+    ;;
+  *)
+    if [[ "${ID_LIKE:-}" == *ubuntu* ]]; then
+      gpg_url="https://download.docker.com/linux/ubuntu/gpg"
+      codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+      repo_url="https://download.docker.com/linux/ubuntu"
+    elif [[ "${ID_LIKE:-}" == *debian* ]]; then
+      gpg_url="https://download.docker.com/linux/debian/gpg"
+      codename="${VERSION_CODENAME}"
+      repo_url="https://download.docker.com/linux/debian"
+    else
+      err "Unsupported distro for Docker repo: ID=${ID} ID_LIKE=${ID_LIKE:-}"
+      exit 1
+    fi
+    ;;
+esac
 curl -fsSL "$gpg_url" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${repo_url} ${codename} stable" >/etc/apt/sources.list.d/docker.list
