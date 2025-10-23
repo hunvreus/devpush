@@ -25,8 +25,8 @@ spinner() {
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        # Draw "<prefix> [<frame>]" at line start
-        printf "\r%s [%c]" "${SPIN_PREFIX:-}" "${frames:$i:1}"
+        # Draw bold prefix and current frame, then clear to end of line
+        printf "\r%s [%c]\033[K" "${SPIN_PREFIX_BOLD:-${SPIN_PREFIX:-}}" "${frames:$i:1}"
         sleep "$delay"
     done
     # Restore cursor
@@ -50,16 +50,23 @@ run_cmd() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        SPIN_PREFIX="$msg" spinner "$pid"
+        SPIN_PREFIX="$msg"
+        SPIN_PREFIX_BOLD="${BLD}${SPIN_PREFIX}${NC}"
+        spinner "$pid"
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
-            printf "\r%s %s\n" "$msg" "${RED}✖${NC}"
+            # Clear spinner line and print failure with bold step
+            printf "\r%s %s\033[K\n" "$SPIN_PREFIX_BOLD" "${RED}✖${NC}"
             err "Failed. Command output:"
-            cat "$CMD_LOG" >&2
+            # Echo captured output to stderr and also to install_error.log for the trap
+            if [[ -s "$CMD_LOG" ]]; then
+                cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+            fi
             exit $exit_code
         else
-            printf "\r%s %s\n" "$msg" "${GRN}✔${NC}"
+            # Clear spinner line and print success with bold step
+            printf "\r%s %s\033[K\n" "$SPIN_PREFIX_BOLD" "${GRN}✔${NC}"
         fi
     fi
 }
