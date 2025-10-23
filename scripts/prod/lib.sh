@@ -3,19 +3,19 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 if [[ -t 1 ]]; then
-  RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
+  RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; NC="$(printf '\033[0m')"
 else
-  RED=""; GRN=""; YEL=""; BLD=""; NC=""
+  RED=""; GRN=""; YEL=""; NC=""
 fi
 
-err(){ echo -e "${RED}ERR:${NC} $*" >&2; }
-ok(){ echo -e "${GRN}$*${NC}"; }
-info(){ echo -e "${BLD}$*${NC}"; }
+err(){ echo -e "${RED}Error:${NC} $*" >&2; }
+ok(){ echo -e "${GRN}Success:${NC} $*"; }
+info(){ echo "$*"; }
 
 VERBOSE="${VERBOSE:-0}"
 CMD_LOG=/tmp/devpush-cmd.log
 
-note(){ echo "  ↳ $*"; }
+note(){ echo "  ˪ $*"; }
 
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {

@@ -129,6 +129,7 @@ summary() {
 
 if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]] || [[ -d /opt/devpush/.git ]]; then
   existing=1
+  echo "Existing install detected:"
   summary
   if (( yes_flag == 1 )); then
     note "Proceeding due to --yes"
