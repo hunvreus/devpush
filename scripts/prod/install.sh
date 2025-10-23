@@ -114,14 +114,14 @@ summary() {
   if [[ -f /var/lib/devpush/version.json ]]; then
     ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
     commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
-    echo "version.json present (ref: ${ref:-unknown}, commit: ${commit:-unknown})"
+    echo "  ${CHILD_MARK} version.json present (ref: ${ref:-unknown}, commit: ${commit:-unknown})"
   fi
   if [[ -d /home/devpush/devpush/.git ]]; then
-    echo "repo: /home/devpush/devpush"
+    echo "  ${CHILD_MARK} repo: /home/devpush/devpush"
     [[ -f /home/devpush/devpush/.env ]] && echo ".env present in /home/devpush/devpush"
   fi
   if [[ -d /opt/devpush/.git ]]; then
-    echo "repo: /opt/devpush"
+    echo "  ${CHILD_MARK} repo: /opt/devpush"
     [[ -f /opt/devpush/.env ]] && echo ".env present in /opt/devpush"
   fi
 }
