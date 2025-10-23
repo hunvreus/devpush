@@ -44,7 +44,7 @@ USG
   exit 1
 }
 
-repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""
+repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +58,7 @@ while [[ $# -gt 0 ]]; do
     --harden) run_harden=1; shift ;;
     --harden-ssh) run_harden_ssh=1; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
+    --yes|-y) yes_flag=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
@@ -106,6 +107,44 @@ case "${ID_LIKE:-$ID}" in
   *) err "Only Ubuntu/Debian supported"; exit 1 ;;
 esac
 command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
+
+# Detect existing install and prompt
+existing=0
+summary() {
+  note "Detected existing install:"
+  if [[ -f /var/lib/devpush/version.json ]]; then
+    ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
+    commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
+    note "version.json present (ref: ${ref:-unknown}, commit: ${commit:-unknown})"
+  fi
+  if [[ -d /home/devpush/devpush/.git ]]; then
+    note "repo: /home/devpush/devpush"
+    [[ -f /home/devpush/devpush/.env ]] && note ".env present in /home/devpush/devpush"
+  fi
+  if [[ -d /opt/devpush/.git ]]; then
+    note "repo: /opt/devpush"
+    [[ -f /opt/devpush/.env ]] && note ".env present in /opt/devpush"
+  fi
+}
+
+if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]] || [[ -d /opt/devpush/.git ]]; then
+  existing=1
+  summary
+  if (( yes_flag == 1 )); then
+    note "Proceeding due to --yes"
+  else
+    if [[ -t 0 && -t 1 ]]; then
+      read -r -p "Proceed with install anyway? [y/N] " ans
+      if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+        info "Aborted. Existing install detected. Re-run with --yes to proceed non-interactively."
+        exit 0
+      fi
+    else
+      err "Existing install detected. Re-run with --yes to proceed."
+      exit 1
+    fi
+  fi
+fi
 
 # Ensure apt is fully non-interactive and avoid needrestart prompts
 export DEBIAN_FRONTEND=noninteractive

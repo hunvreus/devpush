@@ -15,10 +15,6 @@ info(){ echo -e "${BLD}$*${NC}"; }
 VERBOSE="${VERBOSE:-0}"
 CMD_LOG=/tmp/devpush-cmd.log
 
-# Step helpers
-set_steps(){ TOTAL_STEPS="$1"; STEP=0; }
-next_step(){ STEP=$((STEP+1)); STEPNAME="$*"; STEPT0=$(date +%s); echo "[${STEP}/${TOTAL_STEPS:-1}] $STEPNAME"; }
-end_step(){ local t1=$(date +%s); local dur=$((t1-STEPT0)); echo "[${STEP}/${TOTAL_STEPS:-1}] $STEPNAME (${dur}s) ${GRN}✔${NC}"; }
 note(){ echo "  ↳ $*"; }
 
 # Spinner: draws a clean in-place indicator; hides cursor while running
