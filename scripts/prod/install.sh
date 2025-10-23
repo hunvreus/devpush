@@ -126,14 +126,7 @@ gen_pw(){ openssl rand -base64 24 | tr -d '\n=' | cut -c1-32; }
 pub_ip(){ curl -fsS https://api.ipify.org || curl -fsS http://checkip.amazonaws.com || hostname -I | awk '{print $1}'; }
 gen_fernet(){ openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'; }
 
-# Install base packages
-run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
-
-# Install Docker
-info "Installing Docker..."
-run_cmd "  Adding Docker repository..." add_docker_repo
-run_cmd "  Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
+# Helper functions (must be defined before use with run_cmd)
 add_docker_repo() {
     install -m 0755 -d /etc/apt/keyrings
     arch="$(dpkg --print-architecture)"
@@ -169,6 +162,39 @@ add_docker_repo() {
     echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${repo_url} ${codename} stable" >/etc/apt/sources.list.d/docker.list
 }
 
+create_user() {
+    useradd -m -U -s /bin/bash -G sudo,docker "$user"
+    install -d -m 700 -o "$user" -g "$user" "/home/$user/.ssh"
+    ak="/home/$user/.ssh/authorized_keys"
+    if [[ -n "$ssh_pub" ]]; then
+      if [[ -f "$ssh_pub" ]]; then cat "$ssh_pub" >> "$ak"; else echo "$ssh_pub" >> "$ak"; fi
+    elif [[ -f /root/.ssh/authorized_keys ]]; then
+      cat /root/.ssh/authorized_keys >> "$ak"
+    fi
+    if [[ -f "$ak" ]]; then chown "$user:$user" "$ak"; chmod 600 "$ak"; fi
+    echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
+}
+
+seed_access_json() {
+    install -d -m 0755 /srv/devpush || true
+    if [[ -f "$app_dir/access.example.json" ]]; then
+        cp "$app_dir/access.example.json" "/srv/devpush/access.json"
+    else
+        cat > /srv/devpush/access.json <<'JSON'
+{ "emails": [], "domains": [], "globs": [], "regex": [] }
+JSON
+    fi
+    chown 1000:1000 /srv/devpush/access.json || true
+    chmod 0644 /srv/devpush/access.json || true
+}
+
+# Install base packages
+run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
+
+# Install Docker
+info "Installing Docker..."
+run_cmd "  Adding Docker repository..." add_docker_repo
+run_cmd "  Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Ensure Docker service is running (best-effort)
 run_cmd "Enabling Docker service..." systemctl enable --now docker
@@ -182,24 +208,11 @@ else
 fi
 
 # Create user
-if ! id -u "$user" >/dev/null 2>&1; then
+if ! id -u "$user" >/null 2>&1; then
     run_cmd "Creating user '${user}'..." create_user
 else
     ok "User '${user}' already exists."
 fi
-
-create_user() {
-    useradd -m -U -s /bin/bash -G sudo,docker "$user"
-    install -d -m 700 -o "$user" -g "$user" "/home/$user/.ssh"
-    ak="/home/$user/.ssh/authorized_keys"
-    if [[ -n "$ssh_pub" ]]; then
-      if [[ -f "$ssh_pub" ]]; then cat "$ssh_pub" >> "$ak"; else echo "$ssh_pub" >> "$ak"; fi
-    elif [[ -f /root/.ssh/authorized_keys ]]; then
-      cat /root/.ssh/authorized_keys >> "$ak"
-    fi
-    if [[ -f "$ak" ]]; then chown "$user:$user" "$ak"; chmod 600 "$ak"; fi
-    echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
-}
 
 # Add data dirs
 run_cmd "Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
@@ -293,19 +306,6 @@ if [[ ! -f "/srv/devpush/access.json" ]]; then
 else
     ok "/srv/devpush/access.json exists; not modified."
 fi
-
-seed_access_json() {
-    install -d -m 0755 /srv/devpush || true
-    if [[ -f "$app_dir/access.example.json" ]]; then
-        cp "$app_dir/access.example.json" "/srv/devpush/access.json"
-    else
-        cat > /srv/devpush/access.json <<'JSON'
-{ "emails": [], "domains": [], "globs": [], "regex": [] }
-JSON
-    fi
-    chown 1000:1000 /srv/devpush/access.json || true
-    chmod 0644 /srv/devpush/access.json || true
-}
 
 # Build runners images
 if [[ -d Docker/runner ]]; then
