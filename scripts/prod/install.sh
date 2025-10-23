@@ -231,6 +231,7 @@ JSON
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
+echo ""
 echo "Installing Docker..."
 run_cmd "  ${CHILD_MARK} Adding Docker repository..." add_docker_repo
 run_cmd "  ${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
@@ -241,14 +242,19 @@ run_cmd "  ${CHILD_MARK} Enabling Docker service..." systemctl enable --now dock
 # Install Loki driver
 # The check needs to run directly, but the install can be wrapped
 if docker plugin inspect loki >/dev/null 2>&1; then
-  echo "Loki plugin already installed (skip)"
+  echo "  ${CHILD_MARK} Loki plugin already installed (skip)"
 else
+    # retry up to 2 times then warn
     if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
-      echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
+      sleep 2
+      if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver (retry)..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
+        echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
+      fi
     fi
 fi
 
 # Create user
+echo ""
 echo "Preparing system user and data dirs..."
 if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
@@ -269,6 +275,7 @@ if [[ -z "${app_dir:-}" ]]; then
 fi
 
 # Resolve ref (latest tag, fallback to main)
+echo ""
 echo "Resolving ref to install..."
 if [[ -z "$ref" ]]; then
   if ((include_pre==1)); then
@@ -292,6 +299,7 @@ run_cmd "  ${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir
 run_cmd "  ${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
 
 # Get code from GitHub
+echo ""
 echo "Cloning repository..."
 if [[ -d "$app_dir/.git" ]]; then
   # Repo exists, just fetch
@@ -317,6 +325,7 @@ fi
 run_cmd "  ${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
 # Create .env file
+echo ""
 echo "Configuring environment..."
 cd "$app_dir"
 if [[ ! -f ".env" ]]; then
@@ -360,6 +369,7 @@ if [[ -d Docker/runner ]]; then
 fi
 
 # Save install metadata (version.json)
+echo ""
 echo "Finalizing installation..."
 commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -404,7 +414,7 @@ if ((run_harden_ssh==1)); then
   fi
 fi
 
-echo -e "${BLD}Install complete.${NC} ${GRN}✔${NC}"
+echo -e "${GRN}Install complete. ✔${NC}"
 echo ""
 echo "Next:"
 echo "  1) sudo -iu ${user}"

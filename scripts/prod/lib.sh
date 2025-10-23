@@ -11,7 +11,7 @@ fi
 # Child marker (Unicode when UTF-8 TTY, ASCII otherwise)
 is_utf8(){ case "${LC_ALL:-${LANG:-}}" in *UTF-8*|*utf8*) return 0;; *) return 1;; esac; }
 CHILD_MARK="-"
-if [[ -t 1 ]] && is_utf8; then CHILD_MARK="├─"; fi
+if [[ -t 1 ]] && is_utf8; then CHILD_MARK="└─"; fi
 
 err(){ echo -e "${RED}Error:${NC} $*" >&2; }
 ok(){ echo -e "${GRN}Success:${NC} $*"; }
@@ -63,10 +63,11 @@ run_cmd() {
             printf "\r\033[K"
             echo "$SPIN_PREFIX ${RED}✖${NC}"
             err "Failed. Command output:"
+            echo ""
             if [[ -s "$CMD_LOG" ]]; then
-                cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else
-                echo "(no output captured)" | tee -a /tmp/install_error.log >&2
+                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
             fi
             exit $exit_code
         else
