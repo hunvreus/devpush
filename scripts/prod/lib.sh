@@ -21,15 +21,12 @@ spinner() {
     local delay=0.1
     local frames='-|\/'
     local i=0
-    # Hide cursor if possible
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        # Draw bold prefix and current frame, then clear to end of line
         printf "\r%s [%c]\033[K" "${SPIN_PREFIX_BOLD:-${SPIN_PREFIX:-}}" "${frames:$i:1}"
         sleep "$delay"
     done
-    # Restore cursor
     { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
 }
 
