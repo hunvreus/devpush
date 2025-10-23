@@ -62,14 +62,19 @@ run_cmd() {
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
-            printf "\r%s %s\033[K\n" "$SPIN_PREFIX" "${RED}✖${NC}"
+            # Clear spinner line and print failure on its own line
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${RED}✖${NC}"
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
                 cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+            else
+                echo "(no output captured)" | tee -a /tmp/install_error.log >&2
             fi
             exit $exit_code
         else
-            printf "\r%s %s\033[K\n" "$SPIN_PREFIX" "${GRN}✔${NC}"
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${GRN}✔${NC}"
         fi
     fi
 }
