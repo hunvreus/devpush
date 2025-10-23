@@ -24,7 +24,7 @@ trap 's=$?; err "Install failed (exit $s). See $LOG"; echo -e "${RED}Last comman
 
 usage() {
   cat <<USG
-Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--user devpush] [--app-dir <path>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--no-telemetry] [--ssl-provider <name>]
+Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--user devpush] [--app-dir <path>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--no-telemetry] [--ssl-provider <name>] [--verbose]
 
 Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .env).
 
@@ -39,6 +39,7 @@ Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .e
   --no-telemetry         Do not send telemetry
   --ssl-provider         SSL provider: default|cloudflare|route53|gcloud|digitalocean|azure
   -h, --help             Show this help
+  --verbose, -v        Enable verbose output for debugging
 USG
   exit 1
 }
@@ -57,6 +58,7 @@ while [[ $# -gt 0 ]]; do
     --harden) run_harden=1; shift ;;
     --harden-ssh) run_harden_ssh=1; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
+    -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -125,83 +127,82 @@ pub_ip(){ curl -fsS https://api.ipify.org || curl -fsS http://checkip.amazonaws.
 gen_fernet(){ openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'; }
 
 # Install base packages
-info "Installing base packages..."
-apt_install ca-certificates git jq curl gnupg || { err "Base package install failed"; exit 1; }
+run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
 info "Installing Docker..."
-install -m 0755 -d /etc/apt/keyrings
-arch="$(dpkg --print-architecture)"
-. /etc/os-release
-case "${ID}" in
-  ubuntu)
-    gpg_url="https://download.docker.com/linux/ubuntu/gpg"
-    codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
-    repo_url="https://download.docker.com/linux/ubuntu"
-    ;;
-  debian|raspbian)
-    gpg_url="https://download.docker.com/linux/debian/gpg"
-    codename="${VERSION_CODENAME}"
-    repo_url="https://download.docker.com/linux/debian"
-    ;;
-  *)
-    if [[ "${ID_LIKE:-}" == *ubuntu* ]]; then
-      gpg_url="https://download.docker.com/linux/ubuntu/gpg"
-      codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
-      repo_url="https://download.docker.com/linux/ubuntu"
-    elif [[ "${ID_LIKE:-}" == *debian* ]]; then
-      gpg_url="https://download.docker.com/linux/debian/gpg"
-      codename="${VERSION_CODENAME}"
-      repo_url="https://download.docker.com/linux/debian"
-    else
-      err "Unsupported distro for Docker repo: ID=${ID} ID_LIKE=${ID_LIKE:-}"
-      exit 1
-    fi
-    ;;
-esac
-curl -fsSL "$gpg_url" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${repo_url} ${codename} stable" >/etc/apt/sources.list.d/docker.list
-apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || { err "Docker install failed"; exit 1; }
-ok "Docker installed."
+run_cmd "  Adding Docker repository..." add_docker_repo
+run_cmd "  Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+add_docker_repo() {
+    install -m 0755 -d /etc/apt/keyrings
+    arch="$(dpkg --print-architecture)"
+    . /etc/os-release
+    case "${ID}" in
+      ubuntu)
+        gpg_url="https://download.docker.com/linux/ubuntu/gpg"
+        codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+        repo_url="https://download.docker.com/linux/ubuntu"
+        ;;
+      debian|raspbian)
+        gpg_url="https://download.docker.com/linux/debian/gpg"
+        codename="${VERSION_CODENAME}"
+        repo_url="https://download.docker.com/linux/debian"
+        ;;
+      *)
+        if [[ "${ID_LIKE:-}" == *ubuntu* ]]; then
+          gpg_url="https://download.docker.com/linux/ubuntu/gpg"
+          codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+          repo_url="https://download.docker.com/linux/ubuntu"
+        elif [[ "${ID_LIKE:-}" == *debian* ]]; then
+          gpg_url="https://download.docker.com/linux/debian/gpg"
+          codename="${VERSION_CODENAME}"
+          repo_url="https://download.docker.com/linux/debian"
+        else
+          err "Unsupported distro for Docker repo: ID=${ID} ID_LIKE=${ID_LIKE:-}"
+          exit 1
+        fi
+        ;;
+    esac
+    curl -fsSL "$gpg_url" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${repo_url} ${codename} stable" >/etc/apt/sources.list.d/docker.list
+}
+
 
 # Ensure Docker service is running (best-effort)
-systemctl enable --now docker >/dev/null 2>&1 || true
-docker --version || true
-docker compose version || docker-compose --version || true
+run_cmd "Enabling Docker service..." systemctl enable --now docker
 
 # Install Loki driver
-info "Installing Loki Docker driver..."
+# The check needs to run directly, but the install can be wrapped
 if docker plugin inspect loki >/dev/null 2>&1; then
   ok "Loki Docker plugin already installed."
 else
-  if docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions >/dev/null 2>&1; then
-    ok "Loki driver ready."
-  else
-    echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
-  fi
+    run_cmd "Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
 fi
 
 # Create user
 if ! id -u "$user" >/dev/null 2>&1; then
-  info "Creating user '${user}'..."
-  useradd -m -U -s /bin/bash -G sudo,docker "$user"
-  install -d -m 700 -o "$user" -g "$user" "/home/$user/.ssh"
-  ak="/home/$user/.ssh/authorized_keys"
-  if [[ -n "$ssh_pub" ]]; then
-    if [[ -f "$ssh_pub" ]]; then cat "$ssh_pub" >> "$ak"; else echo "$ssh_pub" >> "$ak"; fi
-  elif [[ -f /root/.ssh/authorized_keys ]]; then
-    cat /root/.ssh/authorized_keys >> "$ak"
-  fi
-  if [[ -f "$ak" ]]; then chown "$user:$user" "$ak"; chmod 600 "$ak"; fi
-  echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
-  ok "User '${user}' created."
+    run_cmd "Creating user '${user}'..." create_user
+else
+    ok "User '${user}' already exists."
 fi
 
+create_user() {
+    useradd -m -U -s /bin/bash -G sudo,docker "$user"
+    install -d -m 700 -o "$user" -g "$user" "/home/$user/.ssh"
+    ak="/home/$user/.ssh/authorized_keys"
+    if [[ -n "$ssh_pub" ]]; then
+      if [[ -f "$ssh_pub" ]]; then cat "$ssh_pub" >> "$ak"; else echo "$ssh_pub" >> "$ak"; fi
+    elif [[ -f /root/.ssh/authorized_keys ]]; then
+      cat /root/.ssh/authorized_keys >> "$ak"
+    fi
+    if [[ -f "$ak" ]]; then chown "$user:$user" "$ak"; chmod 600 "$ak"; fi
+    echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
+}
+
 # Add data dirs
-info "Preparing data dirs..."
-install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
-ok "Data dirs ready."
+run_cmd "Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
 
 # Resolve app_dir now that user state is known
 if [[ -z "${app_dir:-}" ]]; then
@@ -232,13 +233,12 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 # Create app dir
-info "Creating app directory..."
-install -d -m 0755 "$app_dir" || { err "Failed to create directory '$app_dir'. Aborting."; exit 1; }
-chown -R "$user:$(id -gn "$user")" "$app_dir" || { err "Failed to change ownership of '$app_dir' to '$user'. Aborting."; exit 1; }
+run_cmd "Creating app directory..." install -d -m 0755 "$app_dir"
+run_cmd "Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
 ok "App directory is ready."
 
 # Get code from GitHub
-info "Cloning repository as user '${user}'..."
+info "Cloning repository..."
 if [[ -d "$app_dir/.git" ]]; then
   # Repo exists, just fetch
   cmd_block="
@@ -247,7 +247,7 @@ if [[ -d "$app_dir/.git" ]]; then
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  runuser -u "$user" -- bash -c "$cmd_block" || { err "Git fetch failed for existing repo."; exit 1; }
+  run_cmd "  Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
 else
   # New clone
   cmd_block="
@@ -257,11 +257,10 @@ else
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  runuser -u "$user" -- bash -c "$cmd_block" || { err "Git clone failed."; exit 1; }
+  run_cmd "  Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
 fi
 
-info "Checking out ref: $ref"
-runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
+run_cmd "Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 ok "Repo ready at $app_dir (ref $ref)."
 
 # Create .env file
@@ -289,34 +288,35 @@ else
 fi
 
 # Seed access.json for per-file mount
-info "Seeding access.json..."
-install -d -m 0755 /srv/devpush || true
 if [[ ! -f "/srv/devpush/access.json" ]]; then
-  if [[ -f "$app_dir/access.example.json" ]]; then
-    cp "$app_dir/access.example.json" "/srv/devpush/access.json"
-  else
-    cat > /srv/devpush/access.json <<'JSON'
+    run_cmd "Seeding access.json..." seed_access_json
+else
+    ok "/srv/devpush/access.json exists; not modified."
+fi
+
+seed_access_json() {
+    install -d -m 0755 /srv/devpush || true
+    if [[ -f "$app_dir/access.example.json" ]]; then
+        cp "$app_dir/access.example.json" "/srv/devpush/access.json"
+    else
+        cat > /srv/devpush/access.json <<'JSON'
 { "emails": [], "domains": [], "globs": [], "regex": [] }
 JSON
-  fi
-  chown 1000:1000 /srv/devpush/access.json || true
-  chmod 0644 /srv/devpush/access.json || true
-  ok "Seeded /srv/devpush/access.json"
-else
-  ok "/srv/devpush/access.json exists; not modified."
-fi
+    fi
+    chown 1000:1000 /srv/devpush/access.json || true
+    chmod 0644 /srv/devpush/access.json || true
+}
 
 # Build runners images
 if [[ -d Docker/runner ]]; then
-  info "Building runner images..."
-  runuser -u "$user" -- bash -lc '
+  build_runners_cmd="
     set -e
-    for df in $(find Docker/runner -name "Dockerfile.*"); do
-      n=$(basename "$df" | sed "s/^Dockerfile\.//")
-      docker build -f "$df" -t "runner-$n" ./Docker/runner
+    for df in \$(find Docker/runner -name 'Dockerfile.*'); do
+      n=\$(basename "\$df" | sed 's/^Dockerfile\.//')
+      docker build -f "\$df" -t "runner-\$n" ./Docker/runner
     done
-  '
-  ok "Runner images built."
+  "
+  run_cmd "Building runner images..." runuser -u "$user" -- bash -lc "$build_runners_cmd"
 fi
 
 # Save install metadata (version.json)
@@ -344,9 +344,8 @@ fi
 
 # Optional hardening (non-fatal)
 if ((run_harden==1)); then
-  info "Running server hardening..."
   set +e
-  bash scripts/prod/harden.sh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running server hardening..." bash scripts/prod/harden.sh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr=$?
   set -e
   if [[ $hr -ne 0 ]]; then
@@ -355,9 +354,8 @@ if ((run_harden==1)); then
 fi
 
 if ((run_harden_ssh==1)); then
-  info "Running SSH hardening..."
   set +e
-  bash scripts/prod/harden.sh --ssh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running SSH hardening..." bash scripts/prod/harden.sh --ssh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr2=$?
   set -e
   if [[ $hr2 -ne 0 ]]; then
@@ -370,5 +368,5 @@ echo ""
 info "Next steps:"
 echo "1. Switch to the app user: ${BLD}sudo -iu ${user}${NC}"
 echo "2. Change dir and edit .env: ${BLD}cd devpush && vi .env${NC}"
-echo "   Set LE_EMAIL, APP_HOSTNAME, DEPLOY_DOMAIN, EMAIL_SENDER_ADDRESS, RESEND_API_KEY, GitHub App settings."
+echo "   Set LE_EMAIL, APP_HOSTNAME, DEPLOY_DOMAIN, EMAIL_SENDER_ADDRESS, RESEND_API_KEY, GitHub App settings (GITHUB_APP_ID, GITHUB_APP_NAME, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_WEBHOOK_SECRET, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET)."
 echo "3. Start the application: ${BLD}./scripts/prod/start.sh --migrate${NC}"

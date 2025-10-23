@@ -2,10 +2,62 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
+if [[ -t 1 ]]; then
+  RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
+else
+  RED=""; GRN=""; YEL=""; BLD=""; NC=""
+fi
+
 err(){ echo -e "${RED}ERR:${NC} $*" >&2; }
 ok(){ echo -e "${GRN}$*${NC}"; }
 info(){ echo -e "${BLD}$*${NC}"; }
+
+VERBOSE="${VERBOSE:-0}"
+CMD_LOG=/tmp/devpush-cmd.log
+
+# Spinner Functions
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while ps a | awk '{print $1}' | grep -q "$pid"; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+# Wrapper to execute commands with optional verbosity and spinner
+run_cmd() {
+    local msg="$1"; shift
+    local cmd=("$@")
+
+    if ((VERBOSE == 1)); then
+        info "$msg"
+        "${cmd[@]}"
+    else
+        echo -n "$msg"
+        # The command's output is redirected to a log file
+        "${cmd[@]}" >"$CMD_LOG" 2>&1 &
+        local pid=$!
+        spinner $pid
+        wait $pid
+        local exit_code=$?
+
+        # Check the exit code of the command
+        if [[ $exit_code -ne 0 ]]; then
+            echo -e " ${RED}✖${NC}" # Failure symbol
+            err "Failed. Command output:"
+            cat "$CMD_LOG" >&2
+            exit $exit_code
+        else
+            echo -e " ${GRN}✔${NC}" # Success symbol
+        fi
+    fi
+}
 
 # Read a key's value from a dotenv file (unquoted)
 read_env_value(){
