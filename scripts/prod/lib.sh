@@ -15,7 +15,7 @@ info(){ echo "$*"; }
 VERBOSE="${VERBOSE:-0}"
 CMD_LOG=/tmp/devpush-cmd.log
 
-note(){ echo "  ˪ $*"; }
+note(){ echo "  -> $*"; }
 
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
