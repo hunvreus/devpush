@@ -15,6 +15,12 @@ info(){ echo -e "${BLD}$*${NC}"; }
 VERBOSE="${VERBOSE:-0}"
 CMD_LOG=/tmp/devpush-cmd.log
 
+# Step helpers
+set_steps(){ TOTAL_STEPS="$1"; STEP=0; }
+next_step(){ STEP=$((STEP+1)); STEPNAME="$*"; STEPT0=$(date +%s); echo "[${STEP}/${TOTAL_STEPS:-1}] $STEPNAME"; }
+end_step(){ local t1=$(date +%s); local dur=$((t1-STEPT0)); echo "[${STEP}/${TOTAL_STEPS:-1}] $STEPNAME (${dur}s) ${GRN}✔${NC}"; }
+note(){ echo "  ↳ $*"; }
+
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
     local pid="$1"
@@ -24,7 +30,7 @@ spinner() {
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        printf "\r%s [%c]\033[K" "${SPIN_PREFIX_BOLD:-${SPIN_PREFIX:-}}" "${frames:$i:1}"
+        printf "\r%s [%c]\033[K" "${SPIN_PREFIX:-}" "${frames:$i:1}"
         sleep "$delay"
     done
     { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
@@ -36,34 +42,32 @@ run_cmd() {
     local cmd=("$@")
 
     if ((VERBOSE == 1)); then
-        info "$msg"
+        echo "$msg"
         "${cmd[@]}"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
             err "Failed running: ${cmd[*]}"
             exit $exit_code
+        else
+            echo "${GRN}✔${NC}"
         fi
     else
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
         SPIN_PREFIX="$msg"
-        SPIN_PREFIX_BOLD="${BLD}${SPIN_PREFIX}${NC}"
         spinner "$pid"
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
-            # Clear spinner line and print failure with bold step
-            printf "\r%s %s\033[K\n" "$SPIN_PREFIX_BOLD" "${RED}✖${NC}"
+            printf "\r%s %s\033[K\n" "$SPIN_PREFIX" "${RED}✖${NC}"
             err "Failed. Command output:"
-            # Echo captured output to stderr and also to install_error.log for the trap
             if [[ -s "$CMD_LOG" ]]; then
                 cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             fi
             exit $exit_code
         else
-            # Clear spinner line and print success with bold step
-            printf "\r%s %s\033[K\n" "$SPIN_PREFIX_BOLD" "${GRN}✔${NC}"
+            printf "\r%s %s\033[K\n" "$SPIN_PREFIX" "${GRN}✔${NC}"
         fi
     fi
 }

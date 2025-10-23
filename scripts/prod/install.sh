@@ -189,33 +189,35 @@ JSON
 }
 
 # Install base packages
+echo "Installing base packages..."
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
-info "Installing Docker..."
-run_cmd "  Adding Docker repository..." add_docker_repo
-run_cmd "  Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+echo "Installing Docker..."
+run_cmd "  ↳ Adding Docker repository..." add_docker_repo
+run_cmd "  ↳ Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Ensure Docker service is running (best-effort)
-run_cmd "Enabling Docker service..." systemctl enable --now docker
+run_cmd "  ↳ Enabling Docker service..." systemctl enable --now docker
 
 # Install Loki driver
 # The check needs to run directly, but the install can be wrapped
 if docker plugin inspect loki >/dev/null 2>&1; then
-  ok "Loki Docker plugin already installed."
+  note "Loki plugin already installed (skip)"
 else
-    run_cmd "Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
+    run_cmd "  ↳ Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
 fi
 
 # Create user
-if ! id -u "$user" >/null 2>&1; then
-    run_cmd "Creating user '${user}'..." create_user
+echo "Preparing system user and data dirs..."
+if ! id -u "$user" >/dev/null 2>&1; then
+    run_cmd "  ↳ Creating user '${user}'..." create_user
 else
-    ok "User '${user}' already exists."
+    note "User '${user}' already exists (skip)"
 fi
 
 # Add data dirs
-run_cmd "Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
+run_cmd "  ↳ Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
 
 # Resolve app_dir now that user state is known
 if [[ -z "${app_dir:-}" ]]; then
@@ -227,7 +229,7 @@ if [[ -z "${app_dir:-}" ]]; then
 fi
 
 # Resolve ref (latest tag, fallback to main)
-info "Resolving ref to install..."
+echo "Resolving ref to install..."
 if [[ -z "$ref" ]]; then
   if ((include_pre==1)); then
     ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
@@ -246,12 +248,12 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 # Create app dir
-run_cmd "Creating app directory..." install -d -m 0755 "$app_dir"
-run_cmd "Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
-ok "App directory is ready."
+run_cmd "  ↳ Creating app directory..." install -d -m 0755 "$app_dir"
+run_cmd "  ↳ Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
+note "Repo ready at $app_dir (ref $ref)"
 
 # Get code from GitHub
-info "Cloning repository..."
+echo "Cloning repository..."
 if [[ -d "$app_dir/.git" ]]; then
   # Repo exists, just fetch
   cmd_block="
@@ -260,7 +262,7 @@ if [[ -d "$app_dir/.git" ]]; then
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "  Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "  ↳ Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
 else
   # New clone
   cmd_block="
@@ -270,13 +272,14 @@ else
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "  Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "  ↳ Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
 fi
 
-run_cmd "Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
-ok "Repo ready at $app_dir (ref $ref)."
+run_cmd "  ↳ Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
+note "Repo ready at $app_dir (ref $ref)"
 
 # Create .env file
+echo "Configuring environment..."
 cd "$app_dir"
 if [[ ! -f ".env" ]]; then
   if [[ -f ".env.example" ]]; then
@@ -295,16 +298,16 @@ if [[ ! -f ".env" ]]; then
   fill_if_empty POSTGRES_PASSWORD "$pgp"
   fill_if_empty SERVER_IP "$sip"
   chown "$user:$user" .env
-  ok ".env created from template (edit before start)."
+  note ".env created from template"
 else
-  ok ".env exists; not modified."
+  note ".env exists; not modified."
 fi
 
 # Seed access.json for per-file mount
 if [[ ! -f "/srv/devpush/access.json" ]]; then
-    run_cmd "Seeding access.json..." seed_access_json
+    run_cmd "  ↳ Seeding access.json..." seed_access_json
 else
-    ok "/srv/devpush/access.json exists; not modified."
+    note "/srv/devpush/access.json exists; not modified."
 fi
 
 # Build runners images
@@ -320,6 +323,7 @@ if [[ -d Docker/runner ]]; then
 fi
 
 # Save install metadata (version.json)
+echo "Finalizing installation..."
 commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 install -d -m 0755 /var/lib/devpush
@@ -363,10 +367,10 @@ if ((run_harden_ssh==1)); then
   fi
 fi
 
-ok "Install complete."
+echo -e "${BLD}Install complete.${NC} ${GRN}✔${NC}"
 echo ""
-info "Next steps:"
-echo "1. Switch to the app user: ${BLD}sudo -iu ${user}${NC}"
-echo "2. Change dir and edit .env: ${BLD}cd devpush && vi .env${NC}"
-echo "   Set LE_EMAIL, APP_HOSTNAME, DEPLOY_DOMAIN, EMAIL_SENDER_ADDRESS, RESEND_API_KEY, GitHub App settings (GITHUB_APP_ID, GITHUB_APP_NAME, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_WEBHOOK_SECRET, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET)."
-echo "3. Start the application: ${BLD}./scripts/prod/start.sh --migrate${NC}"
+echo "Next:"
+echo "  1) sudo -iu ${user}"
+echo "  2) cd devpush && vi .env"
+echo "     Fill: LE_EMAIL, APP_HOSTNAME, DEPLOY_DOMAIN, EMAIL_SENDER_ADDRESS, RESEND_API_KEY, GitHub App vars (GITHUB_APP_ID, GITHUB_APP_NAME, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_WEBHOOK_SECRET, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET)"
+echo "  3) ./scripts/prod/start.sh --migrate [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]"
