@@ -111,7 +111,6 @@ command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
 # Detect existing install and prompt
 existing=0
 summary() {
-  note "Detected existing install:"
   if [[ -f /var/lib/devpush/version.json ]]; then
     ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
     commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
