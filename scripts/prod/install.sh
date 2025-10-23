@@ -118,11 +118,11 @@ summary() {
   fi
   if [[ -d /home/devpush/devpush/.git ]]; then
     echo "  ${CHILD_MARK} repo: /home/devpush/devpush"
-    [[ -f /home/devpush/devpush/.env ]] && echo ".env present in /home/devpush/devpush"
+    [[ -f /home/devpush/devpush/.env ]] && echo "  ${CHILD_MARK} .env present in /home/devpush/devpush"
   fi
   if [[ -d /opt/devpush/.git ]]; then
     echo "  ${CHILD_MARK} repo: /opt/devpush"
-    [[ -f /opt/devpush/.env ]] && echo ".env present in /opt/devpush"
+    [[ -f /opt/devpush/.env ]] && echo "  ${CHILD_MARK} .env present in /opt/devpush"
   fi
 }
 
