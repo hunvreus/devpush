@@ -15,19 +15,22 @@ info(){ echo -e "${BLD}$*${NC}"; }
 VERBOSE="${VERBOSE:-0}"
 CMD_LOG=/tmp/devpush-cmd.log
 
-# Spinner Functions
+# Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
-    local pid=$1
+    local pid="$1"
     local delay=0.1
-    local spinstr='|/-\'
-    while ps a | awk '{print $1}' | grep -q "$pid"; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
+    local frames='-|\/'
+    local i=0
+    # Hide cursor if possible
+    { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
+    while kill -0 "$pid" 2>/dev/null; do
+        i=$(((i + 1) % 4))
+        # Draw "<prefix> [<frame>]" at line start
+        printf "\r%s [%c]" "${SPIN_PREFIX:-}" "${frames:$i:1}"
+        sleep "$delay"
     done
-    printf "    \b\b\b\b"
+    # Restore cursor
+    { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
 }
 
 # Wrapper to execute commands with optional verbosity and spinner
@@ -38,23 +41,25 @@ run_cmd() {
     if ((VERBOSE == 1)); then
         info "$msg"
         "${cmd[@]}"
+        local exit_code=$?
+        if [[ $exit_code -ne 0 ]]; then
+            err "Failed running: ${cmd[*]}"
+            exit $exit_code
+        fi
     else
-        echo -n "$msg"
-        # The command's output is redirected to a log file
+        : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        spinner $pid
-        wait $pid
+        SPIN_PREFIX="$msg" spinner "$pid"
+        wait "$pid"
         local exit_code=$?
-
-        # Check the exit code of the command
         if [[ $exit_code -ne 0 ]]; then
-            echo -e " ${RED}✖${NC}" # Failure symbol
+            printf "\r%s %s\n" "$msg" "${RED}✖${NC}"
             err "Failed. Command output:"
             cat "$CMD_LOG" >&2
             exit $exit_code
         else
-            echo -e " ${GRN}✔${NC}" # Success symbol
+            printf "\r%s %s\n" "$msg" "${GRN}✔${NC}"
         fi
     fi
 }
