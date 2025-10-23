@@ -3,9 +3,9 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 if [[ -t 1 ]]; then
-  RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; NC="$(printf '\033[0m')"
+  RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
 else
-  RED=""; GRN=""; YEL=""; NC=""
+  RED=""; GRN=""; YEL=""; BLD=""; NC=""
 fi
 
 # Child marker (Unicode when UTF-8 TTY, ASCII otherwise)
@@ -19,9 +19,6 @@ info(){ echo "$*"; }
 
 VERBOSE="${VERBOSE:-0}"
 CMD_LOG=/tmp/devpush-cmd.log
-
-# Indented note line
-note(){ echo "  ${CHILD_MARK} $*"; }
 
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
@@ -75,6 +72,48 @@ run_cmd() {
         else
             printf "\r\033[K"
             echo "$SPIN_PREFIX ${GRN}✔${NC}"
+        fi
+    fi
+}
+
+# Non-fatal variant: prints same UI but returns non-zero on failure
+run_cmd_try() {
+    local msg="$1"; shift
+    local cmd=("$@")
+
+    if ((VERBOSE == 1)); then
+        echo "$msg"
+        "${cmd[@]}"
+        local exit_code=$?
+        if [[ $exit_code -ne 0 ]]; then
+            err "Failed running: ${cmd[*]}"
+            return $exit_code
+        else
+            echo "${GRN}✔${NC}"
+            return 0
+        fi
+    else
+        : >"$CMD_LOG"
+        "${cmd[@]}" >"$CMD_LOG" 2>&1 &
+        local pid=$!
+        SPIN_PREFIX="$msg"
+        spinner "$pid"
+        wait "$pid"
+        local exit_code=$?
+        if [[ $exit_code -ne 0 ]]; then
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${RED}✖${NC}"
+            err "Failed. Command output:"
+            if [[ -s "$CMD_LOG" ]]; then
+                cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+            else
+                echo "(no output captured)" | tee -a /tmp/install_error.log >&2
+            fi
+            return $exit_code
+        else
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${GRN}✔${NC}"
+            return 0
         fi
     fi
 }

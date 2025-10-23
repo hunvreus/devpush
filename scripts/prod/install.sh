@@ -114,15 +114,15 @@ summary() {
   if [[ -f /var/lib/devpush/version.json ]]; then
     ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
     commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
-    note "version.json present (ref: ${ref:-unknown}, commit: ${commit:-unknown})"
+    echo "version.json present (ref: ${ref:-unknown}, commit: ${commit:-unknown})"
   fi
   if [[ -d /home/devpush/devpush/.git ]]; then
-    note "repo: /home/devpush/devpush"
-    [[ -f /home/devpush/devpush/.env ]] && note ".env present in /home/devpush/devpush"
+    echo "repo: /home/devpush/devpush"
+    [[ -f /home/devpush/devpush/.env ]] && echo ".env present in /home/devpush/devpush"
   fi
   if [[ -d /opt/devpush/.git ]]; then
-    note "repo: /opt/devpush"
-    [[ -f /opt/devpush/.env ]] && note ".env present in /opt/devpush"
+    echo "repo: /opt/devpush"
+    [[ -f /opt/devpush/.env ]] && echo ".env present in /opt/devpush"
   fi
 }
 
@@ -131,7 +131,7 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]]
   echo "Existing install detected:"
   summary
   if (( yes_flag == 1 )); then
-    note "Proceeding due to --yes"
+    echo "  ${CHILD_MARK} Proceeding due to --yes"
   else
     if [[ -t 0 && -t 1 ]]; then
       read -r -p "Proceed with install anyway? [y/N] " ans
@@ -228,35 +228,36 @@ JSON
 }
 
 # Install base packages
-echo "Installing base packages..."
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
 echo "Installing Docker..."
-run_cmd "  ↳ Adding Docker repository..." add_docker_repo
-run_cmd "  ↳ Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+run_cmd "  ${CHILD_MARK} Adding Docker repository..." add_docker_repo
+run_cmd "  ${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Ensure Docker service is running (best-effort)
-run_cmd "  ↳ Enabling Docker service..." systemctl enable --now docker
+run_cmd "  ${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
 
 # Install Loki driver
 # The check needs to run directly, but the install can be wrapped
 if docker plugin inspect loki >/dev/null 2>&1; then
-  note "Loki plugin already installed (skip)"
+  echo "Loki plugin already installed (skip)"
 else
-    run_cmd "  ↳ Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
+    if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
+      echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
+    fi
 fi
 
 # Create user
 echo "Preparing system user and data dirs..."
 if ! id -u "$user" >/dev/null 2>&1; then
-    run_cmd "  ↳ Creating user '${user}'..." create_user
+    run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
 else
-    note "User '${user}' already exists (skip)"
+    echo "  ${CHILD_MARK} User '${user}' already exists (skip)"
 fi
 
 # Add data dirs
-run_cmd "  ↳ Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
+run_cmd "  ${CHILD_MARK} Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
 
 # Resolve app_dir now that user state is known
 if [[ -z "${app_dir:-}" ]]; then
@@ -287,9 +288,8 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 # Create app dir
-run_cmd "  ↳ Creating app directory..." install -d -m 0755 "$app_dir"
-run_cmd "  ↳ Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
-note "Repo ready at $app_dir (ref $ref)"
+run_cmd "  ${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir"
+run_cmd "  ${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
 
 # Get code from GitHub
 echo "Cloning repository..."
@@ -301,7 +301,7 @@ if [[ -d "$app_dir/.git" ]]; then
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "  ↳ Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "  ${CHILD_MARK} Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
 else
   # New clone
   cmd_block="
@@ -311,18 +311,17 @@ else
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "  ↳ Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "  ${CHILD_MARK} Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
 fi
 
-run_cmd "  ↳ Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
-note "Repo ready at $app_dir (ref $ref)"
+run_cmd "  ${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
 # Create .env file
 echo "Configuring environment..."
 cd "$app_dir"
 if [[ ! -f ".env" ]]; then
   if [[ -f ".env.example" ]]; then
-    runuser -u "$user" -- cp ".env.example" ".env"
+    run_cmd "  ${CHILD_MARK} Create .env from template..." bash -lc "runuser -u '$user' -- cp '.env.example' '.env' && chown '$user:$user' '.env'"
   else
     err ".env.example not found; cannot create .env"
     exit 1
@@ -336,17 +335,16 @@ if [[ ! -f ".env" ]]; then
   fill_if_empty ENCRYPTION_KEY "$ek"
   fill_if_empty POSTGRES_PASSWORD "$pgp"
   fill_if_empty SERVER_IP "$sip"
-  chown "$user:$user" .env
-  note ".env created from template"
+  echo "  ${CHILD_MARK} Populated .env defaults"
 else
-  note ".env exists; not modified."
+  echo "  ${CHILD_MARK} .env exists; not modified."
 fi
 
 # Seed access.json for per-file mount
 if [[ ! -f "/srv/devpush/access.json" ]]; then
-    run_cmd "  ↳ Seeding access.json..." seed_access_json
+    run_cmd "  ${CHILD_MARK} Seeding access.json..." seed_access_json
 else
-    note "/srv/devpush/access.json exists; not modified."
+    echo "  ${CHILD_MARK} /srv/devpush/access.json exists; not modified."
 fi
 
 # Build runners images
