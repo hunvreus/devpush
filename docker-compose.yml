@@ -117,6 +117,8 @@ services:
   pgsql:
     image: postgres:16
     restart: always
+    ports:
+      - "127.0.0.1:5432:5432"
     networks:
       - internal
     env_file:
@@ -141,7 +143,15 @@ services:
     volumes:
       - loki-data:/loki
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3100/ready",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5

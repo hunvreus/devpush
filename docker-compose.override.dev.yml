@@ -25,12 +25,6 @@ services:
     entrypoint: /entrypoint.worker-monitor.dev.sh
     volumes:
       - ./app:/app
-  
-  pgsql:
-    ports:
-      - "5432:5432"
-    networks:
-      - default
 
   traefik:
     ports:

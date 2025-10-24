@@ -248,7 +248,9 @@ printf "\n"
 echo -e "${GRN}Update complete (version: ${ref}). ✔${NC}"
 
 # Send telemetry
-payload=$(jq -c --arg ev "update" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
-if [[ -n "$payload" ]]; then
-  curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry >/dev/null 2>&1 || true
+if ((telemetry==1)); then
+  payload=$(jq -c --arg ev "update" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
+  if [[ -n "$payload" ]]; then
+    curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry >/dev/null 2>&1 || true
+  fi
 fi
