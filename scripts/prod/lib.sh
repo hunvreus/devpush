@@ -11,7 +11,11 @@ fi
 # Child marker (Unicode when UTF-8 TTY, ASCII otherwise)
 is_utf8(){ case "${LC_ALL:-${LANG:-}}" in *UTF-8*|*utf8*) return 0;; *) return 1;; esac; }
 CHILD_MARK="-"
-if [[ -t 1 ]] && is_utf8; then CHILD_MARK="└─"; fi
+INFO_MARK="->"
+if [[ -t 1 ]] && is_utf8; then
+  CHILD_MARK="└─"
+  INFO_MARK="→"
+fi
 
 err(){ echo -e "${RED}Error:${NC} $*" >&2; }
 ok(){ echo -e "${GRN}Success:${NC} $*"; }

@@ -44,7 +44,7 @@ USG
   exit 1
 }
 
-repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
+repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry="${NO_TELEMETRY:-1}"; ssl_provider=""; yes_flag=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,7 +88,6 @@ distro_version="${VERSION_ID:-unknown}"
 if [[ "$arch" == "arm64" || "$arch" == "aarch64" ]]; then
   printf "\n"
   echo "${YEL}Warning: ARM64 detected. Support is experimental; some components may not work (e.g. logging). Use x86_64/AMD64 for production.${NC}"
-  printf "\n"
 fi
 
 # Detect existing install and prompt
@@ -227,7 +226,8 @@ run_cmd "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 
 
 # Install Loki driver
 if docker plugin inspect loki >/dev/null 2>&1; then
-  echo "  ${CHILD_MARK} Loki plugin already installed (skip)"
+  echo "  ${CHILD_MARK} Installing Loki Docker driver... ${YEL}⊘${NC}"
+  echo "    ${INFO_MARK} Plugin already installed"
 else
   if run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
     if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
@@ -253,7 +253,8 @@ echo "Preparing system user and data dirs..."
 if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
 else
-    echo "  ${CHILD_MARK} User '${user}' already exists (skip)"
+    echo "  ${CHILD_MARK} Creating user '${user}'... ${YEL}⊘${NC}"
+    echo "    ${INFO_MARK} User already exists"
 fi
 
 # Add data dirs
@@ -339,14 +340,16 @@ if [[ ! -f ".env" ]]; then
   fill_if_empty POSTGRES_PASSWORD "$pgp"
   fill_if_empty SERVER_IP "$sip"
 else
-  echo "  ${CHILD_MARK} .env exists; not modified."
+  echo "  ${CHILD_MARK} Create .env from template... ${YEL}⊘${NC}"
+  echo "    ${INFO_MARK} .env already exists"
 fi
 
 # Seed access.json for per-file mount
 if [[ ! -f "/srv/devpush/access.json" ]]; then
     run_cmd "  ${CHILD_MARK} Seeding access.json..." seed_access_json
 else
-    echo "  ${CHILD_MARK} /srv/devpush/access.json exists; not modified."
+    echo "  ${CHILD_MARK} Seeding access.json... ${YEL}⊘${NC}"
+    echo "    ${INFO_MARK} File already exists"
 fi
 
 # Build runners images

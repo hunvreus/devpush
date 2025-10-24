@@ -11,7 +11,7 @@ trap 's=$?; echo -e "${RED}Update failed (exit $s)${NC}"; echo -e "${RED}Last co
 
 usage(){
   cat <<USG
-Usage: update.sh [--app-dir <path>] [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--yes|-y] [--ssl-provider <name>]
+Usage: update.sh [--app-dir <path>] [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple restarts).
 
@@ -23,14 +23,16 @@ Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple re
   --full            Full stack update (down whole stack, then up). Causes downtime
   --no-pull         Skip docker compose pull
   --no-migrate      Do not run DB migrations after app update
+  --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
   --ssl-provider    One of: default|cloudflare|route53|gcloud|digitalocean|azure
+  -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
   exit 0
 }
 
-app_dir="${APP_DIR:-$(pwd)}"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; include_pre=0; yes=0; skip_components=0; ssl_provider=""
+app_dir="${APP_DIR:-$(pwd)}"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; include_pre=0; yes=0; skip_components=0; telemetry="${NO_TELEMETRY:-1}"; ssl_provider=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app-dir) app_dir="$2"; shift 2 ;;
@@ -41,8 +43,10 @@ while [[ $# -gt 0 ]]; do
     --full) do_full=1; shift ;;
     --no-pull) pull=0; shift ;;
     --no-migrate) migrate=0; shift ;;
+    --no-telemetry) telemetry=0; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
     --yes|-y) yes=1; shift ;;
+    -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -51,9 +55,10 @@ done
 cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 
 # Resolve ref, fetch, then exec the updated apply script
-info "Resolving ref..."
+printf "\n"
+echo "Resolving update target..."
 if [[ -z "$ref" ]]; then
-  git fetch --tags --quiet origin || true
+  run_cmd "  ${CHILD_MARK} Fetching tags..." git fetch --tags --quiet origin
   if ((include_pre==1)); then
     ref="$(git tag -l --sort=version:refname | tail -1 || true)"
   else
@@ -61,10 +66,12 @@ if [[ -z "$ref" ]]; then
     [[ -n "$ref" ]] || ref="$(git tag -l --sort=version:refname | tail -1 || true)"
   fi
   [[ -n "$ref" ]] || ref="main"
+  echo "  ${CHILD_MARK} Target: $ref"
 fi
 
-info "Fetching and checking out: $ref"
-git fetch --depth 1 origin "refs/tags/$ref" || git fetch --depth 1 origin "$ref"
-git reset --hard FETCH_HEAD
+printf "\n"
+echo "Fetching update..."
+run_cmd "  ${CHILD_MARK} Fetching ref: $ref" bash -c "git fetch --depth 1 origin refs/tags/$ref || git fetch --depth 1 origin $ref"
+run_cmd "  ${CHILD_MARK} Checking out..." git reset --hard FETCH_HEAD
 
 exec scripts/prod/update-apply.sh "$@"

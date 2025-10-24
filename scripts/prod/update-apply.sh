@@ -8,7 +8,7 @@ trap 's=$?; echo -e "${RED}Update-apply failed (exit $s)${NC}"; echo -e "${RED}L
 
 usage(){
   cat <<USG
-Usage: update-apply.sh [--app-dir <path>] [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--yes|-y] [--ssl-provider <name>]
+Usage: update-apply.sh [--app-dir <path>] [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
@@ -20,14 +20,16 @@ Apply a fetched update: validate, pull images, rollout, migrate, and record vers
   --full            Full stack update (down whole stack, then up). Causes downtime
   --no-pull         Skip docker compose pull
   --no-migrate      Do not run DB migrations after app update
+  --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
   --ssl-provider    One of: default|cloudflare|route53|gcloud|digitalocean|azure
+  -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
   exit 0
 }
 
-app_dir="${APP_DIR:-$(pwd)}"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; include_pre=0; yes=0; skip_components=0; ssl_provider=""
+app_dir="${APP_DIR:-$(pwd)}"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; include_pre=0; yes=0; skip_components=0; telemetry="${NO_TELEMETRY:-1}"; ssl_provider=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app-dir) app_dir="$2"; shift 2 ;;
@@ -38,8 +40,10 @@ while [[ $# -gt 0 ]]; do
     --full) do_full=1; shift ;;
     --no-pull) pull=0; shift ;;
     --no-migrate) migrate=0; shift ;;
+    --no-telemetry) telemetry=0; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
     --yes|-y) yes=1; shift ;;
+    -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -63,8 +67,8 @@ args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-
 
 # Update registry images (infra) up-front if requested
 if ((pull==1)); then
-  info "Pulling images..."
-  docker compose "${args[@]}" pull || true
+  printf "\n"
+  run_cmd "Pulling images..." docker compose "${args[@]}" pull
 fi
 
 # Option1: Full update (with downtime)
@@ -78,19 +82,20 @@ if ((do_full==1)); then
     read -p "Proceed? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
   fi
-  info "Full stack update: build, then down + up"
+  printf "\n"
+  echo "Full stack update..."
   if ((pull==1)); then
-    docker compose "${args[@]}" build --pull || true
+    run_cmd "  ${CHILD_MARK} Building with --pull..." docker compose "${args[@]}" build --pull
   else
-    docker compose "${args[@]}" build || true
+    run_cmd "  ${CHILD_MARK} Building..." docker compose "${args[@]}" build
   fi
-  docker compose "${args[@]}" down --remove-orphans || true
-  docker compose "${args[@]}" up -d --force-recreate --remove-orphans
-  ok "Full stack updated"
+  run_cmd "  ${CHILD_MARK} Stopping stack..." docker compose "${args[@]}" down --remove-orphans
+  run_cmd "  ${CHILD_MARK} Starting stack..." docker compose "${args[@]}" up -d --force-recreate --remove-orphans
   skip_components=1
   if ((migrate==1)); then
-    info "Running migrations..."
-    scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
+    printf "\n"
+    echo "Applying migrations..."
+    run_cmd "  ${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
   fi
 fi
 
@@ -121,8 +126,6 @@ IFS=',' read -ra C <<< "$comps"
 blue_green_rollout() {
   local service="$1"
   local timeout_s="${2:-300}"
-  
-  info "Executing blue-green rollout for '$service'..."
 
   local old_ids
   old_ids=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' || true)
@@ -131,11 +134,10 @@ blue_green_rollout() {
   cur_cnt=$(echo "$old_ids" | wc -w | tr -d ' ' || echo 0)
   
   local target=$((cur_cnt+1)); [[ $target -lt 1 ]] && target=1
-  info "Scaling up to $target container(s)..."
-  docker compose "${args[@]}" up -d --scale "$service=$target" --no-recreate
+  run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${args[@]}" up -d --scale "$service=$target" --no-recreate
 
   local new_id=""
-  info "Waiting for new container to appear..."
+  echo "${CHILD_MARK} Waiting for new container to appear..."
   for _ in $(seq 1 60); do
     local cur_ids
     cur_ids=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' | tr ' ' '\n' | sort)
@@ -144,22 +146,22 @@ blue_green_rollout() {
     sleep 2
   done
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
-  ok "New container detected: $new_id"
+  echo "  ${INFO_MARK} New container: $new_id"
 
-  info "Waiting for new container to be healthy (timeout: ${timeout_s}s)..."
+  echo "${CHILD_MARK} Waiting for new container to be healthy (timeout: ${timeout_s}s)..."
   local deadline=$(( $(date +%s) + timeout_s ))
   while :; do
     local st
     if docker inspect "$new_id" --format '{{.State.Health}}' >/dev/null 2>&1; then
       st=$(docker inspect "$new_id" --format '{{.State.Health.Status}}' 2>/dev/null || echo "starting")
       if [[ "$st" == "healthy" ]]; then
-        ok "New container is healthy."
+        echo "  ${INFO_MARK} Container is healthy"
         break
       fi
     else
       st=$(docker inspect "$new_id" --format '{{.State.Status}}' 2>/dev/null || echo "starting")
       if [[ "$st" == "running" ]]; then
-        ok "New container is running (no healthcheck)."
+        echo "  ${INFO_MARK} Container is running (no healthcheck)"
         break
       fi
     fi
@@ -172,16 +174,14 @@ blue_green_rollout() {
   done
   
   if [[ -n "$old_ids" ]]; then
-    info "Retiring old container(s): $old_ids"
+    echo "${CHILD_MARK} Retiring old container(s): $old_ids"
     for id in $old_ids; do
       docker stop "$id" || true
       docker rm "$id" || true
     done
   fi
 
-  info "Scaling back to 1 container..."
-  docker compose "${args[@]}" up -d --scale "$service=1" --no-recreate
-  ok "Blue-green rollout for '$service' complete."
+  run_cmd "${CHILD_MARK} Scaling back to 1 container..." docker compose "${args[@]}" up -d --scale "$service=1" --no-recreate
 }
 
 # Build/pull then rollout per service
@@ -189,20 +189,17 @@ rollout_service(){
   local s="$1"; local mode="$2"; local timeout_s="$3"
   case "$s" in
     app|worker-arq|worker-monitor)
-      info "Building image for $s..."
       if ((pull==1)); then
-        docker compose "${args[@]}" build --pull "$s" | cat || true
+        run_cmd "Building image for $s (--pull)..." docker compose "${args[@]}" build --pull "$s"
       else
-        docker compose "${args[@]}" build "$s" | cat || true
+        run_cmd "Building image for $s..." docker compose "${args[@]}" build "$s"
       fi
       ;;
   esac
   if [[ "$mode" == "blue_green" ]]; then
     blue_green_rollout "$s" "$timeout_s"
   else
-    info "Recreating: $s"
-    docker compose "${args[@]}" up -d --no-deps --force-recreate "$s"
-    ok "$s restarted"
+    run_cmd "Recreating $s..." docker compose "${args[@]}" up -d --no-deps --force-recreate "$s"
   fi
 }
 
@@ -229,8 +226,9 @@ fi
 
 # Apply database migrations
 if ((skip_components==0)) && [[ "$comps" == *"app"* ]] && ((migrate==1)); then
-  info "Running migrations..."
-  scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
+  printf "\n"
+  echo "Applying migrations..."
+  run_cmd "  ${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
 fi
 
 # Update install metadata (version.json)
@@ -246,7 +244,8 @@ old_id="$(jq -r '.install_id' /var/lib/devpush/version.json 2>/dev/null || true)
 [[ -n "$old_id" && "$old_id" != "null" ]] || old_id=$(cat /proc/sys/kernel/random/uuid)
 { printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$old_id" "$ref" "$commit" "$ts"; } > /var/lib/devpush/version.json
 
-ok "Apply complete to $ref"
+printf "\n"
+echo -e "${GRN}Update complete (version: ${ref}). ✔${NC}"
 
 # Send telemetry
 payload=$(jq -c --arg ev "update" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
