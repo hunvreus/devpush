@@ -205,43 +205,34 @@ JSON
 }
 
 # Install base packages
-printf "\n"
+echo ""
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
-printf "\n"
+echo ""
 echo "Installing Docker..."
 run_cmd "  ${CHILD_MARK} Adding Docker repository..." add_docker_repo
 run_cmd "  ${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Ensure Docker service is running
+# Ensure Docker service is running (best-effort)
 run_cmd "  ${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
-run_cmd "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 
 # Install Loki driver
+# The check needs to run directly, but the install can be wrapped
 if docker plugin inspect loki >/dev/null 2>&1; then
   echo "  ${CHILD_MARK} Loki plugin already installed (skip)"
 else
-  if run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
-    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
-      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+    # retry up to 2 times then warn
+    if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
+      sleep 2
+      if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver (retry)..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
+        echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
+      fi
     fi
-  fi
-  if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
-    echo "${YEL}Warning:${NC} Loki plugin not fully enabled. Attempting Docker daemon restart and re-enable."
-    run_cmd_try "  ${CHILD_MARK} Restarting Docker daemon..." systemctl restart docker
-    run_cmd_try "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
-    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver (post-restart)..." docker plugin enable loki; then
-      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket (post-restart)..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
-    fi
-  fi
-  if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
-    echo "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
-  fi
 fi
 
 # Create user
-printf "\n"
+echo ""
 echo "Preparing system user and data dirs..."
 if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
@@ -262,7 +253,7 @@ if [[ -z "${app_dir:-}" ]]; then
 fi
 
 # Resolve ref (latest tag, fallback to main)
-printf "\n"
+echo ""
 echo "Resolving ref to install..."
 if [[ -z "$ref" ]]; then
   if ((include_pre==1)); then
@@ -286,7 +277,7 @@ run_cmd "  ${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir
 run_cmd "  ${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
 
 # Get code from GitHub
-printf "\n"
+echo ""
 echo "Cloning repository..."
 if [[ -d "$app_dir/.git" ]]; then
   # Repo exists, just fetch
@@ -312,7 +303,7 @@ fi
 run_cmd "  ${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
 # Create .env file
-printf "\n"
+echo ""
 echo "Configuring environment..."
 cd "$app_dir"
 if [[ ! -f ".env" ]]; then
@@ -343,7 +334,7 @@ else
 fi
 
 # Build runners images
-printf "\n"
+echo ""
 if [[ -d Docker/runner ]]; then
   build_runners_cmd="
     set -e
@@ -356,7 +347,7 @@ if [[ -d Docker/runner ]]; then
 fi
 
 # Save install metadata (version.json)
-printf "\n"
+echo ""
 echo "Finalizing installation..."
 commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
