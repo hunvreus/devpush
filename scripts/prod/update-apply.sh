@@ -84,11 +84,7 @@ full_update() {
   fi
 }
 
-# Update registry images (infra) up-front if requested
-if ((pull==1)); then
-  printf "\n"
-  run_cmd "Pulling images..." docker compose "${args[@]}" pull
-fi
+# Do not pull all images up-front; build/pull per-service below
 
 # Option1: Full update (with downtime)
 if ((do_full==1)); then
@@ -152,7 +148,7 @@ blue_green_rollout() {
   run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${args[@]}" up -d --scale "$service=$target" --no-recreate
 
   local new_id=""
-  echo "${CHILD_MARK} Waiting for new container to appear..."
+  echo "${CHILD_MARK} Detecting new container..."
   for _ in $(seq 1 60); do
     local cur_ids
     cur_ids=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' | tr ' ' '\n' | sort)
@@ -161,24 +157,19 @@ blue_green_rollout() {
     sleep 2
   done
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
+  echo "${CHILD_MARK} Detecting new container... ${GRN}✔${NC}"
   echo -e "    ${DIM}${CHILD_MARK} New container: $new_id${NC}"
 
-  echo "${CHILD_MARK} Waiting for new container to be healthy (timeout: ${timeout_s}s)..."
+  echo "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)..."
   local deadline=$(( $(date +%s) + timeout_s ))
   while :; do
     local st
     if docker inspect "$new_id" --format '{{.State.Health}}' >/dev/null 2>&1; then
       st=$(docker inspect "$new_id" --format '{{.State.Health.Status}}' 2>/dev/null || echo "starting")
-      if [[ "$st" == "healthy" ]]; then
-        echo -e "    ${DIM}${CHILD_MARK} Container is healthy${NC}"
-        break
-      fi
+      [[ "$st" == "healthy" ]] && break
     else
       st=$(docker inspect "$new_id" --format '{{.State.Status}}' 2>/dev/null || echo "starting")
-      if [[ "$st" == "running" ]]; then
-        echo -e "    ${DIM}${CHILD_MARK} Container is running (no healthcheck)${NC}"
-        break
-      fi
+      [[ "$st" == "running" ]] && break
     fi
     if [[ $(date +%s) -ge $deadline ]]; then
       err "New container for '$service' not ready within ${timeout_s}s. Status: $st"
@@ -187,12 +178,17 @@ blue_green_rollout() {
     fi
     sleep 5
   done
+  echo "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)... ${GRN}✔${NC}"
   
   if [[ -n "$old_ids" ]]; then
-    echo "${CHILD_MARK} Retiring old container(s): $old_ids"
+    echo "${CHILD_MARK} Retiring old container(s)..."
     for id in $old_ids; do
-      docker stop "$id" || true
-      docker rm "$id" || true
+      docker stop "$id" >/dev/null 2>&1 || true
+      docker rm "$id" >/dev/null 2>&1 || true
+    done
+    echo "${CHILD_MARK} Retiring old container(s)... ${GRN}✔${NC}"
+    for id in $old_ids; do
+      echo -e "    ${DIM}${CHILD_MARK} $id${NC}"
     done
   fi
 
@@ -202,19 +198,21 @@ blue_green_rollout() {
 # Build/pull then rollout per service
 rollout_service(){
   local s="$1"; local mode="$2"; local timeout_s="${3:-}"
+  printf "\n"
+  echo "Updating $s..."
   case "$s" in
     app|worker-arq|worker-monitor)
       if ((pull==1)); then
-        run_cmd "Building image for $s (--pull)..." docker compose "${args[@]}" build --pull "$s"
+        run_cmd "  ${CHILD_MARK} Building image..." docker compose "${args[@]}" build --pull "$s"
       else
-        run_cmd "Building image for $s..." docker compose "${args[@]}" build "$s"
+        run_cmd "  ${CHILD_MARK} Building image..." docker compose "${args[@]}" build "$s"
       fi
       ;;
   esac
   if [[ "$mode" == "blue_green" ]]; then
     blue_green_rollout "$s" "$timeout_s"
   else
-    run_cmd "Recreating $s..." docker compose "${args[@]}" up -d --no-deps --force-recreate "$s"
+    run_cmd "  ${CHILD_MARK} Recreating container..." docker compose "${args[@]}" up -d --no-deps --force-recreate "$s"
   fi
 }
 
