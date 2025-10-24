@@ -18,7 +18,7 @@ ok(){ echo -e "${GRN}Success:${NC} $*"; }
 info(){ echo "$*"; }
 
 VERBOSE="${VERBOSE:-0}"
-CMD_LOG=/tmp/devpush-cmd.log
+CMD_LOG="${TMPDIR:-/tmp}/devpush-cmd.$$.log"
 
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
@@ -70,10 +70,12 @@ run_cmd() {
                 echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
             fi
             echo ""
+            rm -f "$CMD_LOG" 2>/dev/null || true
             exit $exit_code
         else
             printf "\r\033[K"
             echo "$msg ${GRN}✔${NC}"
+            rm -f "$CMD_LOG" 2>/dev/null || true
         fi
     fi
 }
@@ -112,10 +114,12 @@ run_cmd_try() {
                 echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
             fi
             echo ""
+            rm -f "$CMD_LOG" 2>/dev/null || true
             return $exit_code
         else
             printf "\r\033[K"
             echo "$msg ${GRN}✔${NC}"
+            rm -f "$CMD_LOG" 2>/dev/null || true
             return 0
         fi
     fi
