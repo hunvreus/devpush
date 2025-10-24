@@ -147,7 +147,11 @@ validate_core_env(){
     [[ -n "$v" ]] || missing+=("$k")
   done
   if ((${#missing[@]})); then
-    err "Missing values in $envf: ${missing[*]}"
+    # Join missing keys with comma+space regardless of IFS
+    local joined
+    joined="$(printf "%s, " "${missing[@]}")"
+    joined="${joined%, }"
+    err "Missing values in $envf: $joined"
     exit 1
   fi
 }

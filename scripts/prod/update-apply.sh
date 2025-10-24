@@ -65,6 +65,25 @@ validate_core_env .env
 # Compose files (keep parity with running stack)
 args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
 
+# Full stack update helper (with downtime)
+full_update() {
+  printf "\n"
+  echo "Full stack update..."
+  if ((pull==1)); then
+    run_cmd "  ${CHILD_MARK} Building with --pull..." docker compose "${args[@]}" build --pull
+  else
+    run_cmd "  ${CHILD_MARK} Building..." docker compose "${args[@]}" build
+  fi
+  run_cmd "  ${CHILD_MARK} Stopping stack..." docker compose "${args[@]}" down --remove-orphans
+  run_cmd "  ${CHILD_MARK} Starting stack..." docker compose "${args[@]}" up -d --force-recreate --remove-orphans
+  skip_components=1
+  if ((migrate==1)); then
+    printf "\n"
+    echo "Applying migrations..."
+    run_cmd "  ${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
+  fi
+}
+
 # Update registry images (infra) up-front if requested
 if ((pull==1)); then
   printf "\n"
@@ -82,40 +101,36 @@ if ((do_full==1)); then
     read -p "Proceed? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
   fi
-  printf "\n"
-  echo "Full stack update..."
-  if ((pull==1)); then
-    run_cmd "  ${CHILD_MARK} Building with --pull..." docker compose "${args[@]}" build --pull
-  else
-    run_cmd "  ${CHILD_MARK} Building..." docker compose "${args[@]}" build
-  fi
-  run_cmd "  ${CHILD_MARK} Stopping stack..." docker compose "${args[@]}" down --remove-orphans
-  run_cmd "  ${CHILD_MARK} Starting stack..." docker compose "${args[@]}" up -d --force-recreate --remove-orphans
-  skip_components=1
-  if ((migrate==1)); then
-    printf "\n"
-    echo "Applying migrations..."
-    run_cmd "  ${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
-  fi
+  full_update
 fi
 
 # Option2: Components update (no downtime for app and workers)
 if ((do_all==1)); then
   comps="app,worker-arq,worker-monitor"
 elif [[ -z "$comps" ]]; then
-  echo "Select components to update (infra services not listed here):"
+  printf "\n"
+  echo "Select components to update:"
+  printf "\n"
   echo "1) app + workers (app, worker-arq, worker-monitor)"
   echo "2) app"
   echo "3) worker-arq"
   echo "4) worker-monitor"
-  echo
-  echo "Tip: use --components traefik,redis,... to update infra; use --full for full stack update (downtime)."
-  read -r ch
+  echo "5) Full stack (with downtime)"
+  printf "\n"
+  read -r -p "Choice [1-5]: " ch
+  ch="${ch//[^0-9]/}"
   case "$ch" in
     1) comps="app,worker-arq,worker-monitor" ;;
     2) comps="app" ;;
     3) comps="worker-arq" ;;
     4) comps="worker-monitor" ;;
+    5)
+      printf "\n"
+      echo -e "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur."
+      read -r -p "Proceed with FULL stack update? [y/N]: " ans
+      [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
+      full_update
+      ;;
     *) err "invalid choice"; exit 1 ;;
   esac
 fi
@@ -186,7 +201,7 @@ blue_green_rollout() {
 
 # Build/pull then rollout per service
 rollout_service(){
-  local s="$1"; local mode="$2"; local timeout_s="$3"
+  local s="$1"; local mode="$2"; local timeout_s="${3:-}"
   case "$s" in
     app|worker-arq|worker-monitor)
       if ((pull==1)); then
