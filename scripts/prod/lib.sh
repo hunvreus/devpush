@@ -23,14 +23,13 @@ CMD_LOG=/tmp/devpush-cmd.log
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
     local pid="$1"
-    local prefix="$2"
     local delay=0.1
     local frames='-|\/'
     local i=0
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&2
+        printf "\r%s [%c]\033[K" "${SPIN_PREFIX:-}" "${frames:$i:1}"
         sleep "$delay"
     done
     { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
@@ -40,10 +39,9 @@ spinner() {
 run_cmd() {
     local msg="$1"; shift
     local cmd=("$@")
-    local prefix="$msg"
 
     if ((VERBOSE == 1)); then
-        echo "$prefix"
+        echo "$msg"
         "${cmd[@]}"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -54,19 +52,16 @@ run_cmd() {
         fi
     else
         : >"$CMD_LOG"
-        local exit_code=0
-        if [[ -t 1 ]]; then
-            "${cmd[@]}" >"$CMD_LOG" 2>&1 &
-            local pid=$!
-            spinner "$pid" "$prefix"
-            wait "$pid" || exit_code=$?
-        else
-            echo "$prefix"
-            "${cmd[@]}" >"$CMD_LOG" 2>&1 || exit_code=$?
-        fi
+        "${cmd[@]}" >"$CMD_LOG" 2>&1 &
+        local pid=$!
+        SPIN_PREFIX="$msg"
+        spinner "$pid"
+        wait "$pid"
+        local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
-            [[ -t 1 ]] && printf "\r\033[K"
-            echo "$prefix ${RED}✖${NC}"
+            # Clear spinner line and print failure on its own line
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${RED}✖${NC}"
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
@@ -77,8 +72,8 @@ run_cmd() {
             echo ""
             exit $exit_code
         else
-            [[ -t 1 ]] && printf "\r\033[K"
-            echo "$prefix ${GRN}✔${NC}"
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${GRN}✔${NC}"
         fi
     fi
 }
@@ -87,10 +82,9 @@ run_cmd() {
 run_cmd_try() {
     local msg="$1"; shift
     local cmd=("$@")
-    local prefix="$msg"
 
     if ((VERBOSE == 1)); then
-        echo "$prefix"
+        echo "$msg"
         "${cmd[@]}"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -102,31 +96,27 @@ run_cmd_try() {
         fi
     else
         : >"$CMD_LOG"
-        local exit_code=0
-        if [[ -t 1 ]]; then
-            "${cmd[@]}" >"$CMD_LOG" 2>&1 &
-            local pid=$!
-            spinner "$pid" "$prefix"
-            wait "$pid" || exit_code=$?
-        else
-            echo "$prefix"
-            "${cmd[@]}" >"$CMD_LOG" 2>&1 || exit_code=$?
-        fi
+        "${cmd[@]}" >"$CMD_LOG" 2>&1 &
+        local pid=$!
+        SPIN_PREFIX="$msg"
+        spinner "$pid"
+        wait "$pid"
+        local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
-            [[ -t 1 ]] && printf "\r\033[K"
-            echo "$prefix ${RED}✖${NC}"
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${RED}✖${NC}"
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
-                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+                cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else
-                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
+                echo "(no output captured)" | tee -a /tmp/install_error.log >&2
             fi
             echo ""
             return $exit_code
         else
-            [[ -t 1 ]] && printf "\r\033[K"
-            echo "$prefix ${GRN}✔${NC}"
+            printf "\r\033[K"
+            echo "$SPIN_PREFIX ${GRN}✔${NC}"
             return 0
         fi
     fi
