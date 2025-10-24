@@ -214,21 +214,30 @@ echo "Installing Docker..."
 run_cmd "  ${CHILD_MARK} Adding Docker repository..." add_docker_repo
 run_cmd "  ${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Ensure Docker service is running (best-effort)
+# Ensure Docker service is running
 run_cmd "  ${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
+run_cmd "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 
 # Install Loki driver
-# The check needs to run directly, but the install can be wrapped
 if docker plugin inspect loki >/dev/null 2>&1; then
   echo "  ${CHILD_MARK} Loki plugin already installed (skip)"
 else
-    # retry up to 2 times then warn
-    if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
-      sleep 2
-      if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver (retry)..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
-        echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
-      fi
+  if run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
+    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
+      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
     fi
+  fi
+  if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
+    echo "${YEL}Warning:${NC} Loki plugin not fully enabled. Attempting Docker daemon restart and re-enable."
+    run_cmd_try "  ${CHILD_MARK} Restarting Docker daemon..." systemctl restart docker
+    run_cmd_try "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver (post-restart)..." docker plugin enable loki; then
+      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket (post-restart)..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+    fi
+  fi
+  if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
+    echo "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
+  fi
 fi
 
 # Create user
