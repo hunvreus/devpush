@@ -13,7 +13,7 @@ if [[ -f "$(dirname "$0")/lib.sh" ]]; then
 elif command -v curl >/dev/null 2>&1 && source <(curl -fsSL "$LIB_URL"); then
   :
 else
-  echo "ERR: Unable to load lib.sh (tried local and remote). Try again or clone the repo manually (https://github.com/hunvreus/devpush)." >&2
+  echo "Error: Unable to load lib.sh (tried local and remote). Try again or clone the repo manually." >&2
   exit 1
 fi
 
