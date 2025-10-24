@@ -87,7 +87,7 @@ distro_version="${VERSION_ID:-unknown}"
 # Warn if ARM architecture
 if [[ "$arch" == "arm64" || "$arch" == "aarch64" ]]; then
   printf "\n"
-  echo "${YEL}Warning: ARM64 detected. Support is experimental; some components may not work (e.g. logging). Use x86_64/AMD64 for production.${NC}"
+  echo "${YEL}Warning:${NC} ARM64 detected. Support is experimental; some components may not work (e.g. logging). Use x86_64/AMD64 for production."
 fi
 
 # Detect existing install and prompt
