@@ -145,54 +145,50 @@ blue_green_rollout() {
   cur_cnt=$(echo "$old_ids" | wc -w | tr -d ' ' || echo 0)
   
   local target=$((cur_cnt+1)); [[ $target -lt 1 ]] && target=1
-  run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${args[@]}" up -d --scale "$service=$target" --no-recreate
+  run_cmd "  ${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${args[@]}" up -d --scale "$service=$target" --no-recreate
 
   local new_id=""
-  echo "${CHILD_MARK} Detecting new container..."
-  for _ in $(seq 1 60); do
-    local cur_ids
-    cur_ids=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' | tr ' ' '\n' | sort)
-    new_id=$(comm -13 <(echo "$old_ids" | tr ' ' '\n' | sort) <(echo "$cur_ids"))
-    [[ -n "$new_id" ]] && break
-    sleep 2
-  done
+  local tmp_log="/tmp/devpush-detect.$$.log"
+  run_cmd "  ${CHILD_MARK} Detecting new container..." bash -c '
+    for _ in $(seq 1 60); do
+      cur_ids=$(docker ps --filter "name=devpush-'"$service"'" --format "{{.ID}}" | tr " " "\n" | sort)
+      nid=$(comm -13 <(echo "'"$old_ids"'" | tr " " "\n" | sort) <(echo "$cur_ids"))
+      if [[ -n "$nid" ]]; then echo "$nid" > '"$tmp_log"'; exit 0; fi
+      sleep 2
+    done
+    exit 1'
+  new_id=$(cat "$tmp_log" 2>/dev/null || true)
+  rm -f "$tmp_log" 2>/dev/null || true
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
-  echo "${CHILD_MARK} Detecting new container... ${GRN}✔${NC}"
   echo -e "    ${DIM}${CHILD_MARK} New container: $new_id${NC}"
 
-  echo "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)..."
-  local deadline=$(( $(date +%s) + timeout_s ))
-  while :; do
-    local st
-    if docker inspect "$new_id" --format '{{.State.Health}}' >/dev/null 2>&1; then
-      st=$(docker inspect "$new_id" --format '{{.State.Health.Status}}' 2>/dev/null || echo "starting")
-      [[ "$st" == "healthy" ]] && break
-    else
-      st=$(docker inspect "$new_id" --format '{{.State.Status}}' 2>/dev/null || echo "starting")
-      [[ "$st" == "running" ]] && break
-    fi
-    if [[ $(date +%s) -ge $deadline ]]; then
-      err "New container for '$service' not ready within ${timeout_s}s. Status: $st"
-      docker logs "$new_id" || true
-      return 1
-    fi
-    sleep 5
-  done
-  echo "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)... ${GRN}✔${NC}"
+  run_cmd "  ${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)..." bash -c '
+    deadline=$(( $(date +%s) + '"$timeout_s"' ))
+    while :; do
+      if docker inspect '"$new_id"' --format "{{.State.Health}}" >/dev/null 2>&1; then
+        st=$(docker inspect '"$new_id"' --format "{{.State.Health.Status}}" 2>/dev/null || echo starting)
+        [[ "$st" == "healthy" ]] && exit 0
+      else
+        st=$(docker inspect '"$new_id"' --format "{{.State.Status}}" 2>/dev/null || echo starting)
+        [[ "$st" == "running" ]] && exit 0
+      fi
+      [[ $(date +%s) -ge $deadline ]] && { echo "Timeout. Status: $st" >&2; exit 1; }
+      sleep 5
+    done'
   
   if [[ -n "$old_ids" ]]; then
-    echo "${CHILD_MARK} Retiring old container(s)..."
+    run_cmd "  ${CHILD_MARK} Retiring old container(s) and scaling to 1..." bash -c '
+      for id in '"$old_ids"'; do
+        docker stop "$id" >/dev/null 2>&1 || true
+        docker rm "$id" >/dev/null 2>&1 || true
+      done
+      docker compose '"${args[*]}"' up -d --scale '"$service"'=1 --no-recreate >/dev/null 2>&1'
     for id in $old_ids; do
-      docker stop "$id" >/dev/null 2>&1 || true
-      docker rm "$id" >/dev/null 2>&1 || true
+      echo -e "    ${DIM}${CHILD_MARK} Removed: $id${NC}"
     done
-    echo "${CHILD_MARK} Retiring old container(s)... ${GRN}✔${NC}"
-    for id in $old_ids; do
-      echo -e "    ${DIM}${CHILD_MARK} $id${NC}"
-    done
+  else
+    run_cmd "  ${CHILD_MARK} Scaling to 1..." docker compose "${args[@]}" up -d --scale "$service=1" --no-recreate
   fi
-
-  run_cmd "${CHILD_MARK} Scaling back to 1 container..." docker compose "${args[@]}" up -d --scale "$service=1" --no-recreate
 }
 
 # Build/pull then rollout per service
