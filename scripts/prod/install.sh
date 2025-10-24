@@ -205,11 +205,11 @@ JSON
 }
 
 # Install base packages
-echo ""
+printf "\n"
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
-echo ""
+printf "\n"
 echo "Installing Docker..."
 run_cmd "  ${CHILD_MARK} Adding Docker repository..." add_docker_repo
 run_cmd "  ${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
@@ -241,7 +241,7 @@ else
 fi
 
 # Create user
-echo ""
+printf "\n"
 echo "Preparing system user and data dirs..."
 if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
@@ -262,7 +262,7 @@ if [[ -z "${app_dir:-}" ]]; then
 fi
 
 # Resolve ref (latest tag, fallback to main)
-echo ""
+printf "\n"
 echo "Resolving ref to install..."
 if [[ -z "$ref" ]]; then
   if ((include_pre==1)); then
@@ -286,7 +286,7 @@ run_cmd "  ${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir
 run_cmd "  ${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
 
 # Get code from GitHub
-echo ""
+printf "\n"
 echo "Cloning repository..."
 if [[ -d "$app_dir/.git" ]]; then
   # Repo exists, just fetch
@@ -312,7 +312,7 @@ fi
 run_cmd "  ${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
 # Create .env file
-echo ""
+printf "\n"
 echo "Configuring environment..."
 cd "$app_dir"
 if [[ ! -f ".env" ]]; then
@@ -343,7 +343,7 @@ else
 fi
 
 # Build runners images
-echo ""
+printf "\n"
 if [[ -d Docker/runner ]]; then
   build_runners_cmd="
     set -e
@@ -356,7 +356,7 @@ if [[ -d Docker/runner ]]; then
 fi
 
 # Save install metadata (version.json)
-echo ""
+printf "\n"
 echo "Finalizing installation..."
 commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
