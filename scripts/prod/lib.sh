@@ -31,13 +31,18 @@ CMD_LOG=/tmp/devpush-cmd.log
 spinner() {
     local pid="$1"
     local prefix="$2"
+    local sink="${3:-stderr}"
     local delay=0.1
     local frames='-|\/'
     local i=0
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&2
+        if [[ "$sink" == "stdout" ]]; then
+            printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&1
+        elif [[ "$sink" == "stderr" ]]; then
+            printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&2
+        fi
         sleep "$delay"
     done
     { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
@@ -62,10 +67,10 @@ run_cmd() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        local use_spinner=0
-        if [[ -t 2 ]]; then use_spinner=1; fi
-        if ((use_spinner==1)); then
-            spinner "$pid" "$msg"
+        local sink=""
+        if [[ -t 2 ]]; then sink="stderr"; elif [[ -t 1 ]]; then sink="stdout"; fi
+        if [[ -n "$sink" ]]; then
+            spinner "$pid" "$msg" "$sink"
         fi
         wait "$pid"
         local exit_code=$?
@@ -117,10 +122,10 @@ run_cmd_try() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        local use_spinner=0
-        if [[ -t 2 ]]; then use_spinner=1; fi
-        if ((use_spinner==1)); then
-            spinner "$pid" "$msg"
+        local sink=""
+        if [[ -t 2 ]]; then sink="stderr"; elif [[ -t 1 ]]; then sink="stdout"; fi
+        if [[ -n "$sink" ]]; then
+            spinner "$pid" "$msg" "$sink"
         fi
         wait "$pid"
         local exit_code=$?
