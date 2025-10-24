@@ -62,9 +62,8 @@ run_cmd() {
             # Clear spinner line and print failure on its own line
             printf "\r\033[K"
             echo "$SPIN_PREFIX ${RED}✖${NC}"
+            echo ""
             err "Failed. Command output:"
-            echo ""
-            echo ""
             if [[ -s "$CMD_LOG" ]]; then
                 sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else
@@ -106,8 +105,8 @@ run_cmd_try() {
         if [[ $exit_code -ne 0 ]]; then
             printf "\r\033[K"
             echo "$SPIN_PREFIX ${RED}✖${NC}"
-            err "Failed. Command output:"
             echo ""
+            err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
                 cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else

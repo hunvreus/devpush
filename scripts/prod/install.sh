@@ -359,6 +359,7 @@ else
 fi
 
 # Build runners images
+echo ""
 if [[ -d Docker/runner ]]; then
   build_runners_cmd="
     set -e
