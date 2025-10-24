@@ -17,9 +17,6 @@ if [[ -t 1 ]] && is_utf8; then
   INFO_MARK="→"
 fi
 
-# Default per-script error log (can be overridden by caller)
-: "${SCRIPT_ERR_LOG:=/tmp/$(basename "$0" .sh)_error.log}"
-
 err(){ echo -e "${RED}Error:${NC} $*" >&2; }
 ok(){ echo -e "${GRN}Success:${NC} $*"; }
 info(){ echo "$*"; }
@@ -31,18 +28,13 @@ CMD_LOG=/tmp/devpush-cmd.log
 spinner() {
     local pid="$1"
     local prefix="$2"
-    local sink="${3:-stderr}"
     local delay=0.1
     local frames='-|\/'
     local i=0
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        if [[ "$sink" == "stdout" ]]; then
-            printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&1
-        elif [[ "$sink" == "stderr" ]]; then
-            printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&2
-        fi
+        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&2
         sleep "$delay"
     done
     { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
@@ -67,11 +59,7 @@ run_cmd() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        local sink=""
-        if [[ -t 2 ]]; then sink="stderr"; elif [[ -t 1 ]]; then sink="stdout"; fi
-        if [[ -n "$sink" ]]; then
-            spinner "$pid" "$msg" "$sink"
-        fi
+        spinner "$pid" "$msg"
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -81,17 +69,9 @@ run_cmd() {
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
-                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
-                else
-                    sed 's/^/  /' "$CMD_LOG" >&2
-                fi
+                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else
-                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
-                else
-                    echo "  (no output captured)" >&2
-                fi
+                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
             fi
             echo ""
             exit $exit_code
@@ -122,11 +102,7 @@ run_cmd_try() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        local sink=""
-        if [[ -t 2 ]]; then sink="stderr"; elif [[ -t 1 ]]; then sink="stdout"; fi
-        if [[ -n "$sink" ]]; then
-            spinner "$pid" "$msg" "$sink"
-        fi
+        spinner "$pid" "$msg"
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -135,17 +111,9 @@ run_cmd_try() {
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
-                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
-                else
-                    sed 's/^/  /' "$CMD_LOG" >&2
-                fi
+                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else
-                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
-                else
-                    echo "  (no output captured)" >&2
-                fi
+                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
             fi
             echo ""
             return $exit_code
