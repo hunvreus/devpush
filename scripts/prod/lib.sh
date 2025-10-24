@@ -49,7 +49,7 @@ run_cmd() {
             err "Failed running: ${cmd[*]}"
             exit $exit_code
         else
-            echo "${GRN}✔${NC}"
+            echo "${GRN}Done ✔${NC}"
         fi
     else
         : >"$CMD_LOG"
@@ -91,7 +91,7 @@ run_cmd_try() {
             err "Failed running: ${cmd[*]}"
             return $exit_code
         else
-            echo "${GRN}✔${NC}"
+            echo "${GRN}Done ✔${NC}"
             return 0
         fi
     else

@@ -7,7 +7,7 @@ source "$(dirname "$0")/lib.sh"
 
 usage(){
   cat <<USG
-Usage: start.sh [--app-dir <path>] [--env-file <path>] [--no-pull] [--migrate] [--ssl-provider <name>]
+Usage: start.sh [--app-dir <path>] [--env-file <path>] [--no-pull] [--migrate] [--ssl-provider <name>] [--verbose]
 
 Start production services via Docker Compose. Optionally run DB migrations.
 
@@ -16,6 +16,7 @@ Start production services via Docker Compose. Optionally run DB migrations.
   --no-pull         Do not pass --pull always to docker compose up
   --migrate         Run DB migrations after starting
   --ssl-provider    One of: default|cloudflare|route53|gcloud|digitalocean|azure (default: from config or 'default')
+  -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
   exit 0
@@ -29,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --no-pull) pull_always=0; shift ;;
     --migrate) do_migrate=1; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
+    -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -50,14 +52,18 @@ validate_ssl_env "$ssl_provider" "$envf"
 validate_core_env "$envf"
 
 # Start services
-info "Starting services..."
+printf "\n"
+echo "Starting services..."
 args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
 ((pull_always==1)) && pullflag=(--pull always) || pullflag=()
-docker compose "${args[@]}" up -d "${pullflag[@]}" --remove-orphans
-ok "Started."
+run_cmd "  ${CHILD_MARK} Starting Docker Compose stack..." docker compose "${args[@]}" up -d "${pullflag[@]}" --remove-orphans
 
 # Apply database migrations
 if ((do_migrate==1)); then
-  info "Applying migrations..."
-  scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file "$envf"
+  printf "\n"
+  echo "Applying migrations..."
+  run_cmd "  ${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file "$envf"
 fi
+
+printf "\n"
+echo -e "${GRN}Services started. ✔${NC}"

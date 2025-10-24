@@ -84,6 +84,13 @@ arch="$(dpkg --print-architecture 2>/dev/null || uname -m)"
 distro_id="${ID:-unknown}"
 distro_version="${VERSION_ID:-unknown}"
 
+# Warn if ARM architecture
+if [[ "$arch" == "arm64" || "$arch" == "aarch64" ]]; then
+  printf "\n"
+  echo "${YEL}Warning: ARM64 detected. Support is experimental; some components may not work (e.g. logging). Use x86_64/AMD64 for production.${NC}"
+  printf "\n"
+fi
+
 # Detect existing install and prompt
 existing=0
 summary() {
@@ -401,7 +408,7 @@ if ((run_harden_ssh==1)); then
   fi
 fi
 
-echo -e "${GRN}Install complete (ref: ${ref}). ✔${NC}"
+echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
 echo ""
 echo "Next:"
 echo "  1) sudo -iu ${user}"

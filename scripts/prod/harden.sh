@@ -11,7 +11,7 @@ trap 's=$?; err "Harden failed (exit $s)"; echo -e "${RED}Last command: $BASH_CO
 
 usage() {
   cat <<USG
-Usage: harden.sh [--ssh] [--user <name>] [--ssh-pub <key_or_path>]
+Usage: harden.sh [--ssh] [--user <name>] [--ssh-pub <key_or_path>] [--verbose]
 
 Applies basic server hardening:
 - installs ufw, fail2ban, unattended-upgrades
@@ -22,7 +22,7 @@ Applies basic server hardening:
   --ssh                  Also apply SSH hardening (see below)
   --user NAME            Target user for SSH key check/seed (default: current user)
   --ssh-pub KEY|PATH     Public key content or file to seed authorized_keys if missing
-
+  -v, --verbose          Enable verbose output for debugging
   -h, --help             Show this help
 USG
   exit 1
@@ -34,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --ssh) with_ssh=1; shift ;;
     --user) user="$2"; shift 2 ;;
     --ssh-pub) ssh_pub="$2"; shift 2 ;;
+    -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -104,34 +105,36 @@ if ((with_ssh==1)); then
 fi
 
 # Install security packages
-info "Installing security packages (ufw, fail2ban, unattended-upgrades)..."
-if ! apt_install ufw fail2ban unattended-upgrades; then
-  err "Security package install failed"
-  exit 7
-fi
+printf "\n"
+echo "Installing security packages..."
+run_cmd "  ${CHILD_MARK} Installing ufw, fail2ban, unattended-upgrades..." apt_install ufw fail2ban unattended-upgrades
 
 # Enable services
-info "Enabling fail2ban and unattended-upgrades..."
-systemctl enable --now fail2ban || true
-systemctl enable --now unattended-upgrades || true
+printf "\n"
+echo "Enabling services..."
+run_cmd "  ${CHILD_MARK} Enabling fail2ban..." systemctl enable --now fail2ban
+run_cmd "  ${CHILD_MARK} Enabling unattended-upgrades..." systemctl enable --now unattended-upgrades
 
 if ((with_ssh==1)); then
   # SSH hardening
-  info "Hardening SSH (disable root login, password auth)..."
-  sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config || true
-  sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true
-  systemctl restart ssh || true
-  ok "SSH hardened. Access as '${user}'."
+  printf "\n"
+  echo "Hardening SSH..."
+  run_cmd "  ${CHILD_MARK} Disabling root login..." sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  run_cmd "  ${CHILD_MARK} Disabling password authentication..." sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  run_cmd "  ${CHILD_MARK} Restarting SSH service..." systemctl restart ssh
+  echo "  ${CHILD_MARK} SSH hardened. Access as '${user}'."
 else
-  info "Skipping SSH hardening (not requested)."
+  printf "\n"
+  echo "  ${CHILD_MARK} Skipping SSH hardening (not requested)."
 fi
 
 # Firewall
-info "Configuring UFW..."
-ufw allow 22 >/dev/null || true
-ufw allow 80 >/dev/null || true
-ufw allow 443 >/dev/null || true
-yes | ufw enable >/dev/null || true
-ok "Firewall configured."
+printf "\n"
+echo "Configuring firewall..."
+run_cmd "  ${CHILD_MARK} Allowing port 22 (SSH)..." ufw allow 22
+run_cmd "  ${CHILD_MARK} Allowing port 80 (HTTP)..." ufw allow 80
+run_cmd "  ${CHILD_MARK} Allowing port 443 (HTTPS)..." ufw allow 443
+run_cmd "  ${CHILD_MARK} Enabling UFW..." bash -c 'yes | ufw enable'
 
-ok "Hardening complete."
+printf "\n"
+echo -e "${GRN}Hardening complete. ✔${NC}"
