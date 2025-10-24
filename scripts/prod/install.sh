@@ -65,38 +65,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Persist ssl_provider selection if provided, otherwise interactively ask (if TTY)
-if [[ -n "$ssl_provider" ]]; then
-  persist_ssl_provider "$ssl_provider"
-else
-  # If interactive, prompt once; otherwise fall back to env/config/default
-  if [[ -t 0 && -t 1 ]]; then
-    echo ""
-    echo "Select SSL provider (arrow keys not needed, type number and press Enter):"
-    echo "  1) default        (HTTP-01 on :80 → auto-redirect to HTTPS)"
-    echo "  2) cloudflare     (DNS-01 via CF_DNS_API_TOKEN)"
-    echo "  3) route53        (DNS-01 via AWS creds)"
-    echo "  4) digitalocean   (DNS-01 via DO_AUTH_TOKEN)"
-    echo "  5) gcloud         (DNS-01 via GCE_PROJECT + service account)"
-    echo "  6) azure          (DNS-01 via Azure credentials)"
-    read -r -p "Choice [1-6] (default: 1): " choice || true
-    case "${choice:-1}" in
-      1) ssl_provider="default" ;;
-      2) ssl_provider="cloudflare" ;;
-      3) ssl_provider="route53" ;;
-      4) ssl_provider="digitalocean" ;;
-      5) ssl_provider="gcloud" ;;
-      6) ssl_provider="azure" ;;
-      *) ssl_provider="default" ;;
-    esac
-    persist_ssl_provider "$ssl_provider"
-    echo "Selected SSL provider: $ssl_provider"
-  else
-    # Non-interactive: resolve from env/config, fallback to default
-    ssl_provider="$(get_ssl_provider)"
-    persist_ssl_provider "$ssl_provider"
-  fi
-fi
+# Set SSL provider: use --ssl-provider flag or default to "default"
+[[ -z "$ssl_provider" ]] && ssl_provider="default"
+persist_ssl_provider "$ssl_provider"
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
 
@@ -107,6 +78,11 @@ case "${ID_LIKE:-$ID}" in
   *) err "Only Ubuntu/Debian supported"; exit 1 ;;
 esac
 command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
+
+# Detect system info for metadata
+arch="$(dpkg --print-architecture 2>/dev/null || uname -m)"
+distro_id="${ID:-unknown}"
+distro_version="${VERSION_ID:-unknown}"
 
 # Detect existing install and prompt
 existing=0
@@ -171,8 +147,6 @@ gen_fernet(){ openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'; }
 # Helper functions (must be defined before use with run_cmd)
 add_docker_repo() {
     install -m 0755 -d /etc/apt/keyrings
-    arch="$(dpkg --print-architecture)"
-    . /etc/os-release
     case "${ID}" in
       ubuntu)
         gpg_url="https://download.docker.com/linux/ubuntu/gpg"
@@ -231,34 +205,43 @@ JSON
 }
 
 # Install base packages
-echo ""
+printf "\n"
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
-echo ""
+printf "\n"
 echo "Installing Docker..."
 run_cmd "  ${CHILD_MARK} Adding Docker repository..." add_docker_repo
 run_cmd "  ${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Ensure Docker service is running (best-effort)
+# Ensure Docker service is running
 run_cmd "  ${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
+run_cmd "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 
 # Install Loki driver
-# The check needs to run directly, but the install can be wrapped
 if docker plugin inspect loki >/dev/null 2>&1; then
   echo "  ${CHILD_MARK} Loki plugin already installed (skip)"
 else
-    # retry up to 2 times then warn
-    if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
-      sleep 2
-      if ! run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver (retry)..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions; then
-        echo -e "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
-      fi
+  if run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
+    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
+      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
     fi
+  fi
+  if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
+    echo "${YEL}Warning:${NC} Loki plugin not fully enabled. Attempting Docker daemon restart and re-enable."
+    run_cmd_try "  ${CHILD_MARK} Restarting Docker daemon..." systemctl restart docker
+    run_cmd_try "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver (post-restart)..." docker plugin enable loki; then
+      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket (post-restart)..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+    fi
+  fi
+  if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
+    echo "${YEL}Warning:${NC} Loki plugin install failed; continuing without it."
+  fi
 fi
 
 # Create user
-echo ""
+printf "\n"
 echo "Preparing system user and data dirs..."
 if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
@@ -279,7 +262,7 @@ if [[ -z "${app_dir:-}" ]]; then
 fi
 
 # Resolve ref (latest tag, fallback to main)
-echo ""
+printf "\n"
 echo "Resolving ref to install..."
 if [[ -z "$ref" ]]; then
   if ((include_pre==1)); then
@@ -303,7 +286,7 @@ run_cmd "  ${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir
 run_cmd "  ${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
 
 # Get code from GitHub
-echo ""
+printf "\n"
 echo "Cloning repository..."
 if [[ -d "$app_dir/.git" ]]; then
   # Repo exists, just fetch
@@ -329,7 +312,7 @@ fi
 run_cmd "  ${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
 # Create .env file
-echo ""
+printf "\n"
 echo "Configuring environment..."
 cd "$app_dir"
 if [[ ! -f ".env" ]]; then
@@ -348,7 +331,6 @@ if [[ ! -f ".env" ]]; then
   fill_if_empty ENCRYPTION_KEY "$ek"
   fill_if_empty POSTGRES_PASSWORD "$pgp"
   fill_if_empty SERVER_IP "$sip"
-  echo "  ${CHILD_MARK} Populated .env defaults"
 else
   echo "  ${CHILD_MARK} .env exists; not modified."
 fi
@@ -361,7 +343,7 @@ else
 fi
 
 # Build runners images
-echo ""
+printf "\n"
 if [[ -d Docker/runner ]]; then
   build_runners_cmd="
     set -e
@@ -374,18 +356,18 @@ if [[ -d Docker/runner ]]; then
 fi
 
 # Save install metadata (version.json)
-echo ""
+printf "\n"
 echo "Finalizing installation..."
 commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 install -d -m 0755 /var/lib/devpush
 if [[ ! -f /var/lib/devpush/version.json ]]; then
   install_id=$(cat /proc/sys/kernel/random/uuid)
-  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" > /var/lib/devpush/version.json
+  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
 else
   install_id=$(jq -r '.install_id' /var/lib/devpush/version.json 2>/dev/null || true)
   [[ -n "$install_id" && "$install_id" != "null" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
-  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" > /var/lib/devpush/version.json
+  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
 fi
 chown "$user:$user" /var/lib/devpush/version.json || true
 chmod 0644 /var/lib/devpush/version.json || true
@@ -419,7 +401,7 @@ if ((run_harden_ssh==1)); then
   fi
 fi
 
-echo -e "${GRN}Install complete. ✔${NC}"
+echo -e "${GRN}Install complete (ref: ${ref}). ✔${NC}"
 echo ""
 echo "Next:"
 echo "  1) sudo -iu ${user}"
