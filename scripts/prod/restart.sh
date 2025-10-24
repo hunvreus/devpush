@@ -35,7 +35,10 @@ done
 
 cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 
-info "Restarting services..."
+printf "\n"
+echo "Restarting services..."
 scripts/prod/stop.sh --app-dir "$app_dir"
 scripts/prod/start.sh --app-dir "$app_dir" --env-file "$envf" $( ((pull_always==0)) && echo --no-pull ) $( ((do_migrate==1)) && echo --migrate ) ${ssl_provider:+--ssl-provider "$ssl_provider"}
-ok "Restarted."
+
+printf "\n"
+echo -e "${GRN}Services restarted. ✔${NC}"

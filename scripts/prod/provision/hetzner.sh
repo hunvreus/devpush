@@ -5,7 +5,7 @@ IFS=$'\n\t'
 # Capture stderr for error reporting
 exec 2> >(tee /tmp/provision_error.log >&2)
 
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib.sh"
 
 trap 's=$?; err "Provision failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/provision_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
 
@@ -65,7 +65,8 @@ api_post() {
 }
 
 # Validate token early
-info "Validating Hetzner API token..."
+printf "\n"
+echo "Validating Hetzner API token..."
 if ! api_get ssh_keys >/dev/null 2>&1; then
     err "Hetzner API token seems invalid or unauthorized. Visit https://console.hetzner.cloud/ to create a token."
     exit 1
@@ -75,8 +76,10 @@ fi
 region="${region_flag:-hil}"
 server_type="${type_flag:-cpx31}"
 
-info "Provisioning: $server_type in $region"
-echo ""
+printf "\n"
+echo "Provisioning server..."
+echo "${INFO_MARK} Type: $server_type"
+echo "${INFO_MARK} Region: $region"
 
 # Determine server name (flag overrides default; no prompt)
 server_name="${name_flag:-devpush-$region}"
@@ -87,8 +90,11 @@ if [[ "$login_user" == "root" ]]; then
     err "Refusing to create 'root'. Choose a non-root username."
     exit 1
 fi
+echo "${INFO_MARK} Login user: $login_user"
+echo "${INFO_MARK} Server name: $server_name"
 
-info "Fetching SSH keys from Hetzner project..."
+printf "\n"
+echo "Fetching SSH keys from Hetzner project..."
 ssh_json=$(api_get ssh_keys)
 ssh_count=$(echo "$ssh_json" | jq '.ssh_keys | length')
 if [ "$ssh_count" -eq 0 ]; then
@@ -99,6 +105,7 @@ if [ "$ssh_count" -eq 0 ]; then
 fi
 ssh_ids=$(echo "$ssh_json" | jq '[.ssh_keys[].id]')
 ssh_pub_lines=$(echo "$ssh_json" | jq -r '.ssh_keys[].public_key' | sed 's/^/      - /')
+echo "${INFO_MARK} Found $ssh_count SSH key(s)"
 
 user_data=$(cat <<EOF
 #cloud-config
@@ -125,7 +132,8 @@ payload=$(jq -n \
     --argjson ssh_keys "$ssh_ids" \
     '{name:$name, server_type:$st, image:$img, location:$loc, ssh_keys:$ssh_keys, user_data:$user_data, start_after_create:true}')
 
-info "Creating server via Hetzner API..."
+printf "\n"
+echo "Creating server via Hetzner API..."
 create_resp=$(api_post servers "$payload")
 server_id=$(echo "$create_resp" | jq -r '.server.id // empty')
 if [ -z "$server_id" ]; then
@@ -133,8 +141,10 @@ if [ -z "$server_id" ]; then
     echo "$create_resp"
     exit 1
 fi
+echo "${INFO_MARK} Server ID: $server_id"
 
-info "Waiting for server to be running..."
+printf "\n"
+echo "Waiting for server to be running..."
 for i in $(seq 1 60); do
     status_json=$(api_get servers/$server_id)
     status=$(echo "$status_json" | jq -r '.server.status')
@@ -146,11 +156,11 @@ done
 
 server_json=$(api_get servers/$server_id)
 server_ip=$(echo "$server_json" | jq -r '.server.public_net.ipv4.ip')
-  
-echo ""
-ok "Server successfully created!"
-info "Server name: $server_name"
-info "Server IP: $server_ip"
+
+printf "\n"
+echo -e "${GRN}Server provisioned. ✔${NC}"
+echo "${INFO_MARK} Name: $server_name"
+echo "${INFO_MARK} IP: $server_ip"
 
 echo ""
 echo "Next steps:"

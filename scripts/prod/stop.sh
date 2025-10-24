@@ -34,11 +34,14 @@ done
 
 cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 
-info "Stopping services..."
+printf "\n"
+echo "Stopping services..."
 args=(-p devpush)
 if ((hard==1)); then
   docker compose "${args[@]}" down --remove-orphans
 else
   docker compose "${args[@]}" stop
 fi
-ok "Stopped."
+
+printf "\n"
+echo -e "${GRN}Services stopped. ✔${NC}"

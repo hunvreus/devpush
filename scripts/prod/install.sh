@@ -210,6 +210,31 @@ JSON
     chmod 0644 /srv/devpush/access.json || true
 }
 
+record_version() {
+    local commit ts install_id
+    commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    install -d -m 0755 /var/lib/devpush
+    if [[ ! -f /var/lib/devpush/version.json ]]; then
+        install_id=$(cat /proc/sys/kernel/random/uuid)
+        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
+    else
+        install_id=$(jq -r '.install_id' /var/lib/devpush/version.json 2>/dev/null || true)
+        [[ -n "$install_id" && "$install_id" != "null" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
+        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
+    fi
+    chown "$user:$user" /var/lib/devpush/version.json || true
+    chmod 0644 /var/lib/devpush/version.json || true
+}
+
+send_telemetry() {
+    local payload
+    payload=$(jq -c --arg ev "install" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
+    if [[ -n "$payload" ]]; then
+        curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry >/dev/null 2>&1 || true
+    fi
+}
+
 # Install base packages
 printf "\n"
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
@@ -227,7 +252,7 @@ run_cmd "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 
 # Install Loki driver
 if docker plugin inspect loki >/dev/null 2>&1; then
   echo "  ${CHILD_MARK} Installing Loki Docker driver... ${YEL}⊘${NC}"
-  echo "    ${INFO_MARK} Plugin already installed"
+  echo "  ${INFO_MARK} Plugin already installed"
 else
   if run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
     if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
@@ -254,7 +279,7 @@ if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
 else
     echo "  ${CHILD_MARK} Creating user '${user}'... ${YEL}⊘${NC}"
-    echo "    ${INFO_MARK} User already exists"
+    echo "  ${INFO_MARK} User already exists"
 fi
 
 # Add data dirs
@@ -341,7 +366,7 @@ if [[ ! -f ".env" ]]; then
   fill_if_empty SERVER_IP "$sip"
 else
   echo "  ${CHILD_MARK} Create .env from template... ${YEL}⊘${NC}"
-  echo "    ${INFO_MARK} .env already exists"
+  echo "  ${INFO_MARK} .env already exists"
 fi
 
 # Seed access.json for per-file mount
@@ -349,7 +374,7 @@ if [[ ! -f "/srv/devpush/access.json" ]]; then
     run_cmd "  ${CHILD_MARK} Seeding access.json..." seed_access_json
 else
     echo "  ${CHILD_MARK} Seeding access.json... ${YEL}⊘${NC}"
-    echo "    ${INFO_MARK} File already exists"
+    echo "  ${INFO_MARK} File already exists"
 fi
 
 # Build runners images
@@ -367,31 +392,17 @@ fi
 
 # Save install metadata (version.json)
 printf "\n"
-echo "Finalizing installation..."
-commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-install -d -m 0755 /var/lib/devpush
-if [[ ! -f /var/lib/devpush/version.json ]]; then
-  install_id=$(cat /proc/sys/kernel/random/uuid)
-  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
-else
-  install_id=$(jq -r '.install_id' /var/lib/devpush/version.json 2>/dev/null || true)
-  [[ -n "$install_id" && "$install_id" != "null" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
-  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
-fi
-chown "$user:$user" /var/lib/devpush/version.json || true
-chmod 0644 /var/lib/devpush/version.json || true
+run_cmd "Recording install metadata..." record_version
 
 # Send telemetry
 if ((telemetry==1)); then
-  payload=$(jq -c --arg ev "install" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
-  if [[ -n "$payload" ]]; then
-    curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry >/dev/null 2>&1 || true
-  fi
+  printf "\n"
+  run_cmd "Sending telemetry..." send_telemetry
 fi
 
 # Optional hardening (non-fatal)
 if ((run_harden==1)); then
+  printf "\n"
   set +e
   run_cmd "Running server hardening..." bash scripts/prod/harden.sh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr=$?
@@ -402,6 +413,7 @@ if ((run_harden==1)); then
 fi
 
 if ((run_harden_ssh==1)); then
+  printf "\n"
   set +e
   run_cmd "Running SSH hardening..." bash scripts/prod/harden.sh --ssh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr2=$?
@@ -411,6 +423,7 @@ if ((run_harden_ssh==1)); then
   fi
 fi
 
+printf "\n"
 echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
 echo ""
 echo "Next:"

@@ -122,10 +122,6 @@ if ((with_ssh==1)); then
   run_cmd "  ${CHILD_MARK} Disabling root login..." sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
   run_cmd "  ${CHILD_MARK} Disabling password authentication..." sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
   run_cmd "  ${CHILD_MARK} Restarting SSH service..." systemctl restart ssh
-  echo "  ${CHILD_MARK} SSH hardened. Access as '${user}'."
-else
-  printf "\n"
-  echo "  ${CHILD_MARK} Skipping SSH hardening (not requested)."
 fi
 
 # Firewall
