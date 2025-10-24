@@ -38,7 +38,7 @@ cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 validate_core_env "$envf"
 
 printf "\n"
-run_cmd "Waiting for database..." bash -c 'for i in $(seq 1 '"$((timeout/5))"'); do docker compose -p devpush exec -T pgsql pg_isready -U "${POSTGRES_USER:-devpush-app}" >/dev/null 2>&1 && exit 0; sleep 5; done; exit 1'
+run_cmd "Waiting for database..." docker compose -p devpush exec -T pgsql sh -lc 'for i in $(seq 1 '"$((timeout/5))"'); do pg_isready -U "${POSTGRES_USER:-devpush-app}" >/dev/null 2>&1 && exit 0; sleep 5; done; exit 1'
 
 run_cmd "Waiting for app container..." bash -c 'for i in $(seq 1 '"$((timeout/5))"'); do [ "$(docker ps --filter "name=devpush-app" -q | wc -l | tr -d " ")" != "0" ] && exit 0; sleep 5; done; exit 1'
 

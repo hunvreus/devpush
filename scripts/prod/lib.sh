@@ -17,6 +17,9 @@ if [[ -t 1 ]] && is_utf8; then
   INFO_MARK="→"
 fi
 
+# Default per-script error log (can be overridden by caller)
+: "${SCRIPT_ERR_LOG:=/tmp/$(basename "$0" .sh)_error.log}"
+
 err(){ echo -e "${RED}Error:${NC} $*" >&2; }
 ok(){ echo -e "${GRN}Success:${NC} $*"; }
 info(){ echo "$*"; }
@@ -59,7 +62,11 @@ run_cmd() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        spinner "$pid" "$msg"
+        local use_spinner=0
+        if [[ -t 2 ]]; then use_spinner=1; fi
+        if ((use_spinner==1)); then
+            spinner "$pid" "$msg"
+        fi
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -69,9 +76,17 @@ run_cmd() {
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
-                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    sed 's/^/  /' "$CMD_LOG" >&2
+                fi
             else
-                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    echo "  (no output captured)" >&2
+                fi
             fi
             echo ""
             exit $exit_code
@@ -102,7 +117,11 @@ run_cmd_try() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        spinner "$pid" "$msg"
+        local use_spinner=0
+        if [[ -t 2 ]]; then use_spinner=1; fi
+        if ((use_spinner==1)); then
+            spinner "$pid" "$msg"
+        fi
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -111,9 +130,17 @@ run_cmd_try() {
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
-                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    sed 's/^/  /' "$CMD_LOG" >&2
+                fi
             else
-                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    echo "  (no output captured)" >&2
+                fi
             fi
             echo ""
             return $exit_code
