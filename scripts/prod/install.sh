@@ -252,7 +252,7 @@ run_cmd "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 
 # Install Loki driver
 if docker plugin inspect loki >/dev/null 2>&1; then
   echo "  ${CHILD_MARK} Installing Loki Docker driver... ${YEL}⊘${NC}"
-  echo "  ${INFO_MARK} Plugin already installed"
+  echo -e "    ${DIM}${CHILD_MARK} Plugin already installed${NC}"
 else
   if run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
     if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
@@ -279,7 +279,7 @@ if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
 else
     echo "  ${CHILD_MARK} Creating user '${user}'... ${YEL}⊘${NC}"
-    echo "  ${INFO_MARK} User already exists"
+    echo -e "    ${DIM}${CHILD_MARK} User already exists${NC}"
 fi
 
 # Add data dirs
@@ -366,7 +366,7 @@ if [[ ! -f ".env" ]]; then
   fill_if_empty SERVER_IP "$sip"
 else
   echo "  ${CHILD_MARK} Create .env from template... ${YEL}⊘${NC}"
-  echo "  ${INFO_MARK} .env already exists"
+  echo -e "    ${DIM}${CHILD_MARK} .env already exists${NC}"
 fi
 
 # Seed access.json for per-file mount
@@ -374,7 +374,7 @@ if [[ ! -f "/srv/devpush/access.json" ]]; then
     run_cmd "  ${CHILD_MARK} Seeding access.json..." seed_access_json
 else
     echo "  ${CHILD_MARK} Seeding access.json... ${YEL}⊘${NC}"
-    echo "  ${INFO_MARK} File already exists"
+    echo -e "    ${DIM}${CHILD_MARK} File already exists${NC}"
 fi
 
 # Build runners images

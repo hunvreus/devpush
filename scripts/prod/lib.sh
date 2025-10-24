@@ -3,19 +3,15 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 if [[ -t 1 ]]; then
-  RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; NC="$(printf '\033[0m')"
+  RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; DIM="$(printf '\033[2m')"; NC="$(printf '\033[0m')"
 else
-  RED=""; GRN=""; YEL=""; BLD=""; NC=""
+  RED=""; GRN=""; YEL=""; BLD=""; DIM=""; NC=""
 fi
 
 # Child marker (Unicode when UTF-8 TTY, ASCII otherwise)
 is_utf8(){ case "${LC_ALL:-${LANG:-}}" in *UTF-8*|*utf8*) return 0;; *) return 1;; esac; }
 CHILD_MARK="-"
-INFO_MARK="->"
-if [[ -t 1 ]] && is_utf8; then
-  CHILD_MARK="└─"
-  INFO_MARK="→"
-fi
+if [[ -t 1 ]] && is_utf8; then CHILD_MARK="└─"; fi
 
 err(){ echo -e "${RED}Error:${NC} $*" >&2; }
 ok(){ echo -e "${GRN}Success:${NC} $*"; }

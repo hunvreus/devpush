@@ -146,7 +146,7 @@ blue_green_rollout() {
     sleep 2
   done
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
-  echo "  ${INFO_MARK} New container: $new_id"
+  echo -e "    ${DIM}${CHILD_MARK} New container: $new_id${NC}"
 
   echo "${CHILD_MARK} Waiting for new container to be healthy (timeout: ${timeout_s}s)..."
   local deadline=$(( $(date +%s) + timeout_s ))
@@ -155,13 +155,13 @@ blue_green_rollout() {
     if docker inspect "$new_id" --format '{{.State.Health}}' >/dev/null 2>&1; then
       st=$(docker inspect "$new_id" --format '{{.State.Health.Status}}' 2>/dev/null || echo "starting")
       if [[ "$st" == "healthy" ]]; then
-        echo "  ${INFO_MARK} Container is healthy"
+        echo -e "    ${DIM}${CHILD_MARK} Container is healthy${NC}"
         break
       fi
     else
       st=$(docker inspect "$new_id" --format '{{.State.Status}}' 2>/dev/null || echo "starting")
       if [[ "$st" == "running" ]]; then
-        echo "  ${INFO_MARK} Container is running (no healthcheck)"
+        echo -e "    ${DIM}${CHILD_MARK} Container is running (no healthcheck)${NC}"
         break
       fi
     fi
