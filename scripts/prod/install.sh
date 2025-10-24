@@ -141,7 +141,9 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]]
         exit 0
       fi
     else
+      echo ""
       err "Existing install detected. Re-run with --yes to proceed."
+      echo ""
       exit 1
     fi
   fi
