@@ -128,6 +128,7 @@ summary() {
 
 if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]] || [[ -d /opt/devpush/.git ]]; then
   existing=1
+  echo ""
   echo "Existing install detected:"
   summary
   if (( yes_flag == 1 )); then
@@ -228,6 +229,7 @@ JSON
 }
 
 # Install base packages
+echo ""
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker

@@ -64,11 +64,13 @@ run_cmd() {
             echo "$SPIN_PREFIX ${RED}✖${NC}"
             err "Failed. Command output:"
             echo ""
+            echo ""
             if [[ -s "$CMD_LOG" ]]; then
                 sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else
                 echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
             fi
+            echo ""
             exit $exit_code
         else
             printf "\r\033[K"
@@ -105,11 +107,13 @@ run_cmd_try() {
             printf "\r\033[K"
             echo "$SPIN_PREFIX ${RED}✖${NC}"
             err "Failed. Command output:"
+            echo ""
             if [[ -s "$CMD_LOG" ]]; then
                 cat "$CMD_LOG" | tee -a /tmp/install_error.log >&2
             else
                 echo "(no output captured)" | tee -a /tmp/install_error.log >&2
             fi
+            echo ""
             return $exit_code
         else
             printf "\r\033[K"
