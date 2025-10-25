@@ -126,8 +126,7 @@ elif [[ -z "$comps" ]]; then
       full_update
       ;;
     *)
-      printf "\n"
-      err "invalid choice"
+      echo "Invalid choice."
       exit 1
       ;;
   esac
