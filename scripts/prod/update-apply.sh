@@ -106,13 +106,11 @@ if ((do_all==1)); then
 elif [[ -z "$comps" ]]; then
   printf "\n"
   echo "Select components to update:"
-  printf "\n"
   echo "1) app + workers (app, worker-arq, worker-monitor)"
   echo "2) app"
   echo "3) worker-arq"
   echo "4) worker-monitor"
   echo "5) Full stack (with downtime)"
-  printf "\n"
   read -r -p "Choice [1-5]: " ch
   ch="${ch//[^0-9]/}"
   case "$ch" in
