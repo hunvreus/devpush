@@ -99,11 +99,11 @@ summary() {
     echo -e "- version.json present (ref: ${ref:-unknown})"
   fi
   if [[ -d /home/devpush/devpush/.git ]]; then
-    echo -e "- repo: /home/devpush/devpush"
+    echo -e "- repo present in /home/devpush/devpush"
     [[ -f /home/devpush/devpush/.env ]] && echo -e "- .env present in /home/devpush/devpush"
   fi
   if [[ -d /opt/devpush/.git ]]; then
-    echo -e "- repo: /opt/devpush"
+    echo -e "- repo present in /opt/devpush"
     [[ -f /opt/devpush/.env ]] && echo -e "- .env present in /opt/devpush"
   fi
 }
