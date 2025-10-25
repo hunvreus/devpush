@@ -25,7 +25,7 @@ printf "Proceed? [y/N]: "
 read ans
 case "$ans" in
   y|Y|yes|YES) : ;;
-  *) echo "Aborted"; exit 1;;
+  *) echo "Aborted."; exit 1;;
 esac
 
 docker-compose $args exec "$container" psql -U "$db_user" -d "$db_name" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"

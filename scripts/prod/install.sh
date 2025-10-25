@@ -117,9 +117,10 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]]
     echo -e "${DIM}${CHILD_MARK} Proceeding due to --yes${NC}"
   else
     if [[ -t 0 ]]; then
+      echo ""
       read -r -p "Proceed with install anyway? [y/N] " ans
       if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-        echo "Aborted"
+        echo "Aborted."
         exit 0
       fi
     else
