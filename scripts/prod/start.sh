@@ -56,13 +56,13 @@ printf "\n"
 echo "Starting services..."
 args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
 ((pull_always==1)) && pullflag=(--pull always) || pullflag=()
-run_cmd "  ${CHILD_MARK} Starting Docker Compose stack..." docker compose "${args[@]}" up -d "${pullflag[@]}" --remove-orphans
+run_cmd "${CHILD_MARK} Starting Docker Compose stack..." docker compose "${args[@]}" up -d "${pullflag[@]}" --remove-orphans
 
 # Apply database migrations
 if ((do_migrate==1)); then
   printf "\n"
   echo "Applying migrations..."
-  run_cmd "  ${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file "$envf"
+  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file "$envf"
 fi
 
 printf "\n"

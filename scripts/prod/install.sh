@@ -96,15 +96,15 @@ summary() {
   if [[ -f /var/lib/devpush/version.json ]]; then
     ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
     commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
-    echo -e "  ${DIM}${CHILD_MARK} version.json present (ref: ${ref:-unknown}, commit: ${commit:-unknown})${NC}"
+    echo -e "${DIM}${CHILD_MARK} version.json present (ref: ${ref:-unknown})${NC}"
   fi
   if [[ -d /home/devpush/devpush/.git ]]; then
-    echo -e "  ${DIM}${CHILD_MARK} repo: /home/devpush/devpush${NC}"
-    [[ -f /home/devpush/devpush/.env ]] && echo -e "  ${DIM}${CHILD_MARK} .env present in /home/devpush/devpush${NC}"
+    echo -e "${DIM}${CHILD_MARK} repo: /home/devpush/devpush${NC}"
+    [[ -f /home/devpush/devpush/.env ]] && echo -e "${DIM}${CHILD_MARK} .env present in /home/devpush/devpush${NC}"
   fi
   if [[ -d /opt/devpush/.git ]]; then
-    echo -e "  ${DIM}${CHILD_MARK} repo: /opt/devpush${NC}"
-    [[ -f /opt/devpush/.env ]] && echo -e "  ${DIM}${CHILD_MARK} .env present in /opt/devpush${NC}"
+    echo -e "${DIM}${CHILD_MARK} repo: /opt/devpush${NC}"
+    [[ -f /opt/devpush/.env ]] && echo -e "${DIM}${CHILD_MARK} .env present in /opt/devpush${NC}"
   fi
 }
 
@@ -114,7 +114,7 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]]
   echo "Existing install detected:"
   summary
   if (( yes_flag == 1 )); then
-    echo -e "  ${DIM}${CHILD_MARK} Proceeding due to --yes${NC}"
+    echo -e "${DIM}${CHILD_MARK} Proceeding due to --yes${NC}"
   else
     if [[ -t 0 && -t 1 ]]; then
       read -r -p "Proceed with install anyway? [y/N] " ans

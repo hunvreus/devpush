@@ -107,30 +107,30 @@ fi
 # Install security packages
 printf "\n"
 echo "Installing security packages..."
-run_cmd "  ${CHILD_MARK} Installing ufw, fail2ban, unattended-upgrades..." apt_install ufw fail2ban unattended-upgrades
+run_cmd "${CHILD_MARK} Installing ufw, fail2ban, unattended-upgrades..." apt_install ufw fail2ban unattended-upgrades
 
 # Enable services
 printf "\n"
 echo "Enabling services..."
-run_cmd "  ${CHILD_MARK} Enabling fail2ban..." systemctl enable --now fail2ban
-run_cmd "  ${CHILD_MARK} Enabling unattended-upgrades..." systemctl enable --now unattended-upgrades
+run_cmd "${CHILD_MARK} Enabling fail2ban..." systemctl enable --now fail2ban
+run_cmd "${CHILD_MARK} Enabling unattended-upgrades..." systemctl enable --now unattended-upgrades
 
 if ((with_ssh==1)); then
   # SSH hardening
   printf "\n"
   echo "Hardening SSH..."
-  run_cmd "  ${CHILD_MARK} Disabling root login..." sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-  run_cmd "  ${CHILD_MARK} Disabling password authentication..." sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-  run_cmd "  ${CHILD_MARK} Restarting SSH service..." systemctl restart ssh
+  run_cmd "${CHILD_MARK} Disabling root login..." sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  run_cmd "${CHILD_MARK} Disabling password authentication..." sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  run_cmd "${CHILD_MARK} Restarting SSH service..." systemctl restart ssh
 fi
 
 # Firewall
 printf "\n"
 echo "Configuring firewall..."
-run_cmd "  ${CHILD_MARK} Allowing port 22 (SSH)..." ufw allow 22
-run_cmd "  ${CHILD_MARK} Allowing port 80 (HTTP)..." ufw allow 80
-run_cmd "  ${CHILD_MARK} Allowing port 443 (HTTPS)..." ufw allow 443
-run_cmd "  ${CHILD_MARK} Enabling UFW..." bash -c 'yes | ufw enable'
+run_cmd "${CHILD_MARK} Allowing port 22 (SSH)..." ufw allow 22
+run_cmd "${CHILD_MARK} Allowing port 80 (HTTP)..." ufw allow 80
+run_cmd "${CHILD_MARK} Allowing port 443 (HTTPS)..." ufw allow 443
+run_cmd "${CHILD_MARK} Enabling UFW..." bash -c 'yes | ufw enable'
 
 printf "\n"
 echo -e "${GRN}Hardening complete. ✔${NC}"

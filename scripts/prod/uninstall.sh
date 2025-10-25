@@ -70,10 +70,10 @@ fi
 # Show what was detected
 printf "\n"
 echo "Install detected:"
-[[ -n "$app_dir" ]] && echo -e "  ${DIM}${CHILD_MARK} App directory: $app_dir${NC}"
-[[ -d /srv/devpush ]] && echo -e "  ${DIM}${CHILD_MARK} Data directory: /srv/devpush/${NC}"
-id -u "$user" >/dev/null 2>&1 && echo -e "  ${DIM}${CHILD_MARK} User: $user (home: /home/$user/)${NC}"
-[[ -n "$version_ref" ]] && echo -e "  ${DIM}${CHILD_MARK} Version: $version_ref${NC}"
+[[ -n "$app_dir" ]] && echo -e "${DIM}${CHILD_MARK} App directory: $app_dir${NC}"
+[[ -d /srv/devpush ]] && echo -e "${DIM}${CHILD_MARK} Data directory: /srv/devpush/${NC}"
+id -u "$user" >/dev/null 2>&1 && echo -e "${DIM}${CHILD_MARK} User: $user (home: /home/$user/)${NC}"
+[[ -n "$version_ref" ]] && echo -e "${DIM}${CHILD_MARK} Version: $version_ref${NC}"
 
 # Warning and confirmation
 printf "\n"
@@ -94,7 +94,7 @@ if [[ -n "$app_dir" && -f "$app_dir/docker-compose.yml" ]]; then
   run_cmd "Stopping services..." bash "$app_dir/scripts/prod/stop.sh" --app-dir "$app_dir" --down
 else
   echo "Stopping services... ${YEL}⊘${NC}"
-  echo -e "  ${DIM}${CHILD_MARK} No docker-compose.yml found${NC}"
+  echo -e "${DIM}${CHILD_MARK} No docker-compose.yml found${NC}"
 fi
 
 # Remove application
@@ -103,7 +103,7 @@ echo "Removing application..."
 
 if [[ -n "$app_dir" && -d "$app_dir" ]]; then
   set +e
-  run_cmd_try "  ${CHILD_MARK} Removing app directory..." rm -rf "$app_dir"
+  run_cmd_try "${CHILD_MARK} Removing app directory..." rm -rf "$app_dir"
   set -e
 fi
 
@@ -112,17 +112,17 @@ set +e
 runner_images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^runner-' || true)
 if [[ -n "$runner_images" ]]; then
   image_count=$(echo "$runner_images" | wc -l | tr -d ' ')
-  run_cmd_try "  ${CHILD_MARK} Removing runner images ($image_count found)..." bash -c "echo '$runner_images' | xargs docker rmi -f"
+  run_cmd_try "${CHILD_MARK} Removing runner images ($image_count found)..." bash -c "echo '$runner_images' | xargs docker rmi -f"
 else
-  echo "  ${CHILD_MARK} Removing runner images... ${YEL}⊘${NC}"
-  echo -e "    ${DIM}${CHILD_MARK} No runner images found${NC}"
+  echo "${CHILD_MARK} Removing runner images... ${YEL}⊘${NC}"
+  echo -e "${DIM}${CHILD_MARK} No runner images found${NC}"
 fi
 set -e
 
 # Remove metadata
 if [[ -d /var/lib/devpush ]]; then
   set +e
-  run_cmd_try "  ${CHILD_MARK} Removing metadata..." rm -rf /var/lib/devpush
+  run_cmd_try "${CHILD_MARK} Removing metadata..." rm -rf /var/lib/devpush
   set -e
 fi
 
@@ -145,11 +145,11 @@ if (( yes_flag == 0 )) && [[ -d /srv/devpush ]]; then
     run_cmd_try "Removing data directory..." rm -rf /srv/devpush
     set -e
   else
-    echo -e "  ${DIM}${CHILD_MARK} Data directory kept${NC}"
+    echo -e "${DIM}${CHILD_MARK} Data directory kept${NC}"
   fi
 elif [[ -d /srv/devpush ]]; then
   echo ""
-  echo -e "  ${DIM}${CHILD_MARK} Data directory kept (use rm -rf /srv/devpush to remove manually)${NC}"
+  echo -e "${DIM}${CHILD_MARK} Data directory kept (use rm -rf /srv/devpush to remove manually)${NC}"
 fi
 
 # Interactive: Remove user?
@@ -164,11 +164,11 @@ if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
     [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
     set -e
   else
-    echo -e "  ${DIM}${CHILD_MARK} User kept${NC}"
+    echo -e "${DIM}${CHILD_MARK} User kept${NC}"
   fi
 elif id -u "$user" >/dev/null 2>&1; then
   echo ""
-  echo -e "  ${DIM}${CHILD_MARK} User '$user' kept (use 'userdel -r $user' to remove manually)${NC}"
+  echo -e "${DIM}${CHILD_MARK} User '$user' kept (use 'userdel -r $user' to remove manually)${NC}"
 fi
 
 # Final summary
@@ -176,22 +176,22 @@ printf "\n"
 echo -e "${GRN}Uninstall complete. ✔${NC}"
 echo ""
 echo "Removed:"
-[[ -n "$app_dir" ]] && echo -e "  ${DIM}${CHILD_MARK} Application: $app_dir${NC}"
-echo -e "  ${DIM}${CHILD_MARK} Docker containers and volumes${NC}"
-[[ -n "$runner_images" ]] && echo -e "  ${DIM}${CHILD_MARK} Runner images: $image_count images${NC}"
-echo -e "  ${DIM}${CHILD_MARK} Metadata: /var/lib/devpush/${NC}"
+[[ -n "$app_dir" ]] && echo -e "${DIM}${CHILD_MARK} Application: $app_dir${NC}"
+echo -e "${DIM}${CHILD_MARK} Docker containers and volumes${NC}"
+[[ -n "$runner_images" ]] && echo -e "${DIM}${CHILD_MARK} Runner images: $image_count images${NC}"
+echo -e "${DIM}${CHILD_MARK} Metadata: /var/lib/devpush/${NC}"
 
 if [[ -d /srv/devpush ]] || id -u "$user" >/dev/null 2>&1; then
   echo ""
   echo "Kept (manual cleanup if needed):"
-  [[ -d /srv/devpush ]] && echo -e "  ${DIM}${CHILD_MARK} Data: /srv/devpush/${NC}"
-  id -u "$user" >/dev/null 2>&1 && echo -e "  ${DIM}${CHILD_MARK} User: $user${NC}"
+  [[ -d /srv/devpush ]] && echo -e "${DIM}${CHILD_MARK} Data: /srv/devpush/${NC}"
+  id -u "$user" >/dev/null 2>&1 && echo -e "${DIM}${CHILD_MARK} User: $user${NC}"
 fi
 
 echo ""
 echo "System packages not removed:"
-echo -e "  ${DIM}${CHILD_MARK} Docker, git, jq, curl${NC}"
-echo -e "  ${DIM}${CHILD_MARK} Security: UFW, fail2ban, SSH hardening${NC}"
+echo -e "${DIM}${CHILD_MARK} Docker, git, jq, curl${NC}"
+echo -e "${DIM}${CHILD_MARK} Security: UFW, fail2ban, SSH hardening${NC}"
 echo ""
 echo "To remove Docker:"
 echo "  sudo apt-get remove --purge docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"

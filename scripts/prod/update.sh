@@ -58,7 +58,7 @@ cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 printf "\n"
 echo "Resolving update target..."
 if [[ -z "$ref" ]]; then
-  run_cmd "  ${CHILD_MARK} Fetching tags..." git fetch --tags --quiet origin
+  run_cmd "${CHILD_MARK} Fetching tags..." git fetch --tags --quiet origin
   if ((include_pre==1)); then
     ref="$(git tag -l --sort=version:refname | tail -1 || true)"
   else
@@ -66,12 +66,12 @@ if [[ -z "$ref" ]]; then
     [[ -n "$ref" ]] || ref="$(git tag -l --sort=version:refname | tail -1 || true)"
   fi
   [[ -n "$ref" ]] || ref="main"
-  echo "  ${CHILD_MARK} Target: $ref"
+  echo -e "  ${DIM}${CHILD_MARK} Target: $ref${NC}"
 fi
 
 printf "\n"
 echo "Fetching update..."
-run_cmd "  ${CHILD_MARK} Fetching ref: $ref" bash -c "git fetch --depth 1 origin refs/tags/$ref || git fetch --depth 1 origin $ref"
-run_cmd "  ${CHILD_MARK} Checking out..." git reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Fetching ref: $ref" bash -c "git fetch --depth 1 origin refs/tags/$ref || git fetch --depth 1 origin $ref"
+run_cmd "${CHILD_MARK} Checking out..." git reset --hard FETCH_HEAD
 
 exec scripts/prod/update-apply.sh "$@"
