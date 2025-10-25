@@ -119,13 +119,12 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]]
     if [[ -t 0 && -t 1 ]]; then
       read -r -p "Proceed with install anyway? [y/N] " ans
       if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-        info "Aborted. Existing install detected. Re-run with --yes to proceed non-interactively."
+        info "Aborted. Re-run with --yes to proceed."
         exit 0
       fi
     else
       echo ""
-      err "Existing install detected. Re-run with --yes to proceed."
-      echo ""
+      err "Re-run with --yes to proceed."
       exit 1
     fi
   fi
