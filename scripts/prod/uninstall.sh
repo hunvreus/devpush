@@ -143,6 +143,7 @@ if (( yes_flag == 0 )) && [[ -d /srv/devpush ]]; then
   read -r -p "Remove data directory? [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
     set +e
+    echo ""
     run_cmd_try "Removing data directory..." rm -rf /srv/devpush
     set -e
   else
@@ -159,11 +160,17 @@ if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
   echo "${YEL}Warning:${NC} This will delete the user and their home directory (/home/$user/), including any files not part of the application."
   read -r -p "Remove user '$user'? [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
-    set +e
-    run_cmd_try "Removing user '$user'..." userdel -r "$user"
-    # Clean up sudoers file
-    [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
-    set -e
+    echo ""
+    set +eE
+    trap - ERR
+    if run_cmd_try "Removing user '$user'..." userdel -r "$user"; then
+      # Clean up sudoers file
+      [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
+    else
+      echo -e "${YEL}Warning:${NC} Could not remove user (may have active processes). Run 'userdel -r $user' manually after logout."
+    fi
+    trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/uninstall_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
+    set -eE
   else
     echo -e "${DIM}${CHILD_MARK} User kept${NC}"
   fi

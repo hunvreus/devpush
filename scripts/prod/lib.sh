@@ -19,6 +19,8 @@ info(){ echo "$*"; }
 
 VERBOSE="${VERBOSE:-0}"
 CMD_LOG="${TMPDIR:-/tmp}/devpush-cmd.$$.log"
+# Default per-script error log
+: "${SCRIPT_ERR_LOG:=/tmp/$(basename "$0" .sh)_error.log}"
 
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
@@ -65,9 +67,17 @@ run_cmd() {
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
-                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    sed 's/^/  /' "$CMD_LOG" >&2
+                fi
             else
-                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    echo "  (no output captured)" >&2
+                fi
             fi
             echo ""
             rm -f "$CMD_LOG" 2>/dev/null || true
@@ -109,9 +119,17 @@ run_cmd_try() {
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
-                sed 's/^/  /' "$CMD_LOG" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    sed 's/^/  /' "$CMD_LOG" >&2
+                fi
             else
-                echo "  (no output captured)" | tee -a /tmp/install_error.log >&2
+                if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
+                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
+                else
+                    echo "  (no output captured)" >&2
+                fi
             fi
             echo ""
             rm -f "$CMD_LOG" 2>/dev/null || true

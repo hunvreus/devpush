@@ -24,7 +24,7 @@ trap 's=$?; err "Install failed (exit $s). See $LOG"; echo -e "${RED}Last comman
 
 usage() {
   cat <<USG
-Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--user devpush] [--app-dir <path>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--no-telemetry] [--ssl-provider <name>] [--verbose]
+Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--user devpush] [--app-dir <path>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--yes] [--no-telemetry] [--ssl-provider <name>] [--verbose]
 
 Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .env).
 
@@ -36,15 +36,17 @@ Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .e
   --ssh-pub KEY|PATH     Public key content or file to seed authorized_keys for the user
   --harden               Run system hardening at the end (non-fatal)
   --harden-ssh           Run SSH hardening at the end (non-fatal)
+  --yes, -y              Non-interactive, proceed without prompts
   --no-telemetry         Do not send telemetry
   --ssl-provider         SSL provider: default|cloudflare|route53|gcloud|digitalocean|azure
+  -v, --verbose          Enable verbose output for debugging
   -h, --help             Show this help
-  --verbose, -v        Enable verbose output for debugging
 USG
   exit 1
 }
 
-repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry="${NO_TELEMETRY:-1}"; ssl_provider=""; yes_flag=0
+repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
+[[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -78,6 +80,14 @@ case "${ID_LIKE:-$ID}" in
   *) err "Only Ubuntu/Debian supported"; exit 1 ;;
 esac
 command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
+
+# ASCII art
+printf '\033[38;5;51m    ██╗██████╗ ███████╗██╗   ██╗   ██╗██████╗ ██╗   ██╗███████╗██╗  ██╗\033[0m\n'
+printf '\033[38;5;87m   ██╔╝██╔══██╗██╔════╝██║   ██║  ██╔╝██╔══██╗██║   ██║██╔════╝██║  ██║\033[0m\n'
+printf '\033[38;5;123m  ██╔╝ ██║  ██║█████╗  ██║   ██║ ██╔╝ ██████╔╝██║   ██║███████╗███████║\033[0m\n'
+printf '\033[38;5;159m ██╔╝  ██║  ██║██╔══╝  ╚██╗ ██╔╝██╔╝  ██╔═══╝ ██║   ██║╚════██║██╔══██║\033[0m\n'
+printf '\033[38;5;195m██╔╝   ██████╔╝███████╗ ╚████╔╝██╔╝   ██║     ╚██████╔╝███████║██║  ██║\033[0m\n'
+printf '\033[38;5;225m╚═╝    ╚═════╝ ╚══════╝  ╚═══╝ ╚═╝    ╚═╝      ╚═════╝ ╚══════╝╚═╝  ╚═╝\033[0m\n'
 
 # Detect system info for metadata
 arch="$(dpkg --print-architecture 2>/dev/null || uname -m)"
@@ -185,16 +195,16 @@ add_docker_repo() {
 }
 
 create_user() {
-    useradd -m -U -s /bin/bash -G sudo,docker "$user"
-    install -d -m 700 -o "$user" -g "$user" "/home/$user/.ssh"
-    ak="/home/$user/.ssh/authorized_keys"
-    if [[ -n "$ssh_pub" ]]; then
-      if [[ -f "$ssh_pub" ]]; then cat "$ssh_pub" >> "$ak"; else echo "$ssh_pub" >> "$ak"; fi
-    elif [[ -f /root/.ssh/authorized_keys ]]; then
-      cat /root/.ssh/authorized_keys >> "$ak"
-    fi
-    if [[ -f "$ak" ]]; then chown "$user:$user" "$ak"; chmod 600 "$ak"; fi
-    echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
+  useradd -m -U -s /bin/bash -G sudo,docker "$user"
+  install -d -m 700 -o "$user" -g "$user" "/home/$user/.ssh"
+  ak="/home/$user/.ssh/authorized_keys"
+  if [[ -n "$ssh_pub" ]]; then
+    if [[ -f "$ssh_pub" ]]; then cat "$ssh_pub" >> "$ak"; else echo "$ssh_pub" >> "$ak"; fi
+  elif [[ -f /root/.ssh/authorized_keys ]]; then
+    cat /root/.ssh/authorized_keys >> "$ak"
+  fi
+  if [[ -f "$ak" ]]; then chown "$user:$user" "$ak"; chmod 600 "$ak"; fi
+  echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
 }
 
 seed_access_json() {
@@ -228,11 +238,36 @@ record_version() {
 }
 
 send_telemetry() {
-    local payload
+    local payload response public_ip
     payload=$(jq -c --arg ev "install" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
-    if [[ -n "$payload" ]]; then
-        curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry >/dev/null 2>&1 || true
-    fi
+    if [[ -z "$payload" ]]; then return 0; fi
+    
+    for attempt in 1 2 3; do
+        response=$(curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry 2>&1 || true)
+        if [[ -n "$response" ]]; then
+            public_ip=$(echo "$response" | jq -r '.ip // empty' 2>/dev/null || true)
+            if [[ -n "$public_ip" ]]; then
+                install -d -m 0755 /var/lib/devpush 2>/dev/null || true
+                if [[ -f /var/lib/devpush/config.json ]]; then
+                    jq --arg ip "$public_ip" '. + {public_ip: $ip}' /var/lib/devpush/config.json > /var/lib/devpush/config.json.tmp && mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
+                else
+                    printf '{"public_ip":"%s"}\n' "$public_ip" > /var/lib/devpush/config.json
+                fi
+                chmod 0644 /var/lib/devpush/config.json 2>/dev/null || true
+                return 0
+            fi
+        fi
+        [[ $attempt -lt 3 ]] && sleep 1
+    done
+    
+    return 1
+}
+
+get_public_ip() {
+    curl -fsSL -4 --max-time 5 https://ifconfig.io 2>/dev/null || \
+    curl -fsSL -4 --max-time 5 http://checkip.amazonaws.com 2>/dev/null || \
+    hostname -I | awk '{print $1}' || \
+    echo ""
 }
 
 # Install base packages
@@ -294,9 +329,7 @@ if [[ -z "${app_dir:-}" ]]; then
   fi
 fi
 
-# Resolve ref (latest tag, fallback to main)
-printf "\n"
-echo "Resolving ref to install..."
+# Resolve ref (latest tag, fallback to main) if not provided via --ref
 if [[ -z "$ref" ]]; then
   if ((include_pre==1)); then
     ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
@@ -342,7 +375,7 @@ else
   run_cmd "${CHILD_MARK} Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
 fi
 
-run_cmd "${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
 # Create .env file
 printf "\n"
@@ -394,10 +427,17 @@ fi
 printf "\n"
 run_cmd "Recording install metadata..." record_version
 
-# Send telemetry
+# Send telemetry and retrieve public IP
+public_ip=""
 if ((telemetry==1)); then
   printf "\n"
-  run_cmd "Sending telemetry..." send_telemetry
+  if run_cmd "Sending telemetry..." send_telemetry; then
+    public_ip=$(jq -r '.public_ip // empty' /var/lib/devpush/config.json 2>/dev/null || true)
+  else
+    public_ip=$(get_public_ip)
+  fi
+else
+  public_ip=$(get_public_ip)
 fi
 
 # Optional hardening (non-fatal)
@@ -426,6 +466,10 @@ fi
 printf "\n"
 echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
 echo ""
+if [[ -n "$public_ip" && "$public_ip" != *"Warning:"* ]]; then
+  echo "Your instance will be accessible at: http://${public_ip}"
+  echo ""
+fi
 echo "Next:"
 echo "  1) sudo -iu ${user}"
 echo "  2) cd devpush && vi .env"
