@@ -80,7 +80,7 @@ if (( yes_flag == 0 )); then
   echo "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted."
   read -r -p "Proceed with uninstall? [y/N] " ans
   if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-    echo "Aborted."
+    echo "Aborted"
     exit 0
   fi
 else
