@@ -116,7 +116,7 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]]
   if (( yes_flag == 1 )); then
     echo -e "${DIM}${CHILD_MARK} Proceeding due to --yes${NC}"
   else
-    if [[ -t 0 && -t 1 ]]; then
+    if [[ -t 0 ]]; then
       read -r -p "Proceed with install anyway? [y/N] " ans
       if [[ ! "$ans" =~ ^[Yy]$ ]]; then
         info "Aborted. Re-run with --yes to proceed."
