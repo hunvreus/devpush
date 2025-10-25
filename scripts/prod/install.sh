@@ -242,29 +242,29 @@ run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gn
 # Install Docker
 printf "\n"
 echo "Installing Docker..."
-run_cmd "  ${CHILD_MARK} Adding Docker repository..." add_docker_repo
-run_cmd "  ${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+run_cmd "${CHILD_MARK} Adding Docker repository..." add_docker_repo
+run_cmd "${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Ensure Docker service is running
-run_cmd "  ${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
-run_cmd "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+run_cmd "${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
+run_cmd "${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 
 # Install Loki driver
 if docker plugin inspect loki >/dev/null 2>&1; then
-  echo "  ${CHILD_MARK} Installing Loki Docker driver... ${YEL}⊘${NC}"
-  echo -e "    ${DIM}${CHILD_MARK} Plugin already installed${NC}"
+  echo "${CHILD_MARK} Installing Loki Docker driver... ${YEL}⊘${NC}"
+  echo -e "  ${DIM}${CHILD_MARK} Plugin already installed${NC}"
 else
-  if run_cmd_try "  ${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
-    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
-      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+  if run_cmd_try "${CHILD_MARK} Installing Loki Docker driver..." docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions --disable; then
+    if run_cmd_try "${CHILD_MARK} Enabling Loki Docker driver..." docker plugin enable loki; then
+      run_cmd_try "${CHILD_MARK} Waiting for Loki plugin socket..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
     fi
   fi
   if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
     echo "${YEL}Warning:${NC} Loki plugin not fully enabled. Attempting Docker daemon restart and re-enable."
-    run_cmd_try "  ${CHILD_MARK} Restarting Docker daemon..." systemctl restart docker
-    run_cmd_try "  ${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
-    if run_cmd_try "  ${CHILD_MARK} Enabling Loki Docker driver (post-restart)..." docker plugin enable loki; then
-      run_cmd_try "  ${CHILD_MARK} Waiting for Loki plugin socket (post-restart)..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+    run_cmd_try "${CHILD_MARK} Restarting Docker daemon..." systemctl restart docker
+    run_cmd_try "${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+    if run_cmd_try "${CHILD_MARK} Enabling Loki Docker driver (post-restart)..." docker plugin enable loki; then
+      run_cmd_try "${CHILD_MARK} Waiting for Loki plugin socket (post-restart)..." bash -lc 'for i in $(seq 1 10); do ls /run/docker/plugins/*/loki.sock >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
     fi
   fi
   if ! docker plugin inspect loki --format '{{.Enabled}}' 2>/dev/null | grep -q true; then
@@ -276,14 +276,14 @@ fi
 printf "\n"
 echo "Preparing system user and data dirs..."
 if ! id -u "$user" >/dev/null 2>&1; then
-    run_cmd "  ${CHILD_MARK} Creating user '${user}'..." create_user
+    run_cmd "${CHILD_MARK} Creating user '${user}'..." create_user
 else
-    echo "  ${CHILD_MARK} Creating user '${user}'... ${YEL}⊘${NC}"
-    echo -e "    ${DIM}${CHILD_MARK} User already exists${NC}"
+    echo "${CHILD_MARK} Creating user '${user}'... ${YEL}⊘${NC}"
+    echo -e "  ${DIM}${CHILD_MARK} User already exists${NC}"
 fi
 
 # Add data dirs
-run_cmd "  ${CHILD_MARK} Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
+run_cmd "${CHILD_MARK} Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
 
 # Resolve app_dir now that user state is known
 if [[ -z "${app_dir:-}" ]]; then
@@ -315,8 +315,8 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 # Create app dir
-run_cmd "  ${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir"
-run_cmd "  ${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
+run_cmd "${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir"
+run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
 
 # Get code from GitHub
 printf "\n"
@@ -329,7 +329,7 @@ if [[ -d "$app_dir/.git" ]]; then
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "  ${CHILD_MARK} Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
 else
   # New clone
   cmd_block="
@@ -339,10 +339,10 @@ else
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "  ${CHILD_MARK} Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
 fi
 
-run_cmd "  ${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Checking out ref: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
 # Create .env file
 printf "\n"
@@ -350,7 +350,7 @@ echo "Configuring environment..."
 cd "$app_dir"
 if [[ ! -f ".env" ]]; then
   if [[ -f ".env.example" ]]; then
-    run_cmd "  ${CHILD_MARK} Create .env from template..." bash -lc "runuser -u '$user' -- cp '.env.example' '.env' && chown '$user:$user' '.env'"
+    run_cmd "${CHILD_MARK} Create .env from template..." bash -lc "runuser -u '$user' -- cp '.env.example' '.env' && chown '$user:$user' '.env'"
   else
     err ".env.example not found; cannot create .env"
     exit 1
@@ -365,16 +365,16 @@ if [[ ! -f ".env" ]]; then
   fill_if_empty POSTGRES_PASSWORD "$pgp"
   fill_if_empty SERVER_IP "$sip"
 else
-  echo "  ${CHILD_MARK} Create .env from template... ${YEL}⊘${NC}"
-  echo -e "    ${DIM}${CHILD_MARK} .env already exists${NC}"
+  echo "${CHILD_MARK} Create .env from template... ${YEL}⊘${NC}"
+  echo -e "  ${DIM}${CHILD_MARK} .env already exists${NC}"
 fi
 
 # Seed access.json for per-file mount
 if [[ ! -f "/srv/devpush/access.json" ]]; then
-    run_cmd "  ${CHILD_MARK} Seeding access.json..." seed_access_json
+    run_cmd "${CHILD_MARK} Seeding access.json..." seed_access_json
 else
-    echo "  ${CHILD_MARK} Seeding access.json... ${YEL}⊘${NC}"
-    echo -e "    ${DIM}${CHILD_MARK} File already exists${NC}"
+    echo "${CHILD_MARK} Seeding access.json... ${YEL}⊘${NC}"
+    echo -e "  ${DIM}${CHILD_MARK} File already exists${NC}"
 fi
 
 # Build runners images
