@@ -70,10 +70,10 @@ fi
 # Show what was detected
 printf "\n"
 echo "Install detected:"
-[[ -n "$app_dir" ]] && echo -e "${DIM}${CHILD_MARK} App directory: $app_dir${NC}"
-[[ -d /srv/devpush ]] && echo -e "${DIM}${CHILD_MARK} Data directory: /srv/devpush/${NC}"
-id -u "$user" >/dev/null 2>&1 && echo -e "${DIM}${CHILD_MARK} User: $user (home: /home/$user/)${NC}"
-[[ -n "$version_ref" ]] && echo -e "${DIM}${CHILD_MARK} Version: $version_ref${NC}"
+[[ -n "$app_dir" ]] && echo "- App directory: $app_dir"
+[[ -d /srv/devpush ]] && echo "- Data directory: /srv/devpush/"
+id -u "$user" >/dev/null 2>&1 && echo "- User: $user (home: /home/$user/)"
+[[ -n "$version_ref" ]] && echo "- Version: $version_ref"
 
 # Warning and confirmation
 printf "\n"
