@@ -119,7 +119,7 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]]
     if [[ -t 0 ]]; then
       read -r -p "Proceed with install anyway? [y/N] " ans
       if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-        info "Aborted. Re-run with --yes to proceed."
+        echo "Aborted."
         exit 0
       fi
     else
