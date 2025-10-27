@@ -58,9 +58,7 @@ cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
   echo -e "${YEL}Warning:${NC} Working directory has uncommitted changes."
   if [[ ! -t 0 ]]; then
-    if ((yes==1)); then
-      echo -e "${DIM}Proceeding due to --yes (local changes will be discarded)${NC}"
-    else
+    if ((yes==0)); then
       err "Cannot proceed in non-interactive mode without --yes flag"
       exit 1
     fi
