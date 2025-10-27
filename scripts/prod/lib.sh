@@ -25,14 +25,13 @@ CMD_LOG="${TMPDIR:-/tmp}/devpush-cmd.$$.log"
 # Spinner: draws a clean in-place indicator; hides cursor while running
 spinner() {
     local pid="$1"
-    local prefix="$2"
     local delay=0.1
     local frames='-|\/'
     local i=0
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&1
+        printf "\r%s [%c]\033[K" "${SPIN_PREFIX:-}" "${frames:$i:1}"
         sleep "$delay"
     done
     { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
@@ -57,17 +56,14 @@ run_cmd() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        if [[ -t 1 ]]; then
-            spinner "$pid" "$msg"
-        else
-            echo "$msg"
-        fi
+        SPIN_PREFIX="$msg"
+        spinner "$pid"
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
             # Clear spinner line and print failure on its own line
             printf "\r\033[K"
-            echo "$msg ${RED}✖${NC}"
+            echo "$SPIN_PREFIX ${RED}✖${NC}"
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
