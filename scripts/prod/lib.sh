@@ -29,15 +29,13 @@ spinner() {
     local delay=0.1
     local frames='-|\/'
     local i=0
-    local tty="/dev/tty"
-    [[ -w "$tty" ]] || tty="/dev/stdout"
-    { tput civis 2>/dev/null || printf "\033[?25l"; } >"$tty" 2>/dev/null
+    { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >"$tty"
+        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&1
         sleep "$delay"
     done
-    { tput cnorm 2>/dev/null || printf "\033[?25h"; } >"$tty" 2>/dev/null
+    { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
 }
 
 # Wrapper to execute commands with optional verbosity and spinner
@@ -61,6 +59,8 @@ run_cmd() {
         local pid=$!
         if [[ -t 1 ]]; then
             spinner "$pid" "$msg"
+        else
+            echo "$msg"
         fi
         wait "$pid"
         local exit_code=$?
@@ -116,6 +116,8 @@ run_cmd_try() {
         local pid=$!
         if [[ -t 1 ]]; then
             spinner "$pid" "$msg"
+        else
+            echo "$msg"
         fi
         wait "$pid"
         local exit_code=$?
