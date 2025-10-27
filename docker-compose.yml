@@ -133,8 +133,6 @@ services:
 
   loki:
     image: grafana/loki:3.4.1
-    ports:
-      - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     restart: unless-stopped
     networks:

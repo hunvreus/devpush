@@ -94,4 +94,4 @@ echo "Fetching update..."
 run_cmd "${CHILD_MARK} Fetching ref: $ref" bash -c "git fetch --depth 1 origin refs/tags/$ref || git fetch --depth 1 origin $ref"
 run_cmd "${CHILD_MARK} Checking out..." git reset --hard FETCH_HEAD
 
-bash scripts/prod/update-apply.sh "$@"
+bash scripts/prod/update-apply.sh --ref "$ref" "$@"

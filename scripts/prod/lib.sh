@@ -32,7 +32,7 @@ spinner() {
     { tput civis 2>/dev/null || printf "\033[?25l"; } 2>/dev/null
     while kill -0 "$pid" 2>/dev/null; do
         i=$(((i + 1) % 4))
-        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&2
+        printf "\r%s [%c]\033[K" "$prefix" "${frames:$i:1}" >&1
         sleep "$delay"
     done
     { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
