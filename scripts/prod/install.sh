@@ -127,7 +127,7 @@ if [[ -f /var/lib/devpush/version.json ]] || [[ -d "$app_dir/.git" ]]; then
   echo "Existing install detected:"
   summary
   if (( yes_flag == 1 )); then
-    echo -e "${DIM}${CHILD_MARK} Proceeding due to --yes${NC}"
+    echo -e "${DIM}Proceeding due to --yes${NC}"
   else
     if [[ -t 0 ]]; then
       echo ""

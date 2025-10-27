@@ -59,7 +59,7 @@ if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
   echo -e "${YEL}Warning:${NC} Working directory has uncommitted changes."
   if [[ ! -t 0 ]]; then
     if ((yes==1)); then
-      echo "Proceeding due to --yes (local changes will be discarded)"
+      echo -e "${DIM}Proceeding due to --yes (local changes will be discarded)${NC}"
     else
       err "Cannot proceed in non-interactive mode without --yes flag"
       exit 1
