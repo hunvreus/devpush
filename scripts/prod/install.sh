@@ -5,7 +5,8 @@ IFS=$'\n\t'
 : "${LIB_URL:=https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/lib.sh}"
 
 # Capture stderr for error reporting
-exec 2> >(tee /tmp/install_error.log >&2)
+SCRIPT_ERR_LOG="/tmp/install_error.log"
+exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
 # Load lib.sh: prefer local; else try remote; else fail fast
 if [[ -f "$(dirname "$0")/lib.sh" ]]; then
@@ -20,19 +21,17 @@ fi
 LOG=/var/log/devpush-install.log
 mkdir -p "$(dirname "$LOG")" || true
 exec > >(tee -a "$LOG") 2>&1
-trap 's=$?; err "Install failed (exit $s). See $LOG"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/install_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
+trap 's=$?; err "Install failed (exit $s). See $LOG"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
 
 usage() {
   cat <<USG
-Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--user devpush] [--app-dir <path>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--yes] [--no-telemetry] [--ssl-provider <name>] [--verbose]
+Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--yes] [--no-telemetry] [--ssl-provider <name>] [--verbose]
 
 Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .env).
 
   --repo URL             Git repo to clone (default: https://github.com/hunvreus/devpush.git)
   --ref TAG              Git tag/branch to install (default: latest stable tag, fallback to main)
   --include-prerelease   Allow beta/rc tags when selecting latest
-  --user NAME            System user to own the app (default: devpush)
-  --app-dir PATH         App directory (default: /home/<user>/devpush)
   --ssh-pub KEY|PATH     Public key content or file to seed authorized_keys for the user
   --harden               Run system hardening at the end (non-fatal)
   --harden-ssh           Run SSH hardening at the end (non-fatal)
@@ -42,30 +41,40 @@ Install and configure /dev/push on a server (Docker, Loki plugin, user, repo, .e
   -v, --verbose          Enable verbose output for debugging
   -h, --help             Show this help
 USG
-  exit 1
+  exit 0
 }
 
-repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; user="devpush"; app_dir=""; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
+repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
+
+valid_ssl_providers="default|cloudflare|route53|gcloud|digitalocean|azure"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) repo="$2"; shift 2 ;;
-    --user) user="$2"; shift 2 ;;
     --ref) ref="$2"; shift 2 ;;
     --include-prerelease) include_pre=1; shift ;;
     --no-telemetry) telemetry=0; shift ;;
-    --app-dir) app_dir="$2"; shift 2 ;;
     --ssh-pub) ssh_pub="$2"; shift 2 ;;
     --harden) run_harden=1; shift ;;
     --harden-ssh) run_harden_ssh=1; shift ;;
-    --ssl-provider) ssl_provider="$2"; shift 2 ;;
+    --ssl-provider)
+      if [[ ! "$2" =~ ^(default|cloudflare|route53|gcloud|digitalocean|azure)$ ]]; then
+        err "Invalid --ssl-provider: $2 (must be one of: $valid_ssl_providers)"
+        exit 1
+      fi
+      ssl_provider="$2"
+      shift 2
+      ;;
     --yes|-y) yes_flag=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
-    *) usage ;;
+    *) err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
+
+user="devpush"
+app_dir="/home/$user/devpush"
 
 # Set SSL provider: use --ssl-provider flag or default to "default"
 [[ -z "$ssl_provider" ]] && ssl_provider="default"
@@ -101,25 +110,19 @@ if [[ "$arch" == "arm64" || "$arch" == "aarch64" ]]; then
 fi
 
 # Detect existing install and prompt
-existing=0
 summary() {
   if [[ -f /var/lib/devpush/version.json ]]; then
-    ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
-    commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
-    echo -e "  - version.json in /var/lib/devpush (ref: ${ref:-unknown})"
+    version_ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
+    version_commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
+    echo -e "  - version.json in /var/lib/devpush (ref: ${version_ref:-unknown})"
   fi
-  if [[ -d /home/devpush/devpush/.git ]]; then
-    echo -e "  - repo at /home/devpush/devpush"
-    [[ -f /home/devpush/devpush/.env ]] && echo -e "  - .env in /home/devpush/devpush"
-  fi 
-  if [[ -d /opt/devpush/.git ]]; then
-    echo -e "  - repo at /opt/devpush"
-    [[ -f /opt/devpush/.env ]] && echo -e "  - .env in /opt/devpush"
+  if [[ -d "$app_dir/.git" ]]; then
+    echo -e "  - repo at $app_dir"
+    [[ -f "$app_dir/.env" ]] && echo -e "  - .env in $app_dir"
   fi
 }
 
-if [[ -f /var/lib/devpush/version.json ]] || [[ -d /home/devpush/devpush/.git ]] || [[ -d /opt/devpush/.git ]]; then
-  existing=1
+if [[ -f /var/lib/devpush/version.json ]] || [[ -d "$app_dir/.git" ]]; then
   echo ""
   echo "Existing install detected:"
   summary
@@ -203,7 +206,11 @@ create_user() {
   elif [[ -f /root/.ssh/authorized_keys ]]; then
     cat /root/.ssh/authorized_keys >> "$ak"
   fi
-  if [[ -f "$ak" ]]; then chown "$user:$user" "$ak"; chmod 600 "$ak"; fi
+  if [[ -f "$ak" ]]; then
+    sort -u "$ak" -o "$ak"
+    chown "$user:$user" "$ak"
+    chmod 600 "$ak"
+  fi
   echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
 }
 
@@ -224,50 +231,20 @@ record_version() {
     local commit ts install_id
     commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    install -d -m 0755 /var/lib/devpush
-    if [[ ! -f /var/lib/devpush/version.json ]]; then
+    sudo install -d -m 0755 /var/lib/devpush
+    if sudo test ! -f /var/lib/devpush/version.json; then
         install_id=$(cat /proc/sys/kernel/random/uuid)
-        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
+        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" | sudo tee /var/lib/devpush/version.json.tmp >/dev/null
+        sudo mv /var/lib/devpush/version.json.tmp /var/lib/devpush/version.json
     else
-        install_id=$(jq -r '.install_id' /var/lib/devpush/version.json 2>/dev/null || true)
-        [[ -n "$install_id" && "$install_id" != "null" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
-        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" > /var/lib/devpush/version.json
+        install_id=$(sudo jq -r '.install_id // empty' /var/lib/devpush/version.json 2>/dev/null || true)
+        [[ -n "$install_id" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
+        sudo jq --arg id "$install_id" --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" --arg arch "$arch" --arg distro "$distro_id" --arg distro_version "$distro_version" \
+          '. + {install_id: $id, git_ref: $ref, git_commit: $commit, updated_at: $ts, arch: $arch, distro: $distro, distro_version: $distro_version}' \
+          /var/lib/devpush/version.json | sudo tee /var/lib/devpush/version.json.tmp >/dev/null
+        sudo mv /var/lib/devpush/version.json.tmp /var/lib/devpush/version.json
     fi
-    chown "$user:$user" /var/lib/devpush/version.json || true
-    chmod 0644 /var/lib/devpush/version.json || true
-}
-
-send_telemetry() {
-    local payload response public_ip
-    payload=$(jq -c --arg ev "install" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
-    if [[ -z "$payload" ]]; then return 0; fi
-    
-    for attempt in 1 2 3; do
-        response=$(curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry 2>&1 || true)
-        if [[ -n "$response" ]]; then
-            public_ip=$(echo "$response" | jq -r '.ip // empty' 2>/dev/null || true)
-            if [[ -n "$public_ip" ]]; then
-                install -d -m 0755 /var/lib/devpush 2>/dev/null || true
-                if [[ -f /var/lib/devpush/config.json ]]; then
-                    jq --arg ip "$public_ip" '. + {public_ip: $ip}' /var/lib/devpush/config.json > /var/lib/devpush/config.json.tmp && mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
-                else
-                    printf '{"public_ip":"%s"}\n' "$public_ip" > /var/lib/devpush/config.json
-                fi
-                chmod 0644 /var/lib/devpush/config.json 2>/dev/null || true
-                return 0
-            fi
-        fi
-        [[ $attempt -lt 3 ]] && sleep 1
-    done
-    
-    return 1
-}
-
-get_public_ip() {
-    curl -fsSL -4 --max-time 5 https://ifconfig.io 2>/dev/null || \
-    curl -fsSL -4 --max-time 5 http://checkip.amazonaws.com 2>/dev/null || \
-    hostname -I | awk '{print $1}' || \
-    echo ""
+    sudo chmod 0644 /var/lib/devpush/version.json || true
 }
 
 # Install base packages
@@ -319,15 +296,6 @@ fi
 
 # Add data dirs
 run_cmd "${CHILD_MARK} Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload
-
-# Resolve app_dir now that user state is known
-if [[ -z "${app_dir:-}" ]]; then
-  if id -u "$user" >/dev/null 2>&1 && [[ -d "/home/$user" ]]; then
-    app_dir="/home/$user/devpush"
-  else
-    app_dir="/opt/devpush"
-  fi
-fi
 
 # Resolve ref (latest tag, fallback to main) if not provided via --ref
 if [[ -z "$ref" ]]; then
@@ -431,20 +399,15 @@ run_cmd "Recording install metadata..." record_version
 public_ip=""
 if ((telemetry==1)); then
   printf "\n"
-  if run_cmd "Sending telemetry..." send_telemetry; then
-    public_ip=$(jq -r '.public_ip // empty' /var/lib/devpush/config.json 2>/dev/null || true)
-  else
-    public_ip=$(get_public_ip)
-  fi
-else
-  public_ip=$(get_public_ip)
+  run_cmd "Sending telemetry..." send_telemetry install
+  public_ip=$(jq -r '.public_ip // empty' /var/lib/devpush/config.json 2>/dev/null || true)
 fi
 
 # Optional hardening (non-fatal)
 if ((run_harden==1)); then
   printf "\n"
   set +e
-  run_cmd "Running server hardening..." bash scripts/prod/harden.sh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running server hardening..." bash "$app_dir/scripts/prod/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr=$?
   set -e
   if [[ $hr -ne 0 ]]; then
@@ -455,7 +418,7 @@ fi
 if ((run_harden_ssh==1)); then
   printf "\n"
   set +e
-  run_cmd "Running SSH hardening..." bash scripts/prod/harden.sh --ssh --user "$user" ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running SSH hardening..." bash "$app_dir/scripts/prod/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr2=$?
   set -e
   if [[ $hr2 -ne 0 ]]; then

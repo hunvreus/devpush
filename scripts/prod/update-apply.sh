@@ -2,17 +2,19 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+SCRIPT_ERR_LOG="/tmp/update_apply_error.log"
+exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+
 source "$(dirname "$0")/lib.sh"
 
-trap 's=$?; echo -e "${RED}Update-apply failed (exit $s)${NC}"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; exit $s' ERR
+trap 's=$?; echo -e "${RED}Update-apply failed (exit $s)${NC}"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
 
 usage(){
   cat <<USG
-Usage: update-apply.sh [--app-dir <path>] [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update-apply.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
-  --app-dir PATH    App directory (default: $PWD)
   --ref TAG         Git tag to record (best-effort if omitted)
   --include-prerelease  No effect here; kept for arg parity
   --all             Update app,worker-arq,worker-monitor
@@ -29,12 +31,12 @@ USG
   exit 0
 }
 
-app_dir="${APP_DIR:-$(pwd)}"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; include_pre=0; yes=0; skip_components=0; telemetry="${NO_TELEMETRY:-1}"; ssl_provider=""
+app_dir="/home/devpush/devpush"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; yes=0; skip_components=0; telemetry=1; ssl_provider=""
+[[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --app-dir) app_dir="$2"; shift 2 ;;
     --ref) ref="$2"; shift 2 ;;
-    --include-prerelease) include_pre=1; shift ;;
+    --include-prerelease) shift ;;
     --all) do_all=1; shift ;;
     --components) comps="$2"; shift 2 ;;
     --full) do_full=1; shift ;;
@@ -45,7 +47,7 @@ while [[ $# -gt 0 ]]; do
     --yes|-y) yes=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
-    *) usage ;;
+    *) err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
 
@@ -61,6 +63,66 @@ ensure_acme_json
 # Validate provider env and core environment variables
 validate_ssl_env "$ssl_provider" .env
 validate_core_env .env
+
+# Version comparison helpers
+ver_lt() {
+  [[ "$1" == "$2" ]] && return 1
+  [[ "$(printf '%s\n%s' "$1" "$2" | sort -V | head -n1)" == "$1" ]]
+}
+
+ver_lte() {
+  [[ "$1" == "$2" ]] && return 0
+  ver_lt "$1" "$2"
+}
+
+# Run upgrade hooks for version transitions
+run_upgrade_hooks() {
+  local current_ver="$1"
+  local target_ver="$2"
+  local hooks_dir="${3:-$PWD/scripts/prod/upgrades}"
+
+  [[ -d "$hooks_dir" ]] || return 0
+
+  current_ver="${current_ver%%-*}"
+  target_ver="${target_ver%%-*}"
+
+  # Collect eligible hooks first
+  local eligible=()
+  while IFS= read -r script; do
+    local hook_ver
+    hook_ver=$(basename "$script" .sh)
+    [[ "$hook_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    if ver_lt "$current_ver" "$hook_ver" && ver_lte "$hook_ver" "$target_ver"; then
+      eligible+=("$script")
+    fi
+  done < <(find "$hooks_dir" -name "*.sh" -type f 2>/dev/null | sort -V)
+
+  local count=${#eligible[@]}
+  ((count==0)) && return 0
+
+  printf "\n"
+  echo "Running ${count} upgrade(s)..."
+
+  # Execute hooks
+  for script in "${eligible[@]}"; do
+    local hook_name
+    hook_name=$(basename "$script")
+    if ! run_cmd_try "${CHILD_MARK} Running $hook_name..." bash "$script"; then
+      echo -e "${YEL}Warning:${NC} Upgrade $hook_name failed (continuing update)"
+    fi
+  done
+}
+
+old_version=$(jq -r '.git_ref // empty' /var/lib/devpush/version.json 2>/dev/null || true)
+if [[ -z "$old_version" ]]; then
+  printf "\n"
+  echo -e "${YEL}Warning:${NC} No version found in /var/lib/devpush/version.json. Skipping upgrade hooks."
+elif [[ -z "$ref" ]]; then
+  printf "\n"
+  echo -e "${YEL}Warning:${NC} No target version specified. Skipping upgrade hooks."
+else
+  run_upgrade_hooks "$old_version" "$ref" "$app_dir/scripts/prod/upgrades"
+fi
 
 # Compose files (keep parity with running stack)
 args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
@@ -80,7 +142,7 @@ full_update() {
   if ((migrate==1)); then
     printf "\n"
     echo "Applying migrations..."
-    run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
+    run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --env-file .env
   fi
 }
 
@@ -104,6 +166,10 @@ fi
 if ((do_all==1)); then
   comps="app,worker-arq,worker-monitor"
 elif [[ -z "$comps" ]]; then
+  if [[ ! -t 0 ]]; then
+    err "Non-interactive mode: specify --all, --components, or --full"
+    exit 1
+  fi
   printf "\n"
   echo "Select components to update:"
   echo "1) app + workers (app, worker-arq, worker-monitor)"
@@ -141,20 +207,24 @@ blue_green_rollout() {
 
   local old_ids
   old_ids=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' || true)
-  local cur_cnt=$(echo "$old_ids" | wc -w | tr -d ' ' || echo 0)
+  local cur_cnt=$(echo "$old_ids" | wc -w)
   local target=$((cur_cnt+1)); [[ $target -lt 1 ]] && target=1
   
   run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${args[@]}" up -d --scale "$service=$target" --no-recreate
 
+  local new_id=""
   run_cmd "${CHILD_MARK} Detecting new container..." bash -c '
+    old_ids="'"$old_ids"'"
     for _ in $(seq 1 60); do
       cur_ids=$(docker ps --filter "name=devpush-'"$service"'" --format "{{.ID}}" | tr " " "\n" | sort)
-      nid=$(comm -13 <(echo "'"$old_ids"'" | tr " " "\n" | sort) <(echo "$cur_ids"))
-      [[ -n "$nid" ]] && { echo "$nid"; exit 0; }
+      nid=$(comm -13 <(echo "$old_ids" | tr " " "\n" | sort) <(echo "$cur_ids"))
+      if [[ -n "$nid" ]]; then
+        echo "$nid"
+        exit 0
+      fi
       sleep 2
     done
     exit 1'
-  local new_id="$?"
   new_id=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' | tr ' ' '\n' | sort | comm -13 <(echo "$old_ids" | tr ' ' '\n' | sort) -)
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
   echo -e "  ${DIM}${CHILD_MARK} Container ID: $new_id${NC}"
@@ -233,7 +303,7 @@ fi
 if ((skip_components==0)) && [[ "$comps" == *"app"* ]] && ((migrate==1)); then
   printf "\n"
   echo "Applying migrations..."
-  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file .env
+  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --env-file .env
 fi
 
 # Update install metadata (version.json)
@@ -244,18 +314,30 @@ if [[ -z "$ref" ]]; then
   [[ -n "$ref" ]] || ref=$(git rev-parse --short "$commit")
 fi
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-[[ -d /var/lib/devpush ]] || install -d -m 0755 /var/lib/devpush || true
-old_id="$(jq -r '.install_id' /var/lib/devpush/version.json 2>/dev/null || true)"
-[[ -n "$old_id" && "$old_id" != "null" ]] || old_id=$(cat /proc/sys/kernel/random/uuid)
-{ printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$old_id" "$ref" "$commit" "$ts"; } > /var/lib/devpush/version.json
+[[ -d /var/lib/devpush ]] || sudo install -d -m 0755 /var/lib/devpush || true
+
+# Update version.json (preserve existing metadata, update git_ref/commit/timestamp)
+if sudo test -f /var/lib/devpush/version.json; then
+  sudo jq --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
+    '. + {git_ref: $ref, git_commit: $commit, updated_at: $ts}' \
+    /var/lib/devpush/version.json | sudo tee /var/lib/devpush/version.json.tmp >/dev/null
+  sudo mv /var/lib/devpush/version.json.tmp /var/lib/devpush/version.json
+else
+  install_id=$(cat /proc/sys/kernel/random/uuid)
+  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "$ref" "$commit" "$ts" | sudo tee /var/lib/devpush/version.json >/dev/null
+fi
+
+# Send telemetry and retrieve public IP
+public_ip=""
+if ((telemetry==1)); then
+  printf "\n"
+  run_cmd "Sending telemetry..." send_telemetry update
+  public_ip=$(jq -r '.public_ip // empty' /var/lib/devpush/config.json 2>/dev/null || true)
+fi
 
 printf "\n"
-echo -e "${GRN}Update complete (version: ${ref}). ✔${NC}"
-
-# Send telemetry
-if ((telemetry==1)); then
-  payload=$(jq -c --arg ev "update" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
-  if [[ -n "$payload" ]]; then
-    curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry >/dev/null 2>&1 || true
-  fi
+echo -e "${GRN}Update complete (${old_version:-unknown} → ${ref}). ✔${NC}"
+if [[ -n "$public_ip" ]]; then
+  echo ""
+  echo "Your instance is accessible at: http://${public_ip}"
 fi

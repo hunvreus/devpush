@@ -2,16 +2,19 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# Common library
+SCRIPT_ERR_LOG="/tmp/start_error.log"
+exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+
 source "$(dirname "$0")/lib.sh"
+
+trap 's=$?; err "Start failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
 
 usage(){
   cat <<USG
-Usage: start.sh [--app-dir <path>] [--env-file <path>] [--no-pull] [--migrate] [--ssl-provider <name>] [--verbose]
+Usage: start.sh [--env-file <path>] [--no-pull] [--migrate] [--ssl-provider <name>] [--verbose]
 
 Start production services via Docker Compose. Optionally run DB migrations.
 
-  --app-dir PATH    App directory (default: \$PWD)
   --env-file PATH   Path to .env (default: ./\.env)
   --no-pull         Do not pass --pull always to docker compose up
   --migrate         Run DB migrations after starting
@@ -22,17 +25,16 @@ USG
   exit 0
 }
 
-app_dir="${APP_DIR:-$(pwd)}"; envf=".env"; pull_always=1; do_migrate=0; ssl_provider=""
+app_dir="/home/devpush/devpush"; envf=".env"; pull_always=1; do_migrate=0; ssl_provider=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --app-dir) app_dir="$2"; shift 2 ;;
     --env-file) envf="$2"; shift 2 ;;
     --no-pull) pull_always=0; shift ;;
     --migrate) do_migrate=1; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
-    *) usage ;;
+    *) err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
 
@@ -62,7 +64,7 @@ run_cmd "${CHILD_MARK} Starting Docker Compose stack..." docker compose "${args[
 if ((do_migrate==1)); then
   printf "\n"
   echo "Applying migrations..."
-  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --app-dir "$app_dir" --env-file "$envf"
+  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --env-file "$envf"
 fi
 
 printf "\n"

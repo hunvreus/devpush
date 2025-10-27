@@ -57,7 +57,9 @@ run_cmd() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        spinner "$pid" "$msg"
+        if [[ -t 1 ]]; then
+            spinner "$pid" "$msg"
+        fi
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -68,15 +70,15 @@ run_cmd() {
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
                 if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
+                    sed "s/^/  ${DIM}/" "$CMD_LOG" | sed "s/$/${NC}/" | tee -a "$SCRIPT_ERR_LOG" >&2
                 else
-                    sed 's/^/  /' "$CMD_LOG" >&2
+                    sed "s/^/  ${DIM}/" "$CMD_LOG" | sed "s/$/${NC}/" >&2
                 fi
             else
                 if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
+                    echo -e "  ${DIM}(no output captured)${NC}" | tee -a "$SCRIPT_ERR_LOG" >&2
                 else
-                    echo "  (no output captured)" >&2
+                    echo -e "  ${DIM}(no output captured)${NC}" >&2
                 fi
             fi
             echo ""
@@ -110,7 +112,9 @@ run_cmd_try() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        spinner "$pid" "$msg"
+        if [[ -t 1 ]]; then
+            spinner "$pid" "$msg"
+        fi
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
@@ -120,15 +124,15 @@ run_cmd_try() {
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
                 if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    sed 's/^/  /' "$CMD_LOG" | tee -a "$SCRIPT_ERR_LOG" >&2
+                    sed "s/^/  ${DIM}/" "$CMD_LOG" | sed "s/$/${NC}/" | tee -a "$SCRIPT_ERR_LOG" >&2
                 else
-                    sed 's/^/  /' "$CMD_LOG" >&2
+                    sed "s/^/  ${DIM}/" "$CMD_LOG" | sed "s/$/${NC}/" >&2
                 fi
             else
                 if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-                    echo "  (no output captured)" | tee -a "$SCRIPT_ERR_LOG" >&2
+                    echo -e "  ${DIM}(no output captured)${NC}" | tee -a "$SCRIPT_ERR_LOG" >&2
                 else
-                    echo "  (no output captured)" >&2
+                    echo -e "  ${DIM}(no output captured)${NC}" >&2
                 fi
             fi
             echo ""
@@ -190,7 +194,12 @@ get_ssl_provider() {
 persist_ssl_provider() {
   local provider="$1"
   sudo install -d -m 0755 /var/lib/devpush >/dev/null 2>&1 || true
-  printf '{"ssl_provider":"%s"}\n' "$provider" | sudo tee /var/lib/devpush/config.json >/dev/null
+  if sudo test -f /var/lib/devpush/config.json; then
+    sudo jq --arg p "$provider" '. + {ssl_provider: $p}' /var/lib/devpush/config.json | sudo tee /var/lib/devpush/config.json.tmp >/dev/null
+    sudo mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
+  else
+    printf '{"ssl_provider":"%s"}\n' "$provider" | sudo tee /var/lib/devpush/config.json >/dev/null
+  fi
   sudo chmod 0644 /var/lib/devpush/config.json >/dev/null 2>&1 || true
 }
 
@@ -244,4 +253,43 @@ validate_ssl_env() {
       ;;
     *) err "Unknown SSL provider: $provider"; exit 1 ;;
   esac
+}
+
+# Send telemetry and update public IP in config.json
+# Usage: send_telemetry <event_type> [payload]
+# If payload is provided, uses it directly; otherwise reads from version.json
+# Returns 0 on success, 1 on failure
+send_telemetry() {
+    local event="$1"
+    local payload="${2:-}"
+    local response public_ip
+    
+    # If no payload provided, read from version.json
+    if [[ -z "$payload" ]]; then
+        [[ -f /var/lib/devpush/version.json ]] || return 0
+        payload=$(jq -c --arg ev "$event" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
+        [[ -n "$payload" ]] || return 0
+    fi
+    
+    for attempt in 1 2 3; do
+        response=$(curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry 2>&1 || true)
+        if [[ -n "$response" ]]; then
+            public_ip=$(echo "$response" | jq -r '.ip // empty' 2>/dev/null || true)
+            if [[ -n "$public_ip" ]]; then
+                sudo install -d -m 0755 /var/lib/devpush 2>/dev/null || true
+                if sudo test -f /var/lib/devpush/config.json; then
+                    sudo jq --arg ip "$public_ip" '. + {public_ip: $ip}' /var/lib/devpush/config.json | sudo tee /var/lib/devpush/config.json.tmp >/dev/null
+                    sudo mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
+                else
+                    printf '{"public_ip":"%s"}\n' "$public_ip" | sudo tee /var/lib/devpush/config.json.tmp >/dev/null
+                    sudo mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
+                fi
+                sudo chmod 0644 /var/lib/devpush/config.json 2>/dev/null || true
+                return 0
+            fi
+        fi
+        [[ $attempt -lt 3 ]] && sleep 1
+    done
+    
+    return 1
 }

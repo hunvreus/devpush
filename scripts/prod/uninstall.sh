@@ -3,11 +3,12 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # Capture stderr for error reporting
-exec 2> >(tee /tmp/uninstall_error.log >&2)
+SCRIPT_ERR_LOG="/tmp/uninstall_error.log"
+exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
 source "$(dirname "$0")/lib.sh"
 
-trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/uninstall_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
+trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
 
 usage() {
   cat <<USG
@@ -20,7 +21,7 @@ Uninstall /dev/push from this server.
   -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
-  exit 1
+  exit 0
 }
 
 yes_flag=0; telemetry=1
@@ -30,21 +31,36 @@ while [[ $# -gt 0 ]]; do
     --no-telemetry) telemetry=0; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
-    *) usage ;;
+    *) err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
 
-# Detect installation
+# Guard: prevent running from directories that will be deleted
+cwd="$(pwd)"
+if [[ "$cwd" == /home/devpush/* ]] || [[ "$cwd" == /opt/devpush/* ]] || [[ "$cwd" == /var/lib/devpush/* ]] || [[ "$cwd" == /srv/devpush/* ]]; then
+  err "Cannot run from $cwd (will be deleted). Run from a safe directory (e.g., /tmp or ~root)."
+  exit 1
+fi
+
+# Guard: check if logged in as user that will be deleted
+if [[ "$(whoami)" == "devpush" ]] || [[ "${SUDO_USER:-}" == "devpush" ]]; then
+  err "Cannot run as user 'devpush' (user will be deleted). Run as root or another user."
+  exit 1
+fi
+
+# Detect installation and save telemetry data early
 app_dir=""
 user="devpush"
 version_ref=""
-version_commit=""
+telemetry_payload=""
 
 if [[ -f /var/lib/devpush/version.json ]]; then
   version_ref=$(jq -r '.git_ref // empty' /var/lib/devpush/version.json 2>/dev/null || true)
-  version_commit=$(jq -r '.git_commit // empty' /var/lib/devpush/version.json 2>/dev/null || true)
+  if ((telemetry==1)); then
+    telemetry_payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
+  fi
 fi
 
 # Find app directory
@@ -92,7 +108,7 @@ fi
 # Stop services
 printf "\n"
 if [[ -n "$app_dir" && -f "$app_dir/docker-compose.yml" ]]; then
-  run_cmd "Stopping services..." bash "$app_dir/scripts/prod/stop.sh" --app-dir "$app_dir" --down
+  run_cmd "Stopping services..." bash "$app_dir/scripts/prod/stop.sh" --down
 else
   echo "Stopping services... ${YEL}⊘${NC}"
   echo -e "${DIM}${CHILD_MARK} No docker-compose.yml found${NC}"
@@ -127,27 +143,15 @@ if [[ -d /var/lib/devpush ]]; then
   set -e
 fi
 
-# Send telemetry before removing version.json
-if ((telemetry==1)) && [[ -f /var/lib/devpush/version.json ]]; then
-  printf "\n"
-  payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
-  if [[ -n "$payload" ]]; then
-    run_cmd_try "Sending telemetry..." curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry
-  fi
-fi
-
 # Interactive: Remove data directory?
 if (( yes_flag == 0 )) && [[ -d /srv/devpush ]]; then
   printf "\n"
-  echo "${YEL}Warning:${NC} This will permanently delete all uploaded files, Traefik certificates, and configuration in /srv/devpush/"
-  read -r -p "Remove data directory? [y/N] " ans
+  read -r -p "Remove data directory (/srv/devpush/)? This will delete all uploaded files, certificates, and config. [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
     set +e
     echo ""
     run_cmd_try "Removing data directory..." rm -rf /srv/devpush
     set -e
-  else
-    echo -e "${DIM}${CHILD_MARK} Data directory kept${NC}"
   fi
 elif [[ -d /srv/devpush ]]; then
   echo ""
@@ -157,8 +161,7 @@ fi
 # Interactive: Remove user?
 if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
   printf "\n"
-  echo "${YEL}Warning:${NC} This will delete the user and their home directory (/home/$user/), including any files not part of the application."
-  read -r -p "Remove user '$user'? [y/N] " ans
+  read -r -p "Remove user '$user' and home directory? This will delete all files in /home/$user/. [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
     echo ""
     set +eE
@@ -171,12 +174,16 @@ if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
     fi
     trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/uninstall_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
     set -eE
-  else
-    echo -e "${DIM}${CHILD_MARK} User kept${NC}"
   fi
 elif id -u "$user" >/dev/null 2>&1; then
   echo ""
   echo -e "${DIM}${CHILD_MARK} User '$user' kept (use 'userdel -r $user' to remove manually)${NC}"
+fi
+
+# Send telemetry at the end (using saved payload)
+if ((telemetry==1)) && [[ -n "$telemetry_payload" ]]; then
+  printf "\n"
+  send_telemetry uninstall "$telemetry_payload" || true
 fi
 
 # Final summary
@@ -184,23 +191,20 @@ printf "\n"
 echo -e "${GRN}Uninstall complete. ✔${NC}"
 echo ""
 echo "Removed:"
-[[ -n "$app_dir" ]] && echo -e "${DIM}${CHILD_MARK} Application: $app_dir${NC}"
-echo -e "${DIM}${CHILD_MARK} Docker containers and volumes${NC}"
-[[ -n "$runner_images" ]] && echo -e "${DIM}${CHILD_MARK} Runner images: $image_count images${NC}"
-echo -e "${DIM}${CHILD_MARK} Metadata: /var/lib/devpush/${NC}"
+[[ -n "$app_dir" ]] && echo "  - Application: $app_dir"
+echo "  - Docker containers and volumes"
+[[ -n "$runner_images" ]] && echo "  - Runner images: $image_count images"
+echo "  - Metadata: /var/lib/devpush/"
 
 if [[ -d /srv/devpush ]] || id -u "$user" >/dev/null 2>&1; then
   echo ""
   echo "Kept (manual cleanup if needed):"
-  [[ -d /srv/devpush ]] && echo -e "${DIM}${CHILD_MARK} Data: /srv/devpush/${NC}"
-  id -u "$user" >/dev/null 2>&1 && echo -e "${DIM}${CHILD_MARK} User: $user${NC}"
+  [[ -d /srv/devpush ]] && echo "  - Data: /srv/devpush/"
+  id -u "$user" >/dev/null 2>&1 && echo "  - User: $user"
 fi
 
 echo ""
 echo "System packages not removed:"
-echo -e "${DIM}${CHILD_MARK} Docker, git, jq, curl${NC}"
-echo -e "${DIM}${CHILD_MARK} Security: UFW, fail2ban, SSH hardening${NC}"
-echo ""
-echo "To remove Docker:"
-echo "  sudo apt-get remove --purge docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+echo "  - Docker, git, jq, curl"
+echo "  - Security: UFW, fail2ban, SSH hardening"
 

@@ -3,15 +3,16 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # Capture stderr for error reporting
-exec 2> >(tee /tmp/harden_error.log >&2)
+SCRIPT_ERR_LOG="/tmp/harden_error.log"
+exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
 source "$(dirname "$0")/lib.sh"
 
-trap 's=$?; err "Harden failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/harden_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
+trap 's=$?; err "Harden failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
 
 usage() {
   cat <<USG
-Usage: harden.sh [--ssh] [--user <name>] [--ssh-pub <key_or_path>] [--verbose]
+Usage: harden.sh [--ssh] [--ssh-pub <key_or_path>] [--verbose]
 
 Applies basic server hardening:
 - installs ufw, fail2ban, unattended-upgrades
@@ -20,38 +21,25 @@ Applies basic server hardening:
 - configures UFW to allow 22,80,443 and enables it
 
   --ssh                  Also apply SSH hardening (see below)
-  --user NAME            Target user for SSH key check/seed (default: current user)
   --ssh-pub KEY|PATH     Public key content or file to seed authorized_keys if missing
   -v, --verbose          Enable verbose output for debugging
   -h, --help             Show this help
 USG
-  exit 1
+  exit 0
 }
 
-user=""; ssh_pub=""; with_ssh=0
+user="devpush"; ssh_pub=""; with_ssh=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ssh) with_ssh=1; shift ;;
-    --user) user="$2"; shift 2 ;;
     --ssh-pub) ssh_pub="$2"; shift 2 ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
-    *) usage ;;
+    *) err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 2; }
-
-# Ensure user is specified for SSH hardening
-if ((with_ssh==1)) && [[ -z "$user" ]]; then
-  # Try to get the original user who invoked sudo
-  original_user="${SUDO_USER:-$USER}"
-  if [[ -z "$original_user" || "$original_user" == "root" ]]; then
-    err "SSH hardening requires --user <name> (cannot determine original user)"
-    exit 3
-  fi
-  user="$original_user"
-fi
 
 . /etc/os-release || { err "Unsupported OS"; exit 4; }
 case "${ID_LIKE:-$ID}" in
@@ -97,6 +85,12 @@ if ((with_ssh==1)); then
     chown "$user:$user" "$ak"; chmod 600 "$ak"
   fi
 
+  # Deduplicate authorized_keys
+  if [[ -f "$ak" ]]; then
+    sort -u "$ak" -o "$ak"
+    chown "$user:$user" "$ak"; chmod 600 "$ak"
+  fi
+
   if [[ ! -s "$ak" ]]; then
     echo -e "${YEL}SSH hardening requires a public key.${NC}"
     echo "Provide --ssh-pub <key|path> or ensure $ak exists and is non-empty."
@@ -119,14 +113,30 @@ if ((with_ssh==1)); then
   # SSH hardening
   printf "\n"
   echo "Hardening SSH..."
-  run_cmd "${CHILD_MARK} Disabling root login..." sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-  run_cmd "${CHILD_MARK} Disabling password authentication..." sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-  run_cmd "${CHILD_MARK} Restarting SSH service..." systemctl restart ssh
+  if grep -q '^PermitRootLogin' /etc/ssh/sshd_config || grep -q '^#PermitRootLogin' /etc/ssh/sshd_config; then
+    run_cmd "${CHILD_MARK} Disabling root login..." sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  else
+    run_cmd "${CHILD_MARK} Disabling root login..." bash -c 'echo "PermitRootLogin no" >> /etc/ssh/sshd_config'
+  fi
+  if grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || grep -q '^#PasswordAuthentication' /etc/ssh/sshd_config; then
+    run_cmd "${CHILD_MARK} Disabling password authentication..." sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  else
+    run_cmd "${CHILD_MARK} Disabling password authentication..." bash -c 'echo "PasswordAuthentication no" >> /etc/ssh/sshd_config'
+  fi
+  if systemctl list-units --type=service --all | grep -q 'ssh.service'; then
+    run_cmd "${CHILD_MARK} Restarting SSH service..." systemctl restart ssh
+  elif systemctl list-units --type=service --all | grep -q 'sshd.service'; then
+    run_cmd "${CHILD_MARK} Restarting SSH service..." systemctl restart sshd
+  else
+    echo "${CHILD_MARK} Restarting SSH service... ${YEL}⊘${NC}"
+    echo -e "  ${DIM}${CHILD_MARK} Could not find ssh or sshd service${NC}"
+  fi
 fi
 
 # Firewall
 printf "\n"
 echo "Configuring firewall..."
+run_cmd "${CHILD_MARK} Setting UFW defaults..." bash -c 'ufw default deny incoming && ufw default allow outgoing'
 run_cmd "${CHILD_MARK} Allowing port 22 (SSH)..." ufw allow 22
 run_cmd "${CHILD_MARK} Allowing port 80 (HTTP)..." ufw allow 80
 run_cmd "${CHILD_MARK} Allowing port 443 (HTTPS)..." ufw allow 443
