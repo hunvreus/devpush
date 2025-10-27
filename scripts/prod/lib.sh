@@ -84,7 +84,7 @@ run_cmd() {
             exit $exit_code
         else
             printf "\r\033[K"
-            echo "$msg ${GRN}✔${NC}"
+            echo "$SPIN_PREFIX ${GRN}✔${NC}"
             rm -f "$CMD_LOG" 2>/dev/null || true
         fi
     fi
@@ -110,16 +110,13 @@ run_cmd_try() {
         : >"$CMD_LOG"
         "${cmd[@]}" >"$CMD_LOG" 2>&1 &
         local pid=$!
-        if [[ -t 1 ]]; then
-            spinner "$pid" "$msg"
-        else
-            echo "$msg"
-        fi
+        SPIN_PREFIX="$msg"
+        spinner "$pid"
         wait "$pid"
         local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
             printf "\r\033[K"
-            echo "$msg ${RED}✖${NC}"
+            echo "$SPIN_PREFIX ${RED}✖${NC}"
             echo ""
             err "Failed. Command output:"
             if [[ -s "$CMD_LOG" ]]; then
@@ -140,7 +137,7 @@ run_cmd_try() {
             return $exit_code
         else
             printf "\r\033[K"
-            echo "$msg ${GRN}✔${NC}"
+            echo "$SPIN_PREFIX ${GRN}✔${NC}"
             rm -f "$CMD_LOG" 2>/dev/null || true
             return 0
         fi
