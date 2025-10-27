@@ -55,15 +55,18 @@ run_cmd() {
         fi
     else
         : >"$CMD_LOG"
-        "${cmd[@]}" >"$CMD_LOG" 2>&1 &
-        local pid=$!
         if [[ -t 1 ]]; then
+            "${cmd[@]}" >"$CMD_LOG" 2>&1 &
+            local pid=$!
             spinner "$pid" "$msg"
+            wait "$pid"
+            local exit_code=$?
+        else
+            echo "$msg"
+            "${cmd[@]}" >"$CMD_LOG" 2>&1
+            local exit_code=$?
         fi
-        wait "$pid"
-        local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
-            # Clear spinner line and print failure on its own line
             printf "\r\033[K"
             echo "$msg ${RED}✖${NC}"
             echo ""
@@ -110,13 +113,17 @@ run_cmd_try() {
         fi
     else
         : >"$CMD_LOG"
-        "${cmd[@]}" >"$CMD_LOG" 2>&1 &
-        local pid=$!
         if [[ -t 1 ]]; then
+            "${cmd[@]}" >"$CMD_LOG" 2>&1 &
+            local pid=$!
             spinner "$pid" "$msg"
+            wait "$pid"
+            local exit_code=$?
+        else
+            echo "$msg"
+            "${cmd[@]}" >"$CMD_LOG" 2>&1
+            local exit_code=$?
         fi
-        wait "$pid"
-        local exit_code=$?
         if [[ $exit_code -ne 0 ]]; then
             printf "\r\033[K"
             echo "$msg ${RED}✖${NC}"
