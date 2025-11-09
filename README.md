@@ -216,9 +216,9 @@ Variable | Comments | Default
 `DEPLOY_DOMAIN` | Domain used for deployments (e.g. `devpush.app` if you want your deployments available at `*.devpush.app`). | `APP_HOSTNAME`
 `SERVER_IP` | Public IP of the server | `""`
 `SECRET_KEY` | App secret for sessions/CSRF. Generate: `openssl rand -hex 32` | `""`
-`ENCRYPTION_KEY` | Fernet key (urlsafe base64, 32 bytes). Generate: `openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'` | `""`
+`ENCRYPTION_KEY` | Used to encrypt secrets in the DB (e.g. environment variables). Must be a Fernet key (urlsafe base64, 32 bytes). Generate: `openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'` | `""`
 `EMAIL_LOGO` | URL for email logo image. Only helpful for testing, as the app will use `app/logo-email.png` if left empty. | `""`
-`EMAIL_SENDER_NAME` | Name displayed as email sender for invites/login. | `""`
+`EMAIL_SENDER_NAME` | Name displayed as email sender for invites/login. | `"/dev/push"`
 `EMAIL_SENDER_ADDRESS` | Email sender used for invites/login. | `""`
 `RESEND_API_KEY` | API key for [Resend](https://resend.com). | `""`
 `GITHUB_APP_ID` | GitHub App ID. | `""`

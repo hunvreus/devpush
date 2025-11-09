@@ -393,15 +393,7 @@ fi
 printf "\n"
 run_cmd "Recording install metadata..." record_version
 
-# Send telemetry and retrieve public IP
-public_ip=""
-if ((telemetry==1)); then
-  printf "\n"
-  run_cmd "Sending telemetry..." send_telemetry install
-  public_ip=$(jq -r '.public_ip // empty' /var/lib/devpush/config.json 2>/dev/null || true)
-fi
-
-# Optional hardening (non-fatal)
+# Optional hardening (non-fatal) - run before telemetry
 if ((run_harden==1)); then
   printf "\n"
   set +e
@@ -424,15 +416,26 @@ if ((run_harden_ssh==1)); then
   fi
 fi
 
+# Send telemetry and retrieve public IP
+if ((telemetry==1)); then
+  printf "\n"
+  run_cmd "Sending telemetry..." send_telemetry install
+fi
+
 printf "\n"
 echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
-echo ""
-if [[ -n "$public_ip" && "$public_ip" != *"Warning:"* ]]; then
-  echo "Your instance will be accessible at: http://${public_ip}"
-  echo ""
+
+# Setup
+printf "\n"
+if (( yes_flag == 1 )); then
+  echo "Starting setup..."
+  bash "$app_dir/scripts/prod/setup.sh"
+else
+  read -r -p "Start setup now? [Y/n] " ans
+  if [[ ! "$ans" =~ ^[Nn]$ ]]; then
+    bash "$app_dir/scripts/prod/setup.sh"
+  else
+    echo ""
+    echo "Run 'sudo bash $app_dir/scripts/prod/setup.sh' to configure later."
+  fi
 fi
-echo "Next:"
-echo "  1) sudo -iu ${user}"
-echo "  2) cd devpush && vi .env"
-echo "     Fill: LE_EMAIL, APP_HOSTNAME, DEPLOY_DOMAIN, EMAIL_SENDER_ADDRESS, RESEND_API_KEY, GitHub App vars (GITHUB_APP_ID, GITHUB_APP_NAME, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_WEBHOOK_SECRET, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET)"
-echo "  3) ./scripts/prod/start.sh --migrate [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]"
