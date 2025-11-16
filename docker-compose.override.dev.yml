@@ -10,7 +10,7 @@ services:
       - ./app:/app
       - ./data/upload:/app/upload
       - ./data/traefik:/data/traefik
-      - ./access.json:/app/settings/access.json
+      - ./data/config.json:/var/lib/devpush/config.json
   worker-arq:
     build:
       dockerfile: Docker/Dockerfile.app.dev

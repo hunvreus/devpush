@@ -1,74 +1,94 @@
 {#
-Renders a dialog component with optional trigger, header, body, and footer.
+  Renders a dialog component with optional trigger, header, body, and footer.
 
-@param id {string} - Unique identifier for the dialog component.
-@param trigger {string} [optional] - Text or HTML for the button that triggers the dialog.
-@param title {string} [optional] - Title text displayed in the dialog header.
-@param description {string} [optional] - Description text displayed below the title.
-@param footer {string} [optional] - HTML content for the dialog footer.
-@param main_attrs {object} [optional] - Additional HTML attributes for the main container div.
-@param trigger_attrs {object} [optional] - Additional HTML attributes for the trigger button.
-@param dialog_attrs {object} [optional] - Additional HTML attributes for the dialog content article.
-@param header_attrs {object} [optional] - Additional HTML attributes for the dialog header.
-@param body_attrs {object} [optional] - Additional HTML attributes for the dialog body section.
-@param footer_attrs {object} [optional] - Additional HTML attributes for the dialog footer.
-@param open {boolean} [optional] [default=false] - Whether the dialog should be open initially.
-@param close_button {boolean} [optional] [default=true] - Whether to include a close button.
-@param close_on_overlay_click {boolean} [optional] [default=true] - Whether clicking the overlay closes the dialog.
+  @param id {string} - Unique identifier for the dialog component.
+  @param trigger {string} [optional] - Text or HTML for the button that triggers the dialog.
+  @param title {string} [optional] - Title text displayed in the dialog header.
+  @param description {string} [optional] - Description text displayed below the title.
+  @param footer {string} [optional] - HTML content for the dialog footer.
+  @param main_attrs {object} [optional] - Additional HTML attributes for the main container div.
+  @param trigger_attrs {object} [optional] - Additional HTML attributes for the trigger button.
+  @param dialog_attrs {object} [optional] - Additional HTML attributes for the dialog content container.
+  @param header_attrs {object} [optional] - Additional HTML attributes for the dialog header.
+  @param body_attrs {object} [optional] - Additional HTML attributes for the dialog body section.
+  @param footer_attrs {object} [optional] - Additional HTML attributes for the dialog footer.
+  @param open {boolean} [optional] [default=false] - Whether the dialog should be open initially.
+  @param close_button {boolean} [optional] [default=true] - Whether to include a close button.
+  @param close_on_overlay_click {boolean} [optional] [default=true] - Whether clicking the overlay closes the dialog.
 #}
 {% macro dialog(
-id=None,
-trigger=None,
-title=None,
-description=None,
-footer=None,
-dialog_attrs={},
-trigger_attrs={},
-header_attrs={},
-body_attrs={},
-footer_attrs={},
-open=false,
-close_button=true,
-close_on_overlay_click=true
+  id=None,
+  trigger=None,
+  title=None,
+  description=None,
+  footer=None,
+  dialog_attrs={},
+  trigger_attrs={},
+  header_attrs={},
+  body_attrs={},
+  footer_attrs={},
+  open=false,
+  close_button=true,
+  close_on_overlay_click=true
 ) %}
 {% set id = id or ("dialog-" + (range(100000, 999999) | random | string)) %}
 {% if trigger %}
-<button type="button" onclick="document.getElementById('{{ id }}').showModal()" {% for key, value in
-  trigger_attrs.items() %} {{ key }}="{{ value }}" {% endfor %}>
-  {{ trigger }}
+<button
+  type="button"
+  onclick="document.getElementById('{{ id }}').showModal()"
+  {% for key, value in trigger_attrs.items() %}
+    {{ key }}="{{ value }}"
+  {% endfor %}
+>
+  {{ trigger | safe }}
 </button>
 {% endif %}
-<dialog id="{{ id }}" class="dialog {{ dialog_attrs.class }}" aria-labelledby="{{ id }}-title" {% if description
-  %}aria-describedby="{{ id }}-description" {% endif %} {% if close_on_overlay_click
-  %}onclick="if (event.target === this) this.close()" {% endif %} {% for key, value in dialog_attrs.items() %} {% if key
-  !='class' %}{{ key }}="{{ value }}" {% endif %} {% endfor %}>
-  <article>
+<dialog
+  id="{{ id }}"
+  class="dialog {{ dialog_attrs.class }}"
+  aria-labelledby="{{ id }}-title"
+  {% if description %}aria-describedby="{{ id }}-description"{% endif %}
+  {% if close_on_overlay_click %}onclick="if (event.target === this) this.close()"{% endif %}
+  {% for key, value in dialog_attrs.items() %}
+    {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
+  {% endfor %}
+>
+  <div>
     {% if title or description %}
-    <header {% for key, value in header_attrs %} {{ key }}="{{ value }}" {% endfor %}>
-      <h2 id="{{ id }}-title">{{ title | safe }}</h2>
-      {% if description %}<p id="{{ id }}-description">{{ description | safe }}</p>{% endif %}
-    </header>
+      <header
+        {% for key, value in header_attrs.items() %}
+          {{ key }}="{{ value }}"
+        {% endfor %}
+      >
+        <h2 id="{{ id }}-title">{{ title | safe }}</h2>
+        {% if description %}<p id="{{ id }}-description">{{ description | safe }}</p>{% endif %}
+      </header>
     {% endif %}
     {% if caller %}
-    <section {% for key, value in body_attrs.items() %} {{ key }}="{{ value }}" {% endfor %}>
-      {{ caller() }}
-    </section>
+      <section
+        {% for key, value in body_attrs.items() %}
+          {{ key }}="{{ value }}"
+        {% endfor %}
+      >
+        {{ caller() }}
+      </section>
     {% endif %}
     {% if footer %}
-    <footer {% for key, value in footer_attrs.items() %} {{ key }}="{{ value }}" {% endfor %}>
-      {{ footer | safe }}
-    </footer>
+      <footer
+        {% for key, value in footer_attrs.items() %}
+          {{ key }}="{{ value }}"
+        {% endfor %}
+      >
+        {{ footer | safe }}
+      </footer>
     {% endif %}
     {% if close_button %}
-    <button aria-label="Close dialog" onclick="this.closest('dialog').close()">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        class="lucide lucide-x-icon lucide-x">
-        <path d="M18 6 6 18" />
-        <path d="m6 6 12 12" />
-      </svg>
-    </button>
+      <form method="dialog">
+        <button aria-label="Close dialog">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+      </form>
     {% endif %}
-  </article>
+  </div>
 </dialog>
 {% endmacro %}

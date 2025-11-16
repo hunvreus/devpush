@@ -39,10 +39,7 @@
               <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
               {{ delete_team_form.submit(
                 class_="btn-destructive",
-                **{
-                  ":disabled": "confirm !== '" + team.slug + "'",
-                  "data-icon": "trash"
-                }
+                **{":disabled": "confirm !== '" + team.slug + "'"}
               ) }}
             </footer>
           </form>

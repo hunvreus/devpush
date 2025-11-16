@@ -1,86 +1,92 @@
-import json
 import re
-from fnmatch import fnmatch
-from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-_cache: dict[str, dict[str, Any]] = {}
+from models import Allowlist
 
 
-def _load_rules(rules_path: str | Path) -> dict[str, Any]:
-    entry = {
-        "mtime": 0,
-        "emails": [],
-        "domains": [],
-        "globs": [],
+def _empty_entry() -> dict[str, Any]:
+    return {
+        "signature": None,
+        "emails": set(),
+        "domains": set(),
         "regex": [],
-        "regex_compiled": [],
     }
-    try:
-        path = Path(rules_path).resolve()
 
-        key = str(path)
-        entry = _cache.get(key) or {
-            "mtime": 0,
-            "emails": [],
-            "domains": [],
-            "globs": [],
-            "regex": [],
-            "regex_compiled": [],
-        }
 
-        file_mtime = path.stat().st_mtime
-        if file_mtime != entry["mtime"]:
+_cache: dict[str, Any] = _empty_entry()
+
+
+async def _load_rules(db: AsyncSession | None) -> dict[str, Any]:
+    if not db:
+        return _empty_entry()
+
+    result = await db.execute(
+        select(func.count(Allowlist.id), func.max(Allowlist.updated_at))
+    )
+    total_entries, latest_updated = result.one()
+    signature = (
+        int(total_entries or 0),
+        latest_updated.isoformat() if latest_updated else None,
+    )
+
+    if _cache.get("signature") == signature:
+        return _cache
+
+    entries_result = await db.execute(select(Allowlist.type, Allowlist.value))
+    emails: set[str] = set()
+    domains: set[str] = set()
+    regex_patterns: list[re.Pattern[str]] = []
+
+    for row in entries_result.all():
+        rule_type = row[0]
+        value_raw = (row[1] or "").strip()
+        if not value_raw:
+            continue
+
+        if rule_type == "email":
+            emails.add(value_raw.lower())
+        elif rule_type == "domain":
+            domains.add(value_raw.lower())
+        else:
             try:
-                json_data = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                json_data = {}
-            regex_raw = json_data.get("regex", []) or []
-            entry["emails"] = json_data.get("emails", []) or []
-            entry["domains"] = json_data.get("domains", []) or []
-            entry["globs"] = json_data.get("globs", []) or []
-            entry["regex"] = regex_raw
-            entry["regex_compiled"] = [
-                re.compile(pattern, re.IGNORECASE) for pattern in regex_raw
-            ]
-            entry["mtime"] = file_mtime
-            _cache[key] = entry
-    except Exception:
-        _cache[key] = entry
-    return entry
+                regex_patterns.append(re.compile(value_raw, re.IGNORECASE))
+            except re.error:
+                continue
+
+    updated_entry = {
+        "signature": signature,
+        "emails": emails,
+        "domains": domains,
+        "regex": regex_patterns,
+    }
+    _cache.update(updated_entry)
+    return _cache
 
 
-def is_email_allowed(email: str, rules_path: str | Path) -> bool:
-    if not rules_path:
+async def is_email_allowed(email: str, db: AsyncSession | None) -> bool:
+    if not db:
         return True
-    cache = _load_rules(rules_path)
-    if not (cache["emails"] or cache["domains"] or cache["globs"] or cache["regex"]):
+
+    cache = await _load_rules(db)
+    if not (cache["emails"] or cache["domains"] or cache["regex"]):
         return True
-    if cache["mtime"] == 0:
-        return True
+
     email_lower = (email or "").strip().lower()
     if not email_lower or "@" not in email_lower:
         return False
     domain = email_lower.split("@")[-1]
 
-    allowed_emails = {item.strip().lower() for item in cache["emails"] if item}
-    if email_lower in allowed_emails:
+    if email_lower in cache["emails"]:
         return True
 
-    allowed_domains = {item.strip().lower() for item in cache["domains"] if item}
-    if domain in allowed_domains:
+    if domain in cache["domains"]:
         return True
 
-    glob_patterns = [item.strip() for item in cache["globs"] if item]
-    if any(
-        fnmatch(email_lower, pattern) or fnmatch(domain, pattern)
-        for pattern in glob_patterns
-    ):
-        return True
-
-    if any(regex.search(email_lower) for regex in cache["regex_compiled"]):
+    if any(regex.search(email_lower) for regex in cache["regex"]):
         return True
 
     return False

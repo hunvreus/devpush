@@ -826,3 +826,25 @@ class Domain(Base):
     @override
     def __repr__(self):
         return f"<Domain {self.hostname}>"
+
+
+class Allowlist(Base):
+    __tablename__: str = "allowlist"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type: Mapped[str] = mapped_column(
+        SQLAEnum("email", "domain", "pattern", name="allowlist_type"),
+        nullable=False,
+        index=True,
+    )
+    value: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    @override
+    def __repr__(self):
+        return f"<Allowlist {self.type}:{self.value}>"

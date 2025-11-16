@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Docker/Dockerfile.app.dev
+    entrypoint: /entrypoint.app.dev.sh
+    restart: always
+    ports:
+      - "80:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

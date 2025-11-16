@@ -1,0 +1,75 @@
+{% macro pagination(pagination_data, page_param="page", req=None, hx_target=None, fragment=None) %}
+{% set req = req or request %}
+{% if pagination_data and pagination_data.pages > 1 %}
+  <nav class="flex items-center justify-end gap-x-2 mt-4" aria-label="Pagination">
+    {% if pagination_data.page == 1 %}
+      <button class="btn-sm-icon-outline" type="button" aria-label="{{ _('First page') }}" disabled>
+        {% include "icons/chevrons-left.svg" %}
+      </button>
+    {% else %}
+      <a
+        href="{{ req.url.include_query_params(**{page_param: 1, 'fragment': fragment}) }}" 
+        class="btn-sm-icon-outline"
+        aria-label="{{ _('First page') }}" 
+        hx-boost="true"
+        hx-target="{{ hx_target }}"
+      >
+        {% include "icons/chevrons-left.svg" %}
+      </a>
+    {% endif %}
+
+    {% if pagination_data.has_prev %}
+      <a
+        href="{{ req.url.include_query_params(**{page_param: pagination_data.prev_num, 'fragment': fragment}) }}"
+        class="btn-sm-icon-outline"
+        aria-label="{{ _('Previous page') }}"
+        hx-boost="true"
+        hx-target="{{ hx_target }}"
+      >
+        {% include "icons/chevron-left.svg" %}
+      </a>
+    {% else %}
+      <button class="btn-sm-icon-outline" type="button" aria-label="{{ _('Previous page') }}" disabled>
+        {% include "icons/chevron-left.svg" %}
+      </button>
+    {% endif %}
+
+    <span class="text-sm text-muted-foreground px-2">
+      {{ _('Page %(current)s of %(total)s', current=pagination_data.page, total=pagination_data.pages) }}
+    </span>
+
+    {% if pagination_data.has_next %}
+      <a
+        href="{{ req.url.include_query_params(**{page_param: pagination_data.next_num, 'fragment': fragment}) }}"
+        class="btn-sm-icon-outline"
+        aria-label="{{ _('Next page') }}"
+        hx-boost="true"
+        hx-target="{{ hx_target }}"
+      >
+        {% include "icons/chevron-right.svg" %}
+      </a>
+    {% else %}
+      <button class="btn-sm-icon-outline" type="button" aria-label="{{ _('Next page') }}" disabled>
+        {% include "icons/chevron-right.svg" %}
+      </button>
+    {% endif %}
+
+    {% if pagination_data.page == pagination_data.pages %}
+      <button class="btn-sm-icon-outline" type="button" aria-label="{{ _('Last page') }}" disabled>
+        {% include "icons/chevrons-right.svg" %}
+      </button>
+    {% else %}
+      <a
+        href="{{ req.url.include_query_params(**{page_param: pagination_data.pages, 'fragment': fragment}) }}"
+        class="btn-sm-icon-outline"
+        aria-label="{{ _('Last page') }}"
+        hx-boost="true"
+        hx-target="{{ hx_target }}"
+      >
+        {% include "icons/chevrons-right.svg" %}
+      </a>
+    {% endif %}
+  </nav>
+{% endif %}
+{% endmacro %}
+

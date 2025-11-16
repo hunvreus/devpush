@@ -1,0 +1,57 @@
+{% from "admin/macros/pagination.html" import pagination %}
+
+{% if allowlist_entries %}
+  <div class="rounded-xl border relative overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th class="pl-4">{{ _('Type') }}</th>
+          <th>{{ _('Value') }}</th>
+          <th>{{ _('Added') }}</th>
+          <th class="w-12"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in allowlist_entries %}
+          <tr>
+            <td class="pl-4">
+              {% if entry.type == "email" %}
+                <span class="badge-outline">{{ _('Email') }}</span>
+              {% elif entry.type == "domain" %}
+                <span class="badge-outline">{{ _('Domain') }}</span>
+              {% elif entry.type == "pattern" %}
+                <span class="badge-outline">{{ _('Pattern') }}</span>
+              {% endif %}
+            </td>
+            <td class="text-sm w-full max-w-1 truncate">{{ entry.value }}</td>
+            <td>{{ entry.created_at | time_ago }}</td>
+            <td class="w-full text-right">
+              <form
+                method="post"
+                action=""
+                hx-post=""
+                hx-target="closest .card"
+                hx-swap="outerHTML"
+                hx-indicator="next .htmx-indicator"
+                hx-push-url="false"
+                hx-confirm="{{ _('Are you sure you want to delete this entry?') }}"
+              >
+                {{ allowlist_delete_form.csrf_token() }}
+                {{ allowlist_delete_form.entry_id(value=entry.id) }}
+                <button type="submit" name="action" value="delete_allowlist" class="btn-sm-ghost text-destructive">
+                  {% include "icons/trash-2.svg" %}
+                  {{ _('Delete') }}
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pagination(allowlist_pagination, "allowlist_page", request, hx_target="#allowlist-content", fragment="allowlist-content") }}
+{% else %}
+  <div class="text-center py-8 text-muted-foreground">
+    <p>{{ _('No allowlist entries found.') }}</p>
+  </div>
+{% endif %}

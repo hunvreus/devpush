@@ -69,6 +69,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+DEPLOYMENTS_PER_PAGE = 25
+
 
 @router.get("/{team_slug}/new-project", name="new_project")
 async def new_project(
@@ -300,7 +302,6 @@ async def project_deployments(
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
-    per_page = 25
     env_aliases = await project.get_environment_aliases(db=db)
 
     result = await db.execute(
@@ -377,7 +378,7 @@ async def project_deployments(
     if branch:
         query = query.where(Deployment.branch == branch)
 
-    pagination = await paginate(db, query, page, per_page)
+    pagination = await paginate(db, query, page, DEPLOYMENTS_PER_PAGE)
 
     if request.headers.get("HX-Request") and fragment == "deployments":
         return TemplateResponse(
@@ -916,9 +917,6 @@ async def project_settings(
                         _("An error occurred while marking the project for deletion."),
                         "error",
                     )
-
-            for error in delete_project_form.confirm.errors:
-                flash(request, error, "error")
 
     # General
     general_form: Any = await ProjectGeneralForm.from_formdata(

@@ -1,11 +1,11 @@
 import logging
+import re
 from fastapi import APIRouter, Request, Depends, Query
 import json
-import os
 import httpx
 from starlette.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from arq.connections import ArqRedis
 
 from dependencies import (
@@ -17,18 +17,89 @@ from dependencies import (
     get_job_queue,
 )
 from db import get_db
-from models import User
-from forms.admin import AdminUserDeleteForm
+from models import User, Allowlist
+from utils.pagination import paginate
+from forms.admin import (
+    AdminUserDeleteForm,
+    AllowlistAddForm,
+    AllowlistDeleteForm,
+    AllowlistImportForm,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin")
+
+USERS_PER_PAGE = 10
+ALLOWLIST_PER_PAGE = 10
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+DOMAIN_REGEX = re.compile(r"^(?!-)([a-z0-9-]+\.)+[a-z]{2,}$", re.IGNORECASE)
+
+
+def normalize_allowlist_value(entry_type: str, value: str | None) -> str:
+    value = value or ""
+    if entry_type in {"email", "domain"}:
+        return value.strip().strip("'\"").strip().lower()
+    return value.strip()
+
+
+def is_valid_allowlist_value(entry_type: str, value: str) -> bool:
+    if entry_type == "email":
+        return bool(value and EMAIL_REGEX.match(value))
+    if entry_type == "domain":
+        regex = re.compile(r"^(?!-)([a-z0-9-]+\.)+[a-z]{2,}$", re.IGNORECASE)
+        return bool(value and regex.match(value))
+    if entry_type == "pattern":
+        if not value:
+            return False
+        try:
+            re.compile(value)
+            return True
+        except re.error:
+            return False
+    return False
+
+
+async def get_allowlist_pagination(
+    db: AsyncSession,
+    allowlist_page: int,
+    allowlist_search: str | None = None,
+):
+    allowlist_query = select(Allowlist)
+    if allowlist_search:
+        allowlist_query = allowlist_query.where(
+            Allowlist.value.ilike(f"%{allowlist_search}%")
+        )
+    allowlist_query = allowlist_query.order_by(Allowlist.created_at.desc())
+    return await paginate(db, allowlist_query, allowlist_page, ALLOWLIST_PER_PAGE)
+
+
+async def get_users_pagination(
+    db: AsyncSession,
+    users_page: int,
+    users_search: str | None = None,
+):
+    users_query = select(User)
+    if users_search:
+        users_query = users_query.where(
+            or_(
+                User.email.ilike(f"%{users_search}%"),
+                User.name.ilike(f"%{users_search}%"),
+                User.username.ilike(f"%{users_search}%"),
+            )
+        )
+    users_query = users_query.order_by(User.id.asc())
+    return await paginate(db, users_query, users_page, USERS_PER_PAGE)
 
 
 @router.api_route("", methods=["GET", "POST"], name="admin_settings")
 async def admin_settings(
     request: Request,
     fragment: str | None = Query(None),
+    users_page: int = Query(1, ge=1),
+    users_search: str | None = Query(None),
+    allowlist_page: int = Query(1, ge=1),
+    allowlist_search: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     job_queue: ArqRedis = Depends(get_job_queue),
@@ -41,86 +112,268 @@ async def admin_settings(
         )
         return RedirectResponse("/", status_code=302)
 
-    delete_form = await AdminUserDeleteForm.from_formdata(request)
+    action = None
+    if request.method == "POST":
+        form_data = await request.form()
+        action = form_data.get("action")
 
-    if fragment == "delete_user":
-        if request.method == "POST" and await delete_form.validate_on_submit():
-            try:
-                # Parse user id as integer
-                try:
-                    user_id = int(delete_form.user_id.data)
-                except (TypeError, ValueError):
-                    flash(request, _("Invalid user id."), "error")
-                    if request.headers.get("HX-Request"):
-                        result = await db.execute(select(User).order_by(User.id.asc()))
-                        users = result.scalars().all()
-                        return TemplateResponse(
-                            request=request,
-                            name="admin/partials/_settings-users.html",
-                            context={
-                                "current_user": current_user,
-                                "users": users,
-                                "delete_form": delete_form,
-                            },
-                        )
-                    return RedirectResponse("/admin", status_code=303)
+    add_allowlist_form = await AllowlistAddForm.from_formdata(request)
+    delete_allowlist_form = await AllowlistDeleteForm.from_formdata(request)
+    import_allowlist_form = await AllowlistImportForm.from_formdata(request)
 
-                target_user = await db.get(User, user_id)
-
-                if not target_user or target_user.status == "deleted":
-                    flash(request, _("User not found."), "error")
-                    return RedirectResponse("/admin", status_code=303)
-
-                # Prevent deleting superadmin
-                if target_user.id == 1:
-                    flash(request, _("You cannot delete the superadmin."), "error")
-                    return RedirectResponse("/admin", status_code=303)
-
-                target_user.status = "deleted"
-                await db.commit()
-
-                # Delegate cleanup to background job
-                await job_queue.enqueue_job("cleanup_user", target_user.id)
-
-                flash(
-                    request,
-                    _(
-                        'User "%(name)s" has been marked for deletion.',
-                        name=target_user.name or target_user.username,
-                    ),
-                    "success",
+    # Add allowlist rule
+    if action == "add_allowlist":
+        if request.method == "POST":
+            if await add_allowlist_form.validate_on_submit():
+                entry_type = add_allowlist_form.type.data
+                normalized_value = normalize_allowlist_value(
+                    entry_type, add_allowlist_form.value.data
                 )
 
-            except Exception as e:
-                await db.rollback()
-                logger.error(f"Error deleting user: {str(e)}")
-                flash(request, _("An error occurred while deleting the user."), "error")
+                if not normalized_value or not is_valid_allowlist_value(
+                    entry_type, normalized_value
+                ):
+                    flash(
+                        request,
+                        _("Invalid allowlist value."),
+                        "error",
+                    )
+                else:
+                    existing_entry = await db.scalar(
+                        select(Allowlist.id).where(
+                            Allowlist.type == entry_type,
+                            Allowlist.value == normalized_value,
+                        )
+                    )
+                    if existing_entry:
+                        flash(
+                            request,
+                            _("This allowlist entry already exists."),
+                            "warning",
+                        )
+                    else:
+                        try:
+                            entry = Allowlist(type=entry_type, value=normalized_value)
+                            db.add(entry)
+                            await db.commit()
+                            flash(
+                                request,
+                                _("Allowlist entry added successfully."),
+                                "success",
+                            )
+                        except Exception as e:
+                            await db.rollback()
+                            logger.error(f"Error adding allowlist entry: {str(e)}")
+                            flash(
+                                request,
+                                _("An error occurred while adding the entry."),
+                                "error",
+                            )
+
+        allowlist_pagination = await get_allowlist_pagination(
+            db, allowlist_page, allowlist_search
+        )
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="admin/partials/_settings-allowlist.html",
+                context={
+                    "current_user": current_user,
+                    "allowlist_entries": allowlist_pagination["items"],
+                    "allowlist_pagination": allowlist_pagination,
+                    "allowlist_search": allowlist_search,
+                    "add_allowlist_form": add_allowlist_form,
+                    "allowlist_delete_form": delete_allowlist_form,
+                    "import_allowlist_form": import_allowlist_form,
+                },
+            )
+
+    # Delete allowlist rule
+    if action == "delete_allowlist":
+        if request.method == "POST":
+            if await delete_allowlist_form.validate_on_submit():
+                try:
+                    entry_id = int(delete_allowlist_form.entry_id.data)
+                    entry = await db.get(Allowlist, entry_id)
+                    if entry:
+                        await db.delete(entry)
+                        await db.commit()
+                        flash(
+                            request,
+                            _("Allowlist entry deleted successfully."),
+                            "success",
+                        )
+                    else:
+                        flash(request, _("Entry not found."), "error")
+                except Exception as e:
+                    await db.rollback()
+                    logger.error(f"Error deleting allowlist entry: {str(e)}")
+                    flash(
+                        request,
+                        _("An error occurred while deleting the entry."),
+                        "error",
+                    )
+
+        allowlist_pagination = await get_allowlist_pagination(
+            db, allowlist_page, allowlist_search
+        )
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="admin/partials/_settings-allowlist.html",
+                context={
+                    "current_user": current_user,
+                    "allowlist_entries": allowlist_pagination["items"],
+                    "allowlist_pagination": allowlist_pagination,
+                    "allowlist_search": allowlist_search,
+                    "add_allowlist_form": add_allowlist_form,
+                    "allowlist_delete_form": delete_allowlist_form,
+                    "import_allowlist_form": import_allowlist_form,
+                },
+            )
+
+    # Import allowlist
+    if action == "import_allowlist":
+        if request.method == "POST":
+            if await import_allowlist_form.validate_on_submit():
+                try:
+                    emails_text = import_allowlist_form.emails.data or ""
+                    normalized_emails: list[str] = []
+
+                    for line in emails_text.splitlines():
+                        parts = line.split(",") if "," in line else [line]
+                        for value in parts:
+                            normalized = normalize_allowlist_value("email", value)
+                            if normalized and is_valid_allowlist_value(
+                                "email", normalized
+                            ):
+                                normalized_emails.append(normalized)
+
+                    unique_emails = set(normalized_emails)
+                    added_count = 0
+
+                    if unique_emails:
+                        existing_result = await db.execute(
+                            select(Allowlist.value).where(
+                                Allowlist.type == "email",
+                                Allowlist.value.in_(unique_emails),
+                            )
+                        )
+                        existing_emails = {row[0] for row in existing_result.all()}
+                        new_emails = unique_emails - existing_emails
+
+                        for email in new_emails:
+                            db.add(Allowlist(type="email", value=email))
+
+                        added_count = len(new_emails)
+                        if added_count:
+                            await db.commit()
+                        else:
+                            await db.rollback()
+
+                    flash(
+                        request,
+                        _(
+                            "%(count)s email(s) imported (invalid or duplicate entries were ignored).",
+                            count=added_count,
+                        ),
+                        "success",
+                    )
+                except Exception as e:
+                    await db.rollback()
+                    logger.error(f"Error importing emails: {str(e)}")
+                    flash(
+                        request, _("An error occurred while importing emails."), "error"
+                    )
+
+        allowlist_pagination = await get_allowlist_pagination(
+            db, allowlist_page, allowlist_search
+        )
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="admin/partials/_settings-allowlist.html",
+                context={
+                    "current_user": current_user,
+                    "allowlist_entries": allowlist_pagination["items"],
+                    "allowlist_pagination": allowlist_pagination,
+                    "allowlist_search": allowlist_search,
+                    "add_allowlist_form": add_allowlist_form,
+                    "allowlist_delete_form": delete_allowlist_form,
+                    "import_allowlist_form": import_allowlist_form,
+                },
+            )
+
+    # Delete user
+    delete_user_form = await AdminUserDeleteForm.from_formdata(request)
+
+    if action == "delete_user":
+        if request.method == "POST":
+            if await delete_user_form.validate_on_submit():
+                try:
+                    target_user = await db.get(User, int(delete_user_form.user_id.data))
+
+                    if not target_user or target_user.status == "deleted":
+                        flash(request, _("User not found."), "error")
+                        return RedirectResponse("/admin", status_code=303)
+
+                    if is_superadmin(target_user):
+                        flash(request, _("You cannot delete the superadmin."), "error")
+                        return RedirectResponse("/admin", status_code=303)
+
+                    # User is marked as deleted, actual cleanup is delegated to a job
+                    target_user.status = "deleted"
+                    await db.commit()
+
+                    await job_queue.enqueue_job("cleanup_user", target_user.id)
+
+                    flash(
+                        request,
+                        _(
+                            'User "%(name)s" has been marked for deletion.',
+                            name=target_user.name or target_user.username,
+                        ),
+                        "success",
+                    )
+
+                except Exception as e:
+                    await db.rollback()
+                    logger.error(f"Error deleting user: {str(e)}")
+                    flash(
+                        request,
+                        _("An error occurred while deleting the user."),
+                        "error",
+                    )
 
             if not request.headers.get("HX-Request"):
                 return RedirectResponse("/admin", status_code=303)
 
-        for error in delete_form.confirm.errors:
-            flash(request, error, "error")
+        users_pagination = await get_users_pagination(db, users_page, users_search)
 
         if request.headers.get("HX-Request"):
-            result = await db.execute(select(User).order_by(User.id.asc()))
-            users = result.scalars().all()
             return TemplateResponse(
                 request=request,
                 name="admin/partials/_settings-users.html",
                 context={
                     "current_user": current_user,
-                    "users": users,
-                    "delete_form": delete_form,
+                    "users": users_pagination["items"],
+                    "users_pagination": users_pagination,
+                    "users_search": users_search,
+                    "delete_user_form": delete_user_form,
                 },
             )
 
+    # System
     version_info = None
     try:
-        version_path = "/var/lib/devpush/version.json"
-        if os.path.exists(version_path):
-            with open(version_path, "r") as f:
-                version_info = json.load(f)
+        from pathlib import Path
+
+        version_path = Path("/var/lib/devpush/version.json")
+        if version_path.exists():
+            version_info = json.loads(version_path.read_text())
     except Exception:
         version_info = None
 
@@ -170,16 +423,54 @@ async def admin_settings(
             },
         )
 
-    result = await db.execute(select(User).order_by(User.id.asc()))
-    users = result.scalars().all()
+    allowlist_pagination = await get_allowlist_pagination(
+        db, allowlist_page, allowlist_search
+    )
+    users_pagination = await get_users_pagination(db, users_page, users_search)
+
+    if request.headers.get("HX-Request"):
+        if fragment == "allowlist-content":
+            return TemplateResponse(
+                request=request,
+                name="admin/partials/_settings-allowlist-content.html",
+                context={
+                    "current_user": current_user,
+                    "allowlist_entries": allowlist_pagination["items"],
+                    "allowlist_pagination": allowlist_pagination,
+                    "allowlist_search": allowlist_search,
+                    "add_allowlist_form": add_allowlist_form,
+                    "allowlist_delete_form": delete_allowlist_form,
+                    "import_allowlist_form": import_allowlist_form,
+                },
+            )
+        elif fragment == "users-content":
+            return TemplateResponse(
+                request=request,
+                name="admin/partials/_settings-users-content.html",
+                context={
+                    "current_user": current_user,
+                    "users": users_pagination["items"],
+                    "users_pagination": users_pagination,
+                    "users_search": users_search,
+                    "delete_user_form": delete_user_form,
+                },
+            )
 
     return TemplateResponse(
         request=request,
         name="admin/pages/settings.html",
         context={
             "current_user": current_user,
-            "users": users,
-            "delete_form": delete_form,
+            "users": users_pagination["items"],
+            "users_pagination": users_pagination,
+            "users_search": users_search,
+            "delete_user_form": delete_user_form,
             "version_info": version_info,
+            "allowlist_entries": allowlist_pagination["items"],
+            "allowlist_pagination": allowlist_pagination,
+            "allowlist_search": allowlist_search,
+            "add_allowlist_form": add_allowlist_form,
+            "allowlist_delete_form": delete_allowlist_form,
+            "import_allowlist_form": import_allowlist_form,
         },
     )

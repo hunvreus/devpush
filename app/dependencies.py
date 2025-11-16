@@ -193,14 +193,30 @@ def get_lazy_translation(key: str, **kwargs):
 
 
 def flash(
-    request: Request, title: str, category: str = "info", description: str | None = None
+    request: Request,
+    title: str,
+    category: str = "info",
+    description: str | None = None,
+    action: dict | None = None,
+    cancel: dict | None = None,
+    attrs: dict | None = None,
 ):
     if "_messages" not in request.session:
         request.session["_messages"] = []
 
-    request.session["_messages"].append(
-        {"title": title, "category": category, "description": description}
-    )
+    message = {
+        "title": title,
+        "category": category,
+        "description": description,
+    }
+    if action:
+        message["action"] = action
+    if cancel:
+        message["cancel"] = cancel
+    if attrs:
+        message["attrs"] = attrs
+
+    request.session["_messages"].append(message)
 
 
 @pass_context

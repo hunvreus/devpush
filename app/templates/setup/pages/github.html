@@ -1,0 +1,190 @@
+{% extends "setup/layouts/setup.html" %}
+{% from "macros/dialog.html" import dialog %}
+
+{% block title %}Setup: GitHub App{% endblock %}
+
+{% block setup_content %}
+<div class="card w-full">
+  <header class="border-b">
+    <h2 class="h2">{{ _('GitHub App') }}</h2>
+    <p>{{ _('Create a GitHub App to connect your repositories to /dev/push.') }}</p>
+  </header>
+
+  <section class="space-y-6">
+    <div class="alert">
+      <h2>{{ _("Automatic Setup") }}</h2>
+      <section>
+        <p>{{ _("Click the button below to create the GitHub App automatically. This will redirect you to GitHub and back here with credentials filled in upon completion.") }}</p>
+        <footer class="flex justify-between gap-x-2 mt-2">
+          <button type="button" onclick="document.getElementById('confirm-github-account').showModal()" class="btn-sm">
+            {% include "icons/plus.svg" %}
+            {{ _("Create GitHub App") }}
+          </button>
+
+          <a href="https://devpu.sh/docs/installation/#github-app" target="_blank" class="btn-sm-ghost [&_svg]:size-3">
+            {{ _("Manual steps") }}
+            {% include "icons/arrow-up-right.svg" %}
+          </a>
+        </footer>
+      </section>
+    </div>
+
+    {% call dialog(
+      id="confirm-github-account",
+      footer=footer,
+      title=_('Confirm GitHub account'),
+      description=_('By default, the app will be created for your personal account. To create it for an organization, enter its id as shown on the organization page.'),
+      trigger_attrs={"class": "btn-sm"},
+      dialog_attrs={"class": "max-w-md"},
+      close_button=false,
+      close_on_overlay_click=false
+    ) %}
+      <form class="space-y-3 form" x-data="{ useOrg: false }" onsubmit="createGitHubApp(this.closest('dialog')); return false;">
+        <label class="label gap-x-3">
+          <input type="checkbox" name="switch" role="switch" x-model="useOrg">
+          Use organization account
+        </label>
+        <div>
+          <input type="text" name="github_account" id="github_account" class="input w-full" placeholder="Organization ID (e.g. acme-inc)" :disabled="!useOrg">
+        </div>
+        <footer class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end mt-4">
+          <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _("Cancel") }}</button>
+          <button type="submit" class="btn" autofocus>{{ _("Create GitHub App") }}</button>
+        </footer>
+      </form>
+    {% endcall %}
+
+    <form method="post" class="space-y-6">
+      {{ form.csrf_token }}
+
+      <div class="space-y-3">
+        {{ form.github_app_id.label(class="label") }}
+        {{ form.github_app_id(class="input w-full font-mono text-[13px]", placeholder="123456") }}
+        {% for error in form.github_app_id.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="space-y-3">
+        {{ form.github_app_name.label(class="label") }}
+        {{ form.github_app_name(class="input w-full font-mono text-[13px]", placeholder="my-devpush-app") }}
+        {% for error in form.github_app_name.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="space-y-3">
+        {{ form.github_app_private_key.label(class="label") }}
+        {{ form.github_app_private_key(class="textarea w-full font-mono text-xs", rows="8", placeholder="-----BEGIN RSA PRIVATE KEY-----\n...") }}
+        {% for error in form.github_app_private_key.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="space-y-3">
+        {{ form.github_app_webhook_secret.label(class="label") }}
+        {{ form.github_app_webhook_secret(class="input w-full font-mono text-[13px]", placeholder="abc123def456ghi789") }}
+        {% for error in form.github_app_webhook_secret.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="space-y-3">
+        {{ form.github_app_client_id.label(class="label") }}
+        {{ form.github_app_client_id(class="input w-full font-mono text-[13px]", placeholder="Iv1.abc123def456") }}
+        {% for error in form.github_app_client_id.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="space-y-3">
+        {{ form.github_app_client_secret.label(class="label") }}
+        {{ form.github_app_client_secret(class="input w-full font-mono text-[13px]", placeholder="abc123def456ghi789jkl012") }}
+        {% for error in form.github_app_client_secret.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <footer class="flex justify-between gap-x-2 -mx-6 px-6 pt-6 border-t">
+        <a href="/setup/step/1" class="btn-ghost">
+          {% include "icons/arrow-left.svg" %}
+          {{ _("Back") }}
+        </a>
+        <button type="submit" class="btn">
+          {{ _("Next") }}
+          {% include "icons/arrow-right.svg" %}
+        </button>
+      </footer>
+    </form>
+  </section>
+</div>
+
+<script>
+  function createGitHubApp(dialog) {
+    const useOrg = dialog.querySelector('input[name="switch"]').checked;
+    const orgId = dialog.querySelector('#github_account').value.trim();
+
+    if (useOrg && !orgId) {
+      alert('Please enter an organization ID');
+      return;
+    }
+
+    dialog.close();
+
+    const appUrl = "{{ app_hostname }}";
+    const serverIp = "{{ server_ip }}";
+    
+    const appBaseUrl = appUrl.includes("://") ? appUrl : `http://${appUrl}`;
+    const callbackUrl = `http://${serverIp}.traefik.me/setup/github/callback`;
+
+    const safeName = appUrl.replace(/[^a-z0-9]/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
+    const manifest = {
+      name: `devpush-${safeName}`,
+      url: appBaseUrl,
+      hook_attributes: {
+        url: `${appBaseUrl}/api/github/webhook`,
+        active: true,
+      },
+      redirect_url: callbackUrl,
+      callback_urls: [
+        `${appBaseUrl}/api/github/authorize/callback`,
+        `${appBaseUrl}/auth/github/callback`
+      ],
+      setup_url: `${appBaseUrl}/api/github/install/callback`,
+      setup_on_update: true,
+      public: false,
+      default_permissions: {
+        administration: "write",
+        checks: "write",
+        statuses: "write",
+        contents: "write",
+        deployments: "write",
+        issues: "write",
+        metadata: "read",
+        pull_requests: "write",
+        repository_hooks: "write",
+        emails: "read",
+      },
+      default_events: ["installation_target", "push", "repository"],
+    };
+
+    let githubUrl = "https://github.com/settings/apps/new";
+    if (useOrg) {
+      githubUrl = `https://github.com/organizations/${orgId}/settings/apps/new`;
+    }
+
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = githubUrl;
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "manifest";
+    input.value = JSON.stringify(manifest);
+
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+  }
+</script>
+{% endblock %}

@@ -118,7 +118,7 @@ async def auth_login(
 
     if request.method == "POST" and await form.validate_on_submit():
         email = form.email.data
-        if not is_email_allowed(email, settings.access_rules_path):
+        if not await is_email_allowed(email, db):
             await notify_denied(
                 email,
                 "email",
@@ -247,7 +247,7 @@ async def auth_email_verify(
 
             user = await get_user_by_email(db, email)
             if not user:
-                if not is_email_allowed(email, settings.access_rules_path):
+                if not await is_email_allowed(email, db):
                     await notify_denied(
                         email,
                         "email",
@@ -415,7 +415,7 @@ async def auth_github_callback(
             user = await get_user_by_email(db, email)
 
         if not user:
-            if email and not is_email_allowed(email, settings.access_rules_path):
+            if email and not await is_email_allowed(email, db):
                 await notify_denied(
                     email,
                     "github",
@@ -504,7 +504,7 @@ async def auth_google_callback(
             user = await get_user_by_email(db, email)
 
             if not user:
-                if not is_email_allowed(email, settings.access_rules_path):
+                if not await is_email_allowed(email, db):
                     await notify_denied(
                         email,
                         "google",

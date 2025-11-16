@@ -29,6 +29,7 @@ if ((hard==1)); then
 else
   command -v docker-compose >/dev/null 2>&1 || { echo "docker-compose not found"; exit 1; }
   docker-compose -p devpush -f docker-compose.yml -f docker-compose.override.dev.yml down --remove-orphans || true
+  docker-compose -p devpush -f docker-compose.setup.yml down --remove-orphans || true
 fi
 
 docker network rm devpush_default >/dev/null 2>&1 || true

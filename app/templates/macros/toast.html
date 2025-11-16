@@ -4,14 +4,14 @@
 
   @param id {string} [optional] [default="toaster"] - Unique identifier for the toaster container.
   @param toasts {array} [optional] - An array of toast objects to render initially. See the <code>toast()</code> macro for more details.
-  @param main_attrs {object} [optional] - Additional HTML attributes for the main toaster container div.
-  @param is_fragment {boolean} [optional] [default=false] - If true, renders only the toast elements with hx-swap-oob="beforeend", suitable for htmx responses. Skips script and template inclusion.
+  @param attrs {object} [optional] - Additional HTML attributes for the main toaster container div.
 #}
 {% macro toaster(
   id="toaster",
   toasts=[],
   attrs={}
 ) %}
+{% set attrs = attrs or {} %}
 <div
   id="{{ id }}"
   class="toaster {{ attrs.class }}"
@@ -25,10 +25,11 @@
     title=item.title,
     description=item.description,
     action=item.action,
-    cancel=item.cancel
+    cancel=item.cancel,
+    attrs=item.attrs
   ) }}
 {% endfor %}
-{% if caller %}{{ caller() }}{% endif %}
+{{ caller() if caller }}
 </div>
 {% endmacro %}
 
@@ -40,26 +41,32 @@
   @param description {string} [optional] - The secondary description text.
   @param action {object} [optional] - Defines an action button.
     - label {string}: Button text.
-    - click {string}: JavaScript code to execute on click (e.g., '$dispatch(\'custom-event\')').
+    - onclick {string}: JavaScript code to execute on click.
     - url {string}: URL for an anchor link button.
   @param cancel {object} [optional] - Defines a cancel/dismiss button (similar structure to action).
     - label {string}: Button text.
-    - click {string}: JavaScript code to execute on click (e.g., '$dispatch(\'custom-event\')').
+    - onclick {string}: JavaScript code to execute on click.
     - url {string}: URL for an anchor link button.
+  @param attrs {object} [optional] - Additional HTML attributes for the toast div.
 #}
 {% macro toast(
   category="success",
   title="",
   description="",
   action=None,
-  cancel=None
+  cancel=None,
+  attrs={}
 ) %}
+{% set attrs = attrs or {} %}
 <div
-  class="toast"
+  class="toast {{ attrs.class }}"
   role="{{ 'alert' if category == 'error' else 'status' }}"
   aria-atomic="true"
   aria-hidden="false"
   {% if category %}data-category="{{ category }}"{% endif %}
+  {% for key, value in attrs.items() %}
+    {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
+  {% endfor %}
 >
   <div class="toast-content">
     {% if category in ["error", "success", "info", "warning"] %}

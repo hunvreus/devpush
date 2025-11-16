@@ -8,7 +8,6 @@ services:
     volumes:
       - /srv/devpush/traefik:/data/traefik
       - /srv/devpush/upload:/app/upload
-      - /srv/devpush/access.json:/app/settings/access.json
 
   worker-arq:
     volumes:

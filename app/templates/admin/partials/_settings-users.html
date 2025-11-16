@@ -1,5 +1,6 @@
 {% from "macros/avatar.html" import avatar with context %}
 {% from "macros/dialog.html" import dialog %}
+{% from "admin/macros/pagination.html" import pagination %}
 
 <div class="card">
   <header class="border-b">
@@ -7,102 +8,27 @@
     <p>{{ _('Manage the users registered on your platform.') }}</p>
   </header>
 
-  <section class="space-y-6">
-    <div class="rounded-xl border relative overflow-x-auto">
-      <table class="table">
-        <thead>
-          <tr>
-            <th class="pl-4">{{ _('ID') }}</th>
-            <th>{{ _('User') }}</th>
-            <th>{{ _('Email') }}</th>
-            <th>{{ _('Created') }}</th>
-            <th>{{ _('Status') }}</th>
-            <th class="w-12"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for user in users %}
-            <tr>
-              <td class="font-mono font-medium text-xs pl-4">
-                {{ user.id }}
-              </td>
-              <td class="font-medium">
-                <div class="flex items-center gap-x-2">
-                  {% set fallback %}
-                    <img
-                      src="https://unavatar.io/{{ user.email }}?fallback=https://avatar.vercel.sh/{{ user.email }}?size=120"
-                      alt="{{ user.email }}"
-                      class="size-6 rounded-full shrink-0"
-                    >
-                  {% endset %}
-                  {{ avatar(item=user, prefix="user", name=user.name if user.name else user.username, class="!rounded-full", fallback=fallback) }}
-                  {{ user.name or user.username }}
-                </div>
-              </td>
-              <td>{{ user.email }}</td>
-              <td>{{ user.created_at | time_ago }}</td>
-              <td>
-                {% if user.status == "deleted" %}
-                  <span class="badge-destructive">{{ _('Deleted') }}</span>
-                {% else %}
-                  <span class="badge-outline">{{ _('Active') }}</span>
-                {% endif %}
-              </td>
-              <td class="w-full text-right">
-                {% if user.id != 1 %}
-                  {% set trigger %}
-                    {% include "icons/trash-2.svg" %}
-                    {{ _('Delete') }}
-                  {% endset %}
-                  {% call dialog(
-                    trigger=trigger,
-                    title=_(
-                      'Delete user "%(name)s"?',
-                      name=user.name or user.username
-                    ),
-                    trigger_attrs={"class": "btn-sm-ghost text-destructive"},
-                    dialog_attrs={"class": "max-w-md whitespace-normal text-left"},
-                    close_button=false,
-                    close_on_overlay_click=false
-                  ) %}
-                    <div class="space-y-4" x-data="{ confirm: '' }">
-                      <p>{{ _("This will delete all configurations, teams, projects and deployments owned by this user. This action cannot be undone.") }}</p>
-                      <p>{{ _('To confirm, enter the email <b>"%(email)s"</b> below.', email=user.email) | safe }}</p>
-                      <form
-                        method="post"
-                        action="{{ url_for('admin_settings').include_query_params(fragment='delete_user') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='delete_user') }}"
-                        hx-target="closest .card"
-                        hx-swap="outerHTML"
-                        hx-indicator="closest .card + .htmx-indicator"
-                      >
-                        {{ delete_form.csrf_token() }}
-                        {{ delete_form.user_id(value=user.id) }}
-                        {{ delete_form.email(value=user.email) }}
-                        {{ delete_form.confirm(
-                          class_="w-full input",
-                          placeholder=_('Type the email to confirm'),
-                          **{'x-model': 'confirm'}
-                        ) }}
-                        <footer class="flex justify-end gap-x-2 mt-4">
-                          <button
-                            class="btn-ghost"
-                            onclick="this.closest('dialog').close()"
-                          >{{ _('Cancel') }}</button>
-                          {{ delete_form.submit(
-                            class_="btn-destructive",
-                            **{':disabled': "confirm !== '" + user.email + "'", 'data-icon': 'trash'}
-                          ) }}
-                        </footer>
-                      </form>
-                    </div>
-                  {% endcall %}
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <section class="space-y-4">
+    <header class="flex items-center gap-x-2">
+      <div class="relative mr-auto">
+        <input
+          type="text"
+          class="input pl-9 rounded-full h-8"
+          placeholder="{{ _('Search...') }}"
+          name="users_search"
+          value="{{ users_search or '' }}"
+          hx-get="{{ url_for('admin_settings').include_query_params(**{'fragment': 'users-content'}) }}"
+          hx-target="#users-content"
+          hx-trigger="input changed delay:300ms"
+          hx-push-url="true"
+        >
+        <div class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground [&>svg]:size-4">
+          {% include "icons/search.svg" %}
+        </div>
+      </div>
+    </header>
+    <div id="users-content" class="scroll-mt-[124px]">
+      {% include "admin/partials/_settings-users-content.html" %}
     </div>
   </section>
 </div>

@@ -18,9 +18,6 @@ supervisord.pid
 # Data (uploads and Traefik)
 /data/
 
-# Access rules
-/access.json
-
 # Node
 node_modules/
 package-lock.json

@@ -43,12 +43,11 @@ class Settings(BaseSettings):
     db_echo: bool = False
     log_level: str = "WARNING"
     env: str = "production"
-    access_rules_path: str = "settings/access.json"
     access_denied_message: str = "Sign-in not allowed for this email."
     access_denied_webhook: str = ""
     login_header: str = ""
     toaster_header: str = ""
-    server_ip: str = ""
+    server_ip: str = "127.0.0.1"
 
     model_config = SettingsConfigDict(extra="ignore")
 

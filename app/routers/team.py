@@ -217,9 +217,6 @@ async def team_settings(
                             "error",
                         )
 
-                for error in delete_team_form.confirm.errors:
-                    flash(request, error, "error")
-
     # General
     general_form: Any = await TeamGeneralForm.from_formdata(
         request,

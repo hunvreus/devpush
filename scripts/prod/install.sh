@@ -212,19 +212,6 @@ create_user() {
   echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
 }
 
-seed_access_json() {
-    install -d -m 0755 /srv/devpush || true
-    if [[ -f "$app_dir/access.example.json" ]]; then
-        cp "$app_dir/access.example.json" "/srv/devpush/access.json"
-    else
-        cat > /srv/devpush/access.json <<'JSON'
-{ "emails": [], "domains": [], "globs": [], "regex": [] }
-JSON
-    fi
-    chown 1000:1000 /srv/devpush/access.json || true
-    chmod 0644 /srv/devpush/access.json || true
-}
-
 record_version() {
     local commit ts install_id
     commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
@@ -368,14 +355,6 @@ else
   echo -e "  ${DIM}${CHILD_MARK} .env already exists${NC}"
 fi
 
-# Seed access.json for per-file mount
-if [[ ! -f "/srv/devpush/access.json" ]]; then
-    run_cmd "${CHILD_MARK} Seeding access.json..." seed_access_json
-else
-    echo "${CHILD_MARK} Seeding access.json... ${YEL}⊘${NC}"
-    echo -e "  ${DIM}${CHILD_MARK} File already exists${NC}"
-fi
-
 # Build runners images
 printf "\n"
 if [[ -d Docker/runner ]]; then
@@ -425,17 +404,14 @@ fi
 printf "\n"
 echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
 
-# Setup
+# Start application in setup mode
 printf "\n"
-if (( yes_flag == 1 )); then
-  echo "Starting setup..."
-  bash "$app_dir/scripts/prod/setup.sh"
-else
-  read -r -p "Start setup now? [Y/n] " ans
-  if [[ ! "$ans" =~ ^[Nn]$ ]]; then
-    bash "$app_dir/scripts/prod/setup.sh"
-  else
-    echo ""
-    echo "Run 'sudo bash $app_dir/scripts/prod/setup.sh' to configure later."
-  fi
-fi
+echo "Starting application..."
+cd "$app_dir" && runuser -u "$user" -- docker compose -f docker-compose.setup.yml up -d
+
+sip=$(pub_ip || echo "127.0.0.1")
+printf "\n"
+echo -e "${GRN}Application started. Complete setup in your browser:${NC}"
+echo ""
+echo "  http://${sip}/setup"
+echo ""

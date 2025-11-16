@@ -1,0 +1,58 @@
+{% extends "setup/layouts/setup.html" %}
+
+{% block title %}Setup: Email{% endblock %}
+
+{% block setup_content %}
+<div class="card w-full">
+  <header class="border-b">
+    <h2 class="h2">{{ _('Email') }}</h2>
+    <p>{{ _('Configure email settings for login links, invitation emails and notifications.') }}</p>
+  </header>
+
+  <section>
+    <form method="post" class="space-y-6">
+      {{ form.csrf_token }}
+      <div class="alert">
+        {# {% include "icons/info.svg" %} #}
+        <h2>You need a Resend account.</h2>
+        <section>
+          <p class="[&>a:hover]:text-primary [&>a]:underline [&>a]:underline-offset-4">{{ _("You can <a href='https://resend.com/signup' target='_blank'>create a Resend account for free</a>. The free plan includes 100 emails per day.") | safe }}</p>
+        </section>
+      </div>
+
+      <div class="space-y-3">
+        {{ form.resend_api_key.label(class="label") }}
+        {{ form.resend_api_key(class="input w-full font-mono text-[13px]", placeholder="re_xxxxxxxxxxxx") }}
+        {% if form.resend_api_key.description %}
+          <p class="text-muted-foreground text-sm [&>a:hover]:text-primary [&>a]:underline [&>a]:underline-offset-4">{{ form.resend_api_key.description | safe }}</p>
+        {% endif %}
+        {% for error in form.resend_api_key.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="space-y-3">
+        {{ form.email_sender_address.label(class="label") }}
+        {{ form.email_sender_address(class="input w-full", type="email", placeholder="noreply@example.com") }}
+        {% if form.email_sender_address.description %}
+          <p class="text-muted-foreground text-sm [&>a:hover]:text-primary [&>a]:underline [&>a]:underline-offset-4">{{ form.email_sender_address.description | safe }}</p>
+        {% endif %}
+        {% for error in form.email_sender_address.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      </div>
+
+      <footer class="flex justify-between gap-x-2 -mx-6 px-6 pt-6 border-t">
+        <a href="/setup/step/2" class="btn-ghost">
+          {% include "icons/arrow-left.svg" %}
+          {{ _("Back") }}
+        </a>
+        <button type="submit" class="btn">
+          {{ _("Next") }}
+          {% include "icons/arrow-right.svg" %}
+        </button>
+      </footer>
+    </form>
+  </section>
+</div>
+{% endblock %}

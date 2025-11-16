@@ -253,6 +253,7 @@ Variable | Comments | Default
 
 You will need to configure a GitHub App with the following settings:
 
+- **Homepage URL**: Your instance URL (e.g., https://app.example.com)
 - **Identifying and authorizing users**:
   - **Callback URL**: add two callback URLs with your domain:
     - https://example.com/api/github/authorize/callback
@@ -274,7 +275,7 @@ You will need to configure a GitHub App with the following settings:
     - **Issues**: Read and write
     - **Metadata**: Read-only
     - **Pull requests**: Read and write
-    - **Webhook**: Read and write
+    - **Webhooks**: Read and write
   - **Account permissions**:
     - **Email addresses**: Read-only
 - **Subscribe to events**:
@@ -284,23 +285,7 @@ You will need to configure a GitHub App with the following settings:
 
 ## Sign-in access control
 
-Provide an access rules file to restrict who can sign up/sign in.
-
-- **Development**: edit `./access.json`. If missing, running `scripts/dev/start.sh` will sed an allow‑all file.
-- **Production**: edit `/srv/devpush/access.json` on the server.
-
-Rules format (any/all may be used):
-
-```json
-{
-  "emails": ["alice@example.com"],
-  "domains": ["example.com"],
-  "globs": ["*@corp.local", "*.dept.example.com"],
-  "regex": ["^[^@]+@(eng|research)\\.example\\.com$"]
-}
-```
-
-Globs use shell-style wildcards; regex are Python patterns. If the file is missing or empty, all valid emails are allowed.
+You can restrict who can sign up/sign in from **Admin → Settings → Allowlist**. Add entries for individual emails, whole domains, or regex patterns (e.g., `^[^@]+@(eng|research)\.example\.com$`). An empty allowlist means no restrictions.
 
 Additionally, if you set the `ACCESS_DENIED_WEBHOOK` [environment variable](#environment-variables), denied sign-in attempts will be posted to the provided URL with the following payload:
 

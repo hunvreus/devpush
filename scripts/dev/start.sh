@@ -6,12 +6,13 @@ exec 2> >(tee /tmp/start_error.log >&2)
 
 usage(){
   cat <<USG
-Usage: start.sh [--cache] [--prune] [-h|--help]
+Usage: start.sh [--cache] [--prune] [--setup] [-h|--help]
 
 Start the local development stack (streams logs).
 
   --cache    Use build cache (default: no cache)
   --prune    Prune dangling images before build
+  --setup    Start in setup mode (allows access without hostname)
   -h, --help Show this help
 USG
   exit 0
@@ -24,21 +25,23 @@ echo "Starting local environment..."
 
 mkdir -p ./data/{traefik,upload}
 
-# Seed access.json if missing
-if [ ! -f ./access.json ]; then
-  echo "Seeding ./access.json (allow-all)..."
-  cat > ./access.json <<'JSON'
-{ "emails": [], "domains": [], "globs": [], "regex": [] }
+# Seed config.json if missing
+if [ ! -f ./data/config.json ]; then
+  echo "Seeding ./data/config.json..."
+  cat > ./data/config.json <<'JSON'
+{}
 JSON
-  chmod 0644 ./access.json || true
+  chmod 0644 ./data/config.json || true
 fi
 
 no_cache=0
 prune=0
+setup_mode=0
 for a in "$@"; do
   [ "$a" = "--cache" ] && no_cache=0
   [ "$a" = "--no-cache" ] && no_cache=1
   [ "$a" = "--prune" ] && prune=1
+  [ "$a" = "--setup" ] && setup_mode=1
 done
 
 ((prune==1)) && { echo "Pruning dangling images..."; docker image prune -f; }
@@ -51,7 +54,13 @@ else
 fi
 
 # Optional no-cache build for services
-args=(-p devpush -f docker-compose.yml -f docker-compose.override.dev.yml)
+if ((setup_mode==1)); then
+  echo "Starting in SETUP MODE (minimal stack, direct port access)..."
+  args=(-p devpush -f docker-compose.setup.yml)
+else
+  args=(-p devpush -f docker-compose.yml -f docker-compose.override.dev.yml)
+fi
+
 if ((no_cache==1)); then
   echo "Building services with --no-cache..."
   docker-compose "${args[@]}" build --no-cache
@@ -60,5 +69,10 @@ fi
 echo "Stopping any running stack..."
 docker-compose "${args[@]}" down || true
 
-echo "Starting stack with logs (Ctrl+C to stop foreground)..."
+if ((setup_mode==1)); then
+  echo "Starting minimal setup stack with logs (Ctrl+C to stop foreground)..."
+  echo "Access setup at: http://localhost/setup"
+else
+  echo "Starting stack with logs (Ctrl+C to stop foreground)..."
+fi
 docker-compose "${args[@]}" up --build --force-recreate
