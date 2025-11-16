@@ -21,10 +21,12 @@
     --color-orange-950: oklch(26.6% 0.079 36.259);
     --color-amber-100: oklch(96.2% 0.059 95.617);
     --color-amber-200: oklch(92.4% 0.12 95.746);
+    --color-amber-400: oklch(82.8% 0.189 84.429);
     --color-amber-500: oklch(76.9% 0.188 70.08);
     --color-amber-600: oklch(66.6% 0.179 58.318);
     --color-amber-900: oklch(41.4% 0.112 45.904);
     --color-amber-950: oklch(27.9% 0.077 45.635);
+    --color-yellow-50: oklch(98.7% 0.026 102.212);
     --color-yellow-100: oklch(97.3% 0.071 103.193);
     --color-yellow-200: oklch(94.5% 0.129 101.54);
     --color-yellow-400: oklch(85.2% 0.199 91.936);
@@ -1186,6 +1188,9 @@
   .bg-white {
     background-color: var(--color-white);
   }
+  .bg-yellow-50 {
+    background-color: var(--color-yellow-50);
+  }
   .bg-yellow-100 {
     background-color: var(--color-yellow-100);
   }
@@ -1994,6 +1999,11 @@
       }
     }
   }
+  .dark\:bg-yellow-950 {
+    &:is(.dark *) {
+      background-color: var(--color-yellow-950);
+    }
+  }
   .dark\:from-amber-950\/50 {
     &:is(.dark *) {
       --tw-gradient-from: color-mix(in srgb, oklch(27.9% 0.077 45.635) 50%, transparent);
@@ -2338,9 +2348,19 @@
       font-size: 13px;
     }
   }
+  .\[\&\>h2\]\:text-amber-600 {
+    &>h2 {
+      color: var(--color-amber-600);
+    }
+  }
   .\[\&\>h2\]\:text-destructive {
     &>h2 {
       color: var(--color-destructive);
+    }
+  }
+  .\[\&\>h2\]\:text-green-600 {
+    &>h2 {
+      color: var(--color-green-600);
     }
   }
   .\[\&\>h2\]\:text-yellow-600 {
@@ -2348,10 +2368,90 @@
       color: var(--color-yellow-600);
     }
   }
+  .dark\:\[\&\>h2\]\:text-amber-400 {
+    &:is(.dark *) {
+      &>h2 {
+        color: var(--color-amber-400);
+      }
+    }
+  }
+  .dark\:\[\&\>h2\]\:text-green-400 {
+    &:is(.dark *) {
+      &>h2 {
+        color: var(--color-green-400);
+      }
+    }
+  }
   .dark\:\[\&\>h2\]\:text-yellow-400 {
     &:is(.dark *) {
       &>h2 {
         color: var(--color-yellow-400);
+      }
+    }
+  }
+  .\[\&\>h2\>a\]\:text-amber-600 {
+    &>h2>a {
+      color: var(--color-amber-600);
+    }
+  }
+  .\[\&\>h2\>a\]\:underline {
+    &>h2>a {
+      text-decoration-line: underline;
+    }
+  }
+  .\[\&\>h2\>a\]\:decoration-amber-600 {
+    &>h2>a {
+      text-decoration-color: var(--color-amber-600);
+    }
+  }
+  .\[\&\>h2\>a\]\:transition-colors {
+    &>h2>a {
+      transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to;
+      transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+      transition-duration: var(--tw-duration, var(--default-transition-duration));
+    }
+  }
+  .\[\&\>h2\>a\]\:hover\:decoration-amber-400 {
+    &>h2>a {
+      &:hover {
+        @media (hover: hover) {
+          text-decoration-color: var(--color-amber-400);
+        }
+      }
+    }
+  }
+  .dark\:\[\&\>h2\>a\]\:text-amber-400 {
+    &:is(.dark *) {
+      &>h2>a {
+        color: var(--color-amber-400);
+      }
+    }
+  }
+  .dark\:\[\&\>h2\>a\]\:decoration-amber-100 {
+    &:is(.dark *) {
+      &>h2>a {
+        text-decoration-color: var(--color-amber-100);
+      }
+    }
+  }
+  .dark\:\[\&\>h2\>a\]\:decoration-amber-200 {
+    &:is(.dark *) {
+      &>h2>a {
+        text-decoration-color: var(--color-amber-200);
+      }
+    }
+  }
+  .dark\:\[\&\>h2\>a\]\:decoration-amber-400 {
+    &:is(.dark *) {
+      &>h2>a {
+        text-decoration-color: var(--color-amber-400);
+      }
+    }
+  }
+  .dark\:\[\&\>h2\>a\]\:decoration-amber-500 {
+    &:is(.dark *) {
+      &>h2>a {
+        text-decoration-color: var(--color-amber-500);
       }
     }
   }
@@ -2423,6 +2523,11 @@
       animation: var(--animate-spin);
     }
   }
+  .\[\&\>svg\]\:text-amber-600 {
+    &>svg {
+      color: var(--color-amber-600);
+    }
+  }
   .\[\&\>svg\]\:text-destructive {
     &>svg {
       color: var(--color-destructive);
@@ -2474,6 +2579,20 @@
         &>svg {
           color: var(--color-foreground);
         }
+      }
+    }
+  }
+  .dark\:\[\&\>svg\]\:text-amber-400 {
+    &:is(.dark *) {
+      &>svg {
+        color: var(--color-amber-400);
+      }
+    }
+  }
+  .dark\:\[\&\>svg\]\:text-green-400 {
+    &:is(.dark *) {
+      &>svg {
+        color: var(--color-green-400);
       }
     }
   }

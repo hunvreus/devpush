@@ -226,7 +226,7 @@
           </div>
           {{ render_domain_form(domain=domain, index=loop.index) }}
           {% if domain.status in ["failed", "pending", "disabled"] %}
-            <div class="alert mt-2 {% if domain.status == 'failed' or domain.status == 'disabled' %}[&>h2]:text-destructive [&>svg]:text-destructive{% else %}[&>h2]:text-yellow-600 [&>svg]:text-yellow-600 dark:[&>h2]:text-yellow-400 dark:[&>svg]:text-yellow-400{% endif %}">
+            <div class="alert mt-2 {% if domain.status == 'failed' or domain.status == 'disabled' %}[&>h2]:text-destructive [&>svg]:text-destructive{% else %}[&>h2]:text-amber-600 [&>svg]:text-amber-600 dark:[&>h2]:text-amber-400 dark:[&>svg]:text-amber-400{% endif %}">
               {% include "icons/triangle-alert.svg" %}
               {% if domain.status == "failed" %}
                 <h2>{{ _("This domain is not configured correctly.") }}</h2>

@@ -379,37 +379,42 @@ async def admin_settings(
 
     if request.headers.get("HX-Request") and fragment == "system":
         latest_tag = None
-        latest_url = None
         error = None
 
-        if version_info and version_info.get("git_ref"):
+        current_ref = version_info.get("git_ref") if version_info else None
+
+        if current_ref:
             try:
-                user_agent = f"devpush/{version_info.get('git_ref') or 'dev'} (+https://github.com/hunvreus/devpush)"
+                user_agent = f"devpush/{current_ref or 'dev'} (+https://github.com/hunvreus/devpush)"
                 headers = {
                     "Accept": "application/vnd.github+json",
                     "User-Agent": user_agent,
                 }
                 async with httpx.AsyncClient(timeout=3.0, headers=headers) as client:
+                    per_page = 50
                     request_latest_tag = await client.get(
                         "https://api.github.com/repos/hunvreus/devpush/tags",
-                        params={"per_page": 1},
+                        params={"per_page": per_page},
                     )
                     if request_latest_tag.status_code == 200:
                         data = request_latest_tag.json()
-                        if isinstance(data, list) and len(data) > 0:
-                            latest_tag = data[0].get("name")
+                        if isinstance(data, list):
+                            for item in data:
+                                name = item.get("name") or ""
+                                if re.match(r"^v?\d+\.\d+\.\d+$", name):
+                                    latest_tag = name
+                                    break
                     elif request_latest_tag.status_code == 403:
                         raise Exception("GitHub API rate limit exceeded.")
                     else:
                         raise Exception(
                             f"GitHub API returned status code {request_latest_tag.status_code}"
                         )
-
-                    if not latest_tag:
-                        raise Exception("No latest tag found.")
-
             except Exception as e:
                 flash(request, _("Could not retrieve latest version"), "error", str(e))
+
+        if latest_tag and current_ref and latest_tag == current_ref:
+            latest_tag = None
 
         return TemplateResponse(
             request=request,
@@ -418,7 +423,6 @@ async def admin_settings(
                 "current_user": current_user,
                 "version_info": version_info,
                 "latest_tag": latest_tag,
-                "latest_url": latest_url,
                 "error": error,
             },
         )
