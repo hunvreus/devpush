@@ -151,7 +151,7 @@ Notes:
 
 ### Install
 
-1. Install Colima and the Loki Docker plugin:
+1. Install Colima:
    ```bash
    scripts/dev/install.sh
    ```
@@ -188,7 +188,7 @@ See the [scripts](#scripts) section for more dev utilities.
 
 | Area | Script | What it does |
 |---|---|---|
-| Dev | `scripts/dev/install.sh` | Setup Colima and install Loki Docker plugin |
+| Dev | `scripts/dev/install.sh` | Setup Colima |
 | Dev | `scripts/dev/start.sh` | Start stack with logs (foreground); supports `--prune`, `--cache` |
 | Dev | `scripts/dev/build-runners.sh` | Build runner images (default no cache; `--cache` to enable) |
 | Dev | `scripts/dev/db-generate.sh` | Generate Alembic migration (prompts for message) |
@@ -196,7 +196,7 @@ See the [scripts](#scripts) section for more dev utilities.
 | Dev | `scripts/dev/db-reset.sh` | Drop and recreate `public` schema in DB |
 | Dev | `scripts/dev/clean.sh` | Stop stack and clean dev data (`--hard` for global) |
 | Prod | `scripts/prod/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
-| Prod | `scripts/prod/install.sh` | Server setup: Docker, Loki plugin, user, clone repo, create `.env` |
+| Prod | `scripts/prod/install.sh` | Server setup: Docker, user, clone repo, create `.env` |
 | Prod | `scripts/prod/harden.sh` | System hardening (UFW, fail2ban, unattended-upgrades); add `--ssh` to harden SSH |
 | Prod | `scripts/prod/start.sh` | Start services; optional `--migrate`; `--ssl-provider <prov>` |
 | Prod | `scripts/prod/stop.sh` | Stop services (`--down` for hard stop) |

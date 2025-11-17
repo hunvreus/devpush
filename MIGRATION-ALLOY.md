@@ -29,7 +29,7 @@ This document describes the plan to remove the Docker Loki log driver and migrat
 
 - File: `app/workers/tasks/deploy.py`
   - Remove the `HostConfig.LogConfig` section with `"Type": "loki"`.
-  - Ensure the container has labels used for log queries; add (or keep) labels:
+  - Ensure the container has namespaced labels for log queries:
     - `devpush.deployment_id`
     - `devpush.project_id`
     - `devpush.environment_id`
@@ -44,22 +44,23 @@ No changes are needed to `app/services/loki.py` (it queries by labels). Alloy wi
 ## Compose Changes
 
 - File: `docker-compose.yml` (prod)
-  - Add `alloy` service. Example spec:
-    - image: `grafana/alloy:<pinned-version>` (avoid latest)
-    - networks: join `internal` (to reach `loki`) and `default` if desired.
+  - Add `alloy` service with pinned image `grafana/alloy:v1.11.3`.
+    - networks: join `internal` (to reach `loki`) and `default` (collector not exposed).
     - volumes:
-      - `/var/lib/docker/containers:/var/lib/docker/containers:ro` (Docker log files)
-      - `/srv/devpush/alloy/config.alloy:/etc/alloy/config.alloy:ro` (config)
-      - `/srv/devpush/alloy:/var/lib/alloy` (positions/state)
-    - command: `-config.file=/etc/alloy/config.alloy`
+      - `/var/lib/docker/containers:/var/lib/docker/containers:ro` (Docker JSON logs)
+      - `./Docker/alloy/config.alloy:/etc/alloy/config.alloy:ro` (config from repo)
+      - `/srv/devpush/alloy:/var/lib/alloy` (state)
+    - command: `run /etc/alloy/config.alloy`
     - restart policy: `unless-stopped`
 
-  - `docker-proxy` service: ensure minimal env to support discovery (add if missing):
+  - `docker-proxy` service: ensure discovery env flags:
     - `CONTAINERS=1`
-    - `SYSTEM=1` (and optionally `INFO=1`)
+    - `SYSTEM=1`
+    - `INFO=1`
 
 - File: `docker-compose.override.dev.yml` (dev)
   - Add `alloy` service mirroring prod, but mount from repo:
+    - `/var/lib/docker/containers:/var/lib/docker/containers:ro`
     - `./Docker/alloy/config.alloy:/etc/alloy/config.alloy:ro`
     - `./data/alloy:/var/lib/alloy`
   - Follow the same base + override pattern used for other services.
@@ -75,47 +76,46 @@ No changes are needed to `app/services/loki.py` (it queries by labels). Alloy wi
 - Responsibilities:
   - Discover Docker containers via the socket proxy.
   - Tail JSON log files under `/var/lib/docker/containers`.
-  - Parse Docker JSON records and map container labels to Loki labels.
+  - Map container labels to Loki labels (`project_id`, `deployment_id`, `environment_id`, `branch`, `job=docker`).
   - Write to Loki at `http://loki:3100/loki/api/v1/push`.
 
-- Outline (pseudo-config; adapt to your Alloy version):
+- Outline (rendered for Alloy v1.11.3):
 
 ```
 # Discover containers through the proxy
-discovery.docker "dockerd" {
-  host = "tcp://docker-proxy:2375"
+discovery.docker "docker" {
+  host             = "tcp://docker-proxy:2375"
   refresh_interval = "30s"
+}
+
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.docker.targets
+
+  rule { source_labels = ["__meta_docker_container_log_path"]; target_label = "__path__" }
+  rule { source_labels = ["__meta_docker_container_label_devpush_project_id"]; target_label = "project_id" }
+  rule { source_labels = ["__meta_docker_container_label_devpush_deployment_id"]; target_label = "deployment_id" }
+  rule { source_labels = ["__meta_docker_container_label_devpush_environment_id"]; target_label = "environment_id" }
+  rule { source_labels = ["__meta_docker_container_label_devpush_branch"]; target_label = "branch" }
+  rule { target_label = "job"; replacement = "docker" }
 }
 
 # Tail Docker json-file logs
 loki.source.file "docker" {
-  targets = [
-    { __path__ = "/var/lib/docker/containers/*/*.log" },
-  ]
-  # Parses {time, stream, log} JSON from Docker
-  docker = {}
+  targets    = discovery.relabel.docker_logs.output
   forward_to = [loki.process.docker.receiver]
-  positions = "/var/lib/alloy/positions.yaml"
-}
 
-# Enrich logs with metadata from discovery and map labels
-loki.process "docker" {
-  # Explicitly copy container labels to Loki labels (adjust to Alloy syntax):
-  # - __meta_docker_container_label_devpush_project_id -> project_id
-  # - __meta_docker_container_label_devpush_deployment_id -> deployment_id
-  # - __meta_docker_container_label_devpush_environment_id -> environment_id
-  # - __meta_docker_container_label_devpush_branch -> branch
-  # - set job = "docker"
-  forward_to = [loki.write.default.receiver]
 }
 
 # Write to Loki
+loki.process "docker" {
+  forward_to = [loki.write.default.receiver]
+}
 loki.write "default" {
   endpoint { url = "http://loki:3100/loki/api/v1/push" }
 }
 ```
 
-Note: The exact syntax for joining discovery labels into `loki.process` depends on the Alloy version. Use `discovery.relabel` and `labels` transformations to map `__meta_docker_container_label_devpush_*` to the target labels used by the app queries: `project_id`, `deployment_id`, `environment_id`, `branch`.
+Note: We explicitly map `__meta_docker_container_label_devpush_*` to the labels the app queries: `project_id`, `deployment_id`, `environment_id`, `branch`, plus `job=docker`.
 
 ---
 
@@ -133,10 +133,10 @@ Note: The exact syntax for joining discovery labels into `loki.process` depends 
   - Recognize `alloy` as an updatable component (include in the component switch and `--all`).
   - No plugin references should remain.
 
-- Upgrade hook (optional, best-effort cleanup)
-  - New file under `scripts/prod/upgrades/` for next version:
-    - `docker plugin disable loki || true`
-    - `docker plugin rm loki || true`
+- Upgrade hook
+  - New file under `scripts/prod/upgrades/` (0.1.2):
+    - Disable/remove Loki plugin best-effort.
+    - Ensure `/srv/devpush/alloy` exists.
 
 ---
 
@@ -147,7 +147,7 @@ Note: The exact syntax for joining discovery labels into `loki.process` depends 
   - Remove all `docker plugin` checks/installs.
 
 - File: `scripts/dev/start.sh`
-  - Ensure `./data/alloy` is created on start (positions dir) if you prefer explicit creation.
+  - Ensure `./data/alloy` is created on start (positions dir).
   - No other changes required; dev compose will include `alloy`.
 
 ---

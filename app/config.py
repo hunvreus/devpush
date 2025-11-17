@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     job_timeout: int = 320
     job_completion_wait: int = 300
     deployment_timeout: int = 300
+    container_delete_grace_seconds: int = 3
     db_echo: bool = False
     log_level: str = "WARNING"
     env: str = "production"

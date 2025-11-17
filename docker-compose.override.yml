@@ -27,3 +27,7 @@ services:
       - "traefik.http.routers.deployment-not-found-https.priority=1"
       - "traefik.http.routers.deployment-not-found-https.service=noop@internal"
       - "traefik.http.routers.deployment-not-found-https.middlewares=deployment-redirect"
+
+  alloy:
+    volumes:
+      - /srv/devpush/alloy:/var/lib/alloy

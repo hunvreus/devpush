@@ -23,7 +23,7 @@ command -v docker-compose >/dev/null 2>&1 || { echo "docker-compose not found"; 
 
 echo "Starting local environment..."
 
-mkdir -p ./data/{traefik,upload}
+mkdir -p ./data/{traefik,upload,alloy}
 
 # Seed config.json if missing
 if [ ! -f ./data/config.json ]; then

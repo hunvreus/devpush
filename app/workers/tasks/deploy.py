@@ -146,10 +146,10 @@ async def deploy_start(ctx, deployment_id: str):
                     f"traefik.http.routers.{router}.priority": "10",
                     f"traefik.http.services.{router}.loadbalancer.server.port": "8000",
                     "traefik.docker.network": "devpush_runner",
-                    "deployment_id": deployment.id,
-                    "project_id": deployment.project_id,
-                    "environment_id": deployment.environment_id,
-                    "branch": deployment.branch,
+                    "devpush.deployment_id": deployment.id,
+                    "devpush.project_id": deployment.project_id,
+                    "devpush.environment_id": deployment.environment_id,
+                    "devpush.branch": deployment.branch,
                 }
 
                 if settings.url_scheme == "https":
@@ -200,12 +200,8 @@ async def deploy_start(ctx, deployment_id: str):
                             ),
                             "SecurityOpt": ["no-new-privileges:true"],
                             "LogConfig": {
-                                "Type": "loki",
-                                "Config": {
-                                    "loki-url": "http://127.0.0.1:3100/loki/api/v1/push",
-                                    "loki-batch-size": "200",
-                                    "labels": "deployment_id,project_id,environment_id,branch",
-                                },
+                                "Type": "json-file",
+                                "Config": {"max-size": "10m", "max-file": "5"},
                             },
                         },
                     },
@@ -227,7 +223,12 @@ async def deploy_start(ctx, deployment_id: str):
 
         if container:
             try:
-                await container.kill()
+                try:
+                    await container.stop()
+                except Exception:
+                    pass
+                # Grace period to allow logs to be ingested
+                await asyncio.sleep(settings.container_delete_grace_seconds)
                 await container.delete(force=True)
             except Exception as e:
                 logger.error(f"{log_prefix} Error cleaning up container: {e}")
@@ -398,7 +399,12 @@ async def deploy_fail(ctx, deployment_id: str, reason: str = None):
                     container = await docker_client.containers.get(
                         deployment.container_id
                     )
-                    await container.kill()
+                    try:
+                        await container.stop()
+                    except Exception:
+                        pass
+                    # Grace period to allow logs to be ingested
+                    await asyncio.sleep(settings.container_delete_grace_seconds)
                     await container.delete(force=True)
                 deployment.container_status = "removed"
                 logger.info(

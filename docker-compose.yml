@@ -79,6 +79,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - CONTAINERS=1
+      - INFO=1
+      - SYSTEM=1
       - POST=1
       - EXEC=1
       - NETWORKS=1
@@ -154,6 +156,22 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+
+  alloy:
+    image: grafana/alloy:v1.11.3
+    command:
+      - "run"
+      - "/etc/alloy/config.alloy"
+    restart: unless-stopped
+    depends_on:
+      - docker-proxy
+      - loki
+    networks:
+      - default
+      - internal
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./Docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
 
 volumes:
   devpush-db:

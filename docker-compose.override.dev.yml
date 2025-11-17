@@ -31,3 +31,7 @@ services:
       - "80:80"
     volumes:
       - ./data/traefik:/etc/traefik/dynamic_conf
+
+  alloy:
+    volumes:
+      - ./data/alloy:/var/lib/alloy

@@ -5,7 +5,7 @@ usage(){
   cat <<USG
 Usage: install.sh [-h|--help]
 
-Sets up Colima for Docker on macOS and installs the Loki Docker logging plugin.
+Sets up Colima for Docker on macOS.
 
   -h, --help Show this help
 USG
@@ -47,20 +47,4 @@ if ! command -v docker-compose >/dev/null 2>&1; then
   echo "Warning: docker-compose not found. Install it with Homebrew: brew install docker-compose"
 fi
 
-# Ensure Loki Docker logging plugin is installed (best-effort)
-if docker plugin ls >/dev/null 2>&1; then
-  if docker plugin inspect loki >/dev/null 2>&1; then
-      echo "Loki Docker plugin is already installed."
-  else
-      echo "Installing Loki Docker plugin..."
-      if docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions >/dev/null 2>&1; then
-        echo "Loki Docker plugin installed."
-      else
-        echo "Warning: Loki plugin install failed; continuing without it."
-      fi
-  fi
-else
-  echo "Warning: This Docker engine doesn't support plugins (or not available via CLI); skipping Loki plugin."
-fi
-
-echo "Colima + Loki setup complete."
+echo "Docker/Colima checks complete."

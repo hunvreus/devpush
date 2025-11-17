@@ -134,7 +134,8 @@ class DeploymentService:
         commit: dict,
         db: AsyncSession,
         redis_client: Redis,
-        job_queue: ArqRedis,
+        job_queue: ArqRedis | None = None,
+        deployment_queue: ArqRedis | None = None,
         trigger: str = "user",
         current_user: User | None = None,
     ) -> Deployment:
@@ -164,7 +165,11 @@ class DeploymentService:
         db.add(deployment)
         await db.commit()
 
-        job = await job_queue.enqueue_job("deploy_start", deployment.id)
+        queue = deployment_queue or job_queue
+        if not queue:
+            raise ValueError("No job queue provided for deployment creation.")
+
+        job = await queue.enqueue_job("deploy_start", deployment.id)
         deployment.job_id = job.job_id
         await db.commit()
 

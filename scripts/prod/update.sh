@@ -12,14 +12,14 @@ trap 's=$?; echo -e "${RED}Update failed (exit $s)${NC}"; echo -e "${RED}Last co
 
 usage(){
   cat <<USG
-Usage: update.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple restarts).
 
   --ref TAG         Git tag to update to (default: latest tag)
   --include-prerelease  Allow beta/rc tags when selecting latest
-  --all             Update app,worker-arq,worker-monitor
-  --components CSV  Comma-separated list of services to update
+  --all             Update app,worker-arq,worker-monitor,alloy
+  --components CSV  Comma-separated list of services to update (e.g. app,loki,alloy)
   --full            Full stack update (down whole stack, then up). Causes downtime
   --no-pull         Skip docker compose pull
   --no-migrate      Do not run DB migrations after app update

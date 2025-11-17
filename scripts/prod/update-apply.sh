@@ -11,14 +11,14 @@ trap 's=$?; echo -e "${RED}Update-apply failed (exit $s)${NC}"; echo -e "${RED}L
 
 usage(){
   cat <<USG
-Usage: update-apply.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update-apply.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
   --ref TAG         Git tag to record (best-effort if omitted)
   --include-prerelease  No effect here; kept for arg parity
-  --all             Update app,worker-arq,worker-monitor
-  --components CSV  Comma-separated list of services to update
+  --all             Update app,worker-arq,worker-monitor,alloy
+  --components CSV  Comma-separated list of services to update (e.g. app,loki,alloy)
   --full            Full stack update (down whole stack, then up). Causes downtime
   --no-pull         Skip docker compose pull
   --no-migrate      Do not run DB migrations after app update
@@ -164,7 +164,7 @@ fi
 
 # Option2: Components update (no downtime for app and workers)
 if ((do_all==1)); then
-  comps="app,worker-arq,worker-monitor"
+  comps="app,worker-arq,worker-monitor,alloy"
 elif [[ -z "$comps" ]]; then
   if [[ ! -t 0 ]]; then
     err "Non-interactive mode: specify --all, --components, or --full"
@@ -172,19 +172,21 @@ elif [[ -z "$comps" ]]; then
   fi
   printf "\n"
   echo "Select components to update:"
-  echo "1) app + workers (app, worker-arq, worker-monitor)"
+  echo "1) app + workers + alloy (app, worker-arq, worker-monitor, alloy)"
   echo "2) app"
   echo "3) worker-arq"
   echo "4) worker-monitor"
-  echo "5) Full stack (with downtime)"
-  read -r -p "Choice [1-5]: " ch
+  echo "5) alloy"
+  echo "6) Full stack (with downtime)"
+  read -r -p "Choice [1-6]: " ch
   ch="${ch//[^0-9]/}"
   case "$ch" in
-    1) comps="app,worker-arq,worker-monitor" ;;
+    1) comps="app,worker-arq,worker-monitor,alloy" ;;
     2) comps="app" ;;
     3) comps="worker-arq" ;;
     4) comps="worker-monitor" ;;
-    5)
+    5) comps="alloy" ;;
+    6)
       printf "\n"
       echo -e "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur."
       read -r -p "Proceed with FULL stack update? [y/N]: " ans
@@ -291,7 +293,7 @@ if ((skip_components==0)); then
       worker-monitor)
         rollout_service worker-monitor recreate
         ;;
-      traefik|loki|redis|docker-proxy|pgsql)
+      traefik|loki|redis|docker-proxy|pgsql|alloy)
         rollout_service "$s" recreate
         ;;
       *) err "unknown component: $s"; exit 1 ;;

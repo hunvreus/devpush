@@ -2316,6 +2316,12 @@
       }
     }
   }
+  .\[\&_svg\]\:size-2 {
+    & svg {
+      width: calc(var(--spacing) * 2);
+      height: calc(var(--spacing) * 2);
+    }
+  }
   .\[\&_svg\]\:size-3 {
     & svg {
       width: calc(var(--spacing) * 3);
