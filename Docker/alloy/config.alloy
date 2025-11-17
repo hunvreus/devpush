@@ -1,0 +1,112 @@
+// Grafana Alloy configuration for /dev/push
+// Option A: File tailing + Docker discovery via socket proxy
+
+discovery.docker "docker" {
+  host             = "http://docker-proxy:2375"
+  // Lower interval so new containers are discovered within ~1s for near‑real‑time logs
+  refresh_interval = "1s"
+}
+
+// Build file targets from Docker metadata and map container labels
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.docker.targets
+
+  // Fallback: construct default json-file path from container ID
+  // Build /var/lib/docker/containers/<id>/<id>-json.log
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    regex         = "(.*)"
+    replacement   = "/var/lib/docker/containers/$1/$1-json.log"
+    target_label  = "__path__"
+    action        = "replace"
+  }
+
+  // If Docker exposes a concrete log path, prefer it (only when non-empty)
+  rule {
+    source_labels = ["__meta_docker_container_log_path"]
+    regex         = "(.+)"
+    replacement   = "$1"
+    target_label  = "__path__"
+    action        = "replace"
+  }
+
+  // Map devpush.* docker labels -> Loki stream labels
+  // Map both prefixed and plain labels (deployment_id, project_id, environment_id, branch)
+  rule {
+    action      = "labelmap"
+    regex       = "__meta_docker_container_label_devpush_(.+)"
+    replacement = "$1"
+  }
+  rule {
+    action      = "labelmap"
+    regex       = "__meta_docker_container_label_(project_id|deployment_id|environment_id|branch)"
+    replacement = "$1"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_devpush_project_id"]
+    target_label  = "project_id"
+    action        = "replace"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_devpush_deployment_id"]
+    target_label  = "deployment_id"
+    action        = "replace"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_devpush_environment_id"]
+    target_label  = "environment_id"
+    action        = "replace"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_devpush_branch"]
+    target_label  = "branch"
+    action        = "replace"
+  }
+
+  // Optional: tag all logs with a job label
+  rule {
+    target_label = "job"
+    replacement  = "docker"
+    action       = "replace"
+  }
+}
+
+// Tail Docker json-file logs
+loki.source.file "docker" {
+  targets    = discovery.relabel.docker_logs.output
+  forward_to = [loki.process.docker.receiver]
+  // Poll filesystem and growing files very frequently to minimize tail latency
+  file_watch {
+    min_poll_frequency = "100ms"
+    max_poll_frequency = "200ms"
+  }
+}
+
+// Parse Docker JSON log lines and set timestamp/message/labels
+loki.process "docker" {
+  // Extract fields from Docker JSON log entries: {time, stream, log}
+  stage.json {
+    expressions = { log = "log", stream = "stream", time = "time" }
+  }
+
+  // Do NOT override the log entry timestamp. Using ingestion time avoids
+  // clock-skew (container vs host) causing "future" timestamps and visible lag.
+
+  // Add the stream (stdout/stderr) as a label
+  stage.labels {
+    values = { stream = "" }
+  }
+
+  // Set the log line content
+  stage.output {
+    source = "log"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+// Write to Loki
+loki.write "default" {
+  endpoint { url = "http://loki:3100/loki/api/v1/push" }
+}
