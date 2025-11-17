@@ -4,7 +4,7 @@
 discovery.docker "docker" {
   host             = "http://docker-proxy:2375"
   // Lower interval so new containers are discovered within ~1s for near‑real‑time logs
-  refresh_interval = "1s"
+  refresh_interval = "500ms"
 }
 
 // Build file targets from Docker metadata and map container labels
@@ -76,11 +76,6 @@ discovery.relabel "docker_logs" {
 loki.source.file "docker" {
   targets    = discovery.relabel.docker_logs.output
   forward_to = [loki.process.docker.receiver]
-  // Poll filesystem and growing files very frequently to minimize tail latency
-  file_watch {
-    min_poll_frequency = "100ms"
-    max_poll_frequency = "200ms"
-  }
 }
 
 // Parse Docker JSON log lines and set timestamp/message/labels
@@ -108,5 +103,10 @@ loki.process "docker" {
 
 // Write to Loki
 loki.write "default" {
-  endpoint { url = "http://loki:3100/loki/api/v1/push" }
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+    // Reduce time to first push for new streams
+    batch_wait = "300ms"
+    batch_size = "128KB"
+  }
 }

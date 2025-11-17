@@ -172,6 +172,7 @@ services:
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ./Docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /srv/devpush/alloy:/var/lib/alloy
 
 volumes:
   devpush-db:
