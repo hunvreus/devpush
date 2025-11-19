@@ -210,7 +210,6 @@ Variable | Comments | Default
 --- | --- | ---
 `APP_NAME` | App name. | `/dev/push`
 `APP_DESCRIPTION` | App description. | `Deploy your Python app without touching a server.`
-`URL_SCHEME` | `http` (development) or `https` (production). | `https`
 `LE_EMAIL` | Email used to register the Let's Encrypt (ACME) account in Traefik; receives certificate issuance/renewal/expiry notifications. | `""`
 `APP_HOSTNAME` | Domain for the app (e.g. `app.devpu.sh`). | `""`
 `DEPLOY_DOMAIN` | Domain used for deployments (e.g. `devpush.app` if you want your deployments available at `*.devpush.app`). | `APP_HOSTNAME`

@@ -56,7 +56,7 @@ fi
 # Optional no-cache build for services
 if ((setup_mode==1)); then
   echo "Starting in SETUP MODE (minimal stack, direct port access)..."
-  args=(-p devpush -f docker-compose.setup.yml)
+  args=(-p devpush -f docker-compose.setup.yml -f docker-compose.setup.override.dev.yml)
 else
   args=(-p devpush -f docker-compose.yml -f docker-compose.override.dev.yml)
 fi

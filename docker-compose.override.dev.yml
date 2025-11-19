@@ -11,6 +11,8 @@ services:
       - ./data/upload:/app/upload
       - ./data/traefik:/data/traefik
       - ./data/config.json:/var/lib/devpush/config.json
+    environment:
+      ENV: development
   worker-arq:
     build:
       dockerfile: Docker/Dockerfile.app.dev
@@ -31,6 +33,8 @@ services:
       - "80:80"
     volumes:
       - ./data/traefik:/etc/traefik/dynamic_conf
+    labels:
+      - "traefik.http.middlewares.deployment-redirect.redirectRegex.replacement=http://${APP_HOSTNAME}/deployment-not-found/$$1"
 
   alloy:
     volumes:

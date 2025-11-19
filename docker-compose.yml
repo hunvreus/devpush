@@ -113,7 +113,6 @@ services:
       - "traefik.http.routers.deployment-not-found.service=noop@internal"
       - "traefik.http.routers.deployment-not-found.middlewares=deployment-redirect"
       - "traefik.http.middlewares.deployment-redirect.redirectRegex.regex=^https?://([^/]+)"
-      - "traefik.http.middlewares.deployment-redirect.redirectRegex.replacement=${URL_SCHEME:-https}://${APP_HOSTNAME}/deployment-not-found/$$1"
       - "traefik.http.middlewares.deployment-redirect.redirectRegex.permanent=false"
 
   pgsql:

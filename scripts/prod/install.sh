@@ -307,30 +307,7 @@ fi
 
 run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
 
-# Create .env file
-printf "\n"
-echo "Configuring environment..."
 cd "$app_dir"
-if [[ ! -f ".env" ]]; then
-  if [[ -f ".env.example" ]]; then
-    run_cmd "${CHILD_MARK} Create .env from template..." bash -lc "runuser -u '$user' -- cp '.env.example' '.env' && chown '$user:$user' '.env'"
-  else
-    err ".env.example not found; cannot create .env"
-    exit 1
-  fi
-  # Fill generated/defaults if empty
-  fill(){ k="$1"; v="$2"; if grep -q "^$k=" .env; then sed -i "s|^$k=.*|$k=\"$v\"|" .env; else echo "$k=\"$v\"" >> .env; fi; }
-  fill_if_empty(){ k="$1"; v="$2"; cur="$(grep -E "^$k=" .env | head -n1 | cut -d= -f2- | tr -d '\"')"; [[ -z "$cur" ]] && fill "$k" "$v" || true; }
-
-  sk="$(gen_hex)"; ek="$(gen_fernet)"; pgp="$(gen_pw)"; sip="$(pub_ip || echo 127.0.0.1)"
-  fill_if_empty SECRET_KEY "$sk"
-  fill_if_empty ENCRYPTION_KEY "$ek"
-  fill_if_empty POSTGRES_PASSWORD "$pgp"
-  fill_if_empty SERVER_IP "$sip"
-else
-  echo "${CHILD_MARK} Create .env from template... ${YEL}⊘${NC}"
-  echo -e "  ${DIM}${CHILD_MARK} .env already exists${NC}"
-fi
 
 # Build runners images
 printf "\n"
@@ -384,7 +361,7 @@ echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
 # Start application in setup mode
 printf "\n"
 echo "Starting application..."
-cd "$app_dir" && runuser -u "$user" -- docker compose -f docker-compose.setup.yml up -d
+cd "$app_dir" && runuser -u "$user" -- scripts/prod/start.sh --no-pull
 
 sip=$(pub_ip || echo "127.0.0.1")
 printf "\n"

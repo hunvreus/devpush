@@ -7,8 +7,6 @@ services:
     restart: always
     ports:
       - "80:8000"
-    env_file:
-      - .env
     volumes:
       - ./app:/app
     healthcheck:

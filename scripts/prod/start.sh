@@ -44,21 +44,43 @@ cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
 ssl_provider="${ssl_provider:-$(get_ssl_provider)}"
 persist_ssl_provider "$ssl_provider"
 
-# Ensure acme.json exists with strict perms
-ensure_acme_json
+# Check if setup is complete
+setup_mode=0
+if [[ -f /var/lib/devpush/config.json ]]; then
+  # If config.json exists, check setup_complete flag
+  if jq -e '.setup_complete == true' /var/lib/devpush/config.json >/dev/null 2>&1; then
+    setup_mode=0
+  else
+    setup_mode=1
+  fi
+else
+  setup_mode=1
+fi
 
-# Validate provider env vars (reads from env or the .env file)
-validate_ssl_env "$ssl_provider" "$envf"
+if (( setup_mode == 1 )); then
+  # Start setup stack if setup is not complete
+  printf "\n"
+  echo "Starting setup stack..."
+  run_cmd "${CHILD_MARK} Starting setup compose..." docker compose -p devpush -f docker-compose.setup.yml up -d --remove-orphans
+else
+  # Start full stack if setup is complete
 
-# Validate core environment variables
-validate_core_env "$envf"
+  # Ensure acme.json exists with strict perms
+  ensure_acme_json
 
-# Start services
-printf "\n"
-echo "Starting services..."
-args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
-((pull_always==1)) && pullflag=(--pull always) || pullflag=()
-run_cmd "${CHILD_MARK} Starting Docker Compose stack..." docker compose "${args[@]}" up -d "${pullflag[@]}" --remove-orphans
+  # Validate provider env vars (reads from env or the .env file)
+  validate_ssl_env "$ssl_provider" "$envf"
+
+  # Validate core environment variables
+  validate_core_env "$envf"
+
+  # Start services
+  printf "\n"
+  echo "Starting services..."
+  args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
+  ((pull_always==1)) && pullflag=(--pull always) || pullflag=()
+  run_cmd "${CHILD_MARK} Starting Docker Compose stack..." docker compose "${args[@]}" up -d "${pullflag[@]}" --remove-orphans
+fi
 
 # Apply database migrations
 if ((do_migrate==1)); then
