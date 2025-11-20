@@ -22,6 +22,7 @@ FORBIDDEN_TEAM_SLUGS = [
     "deployment-not-found",
     "health",
     "new-team",
+    "setup",
     "upload",
     "user",
 ]

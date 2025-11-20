@@ -1,6 +1,22 @@
 from starlette_wtf import StarletteForm
 from wtforms import StringField, SelectField, TextAreaField
 from wtforms.validators import DataRequired, Email, Regexp, Optional
+from config import get_settings
+from dependencies import get_lazy_translation as _l
+
+PROVIDER_FIELDS = {
+    "cloudflare": ["cloudflare_api_token"],
+    "route53": ["route53_access_key", "route53_secret_key", "route53_region"],
+    "gcloud": ["gcloud_project", "gcloud_service_account"],
+    "digitalocean": ["digitalocean_token"],
+    "azure": [
+        "azure_client_id",
+        "azure_client_secret",
+        "azure_tenant_id",
+        "azure_subscription_id",
+        "azure_resource_group",
+    ],
+}
 
 
 class DomainsSSLForm(StarletteForm):
@@ -106,73 +122,31 @@ class DomainsSSLForm(StarletteForm):
 
     async def validate(self, extra_validators=None):
         """Override validate to conditionally require SSL provider fields."""
-        if not await super().validate(extra_validators):
+        valid = await super().validate(extra_validators)
+
+        settings = get_settings()
+        if settings.env == "development":
+            self.le_email.errors = []
+            self.ssl_provider.errors = []
+            return (
+                len(self.server_ip.errors) == 0
+                and len(self.app_hostname.errors) == 0
+                and len(self.deploy_domain.errors) == 0
+            )
+
+        if not valid:
             return False
 
         ssl_provider = self.ssl_provider.data
+        required_fields = PROVIDER_FIELDS.get(ssl_provider, [])
 
-        if ssl_provider == "cloudflare":
-            if not self.cloudflare_api_token.data:
-                self.cloudflare_api_token.errors.append(
-                    "Cloudflare API Token is required when using Cloudflare DNS"
-                )
-                return False
-        elif ssl_provider == "route53":
-            if not self.route53_access_key.data:
-                self.route53_access_key.errors.append(
-                    "AWS Access Key ID is required when using Route53"
-                )
-                return False
-            if not self.route53_secret_key.data:
-                self.route53_secret_key.errors.append(
-                    "AWS Secret Access Key is required when using Route53"
-                )
-                return False
-            if not self.route53_region.data:
-                self.route53_region.errors.append(
-                    "AWS Region is required when using Route53"
-                )
-                return False
-        elif ssl_provider == "gcloud":
-            if not self.gcloud_project.data:
-                self.gcloud_project.errors.append(
-                    "Google Cloud Project ID is required when using Google Cloud DNS"
-                )
-                return False
-            if not self.gcloud_service_account.data:
-                self.gcloud_service_account.errors.append(
-                    "GCloud Service Account JSON is required when using Google Cloud DNS"
-                )
-                return False
-        elif ssl_provider == "digitalocean":
-            if not self.digitalocean_token.data:
-                self.digitalocean_token.errors.append(
-                    "DigitalOcean Token is required when using DigitalOcean DNS"
-                )
-                return False
-        elif ssl_provider == "azure":
-            azure_fields = {
-                "azure_client_id": ("Azure Client ID", self.azure_client_id),
-                "azure_client_secret": (
-                    "Azure Client Secret",
-                    self.azure_client_secret,
-                ),
-                "azure_tenant_id": ("Azure Tenant ID", self.azure_tenant_id),
-                "azure_subscription_id": (
-                    "Azure Subscription ID",
-                    self.azure_subscription_id,
-                ),
-                "azure_resource_group": (
-                    "Azure Resource Group",
-                    self.azure_resource_group,
-                ),
-            }
-            for field_name, (label, field) in azure_fields.items():
-                if not field.data:
-                    field.errors.append(f"{label} is required when using Azure DNS")
-                    return False
+        for field_name in required_fields:
+            field = getattr(self, field_name)
+            if not field.data:
+                field.errors.append(_l("This field is required"))
+                valid = False
 
-        return True
+        return valid
 
 
 class GitHubAppForm(StarletteForm):

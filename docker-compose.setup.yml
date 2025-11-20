@@ -9,6 +9,10 @@ services:
       - "80:8000"
     volumes:
       - ./app:/app
+      - ./data/config.json:/var/lib/devpush/config.json
+      - ./data/traefik:/data/traefik
+    environment:
+      SECRET_KEY: "setup-secret-only-used-before-real-secret-is-generated"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 60s

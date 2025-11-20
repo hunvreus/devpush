@@ -131,15 +131,12 @@
 
     dialog.close();
 
-    const appUrl = "{{ app_hostname }}";
+    const appBaseUrl = "{{ app_base_url }}";
     const serverIp = "{{ server_ip }}";
-    
-    const appBaseUrl = appUrl.includes("://") ? appUrl : `http://${appUrl}`;
     const callbackUrl = `http://${serverIp}.traefik.me/setup/github/callback`;
 
-    const safeName = appUrl.replace(/[^a-z0-9]/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
     const manifest = {
-      name: `devpush-${safeName}`,
+      name: "{{ github_app_name }}",
       url: appBaseUrl,
       hook_attributes: {
         url: `${appBaseUrl}/api/github/webhook`,

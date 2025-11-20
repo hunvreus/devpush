@@ -1,0 +1,132 @@
+{% extends "layouts/base.html" %}
+{% block title %}{{ _("Restarting...") }}{% endblock %}
+
+{% block base_content %}
+<div class="h-screen flex items-center justify-center">
+  <div id="message" class="flex min-w-0 flex-1 flex-col items-center justify-center gap-6 p-6 text-center text-balance md:p-12 text-neutral-800 dark:text-neutral-300">
+    <header class="flex max-w-sm flex-col items-center gap-2 text-center">
+      <div class="mb-2 bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400 flex size-12 shrink-0 items-center justify-center rounded-full [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-6">
+        {% include "icons/check.svg" %}
+      </div>
+      <h3 class="text-lg font-medium tracking-tight">
+        {{ _("Configuration saved. Restarting in <span id='countdown' class='tabular-nums'>9</span> seconds") | safe }}
+      </h3>
+      <p class="text-muted-foreground [&>a:hover]:text-primary text-sm/relaxed [&>a]:underline [&>a]:underline-offset-4">
+        The configuration has been saved and the services will restart automatically. You will be redirected when ready.
+      </p>
+    </header>
+    <section class="flex w-full max-w-sm min-w-0 flex-col items-center gap-4 text-sm text-balance">
+      <div class="flex gap-2">
+        <button id="restart-btn" class="btn">{{ _("Restart now") }}</button>
+        <a href="{{ url_for('setup_step_4') }}" class="btn-outline">{{ _("Cancel") }}</a>
+      </div>
+    </section>
+  </div>
+
+  <div id="loading" class="max-w-md hidden">
+    <div class="flex flex-col items-center gap-2">
+      <div class="bg-primary/20 relative h-2 w-full overflow-hidden rounded-full">
+        <div id="progress-bar" class="bg-primary h-full w-full flex-1 transition-all duration-500" style="width: 0%"></div>
+      </div>
+      <div class="text-muted-foreground text-sm">{{ _('Restarting... Do not close or reload this page.') }}</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  let countdown = 9;
+  let pollAttempts = 0;
+  let progress = 0;
+  let progressInterval = null;
+  const maxPollAttempts = 60;
+  const targetUrl = '{{ target_url }}';
+  
+  const countdownEl = document.getElementById('countdown');
+  const messageEl = document.getElementById('message');
+  const loadingEl = document.getElementById('loading');
+  const progressBar = document.getElementById('progress-bar');
+  const restartBtn = document.getElementById('restart-btn');
+  
+  const countdownInterval = setInterval(() => {
+    countdown--;
+    countdownEl.textContent = countdown;
+    if (countdown <= 0) {
+      clearInterval(countdownInterval);
+      triggerRestart();
+    }
+  }, 1000);
+  
+  const triggerRestart = async function() {
+    loadingEl.classList.remove('hidden');
+    messageEl.classList.add('hidden');
+    window.addEventListener('beforeunload', preventUnload);
+    startProgressAnimation();
+    
+    try {
+      throw new Error('test');
+      await fetch('/setup/restart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('Failed to trigger restart:', error);
+      restartComplete();
+    }
+    
+    setTimeout(startHealthPolling, 9000);
+  };
+ 
+  restartBtn.addEventListener('click', triggerRestart);
+  
+  const startProgressAnimation = function() {
+    progressInterval = setInterval(() => {
+      if (progress < 85) {
+        const increment = (85 - progress) * 0.05;
+        progress = Math.min(85, progress + increment);
+        progressBar.style.width = progress + '%';
+      }
+    }, 1000);
+  };
+  
+  const startHealthPolling = async function () {
+    pollAttempts++;
+    
+    try {
+      const response = await fetch('/health', { cache: 'no-cache' });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'ok') {
+          restartComplete();
+          return;
+        }
+      }
+    } catch (error) {}
+    
+    if (pollAttempts >= maxPollAttempts) {
+      restartComplete();
+      return;
+    }
+    
+    setTimeout(startHealthPolling, 3000);
+  };
+  
+  const restartComplete = function() {
+    if (progressInterval) {
+      clearInterval(progressInterval);
+      progressInterval = null;
+    }
+    window.removeEventListener('beforeunload', preventUnload);
+    progressBar.style.width = '100%';
+    setTimeout(() => {
+      window.location.href = targetUrl;
+    }, 500);
+  };
+  
+  const preventUnload = function(e) {
+    e.preventDefault();
+    e.returnValue = '';
+  };
+})();
+</script>
+{% endblock %}

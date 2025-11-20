@@ -1,3 +1,4 @@
+{% if current_step %}
 <ol class="flex items-center justify-between gap-x-2.5 max-sm:hidden mb-8">
   <li class="flex items-center gap-x-2.5 {% if current_step != 1 %}opacity-50{% endif %}">
     <div class="shrink-0 rounded-full size-6 bg-primary text-primary-foreground flex items-center justify-center text-xs font-mono font-semibold">1</div>
@@ -25,3 +26,4 @@
     <h2 class="font-semibold">{{ _('Confirm') }}</h2>
   </li>
 </ol>
+{% endif %}

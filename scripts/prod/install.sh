@@ -4,6 +4,8 @@ IFS=$'\n\t'
 
 : "${LIB_URL:=https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/lib.sh}"
 
+DATA_DIR="/var/lib/devpush"
+
 # Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/install_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
@@ -111,10 +113,10 @@ fi
 
 # Detect existing install and prompt
 summary() {
-  if [[ -f /var/lib/devpush/version.json ]]; then
-    version_ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
-    version_commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' /var/lib/devpush/version.json | head -n1)
-    echo -e "  - version.json in /var/lib/devpush (ref: ${version_ref:-unknown})"
+  if [[ -f "$DATA_DIR/version.json" ]]; then
+    version_ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
+    version_commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
+    echo -e "  - version.json in $DATA_DIR (ref: ${version_ref:-unknown})"
   fi
   if [[ -d "$app_dir/.git" ]]; then
     echo -e "  - repo at $app_dir"
@@ -122,7 +124,7 @@ summary() {
   fi
 }
 
-if [[ -f /var/lib/devpush/version.json ]] || [[ -d "$app_dir/.git" ]]; then
+if [[ -f "$DATA_DIR/version.json" ]] || [[ -d "$app_dir/.git" ]]; then
   echo ""
   echo "Existing install detected:"
   summary
@@ -158,7 +160,6 @@ apt_install() {
 }
 gen_hex(){ openssl rand -hex 32; }
 gen_pw(){ openssl rand -base64 24 | tr -d '\n=' | cut -c1-32; }
-pub_ip(){ curl -fsS https://api.ipify.org || curl -fsS http://checkip.amazonaws.com || hostname -I | awk '{print $1}'; }
 gen_fernet(){ openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'; }
 
 # Helper functions (must be defined before use with run_cmd)
@@ -216,20 +217,20 @@ record_version() {
     local commit ts install_id
     commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    sudo install -d -m 0755 /var/lib/devpush
-    if sudo test ! -f /var/lib/devpush/version.json; then
+    sudo install -d -m 0755 "$DATA_DIR"
+    if sudo test ! -f "$DATA_DIR/version.json"; then
         install_id=$(cat /proc/sys/kernel/random/uuid)
-        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" | sudo tee /var/lib/devpush/version.json.tmp >/dev/null
-        sudo mv /var/lib/devpush/version.json.tmp /var/lib/devpush/version.json
+        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" | sudo tee "${DATA_DIR}/version.json.tmp" >/dev/null
+        sudo mv "${DATA_DIR}/version.json.tmp" "$DATA_DIR/version.json"
     else
-        install_id=$(sudo jq -r '.install_id // empty' /var/lib/devpush/version.json 2>/dev/null || true)
+        install_id=$(sudo jq -r '.install_id // empty' "$DATA_DIR/version.json" 2>/dev/null || true)
         [[ -n "$install_id" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
         sudo jq --arg id "$install_id" --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" --arg arch "$arch" --arg distro "$distro_id" --arg distro_version "$distro_version" \
           '. + {install_id: $id, git_ref: $ref, git_commit: $commit, updated_at: $ts, arch: $arch, distro: $distro, distro_version: $distro_version}' \
-          /var/lib/devpush/version.json | sudo tee /var/lib/devpush/version.json.tmp >/dev/null
-        sudo mv /var/lib/devpush/version.json.tmp /var/lib/devpush/version.json
+          "$DATA_DIR/version.json" | sudo tee "${DATA_DIR}/version.json.tmp" >/dev/null
+        sudo mv "${DATA_DIR}/version.json.tmp" "$DATA_DIR/version.json"
     fi
-    sudo chmod 0644 /var/lib/devpush/version.json || true
+    sudo chmod 0644 "$DATA_DIR/version.json" || true
 }
 
 # Install base packages
@@ -363,7 +364,7 @@ printf "\n"
 echo "Starting application..."
 cd "$app_dir" && runuser -u "$user" -- scripts/prod/start.sh --no-pull
 
-sip=$(pub_ip || echo "127.0.0.1")
+sip=$(get_public_ip || echo "127.0.0.1")
 printf "\n"
 echo -e "${GRN}Application started. Complete setup in your browser:${NC}"
 echo ""

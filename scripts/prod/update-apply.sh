@@ -2,8 +2,11 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+# Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/update_apply_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+
+DATA_DIR="/var/lib/devpush"
 
 source "$(dirname "$0")/lib.sh"
 
@@ -113,10 +116,10 @@ run_upgrade_hooks() {
   done
 }
 
-old_version=$(jq -r '.git_ref // empty' /var/lib/devpush/version.json 2>/dev/null || true)
+old_version=$(jq -r '.git_ref // empty' $DATA_DIR/version.json 2>/dev/null || true)
 if [[ -z "$old_version" ]]; then
   printf "\n"
-  echo -e "${YEL}Warning:${NC} No version found in /var/lib/devpush/version.json. Skipping upgrade hooks."
+  echo -e "${YEL}Warning:${NC} No version found in $DATA_DIR/version.json. Skipping upgrade hooks."
 elif [[ -z "$ref" ]]; then
   printf "\n"
   echo -e "${YEL}Warning:${NC} No target version specified. Skipping upgrade hooks."
@@ -316,26 +319,27 @@ if [[ -z "$ref" ]]; then
   [[ -n "$ref" ]] || ref=$(git rev-parse --short "$commit")
 fi
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-[[ -d /var/lib/devpush ]] || sudo install -d -m 0755 /var/lib/devpush || true
+[[ -d $DATA_DIR ]] || sudo install -d -m 0755 $DATA_DIR || true
 
 # Update version.json (preserve existing metadata, update git_ref/commit/timestamp)
-if sudo test -f /var/lib/devpush/version.json; then
+if sudo test -f $DATA_DIR/version.json; then
   sudo jq --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
     '. + {git_ref: $ref, git_commit: $commit, updated_at: $ts}' \
-    /var/lib/devpush/version.json | sudo tee /var/lib/devpush/version.json.tmp >/dev/null
-  sudo mv /var/lib/devpush/version.json.tmp /var/lib/devpush/version.json
+    $DATA_DIR/version.json | sudo tee $DATA_DIR/version.json.tmp >/dev/null
+  sudo mv $DATA_DIR/version.json.tmp $DATA_DIR/version.json
 else
   install_id=$(cat /proc/sys/kernel/random/uuid)
-  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "$ref" "$commit" "$ts" | sudo tee /var/lib/devpush/version.json >/dev/null
+  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "$ref" "$commit" "$ts" | sudo tee $DATA_DIR/version.json >/dev/null
 fi
 
-# Send telemetry and retrieve public IP
-public_ip=""
+# Send telemetry
 if ((telemetry==1)); then
   printf "\n"
   run_cmd "Sending telemetry..." send_telemetry update
-  public_ip=$(jq -r '.public_ip // empty' /var/lib/devpush/config.json 2>/dev/null || true)
 fi
+
+# Get public IP for display (automatically saved to config)
+public_ip=$(get_public_ip || echo "")
 
 printf "\n"
 echo -e "${GRN}Update complete (${old_version:-unknown} → ${ref}). ✔${NC}"

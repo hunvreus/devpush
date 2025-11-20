@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+DATA_DIR="/var/lib/devpush"
+
 if [[ -t 1 ]]; then
   RED="$(printf '\033[31m')"; GRN="$(printf '\033[32m')"; YEL="$(printf '\033[33m')"; BLD="$(printf '\033[1m')"; DIM="$(printf '\033[2m')"; NC="$(printf '\033[0m')"
 else
@@ -180,8 +182,8 @@ get_ssl_provider() {
   local p=""
   if [[ -n "${SSL_PROVIDER:-}" ]]; then
     p="$SSL_PROVIDER"
-  elif [[ -f /var/lib/devpush/config.json ]]; then
-    p="$(jq -r '.ssl_provider // empty' /var/lib/devpush/config.json 2>/dev/null || true)"
+  elif [[ -f $DATA_DIR/config.json ]]; then
+    p="$(jq -r '.ssl_provider // empty' $DATA_DIR/config.json 2>/dev/null || true)"
   fi
   [[ -n "${p:-}" ]] || p="default"
   echo "$p"
@@ -190,14 +192,14 @@ get_ssl_provider() {
 # Persist chosen provider to config.json
 persist_ssl_provider() {
   local provider="$1"
-  sudo install -d -m 0755 /var/lib/devpush >/dev/null 2>&1 || true
-  if sudo test -f /var/lib/devpush/config.json; then
-    sudo jq --arg p "$provider" '. + {ssl_provider: $p}' /var/lib/devpush/config.json | sudo tee /var/lib/devpush/config.json.tmp >/dev/null
-    sudo mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
+  sudo install -d -m 0755 $DATA_DIR >/dev/null 2>&1 || true
+  if sudo test -f $DATA_DIR/config.json; then
+    sudo jq --arg p "$provider" '. + {ssl_provider: $p}' $DATA_DIR/config.json | sudo tee $DATA_DIR/config.json.tmp >/dev/null
+    sudo mv $DATA_DIR/config.json.tmp $DATA_DIR/config.json
   else
-    printf '{"ssl_provider":"%s"}\n' "$provider" | sudo tee /var/lib/devpush/config.json >/dev/null
+    printf '{"ssl_provider":"%s"}\n' "$provider" | sudo tee $DATA_DIR/config.json >/dev/null
   fi
-  sudo chmod 0644 /var/lib/devpush/config.json >/dev/null 2>&1 || true
+  sudo chmod 0644 $DATA_DIR/config.json >/dev/null 2>&1 || true
 }
 
 # Ensure acme.json exists with correct perms
@@ -232,7 +234,7 @@ validate_ssl_env() {
       else
         : "${GCE_PROJECT:?GCE_PROJECT required}"
       fi
-      [[ -f /srv/devpush/gcloud-sa.json ]] || { err "/srv/devpush/gcloud-sa.json missing"; exit 1; }
+      [[ -f $DATA_DIR/gcloud-sa.json ]] || { err "$DATA_DIR/gcloud-sa.json missing"; exit 1; }
       ;;
     digitalocean)
       if [[ -n "$envf" && -f "$envf" ]]; then
@@ -252,38 +254,56 @@ validate_ssl_env() {
   esac
 }
 
-# Send telemetry and update public IP in config.json
+# Get public IP address from external services
+# Usage: get_public_ip [--no-save]
+# Returns IP address or empty string on failure
+# Automatically saves to config.json unless --no-save is provided
+get_public_ip() {
+    local save=1
+    if [[ "${1:-}" == "--no-save" ]]; then
+        save=0
+    fi
+    
+    local ip
+    ip=$(curl -fsS https://api.ipify.org 2>/dev/null || \
+         curl -fsS http://checkip.amazonaws.com 2>/dev/null || \
+         hostname -I | awk '{print $1}' 2>/dev/null || \
+         echo "")
+    
+    if [[ -n "$ip" && $save -eq 1 ]]; then
+        sudo install -d -m 0755 $DATA_DIR >/dev/null 2>&1 || true
+        if sudo test -f $DATA_DIR/config.json; then
+            sudo jq --arg ip "$ip" '. + {public_ip: $ip}' $DATA_DIR/config.json | sudo tee $DATA_DIR/config.json.tmp >/dev/null
+            sudo mv $DATA_DIR/config.json.tmp $DATA_DIR/config.json
+        else
+            printf '{"public_ip":"%s"}\n' "$ip" | sudo tee $DATA_DIR/config.json >/dev/null
+        fi
+        sudo chmod 0644 $DATA_DIR/config.json >/dev/null 2>&1 || true
+    fi
+    
+    echo "$ip"
+}
+
+# Send telemetry
 # Usage: send_telemetry <event_type> [payload]
 # If payload is provided, uses it directly; otherwise reads from version.json
 # Returns 0 on success, 1 on failure
 send_telemetry() {
     local event="$1"
     local payload="${2:-}"
-    local response public_ip
+    local response
     
     # If no payload provided, read from version.json
     if [[ -z "$payload" ]]; then
-        [[ -f /var/lib/devpush/version.json ]] || return 0
-        payload=$(jq -c --arg ev "$event" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
+        [[ -f $DATA_DIR/version.json ]] || return 0
+        payload=$(jq -c --arg ev "$event" '. + {event: $ev}' $DATA_DIR/version.json 2>/dev/null || echo "")
         [[ -n "$payload" ]] || return 0
     fi
     
     for attempt in 1 2 3; do
         response=$(curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry 2>&1 || true)
         if [[ -n "$response" ]]; then
-            public_ip=$(echo "$response" | jq -r '.ip // empty' 2>/dev/null || true)
-            if [[ -n "$public_ip" ]]; then
-                sudo install -d -m 0755 /var/lib/devpush 2>/dev/null || true
-                if sudo test -f /var/lib/devpush/config.json; then
-                    sudo jq --arg ip "$public_ip" '. + {public_ip: $ip}' /var/lib/devpush/config.json | sudo tee /var/lib/devpush/config.json.tmp >/dev/null
-                    sudo mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
-                else
-                    printf '{"public_ip":"%s"}\n' "$public_ip" | sudo tee /var/lib/devpush/config.json.tmp >/dev/null
-                    sudo mv /var/lib/devpush/config.json.tmp /var/lib/devpush/config.json
-                fi
-                sudo chmod 0644 /var/lib/devpush/config.json 2>/dev/null || true
                 return 0
-            fi
         fi
         [[ $attempt -lt 3 ]] && sleep 1
     done

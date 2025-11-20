@@ -6,6 +6,8 @@ IFS=$'\n\t'
 SCRIPT_ERR_LOG="/tmp/uninstall_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
+DATA_DIR="/var/lib/devpush"
+
 source "$(dirname "$0")/lib.sh"
 
 trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
@@ -39,7 +41,7 @@ done
 
 # Guard: prevent running from directories that will be deleted
 cwd="$(pwd)"
-if [[ "$cwd" == /home/devpush/* ]] || [[ "$cwd" == /opt/devpush/* ]] || [[ "$cwd" == /var/lib/devpush/* ]] || [[ "$cwd" == /srv/devpush/* ]]; then
+if [[ "$cwd" == /home/devpush/* ]] || [[ "$cwd" == /opt/devpush/* ]] || [[ "$cwd" == $DATA_DIR/* ]] || [[ "$cwd" == /srv/devpush/* ]]; then
   err "Cannot run from $cwd (will be deleted). Run from a safe directory (e.g., /tmp or ~root)."
   exit 1
 fi
@@ -56,10 +58,10 @@ user="devpush"
 version_ref=""
 telemetry_payload=""
 
-if [[ -f /var/lib/devpush/version.json ]]; then
-  version_ref=$(jq -r '.git_ref // empty' /var/lib/devpush/version.json 2>/dev/null || true)
+if [[ -f $DATA_DIR/version.json ]]; then
+  version_ref=$(jq -r '.git_ref // empty' $DATA_DIR/version.json 2>/dev/null || true)
   if ((telemetry==1)); then
-    telemetry_payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' /var/lib/devpush/version.json 2>/dev/null || echo "")
+    telemetry_payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' $DATA_DIR/version.json 2>/dev/null || echo "")
   fi
 fi
 
@@ -71,14 +73,14 @@ elif [[ -d /opt/devpush/.git ]]; then
 fi
 
 # Check if anything is installed
-if [[ -z "$app_dir" && ! -f /var/lib/devpush/version.json && ! -d /srv/devpush ]]; then
+if [[ -z "$app_dir" && ! -f $DATA_DIR/version.json && ! -d /srv/devpush ]]; then
   printf "\n"
   echo "No /dev/push installation detected."
   echo ""
   echo "Checked:"
   echo "  - /home/devpush/devpush"
   echo "  - /opt/devpush"
-  echo "  - /var/lib/devpush/version.json"
+  echo "  - $DATA_DIR/version.json"
   echo "  - /srv/devpush"
   exit 0
 fi
@@ -137,9 +139,9 @@ fi
 set -e
 
 # Remove metadata
-if [[ -d /var/lib/devpush ]]; then
+if [[ -d $DATA_DIR ]]; then
   set +e
-  run_cmd_try "${CHILD_MARK} Removing metadata..." rm -rf /var/lib/devpush
+  run_cmd_try "${CHILD_MARK} Removing metadata..." rm -rf $DATA_DIR
   set -e
 fi
 
@@ -194,7 +196,7 @@ echo "Removed:"
 [[ -n "$app_dir" ]] && echo "  - Application: $app_dir"
 echo "  - Docker containers and volumes"
 [[ -n "$runner_images" ]] && echo "  - Runner images: $image_count images"
-echo "  - Metadata: /var/lib/devpush/"
+echo "  - Metadata: $DATA_DIR/"
 
 if [[ -d /srv/devpush ]] || id -u "$user" >/dev/null 2>&1; then
   echo ""

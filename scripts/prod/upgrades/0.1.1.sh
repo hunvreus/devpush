@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-echo "Fixing /var/lib/devpush permissions (root ownership)..."
+DATA_DIR="/var/lib/devpush"
 
-if [[ -d /var/lib/devpush ]]; then
-  sudo chown -R root:root /var/lib/devpush 2>/dev/null || true
-  sudo chmod 0755 /var/lib/devpush 2>/dev/null || true
-  if [[ -f /var/lib/devpush/version.json ]]; then
-    sudo chmod 0644 /var/lib/devpush/version.json 2>/dev/null || true
+echo "Fixing $DATA_DIR permissions (root ownership)..."
+
+if [[ -d $DATA_DIR ]]; then
+  sudo chown -R root:root $DATA_DIR 2>/dev/null || true
+  sudo chmod 0755 $DATA_DIR 2>/dev/null || true
+  if [[ -f $DATA_DIR/version.json ]]; then
+    sudo chmod 0644 $DATA_DIR/version.json 2>/dev/null || true
   fi
-  if [[ -f /var/lib/devpush/config.json ]]; then
-    sudo chmod 0644 /var/lib/devpush/config.json 2>/dev/null || true
+  if [[ -f $DATA_DIR/config.json ]]; then
+    sudo chmod 0644 $DATA_DIR/config.json 2>/dev/null || true
   fi
 fi
 

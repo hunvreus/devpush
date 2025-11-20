@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+DATA_DIR="./data"
+
 usage(){
   cat <<USG
 Usage: clean.sh [--hard] [-h|--help]
@@ -35,7 +37,6 @@ fi
 docker network rm devpush_default >/dev/null 2>&1 || true
 docker network rm devpush_internal >/dev/null 2>&1 || true
 
-rm -rf ./data/traefik/* ./data/upload/* 2>/dev/null || true
-mkdir -p ./data/traefik ./data/upload
+rm -rf $DATA_DIR/* 2>/dev/null || true
 
 echo "Clean complete."

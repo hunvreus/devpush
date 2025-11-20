@@ -2,8 +2,11 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+# Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/start_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+
+DATA_DIR="/var/lib/devpush"
 
 source "$(dirname "$0")/lib.sh"
 
@@ -46,9 +49,9 @@ persist_ssl_provider "$ssl_provider"
 
 # Check if setup is complete
 setup_mode=0
-if [[ -f /var/lib/devpush/config.json ]]; then
+if [[ -f $DATA_DIR/config.json ]]; then
   # If config.json exists, check setup_complete flag
-  if jq -e '.setup_complete == true' /var/lib/devpush/config.json >/dev/null 2>&1; then
+  if jq -e '.setup_complete == true' $DATA_DIR/config.json >/dev/null 2>&1; then
     setup_mode=0
   else
     setup_mode=1

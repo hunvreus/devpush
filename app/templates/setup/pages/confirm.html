@@ -77,15 +77,23 @@
           <li class="flex flex-col md:flex-row md:items-center gap-1">
             <div class="md:w-1/3 text-muted-foreground">{{ _("Let's Encrypt Email") }}</div>
             <div class="flex-1 flex items-center gap-2 truncate">
-              <div class="truncate mr-auto" id="field-le-email">{{ setup_data.le_email }}</div>
-              {{ copy_button('field-le-email') }}
+              {% if environment == "development" %}
+                <div class="truncate mr-auto text-muted-foreground">{{ _("Disabled in development") }}</div>
+              {% else %}
+                <div class="truncate mr-auto" id="field-le-email">{{ setup_data.le_email }}</div>
+                {{ copy_button('field-le-email') }}
+              {% endif %}
             </div>
           </li>
           <li class="flex flex-col md:flex-row md:items-center gap-1">
             <div class="md:w-1/3 text-muted-foreground">{{ _("SSL Provider") }}</div>
             <div class="flex-1 flex items-center gap-2 truncate">
-              <div class="truncate mr-auto" id="field-ssl-provider">{{ setup_data.ssl_provider }}</div>
-              {{ copy_button('field-ssl-provider') }}
+              {% if environment == "development" %}
+                <div class="truncate mr-auto text-muted-foreground">{{ _("Disabled in development") }}</div>
+              {% else %}
+                <div class="truncate mr-auto" id="field-ssl-provider">{{ setup_data.ssl_provider }}</div>
+                {{ copy_button('field-ssl-provider') }}
+              {% endif %}
             </div>
           </li>
           {% if setup_data.ssl_provider == 'cloudflare' and setup_data.cloudflare_api_token %}

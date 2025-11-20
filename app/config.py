@@ -57,6 +57,8 @@ class Settings(BaseSettings):
 def get_settings():
     settings = Settings()
 
+    settings.url_scheme = "http" if settings.env == "development" else "https"
+
     presets_file = Path("settings/presets.json")
     images_file = Path("settings/images.json")
     try:

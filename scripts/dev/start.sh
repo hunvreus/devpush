@@ -4,6 +4,8 @@ set -e
 # Capture stderr for error reporting
 exec 2> >(tee /tmp/start_error.log >&2)
 
+DATA_DIR="./data"
+
 usage(){
   cat <<USG
 Usage: start.sh [--cache] [--prune] [--setup] [-h|--help]
@@ -23,20 +25,26 @@ command -v docker-compose >/dev/null 2>&1 || { echo "docker-compose not found"; 
 
 echo "Starting local environment..."
 
-mkdir -p ./data/{traefik,upload,alloy}
+mkdir -p $DATA_DIR/{traefik,upload,alloy}
 
 # Seed config.json if missing
-if [ ! -f ./data/config.json ]; then
-  echo "Seeding ./data/config.json..."
-  cat > ./data/config.json <<'JSON'
+if [ ! -f "$DATA_DIR/config.json" ]; then
+  echo "Seeding $DATA_DIR/config.json..."
+  cat > "$DATA_DIR/config.json" <<'JSON'
 {}
 JSON
-  chmod 0644 ./data/config.json || true
+  chmod 0644 "$DATA_DIR/config.json" || true
 fi
 
 no_cache=0
 prune=0
-setup_mode=0
+setup_mode=1
+if [ -f "$DATA_DIR/config.json" ] && command -v jq >/dev/null 2>&1; then
+  if jq -e '.setup_complete == true' "$DATA_DIR/config.json" >/dev/null 2>&1; then
+    setup_mode=0
+  fi
+fi
+
 for a in "$@"; do
   [ "$a" = "--cache" ] && no_cache=0
   [ "$a" = "--no-cache" ] && no_cache=1

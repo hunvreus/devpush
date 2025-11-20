@@ -196,7 +196,7 @@ See the [scripts](#scripts) section for more dev utilities.
 | Dev | `scripts/dev/db-reset.sh` | Drop and recreate `public` schema in DB |
 | Dev | `scripts/dev/clean.sh` | Stop stack and clean dev data (`--hard` for global) |
 | Prod | `scripts/prod/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
-| Prod | `scripts/prod/install.sh` | Server setup: Docker, user, clone repo, create `.env` |
+| Prod | `scripts/prod/install.sh` | Server setup: Docker, user, clone repo, start setup UI |
 | Prod | `scripts/prod/harden.sh` | System hardening (UFW, fail2ban, unattended-upgrades); add `--ssh` to harden SSH |
 | Prod | `scripts/prod/start.sh` | Start services; optional `--migrate`; `--ssl-provider <prov>` |
 | Prod | `scripts/prod/stop.sh` | Stop services (`--down` for hard stop) |
@@ -242,7 +242,7 @@ Variable | Comments | Default
 `DEPLOYMENT_TIMEOUT` | Deployment timeout in seconds. | `300`
 `LOG_LEVEL` | Logging level. | `WARNING`
 `DB_ECHO` | Enable SQL query logging. | `false`
-`ENV` | Environment (development/production). | `development`
+`ENV` | Environment (development/production). | `production`
 `ACCESS_DENIED_MESSAGE` | Message shown to users who are denied access based on  [sign-in access control](#sign-in-access-control). | `Sign-in not allowed for this email.`
 `ACCESS_DENIED_WEBHOOK` | Optional webhook to receive denied events (read more about [Sign-in access control](#sign-in-access-control)). | `""`
 `LOGIN_HEADER` | HTML snippet displayed above the login form. | `""`

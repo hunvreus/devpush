@@ -97,6 +97,16 @@ endblock %}
         {% endfor %}
       </div>
 
+      {% if environment == "development" %}
+        <div class="alert [&>h2]:text-amber-600 [&>svg]:text-amber-600 dark:[&>h2]:text-amber-400 dark:[&>svg]:text-amber-400">
+          {% include "icons/triangle-alert.svg" %}
+          <h2>{{ _("Local development mode") }}</h2>
+          <section>
+          <p>{{ _("You're working in a local development environment, SSL and related settings are disabled.") }}</p>
+          </section>
+        </div>
+      {% endif %}
+
       <div class="space-y-3">
         {{ form.le_email.label(class="label") }}
         {{ form.le_email(
@@ -104,6 +114,7 @@ endblock %}
           placeholder="dev@example.com",
           **{
             ":required": "true",
+            "disabled": environment == "development",
             "aria-invalid": "true" if form.le_email.errors else ""
           }
         ) }}
@@ -113,7 +124,7 @@ endblock %}
         {% endfor %}
       </div>
 
-      <fieldset x-data="{ sslProvider: '{{ form.ssl_provider.data or 'default' }}' }" class="flex flex-col gap-y-6">
+      <fieldset x-data="{ sslProvider: '{{ form.ssl_provider.data or 'default' }}' }" class="flex flex-col gap-y-6" {{ 'disabled' if environment == "development" else '' }}>
         <div class="space-y-3">
           {{ form.ssl_provider.label(class="label") }}
           {{ form.ssl_provider(
