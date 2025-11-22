@@ -30,6 +30,7 @@ from models import User, UserIdentity, TeamInvite, TeamMember, Team, utc_now
 from forms.auth import EmailLoginForm
 from utils.user import sanitize_username, get_user_by_email, get_user_by_provider
 from utils.access import is_email_allowed, notify_denied
+from utils.email import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -150,15 +151,11 @@ async def auth_login(
             )
         )
 
-        resend.api_key = settings.resend_api_key
-
         try:
-            resend.Emails.send(
-                {
-                    "from": f"{settings.email_sender_name} <{settings.email_sender_address}>",
-                    "to": [email],
-                    "subject": _("Sign in to %(app_name)s", app_name=settings.app_name),
-                    "html": templates.get_template("email/login.html").render(
+            send_email(
+                email = email,
+                subject = _("Sign in to %(app_name)s", app_name=settings.app_name),
+                data = templates.get_template("email/login.html").render(
                         {
                             "request": request,
                             "email": email,
@@ -170,7 +167,7 @@ async def auth_login(
                             "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
                         }
                     ),
-                }
+                settings = settings,
             )
             flash(
                 request,
