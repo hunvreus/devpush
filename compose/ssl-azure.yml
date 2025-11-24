@@ -14,11 +14,15 @@ services:
       - "--certificatesresolvers.le.acme.email=${LE_EMAIL}"
       - "--certificatesresolvers.le.acme.storage=/etc/traefik/dynamic_conf/acme.json"
       - "--certificatesresolvers.le.acme.dnschallenge=true"
-      - "--certificatesresolvers.le.acme.dnschallenge.provider=digitalocean"
+      - "--certificatesresolvers.le.acme.dnschallenge.provider=azure"
     environment:
-      - DO_AUTH_TOKEN=${DO_AUTH_TOKEN}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+      - AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+      - AZURE_RESOURCE_GROUP=${AZURE_RESOURCE_GROUP}
     volumes:
-      - /srv/devpush/traefik:/etc/traefik/dynamic_conf
+      - ${DATA_DIR:-/var/lib/devpush}/traefik:/etc/traefik/dynamic_conf
     labels:
       - "traefik.http.routers.cert-bootstrap.rule=Host(`${APP_HOSTNAME}`)"
       - "traefik.http.routers.cert-bootstrap.entrypoints=websecure"
@@ -29,5 +33,4 @@ services:
       - "traefik.http.routers.cert-bootstrap.tls.domains[0].main=${DEPLOY_DOMAIN}"
       - "traefik.http.routers.cert-bootstrap.tls.domains[0].sans=*.${DEPLOY_DOMAIN}"
       - "traefik.http.routers.cert-bootstrap.tls.domains[1].main=${APP_HOSTNAME}"
-
 

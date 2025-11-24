@@ -202,7 +202,7 @@
 
     <form method="post">
       <footer class="flex justify-between gap-x-2 -mx-6 px-6 pt-6 border-t">
-        <a href="/setup/step/3" class="btn-ghost">
+        <a href="{{ url_for('setup_step_3') }}" class="btn-ghost">
           {% include "icons/arrow-left.svg" %}
           {{ _("Back") }}
         </a>

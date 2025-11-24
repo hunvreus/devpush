@@ -22,7 +22,7 @@ USG
   exit 0
 }
 
-app_dir="/home/devpush/devpush"; hard=0
+hard=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --down) hard=1; shift ;;
@@ -31,14 +31,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
+cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 printf "\n"
-args=(-p devpush)
+ssl_provider="$(get_ssl_provider)"
+compose_args stack "$ssl_provider"
 if ((hard==1)); then
-  run_cmd "Stopping services (hard)..." docker compose "${args[@]}" down --remove-orphans
+  run_cmd "Stopping services (hard)..." DATA_DIR="$DATA_DIR" docker compose "${COMPOSE_ENV[@]}" "${COMPOSE_ARGS[@]}" down --remove-orphans
 else
-  run_cmd "Stopping services..." docker compose "${args[@]}" stop
+  run_cmd "Stopping services..." DATA_DIR="$DATA_DIR" docker compose "${COMPOSE_ENV[@]}" "${COMPOSE_ARGS[@]}" stop
 fi
 
 printf "\n"

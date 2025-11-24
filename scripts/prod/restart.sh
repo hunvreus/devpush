@@ -11,11 +11,10 @@ trap 's=$?; err "Restart failed (exit $s)"; echo -e "${RED}Last command: $BASH_C
 
 usage(){
   cat <<USG
-Usage: restart.sh [--env-file <path>] [--no-pull] [--migrate] [--ssl-provider <name>] [--verbose]
+Usage: restart.sh [--no-pull] [--migrate] [--ssl-provider <name>] [--verbose]
 
 Restart production services; optionally run DB migrations after start.
 
-  --env-file PATH   Path to .env (default: ./\.env)
   --no-pull         Do not pass --pull always to docker compose up
   --migrate         Run DB migrations after starting
   --ssl-provider    One of: default|cloudflare|route53|gcloud|digitalocean|azure
@@ -25,10 +24,9 @@ USG
   exit 0
 }
 
-app_dir="/home/devpush/devpush"; envf=".env"; pull_always=1; do_migrate=0; ssl_provider=""
+pull_always=1; do_migrate=0; ssl_provider=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --env-file) envf="$2"; shift 2 ;;
     --no-pull) pull_always=0; shift ;;
     --migrate) do_migrate=1; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
@@ -38,12 +36,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
+cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 printf "\n"
 echo "Restarting services..."
 scripts/prod/stop.sh
-scripts/prod/start.sh --env-file "$envf" $( ((pull_always==0)) && echo --no-pull ) $( ((do_migrate==1)) && echo --migrate ) ${ssl_provider:+--ssl-provider "$ssl_provider"}
+scripts/prod/start.sh $( ((pull_always==0)) && echo --no-pull ) $( ((do_migrate==1)) && echo --migrate ) ${ssl_provider:+--ssl-provider "$ssl_provider"}
 
 printf "\n"
 echo -e "${GRN}Services restarted. ✔${NC}"

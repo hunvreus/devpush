@@ -1,3 +1,8 @@
+{% if saved_step %}
+<div class="mb-8">
+  <p class="text-muted-foreground text-sm">{{ _('Saved step:') }} {{ saved_step }}</p>
+</div>
+{% endif %}
 {% if current_step %}
 <ol class="flex items-center justify-between gap-x-2.5 max-sm:hidden mb-8">
   <li class="flex items-center gap-x-2.5 {% if current_step != 1 %}opacity-50{% endif %}">

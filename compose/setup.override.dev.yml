@@ -1,0 +1,9 @@
+services:
+  app:
+    build:
+      dockerfile: docker/Dockerfile.app.dev
+    entrypoint: /entrypoint.app.dev.sh
+    environment:
+      ENV: development
+    volumes:
+      - ${APP_DIR:-..}/app:/app

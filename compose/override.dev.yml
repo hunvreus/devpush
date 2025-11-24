@@ -1,41 +1,33 @@
 services:
   app:
     build:
-      dockerfile: Docker/Dockerfile.app.dev
+      dockerfile: docker/Dockerfile.app.dev
     entrypoint: /entrypoint.app.dev.sh
     labels:
       - traefik.http.routers.app.entrypoints=web
       - traefik.http.routers.app.priority=10
     volumes:
-      - ./app:/app
-      - ./data/upload:/app/upload
-      - ./data/traefik:/data/traefik
-      - ./data/config.json:/var/lib/devpush/config.json
+      - ${APP_DIR:-..}/app:/app
     environment:
       ENV: development
   worker-arq:
     build:
-      dockerfile: Docker/Dockerfile.app.dev
+      dockerfile: docker/Dockerfile.app.dev
     entrypoint: /entrypoint.worker-arq.dev.sh
     volumes:
-      - ./app:/app
-      - ./data/traefik:/data/traefik
+      - ${APP_DIR:-..}/app:/app
 
   worker-monitor:
     build:
-      dockerfile: Docker/Dockerfile.app.dev
+      dockerfile: docker/Dockerfile.app.dev
     entrypoint: /entrypoint.worker-monitor.dev.sh
     volumes:
-      - ./app:/app
+      - ${APP_DIR:-..}/app:/app
 
   traefik:
     ports:
       - "80:80"
     volumes:
-      - ./data/traefik:/etc/traefik/dynamic_conf
+      - ${DATA_DIR:-../data}/traefik:/etc/traefik/dynamic_conf
     labels:
       - "traefik.http.middlewares.deployment-redirect.redirectRegex.replacement=http://${APP_HOSTNAME}/deployment-not-found/$$1"
-
-  alloy:
-    volumes:
-      - ./data/alloy:/var/lib/alloy

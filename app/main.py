@@ -1,23 +1,26 @@
+import json
+import logging
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Depends, HTTPException, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
-from starlette.middleware import Middleware
-from starlette.middleware.sessions import SessionMiddleware
+
 from arq import create_pool
 from arq.connections import RedisSettings
-from starlette_wtf import CSRFProtectMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import FastAPI, Request, Depends, HTTPException, Response
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
-import logging
-import json
-from pathlib import Path
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware
+from starlette_wtf import CSRFProtectMiddleware
 
 from config import get_settings, Settings
 from db import get_db, AsyncSessionLocal
-from models import User, Team, Deployment, Project
 from dependencies import get_current_user, TemplateResponse
+from models import User, Team, Deployment, Project
 from services.loki import LokiService
+
+settings = get_settings()
 
 
 class CachedStaticFiles(StaticFiles):
@@ -27,20 +30,18 @@ class CachedStaticFiles(StaticFiles):
         return response
 
 
-def check_setup_complete() -> bool:
+def check_setup_complete(config_file: str) -> bool:
     try:
-        config_path = Path("/var/lib/devpush/config.json")
-        if not config_path.exists():
+        if not os.path.exists(config_file):
             return False
-        config = json.loads(config_path.read_text())
+        with open(config_file, encoding="utf-8") as f:
+            config = json.load(f)
         return config.get("setup_complete", False)
     except Exception:
         return False
 
 
-SETUP_COMPLETE = check_setup_complete()
-
-settings = get_settings()
+SETUP_COMPLETE = check_setup_complete(settings.config_file)
 
 log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 logging.basicConfig(level=log_level)
@@ -73,7 +74,8 @@ app = FastAPI(
     ],
 )
 app.mount("/assets", CachedStaticFiles(directory="assets"), name="assets")
-app.mount("/upload", StaticFiles(directory="upload"), name="upload")
+os.makedirs(settings.upload_dir, exist_ok=True)
+app.mount("/upload", StaticFiles(directory=settings.upload_dir), name="upload")
 
 
 @app.get("/health")

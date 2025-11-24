@@ -20,7 +20,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_REGION=${AWS_REGION}
     volumes:
-      - /srv/devpush/traefik:/etc/traefik/dynamic_conf
+      - ${DATA_DIR:-/var/lib/devpush}/traefik:/etc/traefik/dynamic_conf
     labels:
       - "traefik.http.routers.cert-bootstrap.rule=Host(`${APP_HOSTNAME}`)"
       - "traefik.http.routers.cert-bootstrap.entrypoints=websecure"
@@ -31,5 +31,3 @@ services:
       - "traefik.http.routers.cert-bootstrap.tls.domains[0].main=${DEPLOY_DOMAIN}"
       - "traefik.http.routers.cert-bootstrap.tls.domains[0].sans=*.${DEPLOY_DOMAIN}"
       - "traefik.http.routers.cert-bootstrap.tls.domains[1].main=${APP_HOSTNAME}"
-
-

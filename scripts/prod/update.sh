@@ -8,7 +8,7 @@ exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
 source "$(dirname "$0")/lib.sh"
 
-trap 's=$?; echo -e "${RED}Update failed (exit $s)${NC}"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; if [[ -n "${current_commit:-}" ]]; then echo -e "To rollback: cd $app_dir && git reset --hard $current_commit"; fi; exit $s' ERR
+trap 's=$?; echo -e "${RED}Update failed (exit $s)${NC}"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; if [[ -n "${current_commit:-}" ]]; then echo -e "To rollback: cd $APP_DIR && git reset --hard $current_commit"; fi; exit $s' ERR
 
 usage(){
   cat <<USG
@@ -32,7 +32,7 @@ USG
   exit 0
 }
 
-app_dir="/home/devpush/devpush"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; include_pre=0; yes=0; telemetry=1; ssl_provider=""
+ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; include_pre=0; yes=0; telemetry=1; ssl_provider=""
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
+cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Check for uncommitted changes
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then

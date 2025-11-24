@@ -4,8 +4,6 @@ set -e
 # Capture stderr for error reporting
 exec 2> >(tee /tmp/start_error.log >&2)
 
-DATA_DIR="./data"
-
 usage(){
   cat <<USG
 Usage: start.sh [--cache] [--prune] [--setup] [-h|--help]
@@ -25,22 +23,22 @@ command -v docker-compose >/dev/null 2>&1 || { echo "docker-compose not found"; 
 
 echo "Starting local environment..."
 
-mkdir -p $DATA_DIR/{traefik,upload,alloy}
+mkdir -p ./data/{traefik,upload}
 
 # Seed config.json if missing
-if [ ! -f "$DATA_DIR/config.json" ]; then
-  echo "Seeding $DATA_DIR/config.json..."
-  cat > "$DATA_DIR/config.json" <<'JSON'
+if [ ! -f "./data/config.json" ]; then
+  echo "Seeding ./data/config.json..."
+  cat > "./data/config.json" <<'JSON'
 {}
 JSON
-  chmod 0644 "$DATA_DIR/config.json" || true
+  chmod 0644 "./data/config.json" || true
 fi
 
 no_cache=0
 prune=0
 setup_mode=1
-if [ -f "$DATA_DIR/config.json" ] && command -v jq >/dev/null 2>&1; then
-  if jq -e '.setup_complete == true' "$DATA_DIR/config.json" >/dev/null 2>&1; then
+if [ -f "./data/config.json" ] && command -v jq >/dev/null 2>&1; then
+  if jq -e '.setup_complete == true' "./data/config.json" >/dev/null 2>&1; then
     setup_mode=0
   fi
 fi
@@ -64,18 +62,21 @@ fi
 # Optional no-cache build for services
 if ((setup_mode==1)); then
   echo "Starting in SETUP MODE (minimal stack, direct port access)..."
-  args=(-p devpush -f docker-compose.setup.yml -f docker-compose.setup.override.dev.yml)
+  args=(-p devpush -f compose/setup.yml -f compose/setup.override.dev.yml)
+  env_flag=()
 else
-  args=(-p devpush -f docker-compose.yml -f docker-compose.override.dev.yml)
+  args=(-p devpush -f compose/base.yml -f compose/override.dev.yml)
+  env_flag=()
+  [[ -f ./data/.env ]] && env_flag=(--env-file ./data/.env)
 fi
 
 if ((no_cache==1)); then
   echo "Building services with --no-cache..."
-  docker-compose "${args[@]}" build --no-cache
+  docker-compose "${env_flag[@]}" "${args[@]}" build --no-cache
 fi
 
 echo "Stopping any running stack..."
-docker-compose "${args[@]}" down || true
+docker-compose "${env_flag[@]}" "${args[@]}" down || true
 
 if ((setup_mode==1)); then
   echo "Starting minimal setup stack with logs (Ctrl+C to stop foreground)..."
@@ -83,4 +84,4 @@ if ((setup_mode==1)); then
 else
   echo "Starting stack with logs (Ctrl+C to stop foreground)..."
 fi
-docker-compose "${args[@]}" up --build --force-recreate
+docker-compose "${env_flag[@]}" "${args[@]}" up --build --force-recreate

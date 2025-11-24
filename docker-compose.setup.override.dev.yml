@@ -1,5 +1,0 @@
-services:
-  app:
-    environment:
-      ENV: development
-

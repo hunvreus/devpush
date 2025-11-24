@@ -251,7 +251,7 @@ async def cleanup_project(ctx, project_id: str, batch_size: int = 100):
                 # No more deployments:
                 # 1. Remove Traefik config file
                 project_config_file_path = os.path.join(
-                    settings.traefik_config_dir, f"project_{project_id}.yml"
+                    settings.traefik_dir, f"project_{project_id}.yml"
                 )
                 if os.path.exists(project_config_file_path):
                     try:

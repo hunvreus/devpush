@@ -233,8 +233,10 @@ Variable | Comments | Default
 `POSTGRES_PASSWORD` | PostgreSQL password. Generate: `openssl rand -base64 24 | tr -d '\n'` | `""`
 `REDIS_URL` | Redis connection URL. | `redis://redis:6379`
 `DOCKER_HOST` | Docker daemon host address. | `tcp://docker-proxy:2375`
-`UPLOAD_DIR` | Directory for file uploads. | `/app/upload`
-`TRAEFIK_CONFIG_DIR` | Traefik configuration directory. | `/data/traefik`
+`DATA_DIR` | Persistent data directory. | `/var/lib/devpush`
+`APP_DIR` | Directory where the application code is stored. | `/opt/devpush`
+`UPLOAD_DIR` | Directory for file uploads. | `${DATA_DIR}/upload`
+`TRAEFIK_DIR` | Traefik configuration directory. | `${DATA_DIR}/traefik`
 `DEFAULT_CPU_QUOTA` | Default CPU quota for containers (microseconds). | `100000`
 `DEFAULT_MEMORY_MB` | Default memory limit for containers (MB). | `4096`
 `JOB_TIMEOUT` | Job timeout in seconds. | `320`

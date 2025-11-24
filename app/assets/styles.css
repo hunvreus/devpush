@@ -373,6 +373,9 @@
   .absolute {
     position: absolute;
   }
+  .fixed {
+    position: fixed;
+  }
   .relative {
     position: relative;
   }
@@ -627,6 +630,9 @@
   .w-2\.5 {
     width: calc(var(--spacing) * 2.5);
   }
+  .w-3\/4 {
+    width: calc(3/4 * 100%);
+  }
   .w-4 {
     width: calc(var(--spacing) * 4);
   }
@@ -660,6 +666,9 @@
   .w-48 {
     width: calc(var(--spacing) * 48);
   }
+  .w-75 {
+    width: calc(var(--spacing) * 75);
+  }
   .w-96 {
     width: calc(var(--spacing) * 96);
   }
@@ -678,6 +687,9 @@
   .w-screen {
     width: 100vw;
   }
+  .w-xs {
+    width: var(--container-xs);
+  }
   .max-w-1 {
     max-width: calc(var(--spacing) * 1);
   }
@@ -692,6 +704,12 @@
   }
   .max-w-3xs {
     max-width: var(--container-3xs);
+  }
+  .max-w-75 {
+    max-width: calc(var(--spacing) * 75);
+  }
+  .max-w-fit {
+    max-width: fit-content;
   }
   .max-w-full {
     max-width: 100%;
@@ -725,6 +743,15 @@
   }
   .min-w-auto {
     min-width: auto;
+  }
+  .min-w-md {
+    min-width: var(--container-md);
+  }
+  .min-w-sm {
+    min-width: var(--container-sm);
+  }
+  .min-w-xs {
+    min-width: var(--container-xs);
   }
   .flex-1 {
     flex: 1;
@@ -1471,6 +1498,9 @@
   .pr-9 {
     padding-right: calc(var(--spacing) * 9);
   }
+  .pr-10 {
+    padding-right: calc(var(--spacing) * 10);
+  }
   .pb-1\.5 {
     padding-bottom: calc(var(--spacing) * 1.5);
   }
@@ -1488,6 +1518,9 @@
   }
   .pl-7 {
     padding-left: calc(var(--spacing) * 7);
+  }
+  .pl-8\.5 {
+    padding-left: calc(var(--spacing) * 8.5);
   }
   .pl-9 {
     padding-left: calc(var(--spacing) * 9);
@@ -1758,6 +1791,26 @@
   }
   .group-data-\[copied\]\:hidden {
     &:is(:where(.group)[data-copied] *) {
+      display: none;
+    }
+  }
+  .group-data-\[copied\=false\]\:block {
+    &:is(:where(.group)[data-copied="false"] *) {
+      display: block;
+    }
+  }
+  .group-data-\[copied\=false\]\:hidden {
+    &:is(:where(.group)[data-copied="false"] *) {
+      display: none;
+    }
+  }
+  .group-data-\[copied\=true\]\:block {
+    &:is(:where(.group)[data-copied="true"] *) {
+      display: block;
+    }
+  }
+  .group-data-\[copied\=true\]\:hidden {
+    &:is(:where(.group)[data-copied="true"] *) {
       display: none;
     }
   }

@@ -3,13 +3,13 @@
 
 # Docker
 docker-compose*.yml
-Docker/
-!Docker/entrypoint.app.sh
-!Docker/entrypoint.app.dev.sh
-!Docker/entrypoint.worker-arq.sh
-!Docker/entrypoint.worker-arq.dev.sh
-!Docker/entrypoint.worker-monitor.sh
-!Docker/entrypoint.worker-monitor.dev.sh
+docker/
+!docker/entrypoint.app.sh
+!docker/entrypoint.app.dev.sh
+!docker/entrypoint.worker-arq.sh
+!docker/entrypoint.worker-arq.dev.sh
+!docker/entrypoint.worker-monitor.sh
+!docker/entrypoint.worker-monitor.dev.sh
 
 # Python
 __pycache__/

@@ -47,4 +47,4 @@ if ! command -v docker-compose >/dev/null 2>&1; then
   echo "Warning: docker-compose not found. Install it with Homebrew: brew install docker-compose"
 fi
 
-echo "Docker/Colima checks complete."
+echo "docker/Colima checks complete."

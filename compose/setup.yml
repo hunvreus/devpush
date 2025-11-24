@@ -1,16 +1,14 @@
 services:
   app:
     build:
-      context: .
-      dockerfile: Docker/Dockerfile.app.dev
-    entrypoint: /entrypoint.app.dev.sh
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    entrypoint: /entrypoint.app.sh
     restart: always
     ports:
       - "80:8000"
     volumes:
-      - ./app:/app
-      - ./data/config.json:/var/lib/devpush/config.json
-      - ./data/traefik:/data/traefik
+      - ${DATA_DIR:-../data}:/var/lib/devpush
     environment:
       SECRET_KEY: "setup-secret-only-used-before-real-secret-is-generated"
     healthcheck:

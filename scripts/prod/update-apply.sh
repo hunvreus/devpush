@@ -6,8 +6,6 @@ IFS=$'\n\t'
 SCRIPT_ERR_LOG="/tmp/update_apply_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
-DATA_DIR="/var/lib/devpush"
-
 source "$(dirname "$0")/lib.sh"
 
 trap 's=$?; echo -e "${RED}Update-apply failed (exit $s)${NC}"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
@@ -34,7 +32,7 @@ USG
   exit 0
 }
 
-app_dir="/home/devpush/devpush"; ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; yes=0; skip_components=0; telemetry=1; ssl_provider=""
+ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; yes=0; skip_components=0; telemetry=1; ssl_provider="";
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,7 +52,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd "$app_dir" || { err "app dir not found: $app_dir"; exit 1; }
+cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Persist ssl_provider if passed
 if [[ -n "$ssl_provider" ]]; then persist_ssl_provider "$ssl_provider"; fi
@@ -64,8 +62,8 @@ ssl_provider="${ssl_provider:-$(get_ssl_provider)}"
 ensure_acme_json
 
 # Validate provider env and core environment variables
-validate_ssl_env "$ssl_provider" .env
-validate_core_env .env
+validate_ssl_env "$ssl_provider" "$DATA_DIR/.env"
+validate_core_env "$DATA_DIR/.env"
 
 # Version comparison helpers
 ver_lt() {
@@ -124,28 +122,30 @@ elif [[ -z "$ref" ]]; then
   printf "\n"
   echo -e "${YEL}Warning:${NC} No target version specified. Skipping upgrade hooks."
 else
-  run_upgrade_hooks "$old_version" "$ref" "$app_dir/scripts/prod/upgrades"
+  run_upgrade_hooks "$old_version" "$ref" "$APP_DIR/scripts/prod/upgrades"
 fi
 
 # Compose files (keep parity with running stack)
-args=(-p devpush -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.override.ssl/"$ssl_provider".yml)
+compose_args stack "$ssl_provider"
+args=("${COMPOSE_ARGS[@]}")
+env_flag=("${COMPOSE_ENV[@]}")
 
 # Full stack update helper (with downtime)
 full_update() {
   printf "\n"
   echo "Full stack update..."
   if ((pull==1)); then
-    run_cmd "${CHILD_MARK} Building with --pull..." docker compose "${args[@]}" build --pull
+    run_cmd "${CHILD_MARK} Building with --pull..." docker compose "${env_flag[@]}" "${args[@]}" build --pull
   else
-    run_cmd "${CHILD_MARK} Building..." docker compose "${args[@]}" build
+    run_cmd "${CHILD_MARK} Building..." docker compose "${env_flag[@]}" "${args[@]}" build
   fi
-  run_cmd "${CHILD_MARK} Stopping stack..." docker compose "${args[@]}" down --remove-orphans
-  run_cmd "${CHILD_MARK} Starting stack..." docker compose "${args[@]}" up -d --force-recreate --remove-orphans
+  run_cmd "${CHILD_MARK} Stopping stack..." docker compose "${env_flag[@]}" "${args[@]}" down --remove-orphans
+  run_cmd "${CHILD_MARK} Starting stack..." docker compose "${env_flag[@]}" "${args[@]}" up -d --force-recreate --remove-orphans
   skip_components=1
   if ((migrate==1)); then
     printf "\n"
     echo "Applying migrations..."
-    run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --env-file .env
+    run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh
   fi
 }
 
@@ -215,7 +215,7 @@ blue_green_rollout() {
   local cur_cnt=$(echo "$old_ids" | wc -w)
   local target=$((cur_cnt+1)); [[ $target -lt 1 ]] && target=1
   
-  run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${args[@]}" up -d --scale "$service=$target" --no-recreate
+  run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${env_flag[@]}" "${args[@]}" up -d --scale "$service=$target" --no-recreate
 
   local new_id=""
   run_cmd "${CHILD_MARK} Detecting new container..." bash -c '
@@ -259,7 +259,7 @@ blue_green_rollout() {
     done
   fi
 
-  run_cmd "${CHILD_MARK} Scaling to 1..." docker compose "${args[@]}" up -d --scale "$service=1" --no-recreate
+  run_cmd "${CHILD_MARK} Scaling to 1..." docker compose "${env_flag[@]}" "${args[@]}" up -d --scale "$service=1" --no-recreate
 }
 
 # Build/pull then rollout per service
@@ -270,16 +270,16 @@ rollout_service(){
   case "$s" in
     app|worker-arq|worker-monitor)
       if ((pull==1)); then
-        run_cmd "${CHILD_MARK} Building image..." docker compose "${args[@]}" build --pull "$s"
+        run_cmd "${CHILD_MARK} Building image..." docker compose "${env_flag[@]}" "${args[@]}" build --pull "$s"
       else
-        run_cmd "${CHILD_MARK} Building image..." docker compose "${args[@]}" build "$s"
+        run_cmd "${CHILD_MARK} Building image..." docker compose "${env_flag[@]}" "${args[@]}" build "$s"
       fi
       ;;
   esac
   if [[ "$mode" == "blue_green" ]]; then
     blue_green_rollout "$s" "$timeout_s"
   else
-    run_cmd "${CHILD_MARK} Recreating container..." docker compose "${args[@]}" up -d --no-deps --force-recreate "$s"
+    run_cmd "${CHILD_MARK} Recreating container..." docker compose "${env_flag[@]}" "${args[@]}" up -d --no-deps --force-recreate "$s"
   fi
 }
 
@@ -290,7 +290,7 @@ if ((skip_components==0)); then
         rollout_service app blue_green
         ;;
       worker-arq)
-        timeout="$(read_env_value .env JOB_COMPLETION_WAIT || true)"; : "${timeout:=300}"
+        timeout="$(read_env_value "$DATA_DIR/.env" JOB_COMPLETION_WAIT || true)"; : "${timeout:=300}"
         rollout_service worker-arq blue_green "$timeout"
         ;;
       worker-monitor)
@@ -308,7 +308,7 @@ fi
 if ((skip_components==0)) && [[ "$comps" == *"app"* ]] && ((migrate==1)); then
   printf "\n"
   echo "Applying migrations..."
-  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh --env-file .env
+  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh
 fi
 
 # Update install metadata (version.json)
@@ -319,17 +319,17 @@ if [[ -z "$ref" ]]; then
   [[ -n "$ref" ]] || ref=$(git rev-parse --short "$commit")
 fi
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-[[ -d $DATA_DIR ]] || sudo install -d -m 0755 $DATA_DIR || true
+[[ -d $DATA_DIR ]] || install -d -m 0755 $DATA_DIR || true
 
 # Update version.json (preserve existing metadata, update git_ref/commit/timestamp)
-if sudo test -f $DATA_DIR/version.json; then
-  sudo jq --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
+if test -f $DATA_DIR/version.json; then
+  jq --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
     '. + {git_ref: $ref, git_commit: $commit, updated_at: $ts}' \
-    $DATA_DIR/version.json | sudo tee $DATA_DIR/version.json.tmp >/dev/null
-  sudo mv $DATA_DIR/version.json.tmp $DATA_DIR/version.json
+    $DATA_DIR/version.json | tee $DATA_DIR/version.json.tmp >/dev/null
+  mv $DATA_DIR/version.json.tmp $DATA_DIR/version.json
 else
   install_id=$(cat /proc/sys/kernel/random/uuid)
-  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "$ref" "$commit" "$ts" | sudo tee $DATA_DIR/version.json >/dev/null
+  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "$ref" "$commit" "$ts" | tee $DATA_DIR/version.json >/dev/null
 fi
 
 # Send telemetry

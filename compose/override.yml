@@ -5,20 +5,10 @@ services:
       - traefik.http.routers.app.tls=true
       - traefik.http.routers.app.tls.certresolver=le
       - traefik.http.routers.app.priority=10
-    volumes:
-      - /srv/devpush/traefik:/data/traefik
-      - /srv/devpush/upload:/app/upload
-
-  worker-arq:
-    volumes:
-      - /srv/devpush/traefik:/data/traefik
-
   traefik:
     ports:
       - "80:80"
       - "443:443"
-    volumes:
-      - /srv/devpush/traefik:/etc/traefik/dynamic_conf
     labels:
       - "traefik.http.routers.deployment-not-found-https.rule=HostRegexp(`^(.+)\\.${DEPLOY_DOMAIN}$`)"
       - "traefik.http.routers.deployment-not-found-https.entrypoints=websecure"
@@ -28,7 +18,3 @@ services:
       - "traefik.http.routers.deployment-not-found-https.service=noop@internal"
       - "traefik.http.routers.deployment-not-found-https.middlewares=deployment-redirect"
       - "traefik.http.middlewares.deployment-redirect.redirectRegex.replacement=https://${APP_HOSTNAME}/deployment-not-found/$$1"
-
-  alloy:
-    volumes:
-      - /srv/devpush/alloy:/var/lib/alloy

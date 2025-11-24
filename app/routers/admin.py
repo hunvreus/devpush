@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from fastapi import APIRouter, Request, Depends, Query
 import json
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from arq.connections import ArqRedis
 
+from config import Settings, get_settings
 from dependencies import (
     get_translation as _,
     flash,
@@ -103,6 +105,7 @@ async def admin_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     job_queue: ArqRedis = Depends(get_job_queue),
+    settings: Settings = Depends(get_settings),
 ):
     if not is_superadmin(current_user):
         flash(
@@ -369,11 +372,9 @@ async def admin_settings(
     # System
     version_info = None
     try:
-        from pathlib import Path
-
-        version_path = Path("/var/lib/devpush/version.json")
-        if version_path.exists():
-            version_info = json.loads(version_path.read_text())
+        if os.path.exists(settings.version_file):
+            with open(settings.version_file, encoding="utf-8") as f:
+                version_info = json.load(f)
     except Exception:
         version_info = None
 

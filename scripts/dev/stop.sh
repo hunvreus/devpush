@@ -18,7 +18,7 @@ command -v docker-compose >/dev/null 2>&1 || { echo "docker-compose not found"; 
 echo "Stopping development stack..."
 
 # Try both dev and setup stacks
-docker-compose -p devpush -f docker-compose.yml -f docker-compose.override.dev.yml stop 2>/dev/null || true
-docker-compose -p devpush -f docker-compose.setup.yml stop 2>/dev/null || true
+docker-compose -p devpush -f compose/base.yml -f compose/override.dev.yml stop 2>/dev/null || true
+docker-compose -p devpush -f compose/setup.yml stop 2>/dev/null || true
 
 echo "Stack stopped."

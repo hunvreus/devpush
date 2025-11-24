@@ -30,13 +30,18 @@ if ((hard==1)); then
   docker images -aq | xargs -r docker rmi -f || true
 else
   command -v docker-compose >/dev/null 2>&1 || { echo "docker-compose not found"; exit 1; }
-  docker-compose -p devpush -f docker-compose.yml -f docker-compose.override.dev.yml down --remove-orphans || true
-  docker-compose -p devpush -f docker-compose.setup.yml down --remove-orphans || true
+  docker-compose -p devpush -f compose/base.yml -f compose/override.dev.yml down --remove-orphans --volumes || true
+  docker-compose -p devpush -f compose/setup.yml down --remove-orphans --volumes || true
 fi
 
 docker network rm devpush_default >/dev/null 2>&1 || true
 docker network rm devpush_internal >/dev/null 2>&1 || true
 
-rm -rf $DATA_DIR/* 2>/dev/null || true
+# Remove persistent volumes we manage explicitly
+docker volume rm devpush_devpush-db >/dev/null 2>&1 || true
+docker volume rm devpush_loki-data >/dev/null 2>&1 || true
+docker volume rm devpush_alloy-data >/dev/null 2>&1 || true
+
+rm -rf $DATA_DIR 2>/dev/null || true
 
 echo "Clean complete."

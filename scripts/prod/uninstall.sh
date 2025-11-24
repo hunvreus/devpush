@@ -6,8 +6,6 @@ IFS=$'\n\t'
 SCRIPT_ERR_LOG="/tmp/uninstall_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
-DATA_DIR="/var/lib/devpush"
-
 source "$(dirname "$0")/lib.sh"
 
 trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
@@ -41,7 +39,7 @@ done
 
 # Guard: prevent running from directories that will be deleted
 cwd="$(pwd)"
-if [[ "$cwd" == /home/devpush/* ]] || [[ "$cwd" == /opt/devpush/* ]] || [[ "$cwd" == $DATA_DIR/* ]] || [[ "$cwd" == /srv/devpush/* ]]; then
+if [[ "$cwd" == $APP_DIR* ]] || [[ "$cwd" == $DATA_DIR* ]]; then
   err "Cannot run from $cwd (will be deleted). Run from a safe directory (e.g., /tmp or ~root)."
   exit 1
 fi
@@ -53,7 +51,6 @@ if [[ "$(whoami)" == "devpush" ]] || [[ "${SUDO_USER:-}" == "devpush" ]]; then
 fi
 
 # Detect installation and save telemetry data early
-app_dir=""
 user="devpush"
 version_ref=""
 telemetry_payload=""
@@ -65,32 +62,23 @@ if [[ -f $DATA_DIR/version.json ]]; then
   fi
 fi
 
-# Find app directory
-if [[ -d /home/devpush/devpush/.git ]]; then
-  app_dir="/home/devpush/devpush"
-elif [[ -d /opt/devpush/.git ]]; then
-  app_dir="/opt/devpush"
-fi
-
 # Check if anything is installed
-if [[ -z "$app_dir" && ! -f $DATA_DIR/version.json && ! -d /srv/devpush ]]; then
+if [[ ! -f $DATA_DIR/version.json && ! -d $APP_DIR/.git ]]; then
   printf "\n"
   echo "No /dev/push installation detected."
   echo ""
   echo "Checked:"
-  echo "  - /home/devpush/devpush"
-  echo "  - /opt/devpush"
   echo "  - $DATA_DIR/version.json"
-  echo "  - /srv/devpush"
+  echo "  - $APP_DIR/.git"
   exit 0
 fi
 
 # Show what was detected
 printf "\n"
 echo "Install detected:"
-[[ -n "$app_dir" ]] && echo "  - App directory: $app_dir"
-[[ -d /srv/devpush ]] && echo "  - Data directory: /srv/devpush/"
-id -u "$user" >/dev/null 2>&1 && echo "  - User: $user (home: /home/$user/)"
+echo "  - App directory: $APP_DIR"
+echo "  - Data directory: $DATA_DIR"
+id -u "$user" >/dev/null 2>&1 && echo "  - User: $user (home: $DATA_DIR/)"
 [[ -n "$version_ref" ]] && echo "  - Version (ref): $version_ref"
 
 # Warning and confirmation
@@ -109,20 +97,22 @@ fi
 
 # Stop services
 printf "\n"
-if [[ -n "$app_dir" && -f "$app_dir/docker-compose.yml" ]]; then
-  run_cmd "Stopping services..." bash "$app_dir/scripts/prod/stop.sh" --down
+if systemctl list-unit-files | grep -q '^devpush.service'; then
+  run_cmd "Stopping services (systemd)..." systemctl stop devpush.service || true
+elif [[ -n "$APP_DIR" && -f "$APP_DIR/compose/base.yml" ]]; then
+  run_cmd "Stopping services..." bash "$APP_DIR/scripts/prod/stop.sh" --down
 else
   echo "Stopping services... ${YEL}⊘${NC}"
-  echo -e "${DIM}${CHILD_MARK} No docker-compose.yml found${NC}"
+  echo -e "${DIM}${CHILD_MARK} No compose/base.yml found${NC}"
 fi
 
 # Remove application
 printf "\n"
 echo "Removing application..."
 
-if [[ -n "$app_dir" && -d "$app_dir" ]]; then
+if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
   set +e
-  run_cmd_try "${CHILD_MARK} Removing app directory..." rm -rf "$app_dir"
+  run_cmd_try "${CHILD_MARK} Removing app directory..." rm -rf "$APP_DIR"
   set -e
 fi
 
@@ -138,26 +128,28 @@ else
 fi
 set -e
 
-# Remove metadata
+# Remove data directory (prompt unless --yes)
+data_removed=0
 if [[ -d $DATA_DIR ]]; then
-  set +e
-  run_cmd_try "${CHILD_MARK} Removing metadata..." rm -rf $DATA_DIR
-  set -e
-fi
-
-# Interactive: Remove data directory?
-if (( yes_flag == 0 )) && [[ -d /srv/devpush ]]; then
-  printf "\n"
-  read -r -p "Remove data directory (/srv/devpush/)? This will delete all uploaded files, certificates, and config. [y/N] " ans
-  if [[ "$ans" =~ ^[Yy]$ ]]; then
+  if (( yes_flag == 1 )); then
     set +e
-    echo ""
-    run_cmd_try "Removing data directory..." rm -rf /srv/devpush
+    run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"
     set -e
+    data_removed=1
+  else
+    printf "\n"
+    read -r -p "Remove data directory ($DATA_DIR/)? This will delete all uploaded files, certificates, and config. [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+      set +e
+      echo ""
+      run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"
+      set -e
+      data_removed=1
+    else
+      echo ""
+      echo -e "${DIM}${CHILD_MARK} Data directory kept (use rm -rf $DATA_DIR to remove manually)${NC}"
+    fi
   fi
-elif [[ -d /srv/devpush ]]; then
-  echo ""
-  echo -e "${DIM}${CHILD_MARK} Data directory kept (use rm -rf /srv/devpush to remove manually)${NC}"
 fi
 
 # Interactive: Remove user?
@@ -193,15 +185,15 @@ printf "\n"
 echo -e "${GRN}Uninstall complete. ✔${NC}"
 echo ""
 echo "Removed:"
-[[ -n "$app_dir" ]] && echo "  - Application: $app_dir"
+echo "  - Application: $APP_DIR"
 echo "  - Docker containers and volumes"
 [[ -n "$runner_images" ]] && echo "  - Runner images: $image_count images"
-echo "  - Metadata: $DATA_DIR/"
+(( data_removed == 1 )) && echo "  - Data: $DATA_DIR/"
 
-if [[ -d /srv/devpush ]] || id -u "$user" >/dev/null 2>&1; then
+if [[ -d $DATA_DIR ]] || (( data_removed == 0 && yes_flag == 1 )) || id -u "$user" >/dev/null 2>&1; then
   echo ""
   echo "Kept (manual cleanup if needed):"
-  [[ -d /srv/devpush ]] && echo "  - Data: /srv/devpush/"
+  [[ -d $DATA_DIR ]] && echo "  - Data: $DATA_DIR/"
   id -u "$user" >/dev/null 2>&1 && echo "  - User: $user"
 fi
 
@@ -210,3 +202,10 @@ echo "System packages not removed:"
 echo "  - Docker, git, jq, curl"
 echo "  - Security: UFW, fail2ban, SSH hardening"
 
+# Remove systemd unit if present
+if systemctl list-unit-files | grep -q '^devpush.service'; then
+  echo ""
+  run_cmd_try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
+  run_cmd_try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
+  run_cmd_try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
+fi

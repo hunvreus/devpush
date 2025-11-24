@@ -1,0 +1,17 @@
+[Unit]
+Description=devpush stack (via scripts/prod/*)
+After=docker.service network.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/devpush
+ExecStart=/opt/devpush/scripts/prod/start.sh
+ExecStop=/opt/devpush/scripts/prod/stop.sh --down
+ExecReload=/opt/devpush/scripts/prod/restart.sh
+TimeoutStartSec=600
+TimeoutStopSec=600
+
+[Install]
+WantedBy=multi-user.target

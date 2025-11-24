@@ -5,7 +5,7 @@ usage(){
   cat <<USG
 Usage: build-runners.sh [--no-cache] [--image IMAGE] [-h|--help]
 
-Build local runner images from Docker/runner/* Dockerfiles.
+Build local runner images from docker/runner/* Dockerfiles.
 
   --no-cache Force rebuild without cache (default: use cache)
   --image    Build specific image only (e.g., php-franken-8.3)
@@ -25,7 +25,7 @@ for a in "$@"; do
 done
 
 found=0
-for dockerfile in Docker/runner/Dockerfile.*; do
+for dockerfile in docker/runner/Dockerfile.*; do
   [ -f "$dockerfile" ] || continue
   name=$(basename "$dockerfile" | sed 's/Dockerfile\.//')
   
@@ -35,14 +35,14 @@ for dockerfile in Docker/runner/Dockerfile.*; do
   found=1
   echo "Building runner-$name from $dockerfile..."
   if ((no_cache==1)); then
-    docker build --no-cache -f "$dockerfile" -t "runner-$name" ./Docker/runner
+    docker build --no-cache -f "$dockerfile" -t "runner-$name" ./docker/runner
   else
-    docker build -f "$dockerfile" -t "runner-$name" ./Docker/runner
+    docker build -f "$dockerfile" -t "runner-$name" ./docker/runner
   fi
 done
 
 if ((found==0)); then
-  echo "No runner Dockerfiles found under Docker/runner/."
+  echo "No runner Dockerfiles found under docker/runner/."
 else
   echo "Runner images built successfully!"
 fi

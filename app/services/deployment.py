@@ -26,7 +26,7 @@ class DeploymentService:
         settings: Settings,
     ) -> None:
         """Update Traefik config for a project including domains."""
-        path = os.path.join(settings.traefik_config_dir, f"project_{project.id}.yml")
+        path = os.path.join(settings.traefik_dir, f"project_{project.id}.yml")
 
         # Get aliases
         result = await db.execute(
@@ -117,7 +117,7 @@ class DeploymentService:
                 }
 
         # Write config
-        os.makedirs(settings.traefik_config_dir, exist_ok=True)
+        os.makedirs(settings.traefik_dir, exist_ok=True)
         config = {"http": {"routers": routers}}
         if services:
             config["http"]["services"] = services

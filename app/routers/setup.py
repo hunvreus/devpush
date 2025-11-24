@@ -2,19 +2,19 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import RedirectResponse
 import json
 import os
-from pathlib import Path
 import httpx
 import socket
 import re
 import secrets
 import base64
-import subprocess
+import uuid
 
 from config import get_settings, Settings
 from dependencies import TemplateResponse, flash, get_translation as _
 from forms.setup import DomainsSSLForm, GitHubAppForm, EmailForm
 
 router = APIRouter(prefix="/setup", tags=["setup"])
+SETUP_TEMP_DIR = "/tmp/devpush-setup"
 
 
 def get_setup_data(request: Request) -> dict:
@@ -32,6 +32,9 @@ def get_current_step(request: Request) -> int:
 
 
 def set_current_step(request: Request, step: int):
+    current_step = get_current_step(request)
+    if current_step >= step:
+        return
     request.session["setup_step"] = step
 
 
@@ -48,7 +51,6 @@ async def setup_step_1(
     settings: Settings = Depends(get_settings),
 ):
     """Setup step 1: Domains & SSL configuration."""
-
     # DNS check
     if request.headers.get("HX-Request") and check_dns:
         form_data = await request.form()
@@ -116,10 +118,10 @@ async def setup_step_1(
         if settings.env == "development":
             form.server_ip.data = "127.0.0.1"
         else:
-            config_path = Path("/var/lib/devpush/config.json")
-            if config_path.exists():
+            if os.path.exists(settings.config_file):
                 try:
-                    config = json.loads(config_path.read_text())
+                    with open(settings.config_file, encoding="utf-8") as f:
+                        config = json.load(f)
                     if "public_ip" in config:
                         form.server_ip.data = config["public_ip"]
                 except Exception:
@@ -151,6 +153,7 @@ async def setup_step_1(
             "form": form,
             "current_step": 1,
             "total_steps": 4,
+            "saved_step": get_current_step(request),
             "environment": settings.env,
         },
     )
@@ -162,6 +165,18 @@ async def setup_step_2(
     settings: Settings = Depends(get_settings),
 ):
     """Setup step 2: GitHub App configuration."""
+    token = request.query_params.get("token")
+    if token:
+        token_path = os.path.join(SETUP_TEMP_DIR, f"github-{token}.json")
+        if os.path.exists(token_path):
+            try:
+                with open(token_path) as f:
+                    token_data = json.load(f)
+                save_setup_data(request, token_data)
+                os.remove(token_path)
+            except Exception:
+                pass
+            return RedirectResponse("/setup/step/2", status_code=303)
 
     form = await GitHubAppForm.from_formdata(request)
 
@@ -192,12 +207,11 @@ async def setup_step_2(
 
     # For localhost/dev, GitHub requires publicly accessible URLs via traefik.me
     if app_hostname in ("localhost", "") or app_hostname.endswith(".localhost"):
-        app_base_url = f"http://{server_ip}.traefik.me"
-        github_app_name = f"devpush-{secrets.token_hex(4)}"
+        base_url = "http://localhost"
+        public_base_url = f"http://{server_ip}.traefik.me"
     else:
-        app_base_url = f"{settings.url_scheme}://{app_hostname}"
-        safe_hostname = re.sub(r"[^a-z0-9]", "-", app_hostname.lower()).strip("-")
-        github_app_name = f"devpush-{safe_hostname}"
+        base_url = f"{settings.url_scheme}://{app_hostname}"
+        public_base_url = base_url
 
     return TemplateResponse(
         request=request,
@@ -206,16 +220,18 @@ async def setup_step_2(
             "form": form,
             "server_ip": server_ip,
             "app_hostname": app_hostname,
-            "app_base_url": app_base_url,
-            "github_app_name": github_app_name,
+            "base_url": base_url,
+            "public_base_url": public_base_url,
             "current_step": 2,
             "total_steps": 4,
+            "saved_step": get_current_step(request),
         },
     )
 
 
 @router.api_route("/step/3", methods=["GET", "POST"], name="setup_step_3")
 async def setup_step_3(request: Request):
+    """Setup step 3: Email configuration."""
     form = await EmailForm.from_formdata(request)
 
     if request.method == "POST" and await form.validate_on_submit():
@@ -239,7 +255,12 @@ async def setup_step_3(request: Request):
     return TemplateResponse(
         request=request,
         name="setup/pages/email.html",
-        context={"form": form, "current_step": 3, "total_steps": 4},
+        context={
+            "form": form,
+            "current_step": 3,
+            "total_steps": 4,
+            "saved_step": get_current_step(request),
+        },
     )
 
 
@@ -249,15 +270,15 @@ async def setup_step_4(
     settings: Settings = Depends(get_settings),
 ):
     """Setup step 4: Confirm configuration."""
-
     setup_data = get_setup_data(request)
 
     if request.method == "POST":
         try:
             existing_env = {}
-            env_path = os.path.join(os.getcwd(), ".env")
+            env_path = settings.env_file
+            os.makedirs(os.path.dirname(env_path), exist_ok=True)
             if os.path.exists(env_path):
-                with open(env_path) as f:
+                with open(env_path, encoding="utf-8") as f:
                     for line in f:
                         if "=" in line:
                             key, value = line.strip().split("=", 1)
@@ -316,8 +337,8 @@ async def setup_step_4(
                 if setup_data.get("gcloud_project"):
                     env_lines.append(f'GCE_PROJECT="{setup_data["gcloud_project"]}"')
                 if setup_data.get("gcloud_service_account"):
-                    gcloud_sa_path = "/srv/devpush/gcloud-sa.json"
-                    with open(gcloud_sa_path, "w") as f:
+                    gcloud_sa_path = os.path.join(settings.data_dir, "gcloud-sa.json")
+                    with open(gcloud_sa_path, "w", encoding="utf-8") as f:
                         f.write(setup_data["gcloud_service_account"])
                     os.chmod(gcloud_sa_path, 0o600)
             elif (
@@ -367,24 +388,32 @@ async def setup_step_4(
                 f'GITHUB_APP_CLIENT_SECRET="{setup_data["github_app_client_secret"]}"'
             )
 
-            with open(env_path, "w") as f:
+            with open(env_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(env_lines) + "\n")
             os.chmod(env_path, 0o600)
 
-            config_path = Path("/var/lib/devpush/config.json")
             config = {}
-            if config_path.exists():
-                config = json.loads(config_path.read_text())
+            if os.path.exists(settings.config_file):
+                with open(settings.config_file, encoding="utf-8") as f:
+                    config = json.load(f)
 
             config["setup_complete"] = True
             if settings.env != "development":
                 config["ssl_provider"] = setup_data["ssl_provider"]
 
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(json.dumps(config, indent=2))
-            config_path.chmod(0o644)
+            os.makedirs(os.path.dirname(settings.config_file), exist_ok=True)
+            with open(settings.config_file, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2)
+            os.chmod(settings.config_file, 0o644)
 
-            return RedirectResponse("/setup/restart", status_code=303)
+            # Clear setup data, but keep app_hostname for the complete page
+            app_hostname = setup_data.get("app_hostname")
+            request.session.pop("setup_step", None)
+            request.session.pop("setup_data", None)
+            if app_hostname:
+                request.session["app_hostname"] = app_hostname
+
+            return RedirectResponse("/setup/complete", status_code=303)
 
         except Exception as e:
             flash(request, f"Setup failed: {str(e)}", "error")
@@ -396,65 +425,42 @@ async def setup_step_4(
         context={
             "setup_data": setup_data,
             "current_step": 4,
+            "saved_step": get_current_step(request),
             "total_steps": 4,
             "environment": settings.env,
         },
     )
 
 
-@router.api_route("/restart", methods=["GET", "POST"], name="setup_restart")
-async def setup_restart(
+@router.get("/complete", name="setup_complete")
+async def setup_complete(
     request: Request,
     settings: Settings = Depends(get_settings),
 ):
-    """Show restart countdown (GET) or trigger service restart (POST)."""
+    """Show completion page."""
 
     # Validate setup is complete
-    config_path = Path("/var/lib/devpush/config.json")
-    if not config_path.exists():
+    if not os.path.exists(settings.config_file):
         return RedirectResponse("/setup", status_code=303)
 
-    config = json.loads(config_path.read_text())
+    with open(settings.config_file, encoding="utf-8") as f:
+        config = json.load(f)
     if not config.get("setup_complete"):
         return RedirectResponse("/setup", status_code=303)
 
-    # Trigger restart in background
-    if request.method == "POST":
-        restart_script = (
-            "scripts/dev/restart.sh"
-            if settings.env == "development"
-            else "scripts/prod/restart.sh"
-        )
-
-        subprocess.Popen(
-            [restart_script],
-            cwd=os.getcwd(),
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        # Clear setup data now that we're done
-        request.session.pop("setup_step", None)
-        request.session.pop("setup_data", None)
-
-        return {"status": "restarting"}
-
-    # GET: Show countdown page
-    setup_data = get_setup_data(request)
-    if not setup_data:
-        return RedirectResponse("/setup", status_code=303)
-
-    app_hostname = setup_data.get("app_hostname", "localhost")
+    # Get app_hostname from session (saved before clearing setup_data) or fall back to settings
+    app_hostname = (
+        request.session.get("app_hostname") or settings.app_hostname or "localhost"
+    )
     target_url = f"{settings.url_scheme}://{app_hostname}"
 
     return TemplateResponse(
         request=request,
-        name="setup/pages/restart.html",
+        name="setup/pages/complete.html",
         context={
             "app_hostname": app_hostname,
             "target_url": target_url,
-            "app_base_url": f"{settings.url_scheme}://{app_hostname}",
+            "environment": settings.env,
         },
     )
 
@@ -474,6 +480,10 @@ async def setup_github_callback(request: Request, code: str, state: str = ""):
             response.raise_for_status()
             result = response.json()
 
+        owner = result.get("owner", {})
+        owner_type = owner.get("type", "User")
+        owner_login = owner.get("login", "")
+
         github_data = {
             "github_app_id": str(result["id"]),
             "github_app_name": result["name"],
@@ -481,22 +491,52 @@ async def setup_github_callback(request: Request, code: str, state: str = ""):
             "github_app_webhook_secret": result["webhook_secret"],
             "github_app_client_id": result["client_id"],
             "github_app_client_secret": result["client_secret"],
+            "github_owner_type": owner_type,
+            "github_owner_login": owner_login,
         }
 
         save_setup_data(request, github_data)
 
+        # Save data to a temp file before redirecting (http://*.traefik.em -> http://{IP})
+        os.makedirs(SETUP_TEMP_DIR, exist_ok=True)
+        token = uuid.uuid4().hex
+        token_path = os.path.join(SETUP_TEMP_DIR, f"github-{token}.json")
+        with open(token_path, "w") as f:
+            json.dump(github_data, f)
+
+        app_name = result["name"]
+        if owner_type == "Organization":
+            settings_url = f"https://github.com/organizations/{owner_login}/settings/apps/{app_name}/beta"
+        else:
+            settings_url = f"https://github.com/settings/apps/{app_name}/beta"
+
         flash(request, _("GitHub App created successfully"), "success")
         flash(
             request,
-            _("Important: Disable token expiration"),
-            category="warning",
+            _("Disable token expiration"),
             description=_(
                 'Go to your GitHub App settings, find "Optional features" and disable "User-to-server token expiration" to prevent sessions from expiring every 8 hours.'
             ),
-            cancel={"label": _("Dismiss")},
+            category="warning",
+            cancel={"label": _("Close")},
+            action={
+                "label": _("Settings"),
+                "href": settings_url,
+            },
             attrs={"data-duration": "-1"},
         )
-        return RedirectResponse("/setup/step/2", status_code=303)
+        redirect_path = f"/setup/step/2?token={token}"
+        host = request.url.hostname or ""
+        if host.endswith(".traefik.me"):
+            server_ip = host.rsplit(".traefik.me", 1)[0]
+            if server_ip:
+                redirect_url = (
+                    f"http://localhost{redirect_path}"
+                    if server_ip == "127.0.0.1"
+                    else f"{request.url.scheme}://{server_ip}{redirect_path}"
+                )
+                return RedirectResponse(redirect_url, status_code=303)
+        return RedirectResponse(redirect_path, status_code=303)
 
     except Exception as e:
         flash(request, f"GitHub App creation failed: {str(e)}", "error")

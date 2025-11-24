@@ -14,13 +14,11 @@ services:
       - "--certificatesresolvers.le.acme.email=${LE_EMAIL}"
       - "--certificatesresolvers.le.acme.storage=/etc/traefik/dynamic_conf/acme.json"
       - "--certificatesresolvers.le.acme.dnschallenge=true"
-      - "--certificatesresolvers.le.acme.dnschallenge.provider=gcloud"
+      - "--certificatesresolvers.le.acme.dnschallenge.provider=cloudflare"
     environment:
-      - GCE_PROJECT=${GCE_PROJECT}
-      - GOOGLE_APPLICATION_CREDENTIALS=/etc/traefik/gcloud-sa.json
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
     volumes:
-      - /srv/devpush/traefik:/etc/traefik/dynamic_conf
-      - /srv/devpush/gcloud-sa.json:/etc/traefik/gcloud-sa.json:ro
+      - ${DATA_DIR:-/var/lib/devpush}/traefik:/etc/traefik/dynamic_conf
     labels:
       - "traefik.http.routers.cert-bootstrap.rule=Host(`${APP_HOSTNAME}`)"
       - "traefik.http.routers.cert-bootstrap.entrypoints=websecure"
@@ -31,5 +29,4 @@ services:
       - "traefik.http.routers.cert-bootstrap.tls.domains[0].main=${DEPLOY_DOMAIN}"
       - "traefik.http.routers.cert-bootstrap.tls.domains[0].sans=*.${DEPLOY_DOMAIN}"
       - "traefik.http.routers.cert-bootstrap.tls.domains[1].main=${APP_HOSTNAME}"
-
 

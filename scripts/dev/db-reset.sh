@@ -13,10 +13,12 @@ USG
 fi
 
 command -v docker-compose >/dev/null 2>&1 || { echo "docker-compose not found"; exit 1; }
-args="-p devpush -f docker-compose.yml -f docker-compose.override.dev.yml"
+args=(-p devpush -f compose/base.yml -f compose/override.dev.yml)
+env_flag=()
+[[ -f ./data/.env ]] && env_flag=(--env-file ./data/.env)
 
-[ -f .env ] && . ./.env
-container=${DB_CONTAINER:-pgsql}
+[ -f ./data/.env ] && . ./data/.env
+container=pgsql
 db_user=${POSTGRES_USER:-devpush}
 db_name=${POSTGRES_DB:-devpush}
 
@@ -28,5 +30,5 @@ case "$ans" in
   *) echo "Aborted."; exit 1;;
 esac
 
-docker-compose $args exec "$container" psql -U "$db_user" -d "$db_name" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+docker-compose "${env_flag[@]}" "${args[@]}" exec "$container" psql -U "$db_user" -d "$db_name" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 echo "Database schema reset."

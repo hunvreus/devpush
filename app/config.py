@@ -1,7 +1,9 @@
-from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
+import os
+from functools import lru_cache
 from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -31,8 +33,13 @@ class Settings(BaseSettings):
     postgres_password: str = ""
     redis_url: str = "redis://redis:6379"
     docker_host: str = "tcp://docker-proxy:2375"
-    upload_dir: str = "/app/upload"
-    traefik_config_dir: str = "/data/traefik"
+    data_dir: str = "/var/lib/devpush"
+    app_dir: str = "/opt/devpush"
+    upload_dir: str = ""
+    traefik_dir: str = ""
+    env_file: str = ""
+    config_file: str = ""
+    version_file: str = ""
     default_cpus: float = 0.5
     default_memory_mb: int = 2048
     presets: list[dict] = []
@@ -58,6 +65,17 @@ def get_settings():
     settings = Settings()
 
     settings.url_scheme = "http" if settings.env == "development" else "https"
+
+    if not settings.upload_dir:
+        settings.upload_dir = os.path.join(settings.data_dir, "upload")
+    if not settings.traefik_dir:
+        settings.traefik_dir = os.path.join(settings.data_dir, "traefik")
+    if not settings.env_file:
+        settings.env_file = os.path.join(settings.data_dir, ".env")
+    if not settings.config_file:
+        settings.config_file = os.path.join(settings.data_dir, "config.json")
+    if not settings.version_file:
+        settings.version_file = os.path.join(settings.data_dir, "version.json")
 
     presets_file = Path("settings/presets.json")
     images_file = Path("settings/images.json")

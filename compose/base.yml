@@ -1,8 +1,8 @@
 services:
   app:
     build:
-      context: .
-      dockerfile: Docker/Dockerfile.app
+      context: ..
+      dockerfile: docker/Dockerfile.app
     entrypoint: /entrypoint.app.sh
     restart: always
     depends_on:
@@ -12,9 +12,9 @@ services:
       - default
       - internal
     env_file:
-      - .env
+      - ${DATA_DIR:-../data}/.env
     volumes:
-      - /var/lib/devpush/version.json:/var/lib/devpush/version.json:ro
+      - ${DATA_DIR:-../data}:/var/lib/devpush
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.app.rule=Host(`${APP_HOSTNAME}`)"
@@ -30,8 +30,8 @@ services:
 
   worker-arq:
     build:
-      context: .
-      dockerfile: Docker/Dockerfile.app
+      context: ..
+      dockerfile: docker/Dockerfile.app
     entrypoint: /entrypoint.worker-arq.sh
     restart: always
     stop_grace_period: ${JOB_TIMEOUT:-320}s
@@ -43,7 +43,9 @@ services:
       - internal
       - runner
     env_file:
-      - .env
+      - ${DATA_DIR:-../data}/.env
+    volumes:
+      - ${DATA_DIR:-../data}/traefik:/var/lib/devpush/traefik
     healthcheck:
       test: ["CMD", "uv", "run", "arq", "--check", "workers.arq.WorkerSettings"]
       interval: 60s
@@ -53,8 +55,8 @@ services:
 
   worker-monitor:
     build:
-      context: .
-      dockerfile: Docker/Dockerfile.app
+      context: ..
+      dockerfile: docker/Dockerfile.app
     entrypoint: /entrypoint.worker-monitor.sh
     restart: always
     depends_on:
@@ -65,7 +67,7 @@ services:
       - internal
       - runner
     env_file:
-      - .env
+      - ${DATA_DIR:-../data}/.env
 
   redis:
     image: redis:alpine
@@ -122,13 +124,12 @@ services:
       - "127.0.0.1:5432:5432"
     networks:
       - internal
-    env_file:
-      - .env
     environment:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
       POSTGRES_DB: ${POSTGRES_DB:-devpush}
       POSTGRES_USER: ${POSTGRES_USER:-devpush-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - devpush-db:/var/lib/postgresql/data
 
@@ -170,12 +171,13 @@ services:
       - internal
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - ./Docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /srv/devpush/alloy:/var/lib/alloy
+      - ${APP_DIR:-..}/docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy
 
 volumes:
   devpush-db:
   loki-data:
+  alloy-data:
 
 networks:
   default:

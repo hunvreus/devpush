@@ -4,8 +4,6 @@ IFS=$'\n\t'
 
 : "${LIB_URL:=https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/lib.sh}"
 
-DATA_DIR="/var/lib/devpush"
-
 # Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/install_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
@@ -48,6 +46,8 @@ USG
 
 repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
+TARGET_UID=1000
+TARGET_GID=1000
 
 valid_ssl_providers="default|cloudflare|route53|gcloud|digitalocean|azure"
 
@@ -76,13 +76,37 @@ while [[ $# -gt 0 ]]; do
 done
 
 user="devpush"
-app_dir="/home/$user/devpush"
 
 # Set SSL provider: use --ssl-provider flag or default to "default"
 [[ -z "$ssl_provider" ]] && ssl_provider="default"
 persist_ssl_provider "$ssl_provider"
 
+preflight_checks() {
+  if id -u "$user" >/dev/null 2>&1; then
+    current_uid=$(id -u "$user"); current_gid=$(id -g "$user")
+    if [[ $current_uid -ne $TARGET_UID || $current_gid -ne $TARGET_GID ]]; then
+      err "User '$user' exists with uid/gid ${current_uid}:${current_gid} (expected ${TARGET_UID}:${TARGET_GID}). Fix or remove the user before installing."
+      exit 1
+    fi
+  else
+    if getent passwd "$TARGET_UID" >/dev/null 2>&1; then
+      err "UID $TARGET_UID already in use; free it or create '$user' with uid/gid ${TARGET_UID}:${TARGET_GID} manually before installing."
+      exit 1
+    fi
+    if getent group "$TARGET_GID" >/dev/null 2>&1; then
+      err "GID $TARGET_GID already in use; free it or create '$user' with gid $TARGET_GID manually before installing."
+      exit 1
+    fi
+  fi
+
+  if [[ -d "$APP_DIR/compose" || -f "$APP_DIR/docker-compose.yml" ]]; then
+    err "Detected existing files under $APP_DIR."
+    exit 1
+  fi
+}
+
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
+preflight_checks
 
 # OS check (Debian/Ubuntu only)
 . /etc/os-release || { err "Unsupported OS"; exit 1; }
@@ -118,13 +142,13 @@ summary() {
     version_commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
     echo -e "  - version.json in $DATA_DIR (ref: ${version_ref:-unknown})"
   fi
-  if [[ -d "$app_dir/.git" ]]; then
-    echo -e "  - repo at $app_dir"
-    [[ -f "$app_dir/.env" ]] && echo -e "  - .env in $app_dir"
+  if [[ -d "$APP_DIR/.git" ]]; then
+    echo -e "  - repo at $APP_DIR"
+    [[ -f "$DATA_DIR/.env" ]] && echo -e "  - .env in $DATA_DIR"
   fi
 }
 
-if [[ -f "$DATA_DIR/version.json" ]] || [[ -d "$app_dir/.git" ]]; then
+if [[ -f "$DATA_DIR/version.json" ]] || [[ -d "$APP_DIR/.git" ]]; then
   echo ""
   echo "Existing install detected:"
   summary
@@ -197,40 +221,36 @@ add_docker_repo() {
 }
 
 create_user() {
-  useradd -m -U -s /bin/bash -G sudo,docker "$user"
-  install -d -m 700 -o "$user" -g "$user" "/home/$user/.ssh"
-  ak="/home/$user/.ssh/authorized_keys"
-  if [[ -n "$ssh_pub" ]]; then
-    if [[ -f "$ssh_pub" ]]; then cat "$ssh_pub" >> "$ak"; else echo "$ssh_pub" >> "$ak"; fi
-  elif [[ -f /root/.ssh/authorized_keys ]]; then
-    cat /root/.ssh/authorized_keys >> "$ak"
+  if getent passwd "$user" >/dev/null 2>&1; then
+    return 0
   fi
-  if [[ -f "$ak" ]]; then
-    sort -u "$ak" -o "$ak"
-    chown "$user:$user" "$ak"
-    chmod 600 "$ak"
+  if getent passwd "$TARGET_UID" >/dev/null 2>&1; then
+    err "UID $TARGET_UID already in use; devpush must match container UID. Create the devpush user manually with uid/gid $TARGET_UID or free the UID and rerun."
+    exit 1
   fi
-  echo "$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/$user; chmod 440 /etc/sudoers.d/$user
+  if getent group "$TARGET_GID" >/dev/null 2>&1; then
+    err "GID $TARGET_GID already in use; devpush must match container GID. Create the devpush group manually with gid $TARGET_GID or free the GID and rerun."
+    exit 1
+  fi
+  groupadd -g "$TARGET_GID" "$user"
+  useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin --no-create-home --uid "$TARGET_UID" --gid "$TARGET_GID" "$user"
 }
 
 record_version() {
     local commit ts install_id
-    commit=$(runuser -u "$user" -- git -C "$app_dir" rev-parse --verify HEAD)
+    commit=$(runuser -u "$user" -- git -C "$APP_DIR" rev-parse --verify HEAD)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    sudo install -d -m 0755 "$DATA_DIR"
-    if sudo test ! -f "$DATA_DIR/version.json"; then
+    install -d -o "$user" -g "$user" -m 0755 "$DATA_DIR"
+    if [[ ! -f "$DATA_DIR/version.json" ]]; then
         install_id=$(cat /proc/sys/kernel/random/uuid)
-        printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s","arch":"%s","distro":"%s","distro_version":"%s"}\n' "$install_id" "${ref}" "$commit" "$ts" "$arch" "$distro_id" "$distro_version" | sudo tee "${DATA_DIR}/version.json.tmp" >/dev/null
-        sudo mv "${DATA_DIR}/version.json.tmp" "$DATA_DIR/version.json"
+        runuser -u "$user" -- bash -c "printf '{\"install_id\":\"%s\",\"git_ref\":\"%s\",\"git_commit\":\"%s\",\"updated_at\":\"%s\",\"arch\":\"%s\",\"distro\":\"%s\",\"distro_version\":\"%s\"}\n' \"$install_id\" \"${ref}\" \"$commit\" \"$ts\" \"$arch\" \"$distro_id\" \"$distro_version\" > \"$DATA_DIR/version.json.tmp\" && mv \"$DATA_DIR/version.json.tmp\" \"$DATA_DIR/version.json\""
     else
-        install_id=$(sudo jq -r '.install_id // empty' "$DATA_DIR/version.json" 2>/dev/null || true)
+        install_id=$(jq -r '.install_id // empty' "$DATA_DIR/version.json" 2>/dev/null || true)
         [[ -n "$install_id" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
-        sudo jq --arg id "$install_id" --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" --arg arch "$arch" --arg distro "$distro_id" --arg distro_version "$distro_version" \
-          '. + {install_id: $id, git_ref: $ref, git_commit: $commit, updated_at: $ts, arch: $arch, distro: $distro, distro_version: $distro_version}' \
-          "$DATA_DIR/version.json" | sudo tee "${DATA_DIR}/version.json.tmp" >/dev/null
-        sudo mv "${DATA_DIR}/version.json.tmp" "$DATA_DIR/version.json"
+        runuser -u "$user" -- bash -c "jq --arg id \"$install_id\" --arg ref \"${ref}\" --arg commit \"$commit\" --arg ts \"$ts\" --arg arch \"$arch\" --arg distro \"$distro_id\" --arg distro_version \"$distro_version\" '. + {install_id: \$id, git_ref: \$ref, git_commit: \$commit, updated_at: \$ts, arch: \$arch, distro: \$distro, distro_version: \$distro_version}' \"$DATA_DIR/version.json\" > \"$DATA_DIR/version.json.tmp\" && mv \"$DATA_DIR/version.json.tmp\" \"$DATA_DIR/version.json\""
     fi
-    sudo chmod 0644 "$DATA_DIR/version.json" || true
+    chown "$user:$user" "$DATA_DIR/version.json" || true
+    chmod 0644 "$DATA_DIR/version.json" || true
 }
 
 # Install base packages
@@ -258,7 +278,7 @@ else
 fi
 
 # Add data dirs
-run_cmd "${CHILD_MARK} Preparing data directories..." install -o 1000 -g 1000 -m 0755 -d /srv/devpush/traefik /srv/devpush/upload /srv/devpush/alloy
+run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$user" -g "$user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
 
 # Resolve ref (latest tag, fallback to main) if not provided via --ref
 if [[ -z "$ref" ]]; then
@@ -279,17 +299,17 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 # Create app dir
-run_cmd "${CHILD_MARK} Creating app directory..." install -d -m 0755 "$app_dir"
-run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$(id -gn "$user")" "$app_dir"
+run_cmd "${CHILD_MARK} Creating app directory..." install -d -m 0755 "$APP_DIR"
+run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$user" "$APP_DIR"
 
 # Get code from GitHub
 printf "\n"
 echo "Cloning repository..."
-if [[ -d "$app_dir/.git" ]]; then
+if [[ -d "$APP_DIR/.git" ]]; then
   # Repo exists, just fetch
   cmd_block="
     set -ex
-    cd '$app_dir'
+    cd '$APP_DIR'
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
@@ -298,7 +318,7 @@ else
   # New clone
   cmd_block="
     set -ex
-    cd '$app_dir'
+    cd '$APP_DIR'
     git init
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
@@ -306,18 +326,18 @@ else
   run_cmd "${CHILD_MARK} Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
 fi
 
-run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$user" -- git -C "$app_dir" reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$user" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
 
-cd "$app_dir"
+cd "$APP_DIR"
 
 # Build runners images
 printf "\n"
-if [[ -d Docker/runner ]]; then
+if [[ -d docker/runner ]]; then
   build_runners_cmd="
     set -e
-    for df in \$(find Docker/runner -name 'Dockerfile.*'); do
+    for df in \$(find docker/runner -name 'Dockerfile.*'); do
       n=\$(basename "\$df" | sed 's/^Dockerfile\.//')
-      docker build -f "\$df" -t "runner-\$n" ./Docker/runner
+      docker build -f "\$df" -t "runner-\$n" ./docker/runner
     done
   "
   run_cmd "Building runner images..." runuser -u "$user" -- bash -lc "$build_runners_cmd"
@@ -331,7 +351,7 @@ run_cmd "Recording install metadata..." record_version
 if ((run_harden==1)); then
   printf "\n"
   set +e
-  run_cmd "Running server hardening..." bash "$app_dir/scripts/prod/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running server hardening..." bash "$APP_DIR/scripts/prod/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr=$?
   set -e
   if [[ $hr -ne 0 ]]; then
@@ -342,7 +362,7 @@ fi
 if ((run_harden_ssh==1)); then
   printf "\n"
   set +e
-  run_cmd "Running SSH hardening..." bash "$app_dir/scripts/prod/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running SSH hardening..." bash "$APP_DIR/scripts/prod/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr2=$?
   set -e
   if [[ $hr2 -ne 0 ]]; then
@@ -359,13 +379,24 @@ fi
 printf "\n"
 echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
 
-# Start application in setup mode
+# Install systemd unit and start in setup mode
 printf "\n"
-echo "Starting application..."
-cd "$app_dir" && runuser -u "$user" -- scripts/prod/start.sh --no-pull
+echo "Installing systemd unit..."
+unit_path="/etc/systemd/system/devpush.service"
+install -m 0644 "$APP_DIR/scripts/prod/devpush.service" "$unit_path"
+systemctl daemon-reload
+systemctl enable devpush.service
+printf "\n"
+echo "Starting application (setup mode)..."
+run_cmd "Starting via systemd..." systemctl start devpush.service
 
-sip=$(get_public_ip || echo "127.0.0.1")
+# Show setup URL
+sip=$(get_public_ip 2>/dev/null || true)
 printf "\n"
+if [[ -z "$sip" ]]; then
+  echo -e "${YEL}Could not determine public IP; using localhost:${NC}"
+  sip="127.0.0.1"
+fi
 echo -e "${GRN}Application started. Complete setup in your browser:${NC}"
 echo ""
 echo "  http://${sip}/setup"

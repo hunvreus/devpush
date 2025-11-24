@@ -15,6 +15,5 @@ services:
       - "--certificatesresolvers.le.acme.storage=/etc/traefik/dynamic_conf/acme.json"
       - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
     volumes:
-      - /srv/devpush/traefik:/etc/traefik/dynamic_conf
-
+      - ${DATA_DIR:-/var/lib/devpush}/traefik:/etc/traefik/dynamic_conf
 

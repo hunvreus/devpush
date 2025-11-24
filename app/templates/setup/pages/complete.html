@@ -1,69 +1,45 @@
-{% extends "layouts/base.html" %} {% block title %}Setup Complete{% endblock %}
+{% extends "layouts/base.html" %}
+{% block title %}{{ _("Restarting...") }}{% endblock %}
+
 {% block base_content %}
-<div
-  class="flex flex-col items-center justify-center min-h-screen p-8 bg-gray-50 dark:bg-gray-900"
->
-  <div class="w-full max-w-2xl space-y-6">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-8 text-center">
-      <div class="mb-6">
-        <div
-          class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-4"
-        >
-          <svg
-            class="w-8 h-8 text-green-600 dark:text-green-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M5 13l4 4L19 7"
-            ></path>
-          </svg>
-        </div>
-        <h1 class="text-3xl font-bold mb-2">{{ _("Setup Complete!") }}</h1>
-        <p class="text-gray-600 dark:text-gray-400">
-          {{ _("Your /dev/push instance is being restarted with the new
-          configuration") }}
-        </p>
+{% set command = "sudo systemctl restart devpush" if environment == "production" else "./scripts/dev/start.sh" %}
+{% set instructions = _("Restart the services by running the following command on the server:") if environment == "production" else _("Stop the services (<kbd class='kbd'>Ctrl + C</kbd>) and start them again:") %}
+<div class="h-screen flex items-center justify-center">
+  <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-lg border-dashed p-6 text-center text-balance md:p-12">
+    <header class="flex max-w-sm flex-col items-center gap-2 text-center">
+      <div class="mb-2 bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400 flex size-8 shrink-0 items-center justify-center rounded-full [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4">
+        {% include "icons/check.svg" %}
       </div>
-
-      <div
-        class="mb-8 p-4 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800 text-left"
-      >
-        <p class="text-sm font-medium mb-2">{{ _("Next Steps") }}</p>
-        <ol
-          class="text-sm text-gray-600 dark:text-gray-400 space-y-2 list-decimal list-inside"
+      <h3 class="text-lg font-semibold tracking-tight">{{ _("Setup complete") }}</h3>
+      <p class="text-muted-foreground text-sm/relaxed">
+        {{ _("The configuration has been saved.") }}
+        {{ instructions | safe }}
+      </p>
+    </header>
+    <section class="flex w-full min-w-0 flex-col items-center gap-3">
+      <div class="relative max-w-75 w-full">
+        <input type="text" class="input font-mono text-[13px] pr-9  w-full" value="{{ command }}" readonly>
+        <button 
+          type="button"
+          data-copied="false"
+          onclick="
+            const input = this.previousElementSibling;
+            const value = input.value;
+            navigator.clipboard.writeText(value);
+            this.dataset.copied = 'true';
+            setTimeout(() => this.dataset.copied = 'false', 2000);
+          "
+          class="group absolute right-1.5 top-1/2 -translate-y-1/2 btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-6"
         >
-          <li>
-            {{ _("Wait for services to restart (this may take 1-2 minutes)") }}
-          </li>
-          <li>
-            {{ _("Access your application at:") }}
-            <code class="px-2 py-1 bg-white dark:bg-gray-800 rounded"
-              >https://{{ app_hostname }}</code
-            >
-          </li>
-          <li>{{ _("Sign in with GitHub to create your first team") }}</li>
-          <li>{{ _("Deploy your first application") }}</li>
-        </ol>
-      </div>
-
-      <div class="space-y-3">
-        <button
-          onclick="window.location.href='https://{{ app_hostname }}'"
-          class="btn-primary w-full"
-        >
-          {{ _("Go to Application") }} →
+          <span class="group-data-[copied=false]:block group-data-[copied=true]:hidden">
+            {% include "icons/copy.svg" %}
+          </span>
+          <span class="group-data-[copied=true]:block group-data-[copied=false]:hidden">
+            {% include "icons/check.svg" %}
+          </span>
         </button>
-        <p class="text-xs text-gray-500">
-          {{ _("If the page doesn't load, wait a minute for services to finish
-          restarting") }}
-        </p>
       </div>
-    </div>
+    </section>
   </div>
 </div>
 {% endblock %}

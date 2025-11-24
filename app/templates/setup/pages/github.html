@@ -33,7 +33,7 @@
       id="confirm-github-account",
       footer=footer,
       title=_('Confirm GitHub account'),
-      description=_('By default, the app will be created for your personal account. To create it for an organization, enter its id as shown on the organization page.'),
+      description=_('By default, the app will be created for your personal account. To create it for an organization, enter its id as shown on the organization page. You must be logged in to GitHub before creating the app.'),
       trigger_attrs={"class": "btn-sm"},
       dialog_attrs={"class": "max-w-md"},
       close_button=false,
@@ -106,7 +106,7 @@
       </div>
 
       <footer class="flex justify-between gap-x-2 -mx-6 px-6 pt-6 border-t">
-        <a href="/setup/step/1" class="btn-ghost">
+        <a href="{{ url_for('setup_step_1') }}" class="btn-ghost">
           {% include "icons/arrow-left.svg" %}
           {{ _("Back") }}
         </a>
@@ -131,23 +131,23 @@
 
     dialog.close();
 
-    const appBaseUrl = "{{ app_base_url }}";
-    const serverIp = "{{ server_ip }}";
-    const callbackUrl = `http://${serverIp}.traefik.me/setup/github/callback`;
+    const baseUrl = "{{ base_url }}";
+    const publicBaseUrl = "{{ public_base_url }}";
+    const githubAppName = `devpush-${useOrg ? orgId : Math.random().toString(36).substring(2, 8)}`;
 
     const manifest = {
-      name: "{{ github_app_name }}",
-      url: appBaseUrl,
+      name: githubAppName,
+      url: baseUrl,
       hook_attributes: {
-        url: `${appBaseUrl}/api/github/webhook`,
+        url: `${publicBaseUrl}/api/github/webhook`,
         active: true,
       },
-      redirect_url: callbackUrl,
+      redirect_url: `${publicBaseUrl}/setup/github/callback`,
       callback_urls: [
-        `${appBaseUrl}/api/github/authorize/callback`,
-        `${appBaseUrl}/auth/github/callback`
+        `${baseUrl}/api/github/authorize/callback`,
+        `${baseUrl}/auth/github/callback`
       ],
-      setup_url: `${appBaseUrl}/api/github/install/callback`,
+      setup_url: `${baseUrl}/api/github/install/callback`,
       setup_on_update: true,
       public: false,
       default_permissions: {
