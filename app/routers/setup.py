@@ -174,9 +174,54 @@ async def setup_step_2(
                     token_data = json.load(f)
                 save_setup_data(request, token_data)
                 os.remove(token_path)
+
+                flash(request, _("GitHub App created successfully"), "success")
+
+                app_name = token_data.get("github_app_name", "")
+                owner_login = token_data.get("github_owner_login", "")
+                owner_type = token_data.get("github_owner_type", "User")
+
+                settings_url = (
+                    f"https://github.com/organizations/{owner_login}/settings/apps/{app_name}"
+                    if owner_type == "Organization" and owner_login
+                    else f"https://github.com/settings/apps/{app_name}"
+                )
+
+                flash(
+                    request,
+                    _("Disable token expiration"),
+                    description=_(
+                        'Go to your GitHub App settings, find "Optional features" and disable "User-to-server token expiration" to prevent sessions from expiring every 8 hours.'
+                    ),
+                    category="warning",
+                    cancel={"label": _("Close")},
+                    action={
+                        "label": _("Settings"),
+                        "href": settings_url,
+                    },
+                    attrs={"data-duration": "-1"},
+                )
+
+                hostname = request.url.hostname or ""
+                if hostname in ("localhost", "127.0.0.1") or hostname.endswith(
+                    ".localhost"
+                ):
+                    flash(
+                        request,
+                        _("Update webhook URL"),
+                        description=_(
+                            "Update the webhook URL in your GitHub App settings to a publicly accessible URL using a service like ngrok."
+                        ),
+                        category="warning",
+                        cancel={"label": _("Close")},
+                        action={
+                            "label": _("Settings"),
+                            "href": settings_url,
+                        },
+                        attrs={"data-duration": "-1"},
+                    )
             except Exception:
                 pass
-            return RedirectResponse("/setup/step/2", status_code=303)
 
     form = await GitHubAppForm.from_formdata(request)
 
@@ -504,37 +549,15 @@ async def setup_github_callback(request: Request, code: str, state: str = ""):
         with open(token_path, "w") as f:
             json.dump(github_data, f)
 
-        app_name = result["name"]
-        if owner_type == "Organization":
-            settings_url = f"https://github.com/organizations/{owner_login}/settings/apps/{app_name}/beta"
-        else:
-            settings_url = f"https://github.com/settings/apps/{app_name}/beta"
-
-        flash(request, _("GitHub App created successfully"), "success")
-        flash(
-            request,
-            _("Disable token expiration"),
-            description=_(
-                'Go to your GitHub App settings, find "Optional features" and disable "User-to-server token expiration" to prevent sessions from expiring every 8 hours.'
-            ),
-            category="warning",
-            cancel={"label": _("Close")},
-            action={
-                "label": _("Settings"),
-                "href": settings_url,
-            },
-            attrs={"data-duration": "-1"},
-        )
         redirect_path = f"/setup/step/2?token={token}"
         host = request.url.hostname or ""
         if host.endswith(".traefik.me"):
             server_ip = host.rsplit(".traefik.me", 1)[0]
             if server_ip:
-                redirect_url = (
-                    f"http://localhost{redirect_path}"
-                    if server_ip == "127.0.0.1"
-                    else f"{request.url.scheme}://{server_ip}{redirect_path}"
-                )
+                if server_ip == "127.0.0.1":
+                    redirect_url = f"http://localhost{redirect_path}"
+                else:
+                    redirect_url = f"{request.url.scheme}://{server_ip}{redirect_path}"
                 return RedirectResponse(redirect_url, status_code=303)
         return RedirectResponse(redirect_path, status_code=303)
 

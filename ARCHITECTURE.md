@@ -30,7 +30,7 @@ This document describes the high‑level architecture of /dev/push, how the main
 - `app/workers`: The workers (`arq` and `monitor`)
 - `docker/`: Container definitions and entrypoint scripts. Includes local development specific files (e.g. `Dockerfile.app.dev`, `entrypoint.worker-arq.dev.sh`).
 - `scripts/`: Helper scripts for local (macOS) and production environments
-- `compose/`: Container orchestration with [Docker Compose](https://docs.docker.com/compose/) files (`base.yml`, `override.yml`, `override.dev.yml`, `ssl-*.yml`, `setup*.yml`).
+- `compose/`: Container orchestration with [Docker Compose](https://docs.docker.com/compose/) files (`run.yml`, `run.override.yml`, `run.override.dev.yml`, `ssl-*.yml`, `setup*.yml`).
 
 ## System Diagram
 

@@ -15,7 +15,7 @@
 - Test locally before submitting.
 - Follow existing code style.
 
-## Production Scripts (`scripts/prod/`)
+## Scripts (`scripts/`)
 
 ### Standard Conventions
 
@@ -57,7 +57,7 @@
 - Prerelease versions: `sort -V` treats `0.1.0 < 0.1.0-alpha < 0.1.0-beta < 0.1.0-rc`
 - Note: This differs from semver (which treats `0.1.0-beta < 0.1.0`)
 
-### Upgrade Hooks (`scripts/prod/upgrades/`)
+### Upgrade Hooks (`scripts/upgrades/`)
 
 **File Naming:**
 

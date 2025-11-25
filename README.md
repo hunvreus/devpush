@@ -38,7 +38,7 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 Log in your server, run the following command and follow instructions:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/install.sh | sudo bash -s -- [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
+curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh | sudo bash -s -- [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
 ```
 
 You user must have sudo privileges.
@@ -57,19 +57,19 @@ You can use the provisioning script to get a server up and running:
 2. **Generate an API token**: [Creating an API token](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/)
 3. **Provision a server** (requires `--token`; optional: `--user`, `--name`, `--region`, `--type`):
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/provision/hetzner.sh | bash -s -- --token <hetzner_api_key> [--user <login_user>] [--name <hostname>] [--region <fsn1|nbg1|hel1|ash|hil|sin>] [--type <cpx11|cpx21|cpx31|cpx41|cpx51>]
+   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/provision/hetzner.sh | bash -s -- --token <hetzner_api_key> [--user <login_user>] [--name <hostname>] [--region <fsn1|nbg1|hel1|ash|hil|sin>] [--type <cpx11|cpx21|cpx31|cpx41|cpx51>]
    ```
-   Tip: run `curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/provision/hetzner.sh | bash -s -- --help` to list regions and types (with specs). Defaults: region `hil`, type `cpx31`.
+   Tip: run `curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/provision/hetzner.sh | bash -s -- --help` to list regions and types (with specs). Defaults: region `hil`, type `cpx31`.
 5. **SSH into your new server**: The provision script will have created a user for you.
    ```bash
    ssh <login_user>@<server_ip>
    ```
 6. **Run hardening for system and SSH**:
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/harden.sh | sudo bash -s -- --ssh
+  curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/harden.sh | sudo bash -s -- --ssh
   ```
 
-Even if you already have a server, we recommend you harden security (ufw, fail2ban, disabled root SSH, etc). You can do that using `scripts/prod/harden.sh`.
+Even if you already have a server, we recommend you harden security (ufw, fail2ban, disabled root SSH, etc). You can do that using `scripts/harden.sh`.
 
 #### DNS records
 
@@ -100,7 +100,7 @@ Even if you already have a server, we recommend you harden security (ufw, fail2b
    ```
 2. **Install /dev/push**:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/install.sh | sudo bash
+   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh | sudo bash
    ```
 3. **Switch to `devpush` user**:
   ```bash
@@ -113,7 +113,7 @@ Even if you already have a server, we recommend you harden security (ufw, fail2b
   Tip: you will need to fill in at least the following: `LE_EMAIL`, `APP_HOSTNAME`, `DEPLOY_DOMAIN`, `EMAIL_SENDER_ADDRESS`, `RESEND_API_KEY` and your [GitHub app](#github-app) settings (see [environment-variables] for details). `SERVER_IP`, `SECRET_KEY`, `ENCRYPTION_KEY`, `POSTGRES_PASSWORD` should be pre-filled. **You can ignore all commented out environment variables**.
 5. Start services:
    ```bash
-  scripts/prod/start.sh --migrate [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
+  scripts/start.sh --migrate [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
    ```
 6. Visit your URL: `https://<APP_HOSTNAME>`
 
@@ -124,25 +124,24 @@ The follwing commands must be run as `devpush` user (`su - devpush`).
 In most cases, you can run an update with:
 
 ```bash
-scripts/prod/update.sh --all
+scripts/update.sh --all
 ```
 
 Alternatively, you can force a full upgrade (**with downtime**) using:
 
 ```bash
-scripts/prod/update.sh --full -y
+scripts/update.sh --full -y
 ```
 
 You can update specific components:
 
 ```bash
-scripts/prod/update.sh --components <component_name>
+scripts/update.sh --components <component_name>
 ```
 
 Notes:
 
 - Full mode will rebuild images and run DB migrations by default. Add `--no-migrate` to skip migrations.
-- By default, updates will pull registry images and use base image pulls during builds. Add `--no-pull` to skip both the top-level `pull` and the `--pull` during builds.
 - For non-interactive usage (CI), pass `--all` or `--components <csv>` to avoid the interactive selection prompt.
 
 ## Development
@@ -153,7 +152,7 @@ Notes:
 
 1. Install Colima:
    ```bash
-   scripts/dev/install.sh
+   scripts/install.sh
    ```
 2. Set up environment variables:
    ```bash
@@ -161,13 +160,13 @@ Notes:
    ```
 3. Start the stack (streams logs):
    ```bash
-   scripts/dev/start.sh
+   scripts/start.sh
    ```
    - Add `--prune` to prune dangling images before build
    - Add `--cache` to use the build cache (default is no cache)
 4. Initialize your database once containers are up:
    ```bash
-   scripts/dev/db-migrate.sh
+   scripts/db-migrate.sh
    ```
 
 See the [scripts](#scripts) section for more dev utilities.
@@ -181,28 +180,27 @@ See the [scripts](#scripts) section for more dev utilities.
   ```
 - To apply migrations:
   ```bash
-  scripts/dev/db-migrate.sh
+  scripts/db-migrate.sh
   ```
 
 ## Scripts
 
 | Area | Script | What it does |
 |---|---|---|
-| Dev | `scripts/dev/install.sh` | Setup Colima |
-| Dev | `scripts/dev/start.sh` | Start stack with logs (foreground); supports `--prune`, `--cache` |
-| Dev | `scripts/dev/build-runners.sh` | Build runner images (default no cache; `--cache` to enable) |
-| Dev | `scripts/dev/db-generate.sh` | Generate Alembic migration (prompts for message) |
-| Dev | `scripts/dev/db-migrate.sh` | Apply Alembic migrations |
-| Dev | `scripts/dev/db-reset.sh` | Drop and recreate `public` schema in DB |
-| Dev | `scripts/dev/clean.sh` | Stop stack and clean dev data (`--hard` for global) |
-| Prod | `scripts/prod/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
-| Prod | `scripts/prod/install.sh` | Server setup: Docker, user, clone repo, start setup UI |
-| Prod | `scripts/prod/harden.sh` | System hardening (UFW, fail2ban, unattended-upgrades); add `--ssh` to harden SSH |
-| Prod | `scripts/prod/start.sh` | Start services; optional `--migrate`; `--ssl-provider <prov>` |
-| Prod | `scripts/prod/stop.sh` | Stop services (`--down` for hard stop) |
-| Prod | `scripts/prod/restart.sh` | Restart services; optional `--migrate`; `--ssl-provider <prov>` |
-| Prod | `scripts/prod/update.sh` | Update by tag; `--all` (app+workers), `--full` (downtime), or `--components`; `--ssl-provider <prov>` |
-| Prod | `scripts/prod/db-migrate.sh` | Apply DB migrations in production |
+| Dev | `scripts/start.sh` | Start stack with logs (setup auto-detected; supports `--setup`, `--no-migrate`) |
+| Dev | `scripts/build-runners.sh` | Build runner images (default no cache; `--cache` to enable) |
+| Dev | `scripts/db-generate.sh` | Generate Alembic migration (prompts for message) |
+| Dev | `scripts/db-migrate.sh` | Apply Alembic migrations |
+| Dev | `scripts/db-reset.sh` | Drop and recreate `public` schema in DB |
+| Dev | `scripts/clean.sh` | Stop stack and clean dev data (`--hard` for global) |
+| Prod | `scripts/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
+| Prod | `scripts/install.sh` | Server setup: Docker, user, clone repo, systemd unit |
+| Prod | `scripts/harden.sh` | System hardening (UFW, fail2ban, unattended-upgrades); add `--ssh` to harden SSH |
+| Prod | `scripts/start.sh` | Start services; supports `--setup`, `--no-migrate`, `--ssl-provider <prov>` |
+| Prod | `scripts/stop.sh` | Stop services (`--down` for hard stop, `--setup` for setup stack) |
+| Prod | `scripts/restart.sh` | Restart services; supports `--setup`, `--no-migrate` |
+| Prod | `scripts/update.sh` | Update by tag; `--all`, `--full`, or `--components`; `--ssl-provider <prov>` |
+| Prod | `scripts/db-migrate.sh` | Apply DB migrations (waits for Postgres readiness) |
 
 ## Environment variables
 

@@ -6,9 +6,10 @@ IFS=$'\n\t'
 SCRIPT_ERR_LOG="/tmp/uninstall_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
-source "$(dirname "$0")/lib.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
+trap 's=$?; err "Uninstall failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
 
 usage() {
   cat <<USG
@@ -58,57 +59,57 @@ telemetry_payload=""
 if [[ -f $DATA_DIR/version.json ]]; then
   version_ref=$(jq -r '.git_ref // empty' $DATA_DIR/version.json 2>/dev/null || true)
   if ((telemetry==1)); then
-    telemetry_payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' $DATA_DIR/version.json 2>/dev/null || echo "")
+    telemetry_payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' $DATA_DIR/version.json 2>/dev/null || printf '')
   fi
 fi
 
 # Check if anything is installed
 if [[ ! -f $DATA_DIR/version.json && ! -d $APP_DIR/.git ]]; then
-  printf "\n"
-  echo "No /dev/push installation detected."
-  echo ""
-  echo "Checked:"
-  echo "  - $DATA_DIR/version.json"
-  echo "  - $APP_DIR/.git"
+  printf '\n'
+  printf "No /dev/push installation detected.\n"
+  printf '\n'
+  printf "Checked:\n"
+  printf "  - %s/version.json\n" "$DATA_DIR"
+  printf "  - %s/.git\n" "$APP_DIR"
   exit 0
 fi
 
 # Show what was detected
-printf "\n"
-echo "Install detected:"
-echo "  - App directory: $APP_DIR"
-echo "  - Data directory: $DATA_DIR"
-id -u "$user" >/dev/null 2>&1 && echo "  - User: $user (home: $DATA_DIR/)"
-[[ -n "$version_ref" ]] && echo "  - Version (ref): $version_ref"
+printf '\n'
+printf "Install detected:\n"
+printf "  - App directory: %s\n" "$APP_DIR"
+printf "  - Data directory: %s\n" "$DATA_DIR"
+id -u "$user" >/dev/null 2>&1 && printf "  - User: %s (home: %s/)\n" "$user" "$DATA_DIR"
+[[ -n "$version_ref" ]] && printf "  - Version (ref): %s\n" "$version_ref"
 
 # Warning and confirmation
 if (( yes_flag == 0 )); then
-  printf "\n"
-  echo "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted."
-  printf "\n"
+  printf '\n'
+  printf "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted.\n"
+  printf '\n'
   read -r -p "Proceed with uninstall? [y/N] " ans
   if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-    echo "Aborted."
+    printf "Aborted.\n"
     exit 0
   fi
 else
-  echo "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted."
+  printf "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted.\n"
 fi
 
 # Stop services
-printf "\n"
+printf '\n'
 if systemctl list-unit-files | grep -q '^devpush.service'; then
   run_cmd "Stopping services (systemd)..." systemctl stop devpush.service || true
-elif [[ -n "$APP_DIR" && -f "$APP_DIR/compose/base.yml" ]]; then
-  run_cmd "Stopping services..." bash "$APP_DIR/scripts/prod/stop.sh" --down
+elif [[ -f "$APP_DIR/compose/run.yml" ]]; then
+  run_cmd "Stopping services..." bash "$SCRIPT_DIR/stop.sh" --down
 else
-  echo "Stopping services... ${YEL}⊘${NC}"
-  echo -e "${DIM}${CHILD_MARK} No compose/base.yml found${NC}"
+  printf "Stopping services... ${YEL}⊘${NC}\n"
+  printf "${DIM}%s No compose/run.yml found${NC}\n" "$CHILD_MARK"
 fi
 
 # Remove application
-printf "\n"
-echo "Removing application..."
+printf '\n'
+printf "Removing application...\n"
 
 if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
   set +e
@@ -120,11 +121,11 @@ fi
 set +e
 runner_images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^runner-' || true)
 if [[ -n "$runner_images" ]]; then
-  image_count=$(echo "$runner_images" | wc -l | tr -d ' ')
-  run_cmd_try "${CHILD_MARK} Removing runner images ($image_count found)..." bash -c "echo '$runner_images' | xargs docker rmi -f"
+  image_count=$(printf '%s\n' "$runner_images" | wc -l | tr -d ' ')
+  run_cmd_try "${CHILD_MARK} Removing runner images ($image_count found)..." bash -c 'printf "%s\n" "$1" | xargs docker rmi -f' _ "$runner_images"
 else
-  echo "${CHILD_MARK} Removing runner images... ${YEL}⊘${NC}"
-  echo -e "${DIM}${CHILD_MARK} No runner images found${NC}"
+  printf "%s Removing runner images... ${YEL}⊘${NC}\n" "$CHILD_MARK"
+  printf "${DIM}%s No runner images found${NC}\n" "$CHILD_MARK"
 fi
 set -e
 
@@ -137,74 +138,74 @@ if [[ -d $DATA_DIR ]]; then
     set -e
     data_removed=1
   else
-    printf "\n"
+    printf '\n'
     read -r -p "Remove data directory ($DATA_DIR/)? This will delete all uploaded files, certificates, and config. [y/N] " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
       set +e
-      echo ""
+      printf '\n'
       run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"
       set -e
       data_removed=1
     else
-      echo ""
-      echo -e "${DIM}${CHILD_MARK} Data directory kept (use rm -rf $DATA_DIR to remove manually)${NC}"
+      printf '\n'
+      printf "${DIM}%s Data directory kept (use rm -rf %s to remove manually)${NC}\n" "$CHILD_MARK" "$DATA_DIR"
     fi
   fi
 fi
 
 # Interactive: Remove user?
 if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
-  printf "\n"
+  printf '\n'
   read -r -p "Remove user '$user' and home directory? This will delete all files in /home/$user/. [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
-    echo ""
+    printf '\n'
     set +eE
     trap - ERR
     if run_cmd_try "Removing user '$user'..." userdel -r "$user"; then
       # Clean up sudoers file
       [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
     else
-      echo -e "${YEL}Warning:${NC} Could not remove user (may have active processes). Run 'userdel -r $user' manually after logout."
+      printf "${YEL}Warning:${NC} Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.\n" "$user"
     fi
-    trap 's=$?; err "Uninstall failed (exit $s)"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat /tmp/uninstall_error.log 2>/dev/null || echo "No error details captured"; exit $s' ERR
+    trap 's=$?; err "Uninstall failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat /tmp/uninstall_error.log 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
     set -eE
   fi
 elif id -u "$user" >/dev/null 2>&1; then
-  echo ""
-  echo -e "${DIM}${CHILD_MARK} User '$user' kept (use 'userdel -r $user' to remove manually)${NC}"
+  printf '\n'
+  printf "${DIM}%s User '%s' kept (use 'userdel -r %s' to remove manually)${NC}\n" "$CHILD_MARK" "$user" "$user"
 fi
 
 # Send telemetry at the end (using saved payload)
 if ((telemetry==1)) && [[ -n "$telemetry_payload" ]]; then
-  printf "\n"
+  printf '\n'
   send_telemetry uninstall "$telemetry_payload" || true
 fi
 
 # Final summary
-printf "\n"
-echo -e "${GRN}Uninstall complete. ✔${NC}"
-echo ""
-echo "Removed:"
-echo "  - Application: $APP_DIR"
-echo "  - Docker containers and volumes"
-[[ -n "$runner_images" ]] && echo "  - Runner images: $image_count images"
-(( data_removed == 1 )) && echo "  - Data: $DATA_DIR/"
+printf '\n'
+printf "${GRN}Uninstall complete. ✔${NC}\n"
+printf '\n'
+printf "Removed:\n"
+printf "  - Application: %s\n" "$APP_DIR"
+printf "  - Docker containers and volumes\n"
+[[ -n "$runner_images" ]] && printf "  - Runner images: %s images\n" "$image_count"
+(( data_removed == 1 )) && printf "  - Data: %s/\n" "$DATA_DIR"
 
 if [[ -d $DATA_DIR ]] || (( data_removed == 0 && yes_flag == 1 )) || id -u "$user" >/dev/null 2>&1; then
-  echo ""
-  echo "Kept (manual cleanup if needed):"
-  [[ -d $DATA_DIR ]] && echo "  - Data: $DATA_DIR/"
-  id -u "$user" >/dev/null 2>&1 && echo "  - User: $user"
+  printf '\n'
+  printf "Kept (manual cleanup if needed):\n"
+  [[ -d $DATA_DIR ]] && printf "  - Data: %s/\n" "$DATA_DIR"
+  id -u "$user" >/dev/null 2>&1 && printf "  - User: %s\n" "$user"
 fi
 
-echo ""
-echo "System packages not removed:"
-echo "  - Docker, git, jq, curl"
-echo "  - Security: UFW, fail2ban, SSH hardening"
+printf '\n'
+printf "System packages not removed:\n"
+printf "  - Docker, git, jq, curl\n"
+printf "  - Security: UFW, fail2ban, SSH hardening\n"
 
 # Remove systemd unit if present
 if systemctl list-unit-files | grep -q '^devpush.service'; then
-  echo ""
+  printf '\n'
   run_cmd_try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
   run_cmd_try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
   run_cmd_try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload

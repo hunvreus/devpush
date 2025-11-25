@@ -1,5 +1,5 @@
 [Unit]
-Description=devpush stack (via scripts/prod/*)
+Description=/dev/push stack
 After=docker.service network.target
 Wants=docker.service
 
@@ -7,9 +7,9 @@ Wants=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/devpush
-ExecStart=/opt/devpush/scripts/prod/start.sh
-ExecStop=/opt/devpush/scripts/prod/stop.sh --down
-ExecReload=/opt/devpush/scripts/prod/restart.sh
+ExecStart=/opt/devpush/scripts/start.sh
+ExecStop=/opt/devpush/scripts/stop.sh --down
+ExecReload=/opt/devpush/scripts/restart.sh --no-migrate
 TimeoutStartSec=600
 TimeoutStopSec=600
 

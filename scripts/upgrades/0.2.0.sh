@@ -7,7 +7,7 @@ DATA_DIR="/var/lib/devpush"
 LEGACY_DIR="/srv/devpush"
 USER_NAME="devpush"
 
-log(){ echo "$@"; }
+log(){ printf "%s\n" "$*"; }
 
 # Skip if no legacy directory
 if [[ ! -d "$LEGACY_DIR" ]]; then
@@ -21,7 +21,7 @@ if [[ ! -d "$DATA_DIR" ]]; then
 fi
 
 log "Stopping stack for migration..."
-sudo docker compose -p devpush -f "$APP_DIR/compose/base.yml" -f "$APP_DIR/compose/override.yml" down --remove-orphans || true
+sudo docker compose -p devpush -f "$APP_DIR/compose/run.yml" -f "$APP_DIR/compose/run.override.yml" down --remove-orphans || true
 sudo docker compose -p devpush -f "$APP_DIR/compose/setup.yml" down --remove-orphans || true
 
 log "Migrating data from $LEGACY_DIR to $DATA_DIR..."

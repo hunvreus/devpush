@@ -90,19 +90,23 @@
           {% if action.href %}
             <a
               href="{{ action.href }}"
-              class="btn-sm {{ action.attrs.class }}"
-              {% for key, value in action.attrs.items() %}
-                {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
-              {% endfor %}
+              class="btn-sm {{ action.attrs.class if action.attrs else '' }}"
+              {% if action.attrs %}
+                {% for key, value in action.attrs.items() %}
+                  {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
+                {% endfor %}
+              {% endif %}
               data-toast-action
             >{{ action.label }}</a>
           {% else %}
             <button
               type="button"
-              class="btn-sm {{ action.attrs.class }}"
-              {% for key, value in action.attrs.items() %}
-                {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
-              {% endfor %}
+              class="btn-sm {{ action.attrs.class if action.attrs else '' }}"
+                {% if action.attrs %}
+                {% for key, value in action.attrs.items() %}
+                  {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
+                {% endfor %}
+              {% endif %}
               data-toast-action
               {% if action.onclick %}onclick="{{ action.onclick }}"{% endif %}
             >{{ action.label }}</button>
@@ -111,10 +115,12 @@
         {% if cancel %}
           <button
             type="button"
-            class="btn-sm-outline {{ cancel.attrs.class }}"
-            {% for key, value in cancel.attrs.items() %}
-              {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
-            {% endfor %}
+            class="btn-sm-outline {{ cancel.attrs.class if cancel.attrs else '' }}"
+            {% if cancel.attrs %}
+              {% for key, value in cancel.attrs.items() %}
+                {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
+              {% endfor %}
+            {% endif %}
             data-toast-cancel
             {% if cancel.onclick %}onclick="{{ cancel.onclick }}"{% endif %}
           >{{ cancel.label }}</button>

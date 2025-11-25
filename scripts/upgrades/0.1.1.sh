@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 DATA_DIR="/var/lib/devpush"
 
-echo "Fixing $DATA_DIR permissions (root ownership)..."
+printf "Fixing %s permissions (root ownership)...\n" "$DATA_DIR"
 
 if [[ -d $DATA_DIR ]]; then
   sudo chown -R root:root $DATA_DIR 2>/dev/null || true

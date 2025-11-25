@@ -2,17 +2,17 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/update_apply_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
-source "$(dirname "$0")/lib.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; echo -e "${RED}Update-apply failed (exit $s)${NC}"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
+trap 's=$?; printf "%b\n" "${RED}Update-apply failed (exit $s)${NC}"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
 
 usage(){
   cat <<USG
-Usage: update-apply.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-pull] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update-apply.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
@@ -21,7 +21,6 @@ Apply a fetched update: validate, pull images, rollout, migrate, and record vers
   --all             Update app,worker-arq,worker-monitor,alloy
   --components CSV  Comma-separated list of services to update (e.g. app,loki,alloy)
   --full            Full stack update (down whole stack, then up). Causes downtime
-  --no-pull         Skip docker compose pull
   --no-migrate      Do not run DB migrations after app update
   --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
@@ -32,7 +31,8 @@ USG
   exit 0
 }
 
-ref=""; comps=""; do_all=0; do_full=0; pull=1; migrate=1; yes=0; skip_components=0; telemetry=1; ssl_provider="";
+# Parse CLI flags
+ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; skip_components=0; telemetry=1; ssl_provider="";
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,7 +41,6 @@ while [[ $# -gt 0 ]]; do
     --all) do_all=1; shift ;;
     --components) comps="$2"; shift 2 ;;
     --full) do_full=1; shift ;;
-    --no-pull) pull=0; shift ;;
     --no-migrate) migrate=0; shift ;;
     --no-telemetry) telemetry=0; shift ;;
     --ssl-provider) ssl_provider="$2"; shift 2 ;;
@@ -52,18 +51,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+ensure_compose_cmd
+
 cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Persist ssl_provider if passed
 if [[ -n "$ssl_provider" ]]; then persist_ssl_provider "$ssl_provider"; fi
 ssl_provider="${ssl_provider:-$(get_ssl_provider)}"
 
+# Validate environment variables
+validate_env "$ENV_FILE" "$ssl_provider"
+
 # Ensure acme.json exists with strict perms (in case update runs standalone)
 ensure_acme_json
 
-# Validate provider env and core environment variables
-validate_ssl_env "$ssl_provider" "$DATA_DIR/.env"
-validate_core_env "$DATA_DIR/.env"
+# Build compose arguments
+get_compose_base run "$ssl_provider"
 
 # Version comparison helpers
 ver_lt() {
@@ -80,7 +83,7 @@ ver_lte() {
 run_upgrade_hooks() {
   local current_ver="$1"
   local target_ver="$2"
-  local hooks_dir="${3:-$PWD/scripts/prod/upgrades}"
+  local hooks_dir="${3:-$PWD/scripts/upgrades}"
 
   [[ -d "$hooks_dir" ]] || return 0
 
@@ -101,51 +104,42 @@ run_upgrade_hooks() {
   local count=${#eligible[@]}
   ((count==0)) && return 0
 
-  printf "\n"
-  echo "Running ${count} upgrade(s)..."
+  printf '\n'
+  printf "Running %s upgrade(s)...\n" "$count"
 
   # Execute hooks
   for script in "${eligible[@]}"; do
     local hook_name
     hook_name=$(basename "$script")
     if ! run_cmd_try "${CHILD_MARK} Running $hook_name..." bash "$script"; then
-      echo -e "${YEL}Warning:${NC} Upgrade $hook_name failed (continuing update)"
+      printf "${YEL}Warning:${NC} Upgrade %s failed (continuing update)\n" "$hook_name"
     fi
   done
 }
 
 old_version=$(jq -r '.git_ref // empty' $DATA_DIR/version.json 2>/dev/null || true)
 if [[ -z "$old_version" ]]; then
-  printf "\n"
-  echo -e "${YEL}Warning:${NC} No version found in $DATA_DIR/version.json. Skipping upgrade hooks."
+  printf '\n'
+  printf "${YEL}Warning:${NC} No version found in %s. Skipping upgrade hooks.\n" "$DATA_DIR/version.json"
 elif [[ -z "$ref" ]]; then
-  printf "\n"
-  echo -e "${YEL}Warning:${NC} No target version specified. Skipping upgrade hooks."
+  printf '\n'
+  printf "${YEL}Warning:${NC} No target version specified. Skipping upgrade hooks.\n"
 else
-  run_upgrade_hooks "$old_version" "$ref" "$APP_DIR/scripts/prod/upgrades"
+  run_upgrade_hooks "$old_version" "$ref" "$APP_DIR/scripts/upgrades"
 fi
-
-# Compose files (keep parity with running stack)
-compose_args stack "$ssl_provider"
-args=("${COMPOSE_ARGS[@]}")
-env_flag=("${COMPOSE_ENV[@]}")
 
 # Full stack update helper (with downtime)
 full_update() {
-  printf "\n"
-  echo "Full stack update..."
-  if ((pull==1)); then
-    run_cmd "${CHILD_MARK} Building with --pull..." docker compose "${env_flag[@]}" "${args[@]}" build --pull
-  else
-    run_cmd "${CHILD_MARK} Building..." docker compose "${env_flag[@]}" "${args[@]}" build
-  fi
-  run_cmd "${CHILD_MARK} Stopping stack..." docker compose "${env_flag[@]}" "${args[@]}" down --remove-orphans
-  run_cmd "${CHILD_MARK} Starting stack..." docker compose "${env_flag[@]}" "${args[@]}" up -d --force-recreate --remove-orphans
+  printf '\n'
+  printf "Full stack update...\n"
+  run_cmd "${CHILD_MARK} Building..." "${COMPOSE_BASE[@]}" build
+  run_cmd "${CHILD_MARK} Stopping stack..." "${COMPOSE_BASE[@]}" down --remove-orphans
+  run_cmd "${CHILD_MARK} Starting stack..." "${COMPOSE_BASE[@]}" up -d --force-recreate --remove-orphans
   skip_components=1
   if ((migrate==1)); then
-    printf "\n"
-    echo "Applying migrations..."
-    run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh
+    printf '\n'
+    printf "Applying migrations...\n"
+    run_cmd "${CHILD_MARK} Running database migrations..." bash "$SCRIPT_DIR/db-migrate.sh"
   fi
 }
 
@@ -158,7 +152,7 @@ if ((do_full==1)); then
     exit 1
   fi
   if ((yes!=1)); then
-    echo -e "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur."
+    printf "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.\n"
     read -p "Proceed? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
   fi
@@ -173,14 +167,14 @@ elif [[ -z "$comps" ]]; then
     err "Non-interactive mode: specify --all, --components, or --full"
     exit 1
   fi
-  printf "\n"
-  echo "Select components to update:"
-  echo "1) app + workers + alloy (app, worker-arq, worker-monitor, alloy)"
-  echo "2) app"
-  echo "3) worker-arq"
-  echo "4) worker-monitor"
-  echo "5) alloy"
-  echo "6) Full stack (with downtime)"
+  printf '\n'
+  printf "Select components to update:\n"
+  printf "1) app + workers + alloy (app, worker-arq, worker-monitor, alloy)\n"
+  printf "2) app\n"
+  printf "3) worker-arq\n"
+  printf "4) worker-monitor\n"
+  printf "5) alloy\n"
+  printf "6) Full stack (with downtime)\n"
   read -r -p "Choice [1-6]: " ch
   ch="${ch//[^0-9]/}"
   case "$ch" in
@@ -190,14 +184,14 @@ elif [[ -z "$comps" ]]; then
     4) comps="worker-monitor" ;;
     5) comps="alloy" ;;
     6)
-      printf "\n"
-      echo -e "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur."
+      printf '\n'
+      printf "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.\n"
       read -r -p "Proceed with FULL stack update? [y/N]: " ans
       [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
       full_update
       ;;
     *)
-      echo "Invalid choice."
+      printf "Invalid choice.\n"
       exit 1
       ;;
   esac
@@ -212,39 +206,40 @@ blue_green_rollout() {
 
   local old_ids
   old_ids=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' || true)
-  local cur_cnt=$(echo "$old_ids" | wc -w)
+  local cur_cnt
+  cur_cnt=$(printf '%s\n' "$old_ids" | wc -w)
   local target=$((cur_cnt+1)); [[ $target -lt 1 ]] && target=1
   
-  run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." docker compose "${env_flag[@]}" "${args[@]}" up -d --scale "$service=$target" --no-recreate
+  run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." "${COMPOSE_BASE[@]}" up -d --scale "$service=$target" --no-recreate
 
   local new_id=""
   run_cmd "${CHILD_MARK} Detecting new container..." bash -c '
     old_ids="'"$old_ids"'"
     for _ in $(seq 1 60); do
       cur_ids=$(docker ps --filter "name=devpush-'"$service"'" --format "{{.ID}}" | tr " " "\n" | sort)
-      nid=$(comm -13 <(echo "$old_ids" | tr " " "\n" | sort) <(echo "$cur_ids"))
+      nid=$(comm -13 <(printf '%s\n' "$old_ids" | tr " " "\n" | sort) <(printf '%s\n' "$cur_ids"))
       if [[ -n "$nid" ]]; then
-        echo "$nid"
+        printf "%s\n" "$nid"
         exit 0
       fi
       sleep 2
     done
     exit 1'
-  new_id=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' | tr ' ' '\n' | sort | comm -13 <(echo "$old_ids" | tr ' ' '\n' | sort) -)
+  new_id=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' | tr ' ' '\n' | sort | comm -13 <(printf '%s\n' "$old_ids" | tr ' ' '\n' | sort) -)
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
-  echo -e "  ${DIM}${CHILD_MARK} Container ID: $new_id${NC}"
+  printf "  ${DIM}%s Container ID: %s${NC}\n" "$CHILD_MARK" "$new_id"
 
   run_cmd "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)..." bash -c '
     deadline=$(( $(date +%s) + '"$timeout_s"' ))
     while :; do
       if docker inspect '"$new_id"' --format "{{.State.Health}}" >/dev/null 2>&1; then
-        st=$(docker inspect '"$new_id"' --format "{{.State.Health.Status}}" 2>/dev/null || echo starting)
+        st=$(docker inspect '"$new_id"' --format "{{.State.Health.Status}}" 2>/dev/null || printf "starting")
         [[ "$st" == "healthy" ]] && exit 0
       else
-        st=$(docker inspect '"$new_id"' --format "{{.State.Status}}" 2>/dev/null || echo starting)
+        st=$(docker inspect '"$new_id"' --format "{{.State.Status}}" 2>/dev/null || printf "starting")
         [[ "$st" == "running" ]] && exit 0
       fi
-      [[ $(date +%s) -ge $deadline ]] && { echo "Timeout. Status: $st" >&2; exit 1; }
+      [[ $(date +%s) -ge $deadline ]] && { printf "Timeout. Status: %s\n" "$st" >&2; exit 1; }
       sleep 5
     done'
   
@@ -255,31 +250,27 @@ blue_green_rollout() {
         docker rm "$id" >/dev/null 2>&1 || true
       done'
     for id in $old_ids; do
-      echo -e "  ${DIM}${CHILD_MARK} Container ID: $id${NC}"
+      printf "  ${DIM}%s Container ID: %s${NC}\n" "$CHILD_MARK" "$id"
     done
   fi
 
-  run_cmd "${CHILD_MARK} Scaling to 1..." docker compose "${env_flag[@]}" "${args[@]}" up -d --scale "$service=1" --no-recreate
+  run_cmd "${CHILD_MARK} Scaling to 1..." "${COMPOSE_BASE[@]}" up -d --scale "$service=1" --no-recreate
 }
 
 # Build/pull then rollout per service
 rollout_service(){
   local s="$1"; local mode="$2"; local timeout_s="${3:-}"
-  printf "\n"
-  echo "Updating $s..."
+  printf '\n'
+  printf "Updating %s...\n" "$s"
   case "$s" in
     app|worker-arq|worker-monitor)
-      if ((pull==1)); then
-        run_cmd "${CHILD_MARK} Building image..." docker compose "${env_flag[@]}" "${args[@]}" build --pull "$s"
-      else
-        run_cmd "${CHILD_MARK} Building image..." docker compose "${env_flag[@]}" "${args[@]}" build "$s"
-      fi
+      run_cmd "${CHILD_MARK} Building image..." "${COMPOSE_BASE[@]}" build "$s"
       ;;
   esac
   if [[ "$mode" == "blue_green" ]]; then
     blue_green_rollout "$s" "$timeout_s"
   else
-    run_cmd "${CHILD_MARK} Recreating container..." docker compose "${env_flag[@]}" "${args[@]}" up -d --no-deps --force-recreate "$s"
+    run_cmd "${CHILD_MARK} Recreating container..." "${COMPOSE_BASE[@]}" up -d --no-deps --force-recreate "$s"
   fi
 }
 
@@ -290,7 +281,7 @@ if ((skip_components==0)); then
         rollout_service app blue_green
         ;;
       worker-arq)
-        timeout="$(read_env_value "$DATA_DIR/.env" JOB_COMPLETION_WAIT || true)"; : "${timeout:=300}"
+        timeout="$(read_env_value "$ENV_FILE" JOB_COMPLETION_WAIT || true)"; : "${timeout:=300}"
         rollout_service worker-arq blue_green "$timeout"
         ;;
       worker-monitor)
@@ -306,9 +297,9 @@ fi
 
 # Apply database migrations
 if ((skip_components==0)) && [[ "$comps" == *"app"* ]] && ((migrate==1)); then
-  printf "\n"
-  echo "Applying migrations..."
-  run_cmd "${CHILD_MARK} Running database migrations..." scripts/prod/db-migrate.sh
+  printf '\n'
+  printf "Applying migrations...\n"
+  run_cmd "${CHILD_MARK} Running database migrations..." bash "$SCRIPT_DIR/db-migrate.sh"
 fi
 
 # Update install metadata (version.json)
@@ -334,16 +325,17 @@ fi
 
 # Send telemetry
 if ((telemetry==1)); then
-  printf "\n"
+printf '\n'
   run_cmd "Sending telemetry..." send_telemetry update
 fi
 
 # Get public IP for display (automatically saved to config)
-public_ip=$(get_public_ip || echo "")
+public_ip=$(get_public_ip || printf '')
 
-printf "\n"
-echo -e "${GRN}Update complete (${old_version:-unknown} → ${ref}). ✔${NC}"
+# Success message
+printf '\n'
+printf "${GRN}Update complete (%s → %s). ✔${NC}\n" "${old_version:-unknown}" "$ref"
 if [[ -n "$public_ip" ]]; then
-  echo ""
-  echo "Your instance is accessible at: http://${public_ip}"
+  printf '\n'
+  printf "Your instance is accessible at: http://%s\n" "$public_ip"
 fi

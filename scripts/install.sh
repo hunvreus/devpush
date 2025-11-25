@@ -2,26 +2,27 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-: "${LIB_URL:=https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/prod/lib.sh}"
+: "${LIB_URL:=https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/lib.sh}"
 
-# Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/install_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Load lib.sh: prefer local; else try remote; else fail fast
-if [[ -f "$(dirname "$0")/lib.sh" ]]; then
-  source "$(dirname "$0")/lib.sh"
+if [[ -f "$SCRIPT_DIR/lib.sh" ]]; then
+  source "$SCRIPT_DIR/lib.sh"
 elif command -v curl >/dev/null 2>&1 && source <(curl -fsSL "$LIB_URL"); then
   :
 else
-  echo "Error: Unable to load lib.sh (tried local and remote). Try again or clone the repo manually." >&2
+  printf "Error: Unable to load lib.sh (tried local and remote). Try again or clone the repo manually.\n" >&2
   exit 1
 fi
 
 LOG=/var/log/devpush-install.log
 mkdir -p "$(dirname "$LOG")" || true
 exec > >(tee -a "$LOG") 2>&1
-trap 's=$?; err "Install failed (exit $s). See $LOG"; echo -e "${RED}Last command: $BASH_COMMAND${NC}"; echo -e "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || echo "No error details captured"; exit $s' ERR
+trap 's=$?; err "Install failed (exit $s). See $LOG"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
 
 usage() {
   cat <<USG
@@ -116,7 +117,7 @@ case "${ID_LIKE:-$ID}" in
 esac
 command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
 
-printf "\n"
+printf '\n'
 printf '\033[38;5;51m    ██╗██████╗ ███████╗██╗   ██╗   ██╗██████╗ ██╗   ██╗███████╗██╗  ██╗\033[0m\n'
 printf '\033[38;5;87m   ██╔╝██╔══██╗██╔════╝██║   ██║  ██╔╝██╔══██╗██║   ██║██╔════╝██║  ██║\033[0m\n'
 printf '\033[38;5;123m  ██╔╝ ██║  ██║█████╗  ██║   ██║ ██╔╝ ██████╔╝██║   ██║███████╗███████║\033[0m\n'
@@ -131,8 +132,8 @@ distro_version="${VERSION_ID:-unknown}"
 
 # Warn if ARM architecture
 if [[ "$arch" == "arm64" || "$arch" == "aarch64" ]]; then
-  printf "\n"
-  echo "${YEL}Warning:${NC} ARM64 detected. Support is experimental; some components may not work (e.g. logging). Use x86_64/AMD64 for production."
+  printf '\n'
+  printf "${YEL}Warning:${NC} ARM64 detected. Support is experimental; some components may not work (e.g. logging). Use x86_64/AMD64 for production.\n"
 fi
 
 # Detect existing install and prompt
@@ -140,28 +141,28 @@ summary() {
   if [[ -f "$DATA_DIR/version.json" ]]; then
     version_ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
     version_commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
-    echo -e "  - version.json in $DATA_DIR (ref: ${version_ref:-unknown})"
+    printf "  - version.json in %s (ref: %s)\n" "$DATA_DIR" "${version_ref:-unknown}"
   fi
   if [[ -d "$APP_DIR/.git" ]]; then
-    echo -e "  - repo at $APP_DIR"
-    [[ -f "$DATA_DIR/.env" ]] && echo -e "  - .env in $DATA_DIR"
+    printf "  - repo at %s\n" "$APP_DIR"
+    [[ -f "$DATA_DIR/.env" ]] && printf "  - .env in %s\n" "$DATA_DIR"
   fi
 }
 
 if [[ -f "$DATA_DIR/version.json" ]] || [[ -d "$APP_DIR/.git" ]]; then
-  echo ""
-  echo "Existing install detected:"
+  printf '\n'
+  printf "Existing install detected:\n"
   summary
   if (( yes_flag == 0 )); then
     if [[ -t 0 ]]; then
-      echo ""
+      printf '\n'
       read -r -p "Proceed with install anyway? [y/N] " ans
       if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-        echo "Aborted."
+        printf "Aborted.\n"
         exit 0
       fi
     else
-      echo ""
+      printf '\n'
       err "Re-run with --yes to proceed."
       exit 1
     fi
@@ -217,7 +218,7 @@ add_docker_repo() {
     esac
     curl -fsSL "$gpg_url" | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${repo_url} ${codename} stable" >/etc/apt/sources.list.d/docker.list
+    printf "deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] %s %s stable\n" "$arch" "$repo_url" "$codename" >/etc/apt/sources.list.d/docker.list
 }
 
 create_user() {
@@ -254,12 +255,12 @@ record_version() {
 }
 
 # Install base packages
-printf "\n"
+printf '\n'
 run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
-printf "\n"
-echo "Installing Docker..."
+printf '\n'
+printf "Installing Docker...\n"
 run_cmd "${CHILD_MARK} Adding Docker repository..." add_docker_repo
 run_cmd "${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
@@ -268,13 +269,13 @@ run_cmd "${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
 run_cmd "${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 
 # Create user
-printf "\n"
-echo "Preparing system user and data dirs..."
+printf '\n'
+printf "Preparing system user and data dirs...\n"
 if ! id -u "$user" >/dev/null 2>&1; then
     run_cmd "${CHILD_MARK} Creating user '${user}'..." create_user
 else
-    echo "${CHILD_MARK} Creating user '${user}'... ${YEL}⊘${NC}"
-    echo -e "  ${DIM}${CHILD_MARK} User already exists${NC}"
+    printf "%s Creating user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$user"
+    printf "  ${DIM}%s User already exists${NC}\n" "$CHILD_MARK"
 fi
 
 # Add data dirs
@@ -294,7 +295,7 @@ fi
 # Port conflicts warning
 if command -v ss >/dev/null 2>&1; then
   if conflicts=$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/'); [[ -n "${conflicts:-}" ]]; then
-    echo -e "${YEL}Warning:${NC} ports 80/443 are in use. Traefik may fail to start later."
+    printf "${YEL}Warning:${NC} ports 80/443 are in use. Traefik may fail to start later.\n"
   fi
 fi
 
@@ -303,8 +304,8 @@ run_cmd "${CHILD_MARK} Creating app directory..." install -d -m 0755 "$APP_DIR"
 run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$user" "$APP_DIR"
 
 # Get code from GitHub
-printf "\n"
-echo "Cloning repository..."
+printf '\n'
+printf "Cloning repository...\n"
 if [[ -d "$APP_DIR/.git" ]]; then
   # Repo exists, just fetch
   cmd_block="
@@ -330,74 +331,64 @@ run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$user" -- git -C "$APP_DI
 
 cd "$APP_DIR"
 
-# Build runners images
-printf "\n"
-if [[ -d docker/runner ]]; then
-  build_runners_cmd="
-    set -e
-    for df in \$(find docker/runner -name 'Dockerfile.*'); do
-      n=\$(basename "\$df" | sed 's/^Dockerfile\.//')
-      docker build -f "\$df" -t "runner-\$n" ./docker/runner
-    done
-  "
-  run_cmd "Building runner images..." runuser -u "$user" -- bash -lc "$build_runners_cmd"
-fi
+# Build runner images
+printf '\n'
+run_cmd "Building runner images..." runuser -u "$user" -- bash -lc "$APP_DIR/scripts/build-runners.sh"
 
 # Save install metadata (version.json)
-printf "\n"
+printf '\n'
 run_cmd "Recording install metadata..." record_version
 
 # Optional hardening (non-fatal) - run before telemetry
 if ((run_harden==1)); then
-  printf "\n"
+  printf '\n'
   set +e
-  run_cmd "Running server hardening..." bash "$APP_DIR/scripts/prod/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running server hardening..." bash "$APP_DIR/scripts/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr=$?
   set -e
   if [[ $hr -ne 0 ]]; then
-    echo -e "${YEL}Hardening skipped/failed. Install succeeded.${NC}"
+    printf "${YEL}Hardening skipped/failed. Install succeeded.${NC}\n"
   fi
 fi
 
 if ((run_harden_ssh==1)); then
-  printf "\n"
+  printf '\n'
   set +e
-  run_cmd "Running SSH hardening..." bash "$APP_DIR/scripts/prod/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}
+  run_cmd "Running SSH hardening..." bash "$APP_DIR/scripts/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}
   hr2=$?
   set -e
   if [[ $hr2 -ne 0 ]]; then
-    echo -e "${YEL}SSH hardening skipped/failed. Install succeeded.${NC}"
+    printf "${YEL}SSH hardening skipped/failed. Install succeeded.${NC}\n"
   fi
 fi
 
 # Send telemetry and retrieve public IP
 if ((telemetry==1)); then
-  printf "\n"
+  printf '\n'
   run_cmd "Sending telemetry..." send_telemetry install
 fi
 
-printf "\n"
-echo -e "${GRN}Install complete (version: ${ref}). ✔${NC}"
+printf '\n'
+printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
 
 # Install systemd unit and start in setup mode
-printf "\n"
-echo "Installing systemd unit..."
+printf '\n'
+printf "Installing systemd unit...\n"
 unit_path="/etc/systemd/system/devpush.service"
-install -m 0644 "$APP_DIR/scripts/prod/devpush.service" "$unit_path"
+install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
 systemctl daemon-reload
 systemctl enable devpush.service
-printf "\n"
-echo "Starting application (setup mode)..."
+printf '\n'
+printf "Starting application (setup mode)...\n"
 run_cmd "Starting via systemd..." systemctl start devpush.service
 
 # Show setup URL
 sip=$(get_public_ip 2>/dev/null || true)
-printf "\n"
+printf '\n'
 if [[ -z "$sip" ]]; then
-  echo -e "${YEL}Could not determine public IP; using localhost:${NC}"
+  printf "${YEL}Could not determine public IP; using localhost:${NC}\n"
   sip="127.0.0.1"
 fi
-echo -e "${GRN}Application started. Complete setup in your browser:${NC}"
-echo ""
-echo "  http://${sip}/setup"
-echo ""
+printf "${GRN}Application started. Complete setup in your browser:${NC}\n"
+printf '\n'
+printf "  http://%s/setup\n" "$sip"
