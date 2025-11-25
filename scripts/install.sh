@@ -2,12 +2,35 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-: "${LIB_URL:=https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/lib.sh}"
-
 SCRIPT_ERR_LOG="/tmp/install_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Parse --ref and --include-prerelease early to determine LIB_URL before loading lib.sh
+ref=""
+include_pre=0
+for i in $(seq 1 $(($# - 1))); do
+  if [[ "${!i}" == "--ref" ]]; then
+    ref="${!((i+1))}"
+  elif [[ "${!i}" == "--include-prerelease" ]]; then
+    include_pre=1
+  fi
+done
+
+# Resolve ref if not provided (latest tag, fallback to main)
+if [[ -z "$ref" ]]; then
+  repo="https://github.com/hunvreus/devpush.git"
+  if ((include_pre==1)); then
+    ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
+  else
+    ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+    [[ -n "$ref" ]] || ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
+  fi
+  [[ -n "$ref" ]] || ref="main"
+fi
+
+LIB_URL="https://raw.githubusercontent.com/hunvreus/devpush/${ref}/scripts/lib.sh"
 
 # Load lib.sh: prefer local; else try remote; else fail fast
 if [[ -f "$SCRIPT_DIR/lib.sh" ]]; then
@@ -43,7 +66,8 @@ USG
 }
 
 # Parse CLI flags
-repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
+repo="https://github.com/hunvreus/devpush.git"
+ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 TARGET_UID=1000
 TARGET_GID=1000
@@ -291,17 +315,6 @@ fi
 
 # Add data dirs
 run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$user" -g "$user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
-
-# Resolve ref (latest tag, fallback to main) if not provided via --ref
-if [[ -z "$ref" ]]; then
-  if ((include_pre==1)); then
-    ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
-  else
-    ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
-    [[ -n "$ref" ]] || ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
-  fi
-  [[ -n "$ref" ]] || ref="main"
-fi
 
 # Port conflicts warning
 if command -v ss >/dev/null 2>&1; then
