@@ -53,6 +53,12 @@ done
 
 ensure_compose_cmd
 
+# Guard: prevent running in development mode
+if [[ "$ENVIRONMENT" == "development" ]]; then
+  err "update-apply.sh is for production only. For development, simply pull code with git."
+  exit 1
+fi
+
 cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Persist ssl_provider if passed

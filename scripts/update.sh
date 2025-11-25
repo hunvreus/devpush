@@ -52,6 +52,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Guard: prevent running in development mode
+if [[ "$ENVIRONMENT" == "development" ]]; then
+  err "update.sh is for production only. For development, simply pull code with git."
+  exit 1
+fi
+
 cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Check for uncommitted changes

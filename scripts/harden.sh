@@ -42,6 +42,12 @@ done
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 2; }
 
+# Guard: prevent running in development mode
+if [[ "$ENVIRONMENT" == "development" ]]; then
+  err "harden.sh is for production only."
+  exit 1
+fi
+
 . /etc/os-release || { err "Unsupported OS"; exit 4; }
 case "${ID_LIKE:-$ID}" in
   *debian*|*ubuntu*) : ;;
