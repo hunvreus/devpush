@@ -37,7 +37,7 @@ get_compose_base run "$ssl_provider"
 app_container_ids=$(docker ps --filter "name=devpush-app" -q 2>/dev/null || true)
 if [[ -z "$app_container_ids" ]]; then
   err "App container is not running. Start the stack with scripts/start.sh first."
-  exit 1
+    exit 1
 fi
 
 # Read migration message
@@ -53,7 +53,7 @@ user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"
 user="${user:-devpush-app}"
 attempts=0
 until "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$user" >/dev/null 2>&1; do
-  sleep 2
+    sleep 2
   ((attempts++))
   if ((attempts>=30)); then
     err "Database not ready."

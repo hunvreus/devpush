@@ -10,10 +10,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Parse --ref and --include-prerelease early to determine LIB_URL before loading lib.sh
 ref=""
 include_pre=0
-for i in $(seq 1 $(($# - 1))); do
-  if [[ "${!i}" == "--ref" ]]; then
-    ref="${!((i+1))}"
-  elif [[ "${!i}" == "--include-prerelease" ]]; then
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+  arg="${args[i]}"
+  next="${args[i+1]:-}"
+  if [[ "$arg" == "--ref" && -n "$next" ]]; then
+    ref="$next"
+    ((i++))
+  elif [[ "$arg" == "--include-prerelease" ]]; then
     include_pre=1
   fi
 done

@@ -149,21 +149,21 @@ fi
 printf "${GRN}✔${NC}\n"
 
 run_cmd "${CHILD_MARK} Waiting for server to be ready..." bash -c '
-  for i in $(seq 1 60); do
+for i in $(seq 1 60); do
     status_json=$(curl -sS -H "Authorization: Bearer '"$token"'" "https://api.hetzner.cloud/v1/servers/'"$server_id"'")
     status=$(printf "%s\n" "$status_json" | jq -r ".server.status")
     if [ "$status" = "running" ]; then
       exit 0
     fi
     sleep 2
-  done
+done
   printf "Server did not become ready within 120 seconds\n" >&2
   exit 1
 '
 
 server_json=$(api_get servers/$server_id)
 server_ip=$(printf '%s\n' "$server_json" | jq -r '.server.public_net.ipv4.ip')
-
+  
 # Success message
 printf '\n'
 printf "${GRN}Server successfully created! ✔${NC}\n"

@@ -30,10 +30,10 @@ CMD_LOG="${TMPDIR:-/tmp}/devpush-cmd.$$.log"
 # Detect environment (production or development)
 ENVIRONMENT="${DEVPUSH_ENV:-}"
 if [[ -z "$ENVIRONMENT" ]]; then
-  if [[ -f /etc/systemd/system/devpush.service ]]; then
-    ENVIRONMENT="production"
-  else
+  if [[ "$(uname)" == "Darwin" ]]; then
     ENVIRONMENT="development"
+  else
+    ENVIRONMENT="production"
   fi
 fi
 
