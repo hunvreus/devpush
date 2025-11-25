@@ -36,8 +36,9 @@ cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Check what's actually running
 if ! is_stack_running; then
-  err "No running services to stop."
-  exit 1
+  printf '\n'
+  printf "${DIM}No running services to stop.${NC}\n"
+  exit 0
 fi
 
 # Detect what's running

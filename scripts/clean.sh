@@ -49,45 +49,35 @@ if ((yes_flag==0)); then
   [[ "$ans" =~ ^[Yy]$ ]] || { printf "Aborted.\n"; exit 0; }
 fi
 
-# Stop stacks (main and setup)
+# Clean up
 printf '\n'
-run_cmd "Stopping services..." bash "$SCRIPT_DIR/stop.sh"
-printf '\n'
-run_cmd "Stopping services (setup)..." bash "$SCRIPT_DIR/stop.sh" --setup || true
+printf "Cleaning up...\n"
 
-# Remove services with volumes
-printf '\n'
+run_cmd_try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh"
+
 ssl_provider="default"
 if [[ "$ENVIRONMENT" == "production" ]]; then
   ssl_provider="$(get_ssl_provider)"
 fi
+
 get_compose_base run "$ssl_provider"
-run_cmd "Removing volumes..." "${COMPOSE_BASE[@]}" down --remove-orphans --volumes || true
+run_cmd_try "${CHILD_MARK} Removing volumes (run stack)..." "${COMPOSE_BASE[@]}" down --remove-orphans --volumes
 
 get_compose_base setup
-run_cmd "Removing volumes (setup)..." "${COMPOSE_BASE[@]}" down --remove-orphans --volumes || true
+run_cmd_try "${CHILD_MARK} Removing volumes (setup stack)..." "${COMPOSE_BASE[@]}" down --remove-orphans --volumes
 
-# Remove known networks/volumes
-printf '\n'
-run_cmd "Removing networks..." bash -c 'docker network rm devpush_default devpush_internal >/dev/null 2>&1 || true'
-run_cmd "Removing named volumes..." bash -c 'docker volume rm devpush_devpush-db devpush_loki-data devpush_alloy-data >/dev/null 2>&1 || true'
+run_cmd_try "${CHILD_MARK} Removing networks and named volumes..." bash -c 'docker network rm devpush_default devpush_internal >/dev/null 2>&1 || true; docker volume rm devpush_devpush-db devpush_loki-data devpush_alloy-data >/dev/null 2>&1 || true'
 
-# Remove data dir
 if [[ "$ENVIRONMENT" == "development" ]]; then
-  printf '\n'
-  run_cmd "Removing data directory..." rm -rf "$DATA_DIR"
+  run_cmd "${CHILD_MARK} Removing data directory..." rm -rf "$DATA_DIR"
 else
-  printf '\n'
-  printf "${YEL}Skipping data directory removal in production (${DATA_DIR}).${NC}\n"
+  printf "${CHILD_MARK} Skipping data directory removal in production (${DATA_DIR})\n"
 fi
 
-# Hard prune if requested
 if ((hard==1)); then
-  printf '\n'
-  run_cmd "Stopping all containers..." bash -c 'docker ps -aq | xargs -r docker stop'
-  run_cmd "Removing all containers..." bash -c 'docker ps -aq | xargs -r docker rm'
-  run_cmd "Removing all images..." bash -c 'docker images -aq | xargs -r docker rmi -f'
+  run_cmd "${CHILD_MARK} Hard pruning Docker resources..." bash -c 'docker ps -aq | xargs -r docker stop; docker ps -aq | xargs -r docker rm; docker images -aq | xargs -r docker rmi -f'
 fi
 
+# Success message
 printf '\n'
-printf "${GRN}Clean complete.${NC}\n"
+printf "${GRN}Clean up complete. ✔${NC}\n"

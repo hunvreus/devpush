@@ -2,7 +2,6 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/uninstall_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
@@ -25,6 +24,7 @@ USG
   exit 0
 }
 
+# Parse CLI flags
 yes_flag=0; telemetry=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +37,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
+
+# Guard: prevent running in development mode
+if [[ "$ENVIRONMENT" == "development" ]]; then
+  err "uninstall.sh is for production only. For development, stop the stack with (scripts/stop.sh), uninstall dependencies and remove the app directory. More information: https://devpu.sh/docs/installation/#development"
+  exit 1
+fi
 
 # Guard: prevent running from directories that will be deleted
 cwd="$(pwd)"
@@ -93,23 +99,22 @@ if (( yes_flag == 0 )); then
     exit 0
   fi
 else
+  printf '\n'
   printf "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted.\n"
 fi
 
-# Stop services
+# Uninstall
 printf '\n'
+printf "Uninstalling /dev/push...\n"
+
 if systemctl list-unit-files | grep -q '^devpush.service'; then
-  run_cmd "Stopping services (systemd)..." systemctl stop devpush.service || true
+  run_cmd_try "${CHILD_MARK} Stopping services (systemd)..." systemctl stop devpush.service
 elif [[ -f "$APP_DIR/compose/run.yml" ]]; then
-  run_cmd "Stopping services..." bash "$SCRIPT_DIR/stop.sh" --down
+  run_cmd_try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh"
 else
-  printf "Stopping services... ${YEL}⊘${NC}\n"
+  printf "${CHILD_MARK} Stopping services... ${YEL}⊘${NC}\n"
   printf "${DIM}%s No compose/run.yml found${NC}\n" "$CHILD_MARK"
 fi
-
-# Remove application
-printf '\n'
-printf "Removing application...\n"
 
 if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
   set +e
@@ -117,14 +122,13 @@ if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
   set -e
 fi
 
-# Remove runner images
 set +e
 runner_images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^runner-' || true)
 if [[ -n "$runner_images" ]]; then
   image_count=$(printf '%s\n' "$runner_images" | wc -l | tr -d ' ')
   run_cmd_try "${CHILD_MARK} Removing runner images ($image_count found)..." bash -c 'printf "%s\n" "$1" | xargs docker rmi -f' _ "$runner_images"
 else
-  printf "%s Removing runner images... ${YEL}⊘${NC}\n" "$CHILD_MARK"
+  printf "${CHILD_MARK} Removing runner images... ${YEL}⊘${NC}\n"
   printf "${DIM}%s No runner images found${NC}\n" "$CHILD_MARK"
 fi
 set -e
@@ -134,7 +138,7 @@ data_removed=0
 if [[ -d $DATA_DIR ]]; then
   if (( yes_flag == 1 )); then
     set +e
-    run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"
+    run_cmd_try "${CHILD_MARK} Removing data directory..." rm -rf "$DATA_DIR"
     set -e
     data_removed=1
   else
@@ -142,12 +146,10 @@ if [[ -d $DATA_DIR ]]; then
     read -r -p "Remove data directory ($DATA_DIR/)? This will delete all uploaded files, certificates, and config. [y/N] " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
       set +e
-      printf '\n'
-      run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"
+      run_cmd_try "${CHILD_MARK} Removing data directory..." rm -rf "$DATA_DIR"
       set -e
       data_removed=1
     else
-      printf '\n'
       printf "${DIM}%s Data directory kept (use rm -rf %s to remove manually)${NC}\n" "$CHILD_MARK" "$DATA_DIR"
     fi
   fi
@@ -158,11 +160,9 @@ if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
   printf '\n'
   read -r -p "Remove user '$user' and home directory? This will delete all files in /home/$user/. [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
-    printf '\n'
     set +eE
     trap - ERR
-    if run_cmd_try "Removing user '$user'..." userdel -r "$user"; then
-      # Clean up sudoers file
+    if run_cmd_try "${CHILD_MARK} Removing user '$user'..." userdel -r "$user"; then
       [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
     else
       printf "${YEL}Warning:${NC} Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.\n" "$user"
@@ -171,8 +171,13 @@ if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
     set -eE
   fi
 elif id -u "$user" >/dev/null 2>&1; then
-  printf '\n'
   printf "${DIM}%s User '%s' kept (use 'userdel -r %s' to remove manually)${NC}\n" "$CHILD_MARK" "$user" "$user"
+fi
+
+if systemctl list-unit-files | grep -q '^devpush.service'; then
+  run_cmd_try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
+  run_cmd_try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
+  run_cmd_try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
 fi
 
 # Send telemetry at the end (using saved payload)
@@ -202,11 +207,3 @@ printf '\n'
 printf "System packages not removed:\n"
 printf "  - Docker, git, jq, curl\n"
 printf "  - Security: UFW, fail2ban, SSH hardening\n"
-
-# Remove systemd unit if present
-if systemctl list-unit-files | grep -q '^devpush.service'; then
-  printf '\n'
-  run_cmd_try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
-  run_cmd_try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
-  run_cmd_try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
-fi

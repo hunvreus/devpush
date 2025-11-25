@@ -31,39 +31,38 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   ssl_provider="$(get_ssl_provider)"
 fi
 
-# Build compose args
 get_compose_base run "$ssl_provider"
 
 # Check if app container is running
-printf '\n'
-printf "Checking running containers...\n"
 app_container_ids=$(docker ps --filter "name=devpush-app" -q 2>/dev/null || true)
 if [[ -z "$app_container_ids" ]]; then
   err "App container is not running. Start the stack with scripts/start.sh first."
+  exit 1
 fi
-
-# Wait for database to be ready
-printf "Waiting for database...\n"
-attempts=0
-user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"
-user="${user:-devpush-app}"
-until "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$user" >/dev/null 2>&1; do
-    sleep 2
-  ((attempts++))
-  if ((attempts>=30)); then
-    err "Database not ready."
-  fi
-done
 
 # Read migration message
 printf '\n'
 read -r -p "Migration message: " message
 [[ -n "$message" ]] || { err "Migration message is required."; }
 
-# Create new migration file
+# Generate migration
 printf '\n'
-run_cmd "Creating Alembic revision..." "${COMPOSE_BASE[@]}" exec -T app uv run alembic revision --autogenerate -m "$message"
+printf "Generating migration...\n"
+
+user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"
+user="${user:-devpush-app}"
+attempts=0
+until "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$user" >/dev/null 2>&1; do
+  sleep 2
+  ((attempts++))
+  if ((attempts>=30)); then
+    err "Database not ready."
+  fi
+done
+run_cmd "${CHILD_MARK} Waiting for database..." true
+
+run_cmd "${CHILD_MARK} Creating Alembic revision..." "${COMPOSE_BASE[@]}" exec -T app uv run alembic revision --autogenerate -m "$message"
 
 # Success message
 printf '\n'
-printf "${GRN}Migration created successfully.${NC}\n"
+printf "${GRN}Migration created successfully. ✔${NC}\n"

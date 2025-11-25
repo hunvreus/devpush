@@ -19,10 +19,7 @@ else
   exit 1
 fi
 
-LOG=/var/log/devpush-install.log
-mkdir -p "$(dirname "$LOG")" || true
-exec > >(tee -a "$LOG") 2>&1
-trap 's=$?; err "Install failed (exit $s). See $LOG"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+trap 's=$?; err "Install failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
 
 usage() {
   cat <<USG
@@ -45,6 +42,7 @@ USG
   exit 0
 }
 
+# Parse CLI flags
 repo="https://github.com/hunvreus/devpush.git"; ref=""; include_pre=0; ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 TARGET_UID=1000
@@ -107,6 +105,19 @@ preflight_checks() {
 }
 
 [[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
+
+# Guard: prevent running in development mode
+if [[ "$ENVIRONMENT" == "development" ]]; then
+  err "install.sh is for production only. For development, install dependencies and start the stack (scripts/start.sh). More information: https://devpu.sh/docs/installation/#development"
+  exit 1
+fi
+
+# Set up log file
+LOG=/var/log/devpush-install.log
+mkdir -p "$(dirname "$LOG")" || true
+exec > >(tee -a "$LOG") 2>&1
+trap 's=$?; err "Install failed (exit $s). See $LOG"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+
 preflight_checks
 
 # OS check (Debian/Ubuntu only)
