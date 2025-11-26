@@ -118,4 +118,4 @@ fi
 # Success message
 printf '\n'
 printf "${GRN}Stack started%s. ✔${NC}\n" "$mode_label"
-printf "${DIM}The app may take a little while to be ready.${NC}\n"
+printf "${DIM}The app may take a while to be ready.${NC}\n"

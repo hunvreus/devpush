@@ -62,15 +62,15 @@ user="devpush"
 version_ref=""
 telemetry_payload=""
 
-if [[ -f $DATA_DIR/version.json ]]; then
-  version_ref=$(jq -r '.git_ref // empty' $DATA_DIR/version.json 2>/dev/null || true)
+if [[ -f $VERSION_FILE ]]; then
+  version_ref=$(json_get git_ref "$VERSION_FILE" "")
   if ((telemetry==1)); then
-    telemetry_payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' $DATA_DIR/version.json 2>/dev/null || printf '')
+    telemetry_payload=$(jq -c --arg ev "uninstall" '. + {event: $ev}' "$VERSION_FILE" 2>/dev/null || printf '')
   fi
 fi
 
 # Check if anything is installed
-if [[ ! -f $DATA_DIR/version.json && ! -d $APP_DIR/.git ]]; then
+if [[ ! -f $VERSION_FILE && ! -d $APP_DIR/.git ]]; then
   printf '\n'
   printf "No /dev/push installation detected.\n"
   printf '\n'

@@ -209,6 +209,94 @@ read_env_value(){
   awk -F= -v k="$key" '$1==k{sub(/^[^=]*=/,""); print}' "$env_file" | sed 's/^"\|"$//g' | head -n1
 }
 
+# Get a value from a JSON file
+json_get() {
+  local expr="$1"
+  local file="$2"
+  local default="${3-}"
+
+  if [[ "${expr:0:1}" != "." && "$expr" != "@" ]]; then
+    expr=".$expr"
+  fi
+
+  if [[ ! -f "$file" ]]; then
+    if [[ $# -ge 3 ]]; then
+      printf "%s\n" "$default"
+      return 0
+    fi
+    return 1
+  fi
+
+  local value
+  value=$(jq -e -r "$expr // empty" "$file" 2>/dev/null || true)
+  if [[ -n "$value" ]]; then
+    printf "%s\n" "$value"
+    return 0
+  fi
+
+  if [[ $# -ge 3 ]]; then
+    printf "%s\n" "$default"
+    return 0
+  fi
+
+  return 1
+}
+
+# Update a JSON file
+json_upsert() {
+  local file="$1"
+  shift
+
+  if (( $# % 2 != 0 )); then
+    err "json_upsert expects key/value pairs"
+    return 1
+  fi
+
+  local dir tmp
+  dir="$(dirname "$file")"
+  install -d -m 0750 "$dir" >/dev/null 2>&1 || true
+  tmp="$file.tmp"
+
+  local jq_args=()
+  local filter='(. // {}) as $base | $base + {'
+  local first=1
+
+  while [[ $# -gt 0 ]]; do
+    local key="$1"
+    local value="$2"
+    shift 2
+
+    if (( first )); then
+      first=0
+    else
+      filter+=", "
+    fi
+
+    local arg_type="--arg"
+    local processed="$value"
+    if [[ "$value" =~ ^@json:(.*)$ ]]; then
+      arg_type="--argjson"
+      processed="${BASH_REMATCH[1]}"
+    elif [[ "$value" =~ ^-?[0-9]+$ || "$value" == "true" || "$value" == "false" ]]; then
+      arg_type="--argjson"
+    fi
+
+    jq_args+=("$arg_type" "$key" "$processed")
+    filter+="\"${key}\": \$${key}"
+  done
+
+  filter+='}'
+
+  if [[ -f "$file" ]]; then
+    jq "${jq_args[@]}" "$filter" "$file" | jq '.' >"$tmp"
+  else
+    jq -n "${jq_args[@]}" "$filter" | jq '.' >"$tmp"
+  fi
+
+  mv "$tmp" "$file"
+  chmod 0644 "$file" >/dev/null 2>&1 || true
+}
+
 # Validate environment variables
 validate_env(){
   local env_file="$1"
@@ -288,8 +376,7 @@ validate_env(){
 
 # Returns 0 when setup_complete flag is true
 is_setup_complete() {
-  [[ -f "$CONFIG_FILE" ]] || return 1
-  jq -e '.setup_complete == true' "$CONFIG_FILE" >/dev/null 2>&1
+  [[ "$(json_get setup_complete "$CONFIG_FILE" false)" == "true" ]]
 }
 
 # Service user (used for ownership + container UID/GID)
@@ -321,23 +408,38 @@ default_service_user() {
 
 # Ensure service UID/GID are set
 ensure_service_ids() {
-  local candidate="${SERVICE_USER:-}"
+  local config_user config_uid config_gid
+  config_user="$(json_get service_user "$CONFIG_FILE" "" || true)"
+  config_uid="$(json_get service_uid "$CONFIG_FILE" "" || true)"
+  config_gid="$(json_get service_gid "$CONFIG_FILE" "" || true)"
+
+  local candidate="${SERVICE_USER:-${DEVPUSH_SERVICE_USER:-}}"
+  if [[ -z "$candidate" && -n "$config_user" ]]; then
+    candidate="$config_user"
+  fi
   if [[ -z "$candidate" ]]; then
     candidate="$(default_service_user)"
   fi
 
   local uid="" gid=""
-  if id -u "$candidate" >/dev/null 2>&1; then
-    uid="$(id -u "$candidate")"
-    gid="$(id -g "$candidate")"
-  else
-    if [[ "$ENVIRONMENT" == "production" ]]; then
-      err "Service user '$candidate' not found. Has install.sh been run?"
-      exit 1
+  if [[ -n "$config_uid" && -n "$config_gid" && "$candidate" == "$config_user" ]]; then
+    uid="$config_uid"
+    gid="$config_gid"
+  fi
+
+  if [[ -z "$uid" || -z "$gid" ]]; then
+    if id -u "$candidate" >/dev/null 2>&1; then
+      uid="$(id -u "$candidate")"
+      gid="$(id -g "$candidate")"
+    else
+      if [[ "$ENVIRONMENT" == "production" ]]; then
+        err "Service user '$candidate' not found. Has install.sh been run?"
+        exit 1
+      fi
+      candidate="$(id -un)"
+      uid="$(id -u)"
+      gid="$(id -g)"
     fi
-    candidate="$(id -un)"
-    uid="$(id -u)"
-    gid="$(id -g)"
   fi
 
   SERVICE_USER="$candidate"
@@ -350,18 +452,18 @@ ensure_service_ids() {
 persist_service_ids() {
   local uid="$1"
   local gid="$2"
+  local user="$3"
 
   [[ -n "$uid" && -n "$gid" ]] || return 0
 
-  install -d -m 0750 "$DATA_DIR" >/dev/null 2>&1 || true
-  local tmp="$CONFIG_FILE.tmp"
-  if [[ -f "$CONFIG_FILE" ]]; then
-    jq --argjson uid "$uid" --argjson gid "$gid" '. + {service_uid: $uid, service_gid: $gid}' "$CONFIG_FILE" | jq '.' >"$tmp"
-  else
-    jq -n --argjson uid "$uid" --argjson gid "$gid" '{service_uid: $uid, service_gid: $gid}' >"$tmp"
+  if [[ -z "$user" ]]; then
+    user="$(default_service_user)"
   fi
-  mv "$tmp" "$CONFIG_FILE"
-  chmod 0644 "$CONFIG_FILE" >/dev/null 2>&1 || true
+
+  json_upsert "$CONFIG_FILE" \
+    service_user "$user" \
+    service_uid "@json:$uid" \
+    service_gid "@json:$gid"
 }
 
 # Resolve SSL provider from env/config/default
@@ -370,10 +472,11 @@ get_ssl_provider() {
     printf "%s\n" "$SSL_PROVIDER"
     return
   fi
-  if [[ -f "$CONFIG_FILE" ]]; then
-    local provider
-    provider=$(jq -r '.ssl_provider // empty' "$CONFIG_FILE" 2>/dev/null || true)
-    [[ -n "$provider" ]] && { printf "%s\n" "$provider"; return; }
+  local provider
+  provider="$(json_get ssl_provider "$CONFIG_FILE" "")"
+  if [[ -n "$provider" ]]; then
+    printf "%s\n" "$provider"
+    return
   fi
   printf "default\n"
 }
@@ -381,15 +484,7 @@ get_ssl_provider() {
 # Persist SSL provider choice to config.json
 persist_ssl_provider() {
   local provider="$1"
-  install -d -m 0750 "$DATA_DIR" >/dev/null 2>&1 || true
-  local tmp="$CONFIG_FILE.tmp"
-  if [[ -f "$CONFIG_FILE" ]]; then
-    jq --arg p "$provider" '. + {ssl_provider: $p}' "$CONFIG_FILE" | jq '.' >"$tmp"
-  else
-    jq -n --arg p "$provider" '{ssl_provider: $p}' >"$tmp"
-  fi
-  mv "$tmp" "$CONFIG_FILE"
-  chmod 0644 "$CONFIG_FILE" >/dev/null 2>&1 || true
+  json_upsert "$CONFIG_FILE" ssl_provider "$provider"
 }
 
 # Ensure traefik/acme.json exists with strict perms
@@ -534,14 +629,7 @@ get_public_ip() {
   fi
 
   if [[ -n "$ip" && $save -eq 1 ]]; then
-    install -d -m 0755 "$DATA_DIR" >/dev/null 2>&1 || true
-    if [[ -f "$CONFIG_FILE" ]]; then
-      jq --arg ip "$ip" '. + {public_ip: $ip}' "$CONFIG_FILE" | tee "$CONFIG_FILE.tmp" >/dev/null
-      mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
-    else
-      printf '{"public_ip":"%s"}\n' "$ip" > "$CONFIG_FILE"
-    fi
-    chmod 0644 "$CONFIG_FILE" >/dev/null 2>&1 || true
+    json_upsert "$CONFIG_FILE" public_ip "$ip"
   fi
 
   printf "%s\n" "$ip"

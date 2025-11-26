@@ -45,12 +45,7 @@ printf "Environment: %s\n" "$ENVIRONMENT"
 
 # Check setup status
 if [[ -f "$CONFIG_FILE" ]]; then
-  if command -v jq >/dev/null 2>&1; then
-    setup_complete="$(jq -r '.setup_complete // false' "$CONFIG_FILE" 2>/dev/null || echo "false")"
-  else
-    setup_complete="$(grep -o '"setup_complete"[[:space:]]*:[[:space:]]*true' "$CONFIG_FILE" >/dev/null 2>&1 && echo "true" || echo "false")"
-  fi
-  if [[ "$setup_complete" == "true" ]]; then
+  if [[ "$(json_get setup_complete "$CONFIG_FILE" false)" == "true" ]]; then
     printf "Setup complete: ${GRN}true${NC}\n"
   else
     printf "Setup complete: ${RED}false${NC}\n"

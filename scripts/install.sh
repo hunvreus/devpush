@@ -245,36 +245,23 @@ create_user() {
 }
 
 record_version() {
-  local commit ts install_id=""
+  local commit ts install_id
   commit=$(runuser -u "$user" -- git -C "$APP_DIR" rev-parse --verify HEAD)
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  install -d -o "$user" -g "$user" -m 0755 "$DATA_DIR"
-  if [[ -f "$DATA_DIR/version.json" ]]; then
-    install_id=$(jq -r '.install_id // empty' "$DATA_DIR/version.json" 2>/dev/null || true)
-  fi
+  install_id=$(json_get install_id "$VERSION_FILE" "")
   if [[ -z "$install_id" ]]; then
     install_id=$(cat /proc/sys/kernel/random/uuid)
   fi
-  jq -n \
-    --arg id "$install_id" \
-    --arg ref "$ref" \
-    --arg commit "$commit" \
-    --arg ts "$ts" \
-    --arg arch "$arch" \
-    --arg distro "$distro_id" \
-    --arg dv "$distro_version" \
-    '{
-      install_id: $id,
-      git_ref: $ref,
-      git_commit: $commit,
-      updated_at: $ts,
-      arch: $arch,
-      distro: $distro,
-      distro_version: $dv
-    }' > "$DATA_DIR/version.json.tmp"
-  mv "$DATA_DIR/version.json.tmp" "$DATA_DIR/version.json"
-  chown "$user:$user" "$DATA_DIR/version.json" || true
-  chmod 0644 "$DATA_DIR/version.json" || true
+  json_upsert "$VERSION_FILE" \
+    install_id "$install_id" \
+    git_ref "$ref" \
+    git_commit "$commit" \
+    updated_at "$ts" \
+    arch "$arch" \
+    distro "$distro_id" \
+    distro_version "$distro_version"
+  chown "$user:$user" "$VERSION_FILE" || true
+  chmod 0644 "$VERSION_FILE" || true
 }
 
 # Install base packages
@@ -307,7 +294,7 @@ service_gid="$(id -g "$user")"
 run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$user" -g "$user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
 
 # Persist service metadata
-persist_service_ids "$service_uid" "$service_gid"
+persist_service_ids "$service_uid" "$service_gid" "$user"
 
 # Persist SSL provider
 persist_ssl_provider "$ssl_provider"
@@ -415,5 +402,6 @@ if [ -z "$sip" ]; then
 fi
 
 printf "${GRN}Stack started. ✔${NC}\n"
-printf "${YEL}Visit this URL to complete setup: http://%s${NC}\n" "$sip"
-printf "${DIM}The app may take a little while to be ready.${NC}\n"
+printf "${DIM}The app may take a while to be ready.${NC}\n"
+printf '\n'
+printf "Visit this URL to complete the setup: http://%s\n" "$sip"

@@ -125,7 +125,7 @@ run_upgrade_hooks() {
   done
 }
 
-old_version=$(jq -r '.git_ref // empty' $DATA_DIR/version.json 2>/dev/null || true)
+old_version=$(json_get git_ref "$VERSION_FILE" "")
 if [[ -z "$old_version" ]]; then
   printf '\n'
   printf "${YEL}Warning:${NC} No version found in %s. Skipping upgrade hooks.\n" "$DATA_DIR/version.json"
@@ -318,19 +318,16 @@ if [[ -z "$ref" ]]; then
   [[ -n "$ref" ]] || ref=$(git rev-parse --short "$commit")
 fi
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-[[ -d $DATA_DIR ]] || install -d -m 0755 $DATA_DIR || true
-
-# Update version.json (preserve existing metadata, update git_ref/commit/timestamp)
-if test -f "$DATA_DIR/version.json"; then
-  jq --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
-    '. + {git_ref: $ref, git_commit: $commit, updated_at: $ts}' \
-    "$DATA_DIR/version.json" | jq '.' > "$DATA_DIR/version.json.tmp"
-  mv "$DATA_DIR/version.json.tmp" "$DATA_DIR/version.json"
-else
+install_id=$(json_get install_id "$VERSION_FILE" "")
+if [[ -z "$install_id" ]]; then
   install_id=$(cat /proc/sys/kernel/random/uuid)
-  jq -n --arg id "$install_id" --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
-    '{install_id: $id, git_ref: $ref, git_commit: $commit, updated_at: $ts}' > "$DATA_DIR/version.json"
 fi
+
+json_upsert "$VERSION_FILE" \
+  install_id "$install_id" \
+  git_ref "$ref" \
+  git_commit "$commit" \
+  updated_at "$ts"
 
 # Send telemetry
 if ((telemetry==1)); then
