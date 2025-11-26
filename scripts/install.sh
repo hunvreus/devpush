@@ -45,10 +45,10 @@ LIB_URL="https://raw.githubusercontent.com/hunvreus/devpush/${ref}/scripts/lib.s
 # Load lib.sh: prefer local; else try remote; else fail fast
 if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/lib.sh" ]]; then
   source "$SCRIPT_DIR/lib.sh"
-elif command -v curl >/dev/null 2>&1 && source <(curl -fsSL "$LIB_URL"); then
-  :
+elif command -v curl >/dev/null 2>&1; then
+  source <(curl -fsSL "$LIB_URL")
 else
-  printf "Error: Unable to load lib.sh (tried local and remote). Try again or clone the repo manually.\n" >&2
+  printf "Error: Unable to load lib.sh (tried local and remote). curl not found. Try again or clone the repo manually.\n" >&2
   exit 1
 fi
 
