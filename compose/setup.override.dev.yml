@@ -2,6 +2,9 @@ services:
   app:
     build:
       dockerfile: docker/Dockerfile.app.dev
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.app.dev.sh
     environment:
       ENV: development

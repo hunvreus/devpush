@@ -32,10 +32,8 @@
 
 **Privilege Model:**
 
-- `/var/lib/devpush`: Root-owned (0755), accessed via `sudo`
-- `/srv/devpush`: Owned by UID/GID 1000 (app container user)
-- Use `sudo` for all operations on `/var/lib/devpush`
-- Scripts work whether run as root (sudo is no-op) or devpush user (passwordless sudo via `/etc/sudoers.d/devpush`)
+- `/var/lib/devpush`: Owned by the `devpush` system user created during install (UID/GID stored as `service_uid/service_gid` in `config.json`)
+- Scripts work whether run as root or the `devpush` user; avoid `sudo` inside scripts unless they must run as root
 
 **File Operations:**
 

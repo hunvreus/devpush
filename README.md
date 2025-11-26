@@ -235,6 +235,8 @@ Variable | Comments | Default
 `APP_DIR` | Directory where the application code is stored. | `/opt/devpush`
 `UPLOAD_DIR` | Directory for file uploads. | `${DATA_DIR}/upload`
 `TRAEFIK_DIR` | Traefik configuration directory. | `${DATA_DIR}/traefik`
+`SERVICE_UID` | Numeric UID used inside containers; auto-set to match the host `devpush` user (or your local user in development). | _managed automatically_
+`SERVICE_GID` | Numeric GID used inside containers; auto-set alongside `SERVICE_UID`. | _managed automatically_
 `DEFAULT_CPU_QUOTA` | Default CPU quota for containers (microseconds). | `100000`
 `DEFAULT_MEMORY_MB` | Default memory limit for containers (MB). | `4096`
 `JOB_TIMEOUT` | Job timeout in seconds. | `320`

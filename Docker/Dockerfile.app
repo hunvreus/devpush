@@ -1,8 +1,11 @@
 FROM python:3.13-slim
 
+ARG APP_UID=1000
+ARG APP_GID=1000
+
 # Create non-root user
-RUN addgroup --gid 1000 appgroup \
-    && adduser  --uid 1000 --gid 1000 --system --home /app appuser
+RUN addgroup --gid "${APP_GID}" appgroup \
+    && adduser --uid "${APP_UID}" --gid "${APP_GID}" --system --home /app appuser
 
 # System dependencies
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*

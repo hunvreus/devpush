@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+[[ $EUID -eq 0 ]] || { printf "install.sh must be run as root (sudo).\n" >&2; exit 1; }
+
 SCRIPT_ERR_LOG="/tmp/install_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
@@ -77,10 +79,8 @@ USG
 
 # Parse CLI flags
 repo="https://github.com/hunvreus/devpush.git"
-ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider=""; yes_flag=0
+ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider="default"; yes_flag=0
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
-TARGET_UID=1000
-TARGET_GID=1000
 
 valid_ssl_providers="default|cloudflare|route53|gcloud|digitalocean|azure"
 
@@ -109,36 +109,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 user="devpush"
-
-# Set SSL provider: use --ssl-provider flag or default to "default"
-[[ -z "$ssl_provider" ]] && ssl_provider="default"
-persist_ssl_provider "$ssl_provider"
-
-preflight_checks() {
-  if id -u "$user" >/dev/null 2>&1; then
-    current_uid=$(id -u "$user"); current_gid=$(id -g "$user")
-    if [[ $current_uid -ne $TARGET_UID || $current_gid -ne $TARGET_GID ]]; then
-      err "User '$user' exists with uid/gid ${current_uid}:${current_gid} (expected ${TARGET_UID}:${TARGET_GID}). Fix or remove the user before installing."
-      exit 1
-    fi
-  else
-    if getent passwd "$TARGET_UID" >/dev/null 2>&1; then
-      err "UID $TARGET_UID already in use; free it or create '$user' with uid/gid ${TARGET_UID}:${TARGET_GID} manually before installing."
-      exit 1
-    fi
-    if getent group "$TARGET_GID" >/dev/null 2>&1; then
-      err "GID $TARGET_GID already in use; free it or create '$user' with gid $TARGET_GID manually before installing."
-      exit 1
-    fi
-  fi
-
-  if [[ -d "$APP_DIR/compose" || -f "$APP_DIR/docker-compose.yml" ]]; then
-    err "Detected existing files under $APP_DIR."
-    exit 1
-  fi
-}
-
-[[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 1; }
+service_uid=""
+service_gid=""
 
 # Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then
@@ -152,8 +124,6 @@ mkdir -p "$(dirname "$LOG")" || true
 exec > >(tee -a "$LOG") 2>&1
 trap 's=$?; err "Install failed (exit $s). See $LOG"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
 
-preflight_checks
-
 # OS check (Debian/Ubuntu only)
 . /etc/os-release || { err "Unsupported OS"; exit 1; }
 case "${ID_LIKE:-$ID}" in
@@ -163,23 +133,17 @@ esac
 command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
 
 printf '\n'
-printf '\033[38;5;51m    ██╗██████╗ ███████╗██╗   ██╗   ██╗██████╗ ██╗   ██╗███████╗██╗  ██╗\033[0m\n'
-printf '\033[38;5;87m   ██╔╝██╔══██╗██╔════╝██║   ██║  ██╔╝██╔══██╗██║   ██║██╔════╝██║  ██║\033[0m\n'
-printf '\033[38;5;123m  ██╔╝ ██║  ██║█████╗  ██║   ██║ ██╔╝ ██████╔╝██║   ██║███████╗███████║\033[0m\n'
-printf '\033[38;5;159m ██╔╝  ██║  ██║██╔══╝  ╚██╗ ██╔╝██╔╝  ██╔═══╝ ██║   ██║╚════██║██╔══██║\033[0m\n'
-printf '\033[38;5;195m██╔╝   ██████╔╝███████╗ ╚████╔╝██╔╝   ██║     ╚██████╔╝███████║██║  ██║\033[0m\n'
-printf '\033[38;5;225m╚═╝    ╚═════╝ ╚══════╝  ╚═══╝ ╚═╝    ╚═╝      ╚═════╝ ╚══════╝╚═╝  ╚═╝\033[0m\n'
+printf "\033[38;5;51m    ██╗██████╗ ███████╗██╗   ██╗   ██╗██████╗ ██╗   ██╗███████╗██╗  ██╗\033[0m\n"
+printf "\033[38;5;87m   ██╔╝██╔══██╗██╔════╝██║   ██║  ██╔╝██╔══██╗██║   ██║██╔════╝██║  ██║\033[0m\n"
+printf "\033[38;5;123m  ██╔╝ ██║  ██║█████╗  ██║   ██║ ██╔╝ ██████╔╝██║   ██║███████╗███████║\033[0m\n"
+printf "\033[38;5;159m ██╔╝  ██║  ██║██╔══╝  ╚██╗ ██╔╝██╔╝  ██╔═══╝ ██║   ██║╚════██║██╔══██║\033[0m\n"
+printf "\033[38;5;195m██╔╝   ██████╔╝███████╗ ╚████╔╝██╔╝   ██║     ╚██████╔╝███████║██║  ██║\033[0m\n"
+printf "\033[38;5;225m╚═╝    ╚═════╝ ╚══════╝  ╚═══╝ ╚═╝    ╚═╝      ╚═════╝ ╚══════╝╚═╝  ╚═╝\033[0m\n"
 
 # Detect system info for metadata
 arch="$(dpkg --print-architecture 2>/dev/null || uname -m)"
 distro_id="${ID:-unknown}"
 distro_version="${VERSION_ID:-unknown}"
-
-# Warn if ARM architecture
-if [[ "$arch" == "arm64" || "$arch" == "aarch64" ]]; then
-  printf '\n'
-  printf "${YEL}Warning:${NC} ARM64 detected. Support is experimental; some components may not work (e.g. logging). Use x86_64/AMD64 for production.\n"
-fi
 
 # Detect existing install and prompt
 summary() {
@@ -270,16 +234,7 @@ create_user() {
   if getent passwd "$user" >/dev/null 2>&1; then
     return 0
   fi
-  if getent passwd "$TARGET_UID" >/dev/null 2>&1; then
-    err "UID $TARGET_UID already in use; devpush must match container UID. Create the devpush user manually with uid/gid $TARGET_UID or free the UID and rerun."
-    exit 1
-  fi
-  if getent group "$TARGET_GID" >/dev/null 2>&1; then
-    err "GID $TARGET_GID already in use; devpush must match container GID. Create the devpush group manually with gid $TARGET_GID or free the GID and rerun."
-    exit 1
-  fi
-  groupadd -g "$TARGET_GID" "$user"
-  useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin --no-create-home --uid "$TARGET_UID" --gid "$TARGET_GID" "$user"
+  useradd --system --user-group --home "$DATA_DIR" --shell /usr/sbin/nologin --no-create-home "$user"
 }
 
 record_version() {
@@ -322,9 +277,17 @@ else
     printf "%s Creating user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$user"
     printf "  ${DIM}%s User already exists${NC}\n" "$CHILD_MARK"
 fi
+service_uid="$(id -u "$user")"
+service_gid="$(id -g "$user")"
 
 # Add data dirs
 run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$user" -g "$user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
+
+# Persist service metadata
+persist_service_ids "$service_uid" "$service_gid"
+
+# Persist SSL provider
+persist_ssl_provider "$ssl_provider"
 
 # Port conflicts warning
 if command -v ss >/dev/null 2>&1; then

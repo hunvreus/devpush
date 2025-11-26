@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# Capture stderr for error reporting
+[[ $EUID -eq 0 ]] || { printf "harden.sh must be run as root (sudo).\n" >&2; exit 2; }
+
 SCRIPT_ERR_LOG="/tmp/harden_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
@@ -39,8 +40,6 @@ while [[ $# -gt 0 ]]; do
     *) err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
-
-[[ $EUID -eq 0 ]] || { err "Run as root (sudo)."; exit 2; }
 
 # Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then

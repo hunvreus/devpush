@@ -3,6 +3,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.app
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.app.sh
     restart: always
     depends_on:
@@ -32,6 +35,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.app
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.worker-arq.sh
     restart: always
     stop_grace_period: ${JOB_TIMEOUT:-320}s
@@ -57,6 +63,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.app
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.worker-monitor.sh
     restart: always
     depends_on:

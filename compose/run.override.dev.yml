@@ -2,6 +2,9 @@ services:
   app:
     build:
       dockerfile: docker/Dockerfile.app.dev
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.app.dev.sh
     labels:
       - traefik.http.routers.app.entrypoints=web
@@ -13,6 +16,9 @@ services:
   worker-arq:
     build:
       dockerfile: docker/Dockerfile.app.dev
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.worker-arq.dev.sh
     volumes:
       - ${APP_DIR:-..}/app:/app
@@ -20,6 +26,9 @@ services:
   worker-monitor:
     build:
       dockerfile: docker/Dockerfile.app.dev
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.worker-monitor.dev.sh
     volumes:
       - ${APP_DIR:-..}/app:/app

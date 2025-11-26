@@ -3,6 +3,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.app
+      args:
+        APP_UID: ${SERVICE_UID:-1000}
+        APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.app.sh
     restart: always
     ports:

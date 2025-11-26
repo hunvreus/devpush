@@ -292,6 +292,78 @@ is_setup_complete() {
   jq -e '.setup_complete == true' "$CONFIG_FILE" >/dev/null 2>&1
 }
 
+# Service user (used for ownership + container UID/GID)
+SERVICE_USER="${DEVPUSH_SERVICE_USER:-}"
+SERVICE_UID="${SERVICE_UID:-}"
+SERVICE_GID="${SERVICE_GID:-}"
+
+# Determine default service user
+default_service_user() {
+  if [[ -n "$SERVICE_USER" ]]; then
+    printf "%s\n" "$SERVICE_USER"
+    return
+  fi
+  if [[ -n "${DEVPUSH_SERVICE_USER:-}" ]]; then
+    printf "%s\n" "$DEVPUSH_SERVICE_USER"
+    return
+  fi
+
+  if [[ "$ENVIRONMENT" == "production" ]]; then
+    printf "devpush\n"
+  else
+    if command -v id >/dev/null 2>&1; then
+      id -un
+    else
+      printf "%s\n" "${USER:-devpush}"
+    fi
+  fi
+}
+
+# Ensure service UID/GID are set
+ensure_service_ids() {
+  local candidate="${SERVICE_USER:-}"
+  if [[ -z "$candidate" ]]; then
+    candidate="$(default_service_user)"
+  fi
+
+  local uid="" gid=""
+  if id -u "$candidate" >/dev/null 2>&1; then
+    uid="$(id -u "$candidate")"
+    gid="$(id -g "$candidate")"
+  else
+    if [[ "$ENVIRONMENT" == "production" ]]; then
+      err "Service user '$candidate' not found. Has install.sh been run?"
+      exit 1
+    fi
+    candidate="$(id -un)"
+    uid="$(id -u)"
+    gid="$(id -g)"
+  fi
+
+  SERVICE_USER="$candidate"
+  SERVICE_UID="$uid"
+  SERVICE_GID="$gid"
+  export SERVICE_USER SERVICE_UID SERVICE_GID
+}
+
+# Persist service UID/GID to config.json
+persist_service_ids() {
+  local uid="$1"
+  local gid="$2"
+
+  [[ -n "$uid" && -n "$gid" ]] || return 0
+
+  install -d -m 0750 "$DATA_DIR" >/dev/null 2>&1 || true
+  local tmp="$CONFIG_FILE.tmp"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    jq --argjson uid "$uid" --argjson gid "$gid" '. + {service_uid: $uid, service_gid: $gid}' "$CONFIG_FILE" >"$tmp"
+  else
+    printf '{"service_uid":%s,"service_gid":%s}\n' "$uid" "$gid" >"$tmp"
+  fi
+  mv "$tmp" "$CONFIG_FILE"
+  chmod 0644 "$CONFIG_FILE" >/dev/null 2>&1 || true
+}
+
 # Resolve SSL provider from env/config/default
 get_ssl_provider() {
   if [[ -n "${SSL_PROVIDER:-}" ]]; then
@@ -309,7 +381,7 @@ get_ssl_provider() {
 # Persist SSL provider choice to config.json
 persist_ssl_provider() {
   local provider="$1"
-  install -d -m 0755 "$DATA_DIR" >/dev/null 2>&1 || true
+  install -d -m 0750 "$DATA_DIR" >/dev/null 2>&1 || true
   if [[ -f "$CONFIG_FILE" ]]; then
     jq --arg p "$provider" '. + {ssl_provider: $p}' "$CONFIG_FILE" | tee "$CONFIG_FILE.tmp" >/dev/null
     mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
@@ -392,6 +464,7 @@ get_compose_base() {
   local mode="${1:-run}"
   local ssl="${2:-default}"
 
+  ensure_service_ids
   ensure_compose_cmd
   compose_args "$mode" "$ssl"
   COMPOSE_BASE=("${COMPOSE_BIN[@]}")
