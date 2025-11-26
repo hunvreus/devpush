@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+[[ $EUID -eq 0 ]] || { printf "update.sh must be run as root (sudo).\n" >&2; exit 1; }
+
 # Capture stderr for error reporting
 SCRIPT_ERR_LOG="/tmp/update_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)

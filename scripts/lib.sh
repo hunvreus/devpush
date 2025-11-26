@@ -356,9 +356,9 @@ persist_service_ids() {
   install -d -m 0750 "$DATA_DIR" >/dev/null 2>&1 || true
   local tmp="$CONFIG_FILE.tmp"
   if [[ -f "$CONFIG_FILE" ]]; then
-    jq --argjson uid "$uid" --argjson gid "$gid" '. + {service_uid: $uid, service_gid: $gid}' "$CONFIG_FILE" >"$tmp"
+    jq --argjson uid "$uid" --argjson gid "$gid" '. + {service_uid: $uid, service_gid: $gid}' "$CONFIG_FILE" | jq '.' >"$tmp"
   else
-    printf '{"service_uid":%s,"service_gid":%s}\n' "$uid" "$gid" >"$tmp"
+    jq -n --argjson uid "$uid" --argjson gid "$gid" '{service_uid: $uid, service_gid: $gid}' >"$tmp"
   fi
   mv "$tmp" "$CONFIG_FILE"
   chmod 0644 "$CONFIG_FILE" >/dev/null 2>&1 || true
@@ -382,12 +382,13 @@ get_ssl_provider() {
 persist_ssl_provider() {
   local provider="$1"
   install -d -m 0750 "$DATA_DIR" >/dev/null 2>&1 || true
+  local tmp="$CONFIG_FILE.tmp"
   if [[ -f "$CONFIG_FILE" ]]; then
-    jq --arg p "$provider" '. + {ssl_provider: $p}' "$CONFIG_FILE" | tee "$CONFIG_FILE.tmp" >/dev/null
-    mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+    jq --arg p "$provider" '. + {ssl_provider: $p}' "$CONFIG_FILE" | jq '.' >"$tmp"
   else
-    printf '{"ssl_provider":"%s"}\n' "$provider" > "$CONFIG_FILE"
+    jq -n --arg p "$provider" '{ssl_provider: $p}' >"$tmp"
   fi
+  mv "$tmp" "$CONFIG_FILE"
   chmod 0644 "$CONFIG_FILE" >/dev/null 2>&1 || true
 }
 
@@ -550,6 +551,7 @@ get_public_ip() {
 send_telemetry() {
   local event="$1"
   local payload="${2:-}"
+  local endpoint="https://api.devpu.sh/v1/telemetry"
 
   if [[ -z "$payload" ]]; then
     [[ -f "$VERSION_FILE" ]] || return 0
@@ -558,9 +560,12 @@ send_telemetry() {
   fi
 
   for attempt in 1 2 3; do
-    if curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" https://api.devpu.sh/v1/telemetry >/dev/null 2>&1; then
+    if curl -fsSL -X POST -H 'Content-Type: application/json' -d "$payload" "$endpoint" >/tmp/devpush_telemetry.log 2>&1; then
+      printf "Telemetry attempt %s succeeded.\n" "$attempt"
+      rm -f /tmp/devpush_telemetry.log
       return 0
     fi
+    cat /tmp/devpush_telemetry.log 2>/dev/null || true
     [[ $attempt -lt 3 ]] && sleep 1
   done
 

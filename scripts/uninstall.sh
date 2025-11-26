@@ -98,9 +98,6 @@ if (( yes_flag == 0 )); then
     printf "Aborted.\n"
     exit 0
   fi
-else
-  printf '\n'
-  printf "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted.\n"
 fi
 
 # Uninstall
@@ -171,7 +168,8 @@ if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
     set -eE
   fi
 elif id -u "$user" >/dev/null 2>&1; then
-  printf "${DIM}%s User '%s' kept (use 'userdel -r %s' to remove manually)${NC}\n" "$CHILD_MARK" "$user" "$user"
+  printf "%s Removing user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$user"
+  printf "  ${DIM}%s User '%s' kept (use 'userdel -r %s' to remove manually)${NC}\n" "$CHILD_MARK" "$user" "$user"
 fi
 
 if systemctl list-unit-files | grep -q '^devpush.service'; then
@@ -180,10 +178,12 @@ if systemctl list-unit-files | grep -q '^devpush.service'; then
   run_cmd_try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
 fi
 
-# Send telemetry at the end (using saved payload)
+# Send telemetry
 if ((telemetry==1)) && [[ -n "$telemetry_payload" ]]; then
   printf '\n'
-  send_telemetry uninstall "$telemetry_payload" || true
+  if ! run_cmd_try "Sending telemetry..." send_telemetry uninstall "$telemetry_payload"; then
+    printf "  ${DIM}%s Telemetry failed (non-fatal). Continuing uninstall.${NC}\n" "$CHILD_MARK"
+  fi
 fi
 
 # Final summary

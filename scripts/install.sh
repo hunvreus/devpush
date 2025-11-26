@@ -147,7 +147,7 @@ if ((${#existing_summary[@]})); then
   printf '\n'
   printf "Existing install detected:\n"
   for line in "${existing_summary[@]}"; do
-    printf "${CHILD_MARK} %s\n" "$line"
+    printf "  - %s\n" "$line"
   done
   if (( yes_flag == 0 )); then
     printf "Run scripts/uninstall.sh or re-run this installer with --yes to overwrite.\n"
@@ -171,10 +171,10 @@ distro_version="${VERSION_ID:-unknown}"
 # Show summary of what we're installing
 printf '\n'
 printf "Installing /dev/push:\n"
-printf "${CHILD_MARK} Repo: %s\n" "$repo"
-printf "${CHILD_MARK} Ref/Version: %s\n" "$ref"
-printf "${CHILD_MARK} OS: %s %s\n" "$ID" "$VERSION_ID"
-printf "${CHILD_MARK} Architecture: %s\n" "$arch"
+printf "  - Repo         : %s\n" "$repo"
+printf "  - Ref/Version  : %s\n" "$ref"
+printf "  - OS           : %s %s\n" "$distro_id" "$distro_version"
+printf "  - Architecture : %s\n" "$arch"
 
 # Banner
 printf '\n'
@@ -245,20 +245,36 @@ create_user() {
 }
 
 record_version() {
-    local commit ts install_id
-    commit=$(runuser -u "$user" -- git -C "$APP_DIR" rev-parse --verify HEAD)
-    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    install -d -o "$user" -g "$user" -m 0755 "$DATA_DIR"
-    if [[ ! -f "$DATA_DIR/version.json" ]]; then
-        install_id=$(cat /proc/sys/kernel/random/uuid)
-        runuser -u "$user" -- bash -c "printf '{\"install_id\":\"%s\",\"git_ref\":\"%s\",\"git_commit\":\"%s\",\"updated_at\":\"%s\",\"arch\":\"%s\",\"distro\":\"%s\",\"distro_version\":\"%s\"}\n' \"$install_id\" \"${ref}\" \"$commit\" \"$ts\" \"$arch\" \"$distro_id\" \"$distro_version\" > \"$DATA_DIR/version.json.tmp\" && mv \"$DATA_DIR/version.json.tmp\" \"$DATA_DIR/version.json\""
-    else
-        install_id=$(jq -r '.install_id // empty' "$DATA_DIR/version.json" 2>/dev/null || true)
-        [[ -n "$install_id" ]] || install_id=$(cat /proc/sys/kernel/random/uuid)
-        runuser -u "$user" -- bash -c "jq --arg id \"$install_id\" --arg ref \"${ref}\" --arg commit \"$commit\" --arg ts \"$ts\" --arg arch \"$arch\" --arg distro \"$distro_id\" --arg distro_version \"$distro_version\" '. + {install_id: \$id, git_ref: \$ref, git_commit: \$commit, updated_at: \$ts, arch: \$arch, distro: \$distro, distro_version: \$distro_version}' \"$DATA_DIR/version.json\" > \"$DATA_DIR/version.json.tmp\" && mv \"$DATA_DIR/version.json.tmp\" \"$DATA_DIR/version.json\""
-    fi
-    chown "$user:$user" "$DATA_DIR/version.json" || true
-    chmod 0644 "$DATA_DIR/version.json" || true
+  local commit ts install_id=""
+  commit=$(runuser -u "$user" -- git -C "$APP_DIR" rev-parse --verify HEAD)
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  install -d -o "$user" -g "$user" -m 0755 "$DATA_DIR"
+  if [[ -f "$DATA_DIR/version.json" ]]; then
+    install_id=$(jq -r '.install_id // empty' "$DATA_DIR/version.json" 2>/dev/null || true)
+  fi
+  if [[ -z "$install_id" ]]; then
+    install_id=$(cat /proc/sys/kernel/random/uuid)
+  fi
+  jq -n \
+    --arg id "$install_id" \
+    --arg ref "$ref" \
+    --arg commit "$commit" \
+    --arg ts "$ts" \
+    --arg arch "$arch" \
+    --arg distro "$distro_id" \
+    --arg dv "$distro_version" \
+    '{
+      install_id: $id,
+      git_ref: $ref,
+      git_commit: $commit,
+      updated_at: $ts,
+      arch: $arch,
+      distro: $distro,
+      distro_version: $dv
+    }' > "$DATA_DIR/version.json.tmp"
+  mv "$DATA_DIR/version.json.tmp" "$DATA_DIR/version.json"
+  chown "$user:$user" "$DATA_DIR/version.json" || true
+  chmod 0644 "$DATA_DIR/version.json" || true
 }
 
 # Install base packages
@@ -337,7 +353,7 @@ cd "$APP_DIR"
 
 # Build runner images
 printf '\n'
-run_cmd "Building runner images..." runuser -u "$user" -- bash -lc "$APP_DIR/scripts/build-runners.sh"
+run_cmd "Building runner images..." bash "$APP_DIR/scripts/build-runners.sh"
 
 # Save install metadata (version.json)
 printf '\n'
@@ -366,16 +382,13 @@ if ((run_harden_ssh==1)); then
   fi
 fi
 
-# Send telemetry and retrieve public IP
+# Send telemetry
 if ((telemetry==1)); then
   printf '\n'
   if ! run_cmd_try "Sending telemetry..." send_telemetry install; then
-    printf "${YEL}Telemetry failed (non-fatal). Continuing install.${NC}\n"
+    printf "  ${DIM}%s Telemetry failed (non-fatal). Continuing install.${NC}\n" "$CHILD_MARK"
   fi
 fi
-
-printf '\n'
-printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
 
 # Install systemd unit and start in setup mode
 printf '\n'
@@ -384,17 +397,23 @@ unit_path="/etc/systemd/system/devpush.service"
 install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
 systemctl daemon-reload
 systemctl enable devpush.service
+
+# Success message
 printf '\n'
-printf "Starting application (setup mode)...\n"
-run_cmd "Starting via systemd..." systemctl start devpush.service
+printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
+
+# Start stack
+printf '\n'
+run_cmd "Starting stack..." systemctl start devpush.service
 
 # Show setup URL
 sip=$(get_public_ip 2>/dev/null || true)
 printf '\n'
-if [[ -z "$sip" ]]; then
+if [ -z "$sip" ]; then
   printf "${YEL}Could not determine public IP; using localhost:${NC}\n"
   sip="127.0.0.1"
 fi
-printf "${GRN}Application started. Complete setup in your browser:${NC}\n"
-printf '\n'
-printf "  http://%s/setup\n" "$sip"
+
+printf "${GRN}Stack started. ✔${NC}\n"
+printf "${YEL}Visit this URL to complete setup: http://%s${NC}\n" "$sip"
+printf "${DIM}The app may take a little while to be ready.${NC}\n"

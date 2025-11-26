@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+[[ $EUID -eq 0 ]] || { printf "update-apply.sh must be run as root (sudo).\n" >&2; exit 1; }
+
 SCRIPT_ERR_LOG="/tmp/update_apply_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
@@ -319,14 +321,15 @@ ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 [[ -d $DATA_DIR ]] || install -d -m 0755 $DATA_DIR || true
 
 # Update version.json (preserve existing metadata, update git_ref/commit/timestamp)
-if test -f $DATA_DIR/version.json; then
+if test -f "$DATA_DIR/version.json"; then
   jq --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
     '. + {git_ref: $ref, git_commit: $commit, updated_at: $ts}' \
-    $DATA_DIR/version.json | tee $DATA_DIR/version.json.tmp >/dev/null
-  mv $DATA_DIR/version.json.tmp $DATA_DIR/version.json
+    "$DATA_DIR/version.json" | jq '.' > "$DATA_DIR/version.json.tmp"
+  mv "$DATA_DIR/version.json.tmp" "$DATA_DIR/version.json"
 else
   install_id=$(cat /proc/sys/kernel/random/uuid)
-  printf '{"install_id":"%s","git_ref":"%s","git_commit":"%s","updated_at":"%s"}\n' "$install_id" "$ref" "$commit" "$ts" | tee $DATA_DIR/version.json >/dev/null
+  jq -n --arg id "$install_id" --arg ref "$ref" --arg commit "$commit" --arg ts "$ts" \
+    '{install_id: $id, git_ref: $ref, git_commit: $commit, updated_at: $ts}' > "$DATA_DIR/version.json"
 fi
 
 # Send telemetry
