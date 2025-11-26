@@ -5,7 +5,13 @@ IFS=$'\n\t'
 SCRIPT_ERR_LOG="/tmp/install_error.log"
 exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+if [[ -z "$SCRIPT_PATH" || "$SCRIPT_PATH" == "-" ]]; then
+  # Piped execution
+  SCRIPT_DIR="$(pwd)"
+else
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+fi
 
 # Parse --ref and --include-prerelease early to determine LIB_URL before loading lib.sh
 ref=""
@@ -37,7 +43,7 @@ fi
 LIB_URL="https://raw.githubusercontent.com/hunvreus/devpush/${ref}/scripts/lib.sh"
 
 # Load lib.sh: prefer local; else try remote; else fail fast
-if [[ -f "$SCRIPT_DIR/lib.sh" ]]; then
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/lib.sh" ]]; then
   source "$SCRIPT_DIR/lib.sh"
 elif command -v curl >/dev/null 2>&1 && source <(curl -fsSL "$LIB_URL"); then
   :
