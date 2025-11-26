@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
+# Require root early for consistent permissions
 [[ $EUID -eq 0 ]] || { printf "install.sh must be run as root (sudo).\n" >&2; exit 1; }
 
 SCRIPT_ERR_LOG="/tmp/install_error.log"
@@ -15,40 +16,44 @@ else
   SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 fi
 
-# Parse --ref and --include-prerelease early to determine LIB_URL before loading lib.sh
+# Resolve desired git ref (flag wins; otherwise auto-detect latest release tag)
 ref=""
-include_pre=0
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
   arg="${args[i]}"
   next="${args[i+1]:-}"
   if [[ "$arg" == "--ref" && -n "$next" ]]; then
     ref="$next"
-    ((i++))
-  elif [[ "$arg" == "--include-prerelease" ]]; then
-    include_pre=1
+    ((i+=1))
   fi
 done
 
-# Resolve ref if not provided (latest tag, fallback to main)
 if [[ -z "$ref" ]]; then
   repo="https://github.com/hunvreus/devpush.git"
-  if ((include_pre==1)); then
-    ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
-  else
-    ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
-    [[ -n "$ref" ]] || ref="$(git ls-remote --tags --refs "$repo" 2>/dev/null | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
+  if ! refs_output="$(git ls-remote --tags --refs "$repo" 2>&1)"; then
+    printf "Error: git ls-remote failed while resolving latest release (output below)\n%s\n" "$refs_output"
+    exit 1
   fi
-  [[ -n "$ref" ]] || ref="main"
+  ref="$(printf "%s\n" "$refs_output" | awk -F/ '{print $3}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+  if [[ -z "$ref" ]]; then
+    ref="$(printf "%s\n" "$refs_output" | awk -F/ '{print $3}' | sort -V | tail -1 || true)"
+  fi
+  if [[ -z "$ref" ]]; then
+    ref="main"
+  fi
 fi
 
 LIB_URL="https://raw.githubusercontent.com/hunvreus/devpush/${ref}/scripts/lib.sh"
 
-# Load lib.sh: prefer local; else try remote; else fail fast
+# Load lib.sh: prefer local copy; otherwise fetch from the resolved ref
 if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/lib.sh" ]]; then
   source "$SCRIPT_DIR/lib.sh"
 elif command -v curl >/dev/null 2>&1; then
-  source <(curl -fsSL "$LIB_URL")
+  if ! curl -fsSL "$LIB_URL" -o /tmp/devpush_lib.sh; then
+    printf "Error: Unable to load lib.sh from %s\n" "$LIB_URL" >&2
+    exit 1
+  fi
+  source /tmp/devpush_lib.sh
 else
   printf "Error: Unable to load lib.sh (tried local and remote). curl not found. Try again or clone the repo manually.\n" >&2
   exit 1
@@ -58,13 +63,12 @@ trap 's=$?; err "Install failed (exit $s)"; printf "%b\n" "${RED}Last command: $
 
 usage() {
   cat <<USG
-Usage: install.sh [--repo <url>] [--ref <tag>] [--include-prerelease] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--yes] [--no-telemetry] [--ssl-provider <name>] [--verbose]
+Usage: install.sh [--repo <url>] [--ref <ref>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--yes] [--no-telemetry] [--ssl-provider <name>] [--verbose]
 
 Install and configure /dev/push on a server (Docker, user, repo, .env).
 
   --repo URL             Git repo to clone (default: https://github.com/hunvreus/devpush.git)
-  --ref TAG              Git tag/branch to install (default: latest stable tag, fallback to main)
-  --include-prerelease   Allow beta/rc tags when selecting latest
+  --ref REF              Git ref (branch/tag/commit) to install (default: latest stable tag)
   --ssh-pub KEY|PATH     Public key content or file to seed authorized_keys for the user
   --harden               Run system hardening at the end (non-fatal)
   --harden-ssh           Run SSH hardening at the end (non-fatal)
@@ -88,7 +92,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) repo="$2"; shift 2 ;;
     --ref) ref="$2"; shift 2 ;;
-    --include-prerelease) include_pre=1; shift ;;
     --no-telemetry) telemetry=0; shift ;;
     --ssh-pub) ssh_pub="$2"; shift 2 ;;
     --harden) run_harden=1; shift ;;
@@ -118,11 +121,39 @@ if [[ "$ENVIRONMENT" == "development" ]]; then
   exit 1
 fi
 
-# Set up log file
-LOG=/var/log/devpush-install.log
-mkdir -p "$(dirname "$LOG")" || true
+# Set up log file (timestamped) and track latest via symlink in /tmp
+LOG_DIR="/tmp"
+timestamp="$(date +%Y%m%d-%H%M%S)"
+LOG="$LOG_DIR/devpush-install-${timestamp}.log"
+mkdir -p "$LOG_DIR" || true
+{
+  printf "Install started: %s\n" "$(date -Iseconds)"
+  printf "Effective ref: %s\n" "$ref"
+} >"$LOG"
+ln -sfn "$LOG" "$LOG_DIR/devpush-install.log"
 exec > >(tee -a "$LOG") 2>&1
 trap 's=$?; err "Install failed (exit $s). See $LOG"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+
+# Warn if remnants of a prior install are present
+existing_summary=()
+if [[ -f "$DATA_DIR/version.json" ]]; then
+  version_ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
+  existing_summary+=("version.json in $DATA_DIR (ref: ${version_ref:-unknown})")
+fi
+[[ -d "$APP_DIR/.git" ]] && existing_summary+=("repo at $APP_DIR")
+[[ -f "$DATA_DIR/.env" ]] && existing_summary+=(".env in $DATA_DIR")
+
+if ((${#existing_summary[@]})); then
+  printf '\n'
+  printf "Existing install detected:\n"
+  for line in "${existing_summary[@]}"; do
+    printf "${CHILD_MARK} %s\n" "$line"
+  done
+  if (( yes_flag == 0 )); then
+    printf "Run scripts/uninstall.sh or re-run this installer with --yes to overwrite.\n"
+    exit 0
+  fi
+fi
 
 # OS check (Debian/Ubuntu only)
 . /etc/os-release || { err "Unsupported OS"; exit 1; }
@@ -132,6 +163,20 @@ case "${ID_LIKE:-$ID}" in
 esac
 command -v apt-get >/dev/null || { err "apt-get not found"; exit 1; }
 
+# Detect system info for metadata
+arch="$(dpkg --print-architecture 2>/dev/null || uname -m)"
+distro_id="${ID:-unknown}"
+distro_version="${VERSION_ID:-unknown}"
+
+# Show summary of what we're installing
+printf '\n'
+printf "Installing /dev/push:\n"
+printf "${CHILD_MARK} Repo: %s\n" "$repo"
+printf "${CHILD_MARK} Ref/Version: %s\n" "$ref"
+printf "${CHILD_MARK} OS: %s %s\n" "$ID" "$VERSION_ID"
+printf "${CHILD_MARK} Architecture: %s\n" "$arch"
+
+# Banner
 printf '\n'
 printf "\033[38;5;51m    ██╗██████╗ ███████╗██╗   ██╗   ██╗██████╗ ██╗   ██╗███████╗██╗  ██╗\033[0m\n"
 printf "\033[38;5;87m   ██╔╝██╔══██╗██╔════╝██║   ██║  ██╔╝██╔══██╗██║   ██║██╔════╝██║  ██║\033[0m\n"
@@ -139,44 +184,6 @@ printf "\033[38;5;123m  ██╔╝ ██║  ██║█████╗  █
 printf "\033[38;5;159m ██╔╝  ██║  ██║██╔══╝  ╚██╗ ██╔╝██╔╝  ██╔═══╝ ██║   ██║╚════██║██╔══██║\033[0m\n"
 printf "\033[38;5;195m██╔╝   ██████╔╝███████╗ ╚████╔╝██╔╝   ██║     ╚██████╔╝███████║██║  ██║\033[0m\n"
 printf "\033[38;5;225m╚═╝    ╚═════╝ ╚══════╝  ╚═══╝ ╚═╝    ╚═╝      ╚═════╝ ╚══════╝╚═╝  ╚═╝\033[0m\n"
-
-# Detect system info for metadata
-arch="$(dpkg --print-architecture 2>/dev/null || uname -m)"
-distro_id="${ID:-unknown}"
-distro_version="${VERSION_ID:-unknown}"
-
-# Detect existing install and prompt
-summary() {
-  if [[ -f "$DATA_DIR/version.json" ]]; then
-    version_ref=$(sed -n 's/.*"git_ref":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
-    version_commit=$(sed -n 's/.*"git_commit":"\([^"]*\)".*/\1/p' "$DATA_DIR/version.json" | head -n1)
-    printf "  - version.json in %s (ref: %s)\n" "$DATA_DIR" "${version_ref:-unknown}"
-  fi
-  if [[ -d "$APP_DIR/.git" ]]; then
-    printf "  - repo at %s\n" "$APP_DIR"
-    [[ -f "$DATA_DIR/.env" ]] && printf "  - .env in %s\n" "$DATA_DIR"
-  fi
-}
-
-if [[ -f "$DATA_DIR/version.json" ]] || [[ -d "$APP_DIR/.git" ]]; then
-  printf '\n'
-  printf "Existing install detected:\n"
-  summary
-  if (( yes_flag == 0 )); then
-    if [[ -t 0 ]]; then
-      printf '\n'
-      read -r -p "Proceed with install anyway? [y/N] " ans
-      if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-        printf "Aborted.\n"
-        exit 0
-      fi
-    else
-      printf '\n'
-      err "Re-run with --yes to proceed."
-      exit 1
-    fi
-  fi
-fi
 
 # Ensure apt is fully non-interactive and avoid needrestart prompts
 export DEBIAN_FRONTEND=noninteractive
@@ -362,7 +369,9 @@ fi
 # Send telemetry and retrieve public IP
 if ((telemetry==1)); then
   printf '\n'
-  run_cmd "Sending telemetry..." send_telemetry install
+  if ! run_cmd_try "Sending telemetry..." send_telemetry install; then
+    printf "${YEL}Telemetry failed (non-fatal). Continuing install.${NC}\n"
+  fi
 fi
 
 printf '\n'
