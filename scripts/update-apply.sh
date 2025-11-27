@@ -50,7 +50,6 @@ done
 
 ensure_compose_cmd
 
-# Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then
   err "This script is for production only. For development, simply pull code with git."
   exit 1
