@@ -301,7 +301,7 @@ persist_ssl_provider "$ssl_provider"
 # Port conflicts warning
 if command -v ss >/dev/null 2>&1; then
   if conflicts=$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/'); [[ -n "${conflicts:-}" ]]; then
-    printf "${YEL}Warning:${NC} ports 80/443 are in use. Traefik may fail to start later.\n"
+    printf "${YEL}Ports 80/443 are in use. Traefik may fail to start later.${NC}\n"
   fi
 fi
 
@@ -349,22 +349,14 @@ run_cmd "Recording install metadata..." record_version
 # Optional hardening (non-fatal) - run before telemetry
 if ((run_harden==1)); then
   printf '\n'
-  set +e
-  run_cmd "Running server hardening..." bash "$APP_DIR/scripts/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}
-  hr=$?
-  set -e
-  if [[ $hr -ne 0 ]]; then
+  if ! run_cmd_try "Running server hardening..." bash "$APP_DIR/scripts/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}; then
     printf "${YEL}Hardening skipped/failed. Install succeeded.${NC}\n"
   fi
 fi
 
 if ((run_harden_ssh==1)); then
   printf '\n'
-  set +e
-  run_cmd "Running SSH hardening..." bash "$APP_DIR/scripts/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}
-  hr2=$?
-  set -e
-  if [[ $hr2 -ne 0 ]]; then
+  if ! run_cmd_try "Running SSH hardening..." bash "$APP_DIR/scripts/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}; then
     printf "${YEL}SSH hardening skipped/failed. Install succeeded.${NC}\n"
   fi
 fi
@@ -381,9 +373,9 @@ fi
 printf '\n'
 printf "Installing systemd unit...\n"
 unit_path="/etc/systemd/system/devpush.service"
-install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
-systemctl daemon-reload
-systemctl enable devpush.service
+run_cmd "${CHILD_MARK} Installing unit file..." install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
+run_cmd "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
+run_cmd "${CHILD_MARK} Enabling devpush.service..." systemctl enable devpush.service
 
 # Success message
 printf '\n'
@@ -404,4 +396,4 @@ fi
 printf "${GRN}Stack started. ✔${NC}\n"
 printf "${DIM}The app may take a while to be ready.${NC}\n"
 printf '\n'
-printf "Visit this URL to complete the setup: http://%s\n" "$sip"
+printf "${YEL}Visit this URL to complete the setup: http://%s${NC}\n" "$sip"

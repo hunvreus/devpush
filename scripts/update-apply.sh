@@ -119,7 +119,7 @@ run_upgrade_hooks() {
     local hook_name
     hook_name=$(basename "$script")
     if ! run_cmd_try "${CHILD_MARK} Running $hook_name..." bash "$script"; then
-      printf "${YEL}Warning:${NC} Upgrade %s failed (continuing update)\n" "$hook_name"
+      printf "${YEL}Upgrade %s failed (continuing update).${NC}\n" "$hook_name"
     fi
   done
 }
@@ -127,10 +127,10 @@ run_upgrade_hooks() {
 old_version=$(json_get git_ref "$VERSION_FILE" "")
 if [[ -z "$old_version" ]]; then
   printf '\n'
-  printf "${YEL}Warning:${NC} No version found in %s. Skipping upgrade hooks.\n" "$DATA_DIR/version.json"
+  printf "${YEL}No version found in %s. Skipping upgrade hooks.${NC}\n" "$DATA_DIR/version.json"
 elif [[ -z "$ref" ]]; then
   printf '\n'
-  printf "${YEL}Warning:${NC} No target version specified. Skipping upgrade hooks.\n"
+  printf "${YEL}No target version specified. Skipping upgrade hooks.${NC}\n"
 else
   run_upgrade_hooks "$old_version" "$ref" "$APP_DIR/scripts/upgrades"
 fi
@@ -159,7 +159,7 @@ if ((do_full==1)); then
     exit 1
   fi
   if ((yes!=1)); then
-    printf "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.\n"
+    printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
     read -p "Proceed? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
   fi
@@ -192,7 +192,7 @@ elif [[ -z "$comps" ]]; then
     5) comps="alloy" ;;
     6)
       printf '\n'
-      printf "${YEL}Warning:${NC} This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.\n"
+      printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
       read -r -p "Proceed with FULL stack update? [y/N]: " ans
       [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
       full_update

@@ -93,7 +93,7 @@ fi
 # Warning and confirmation
 if (( yes_flag == 0 )); then
   printf '\n'
-  printf "${YEL}Warning:${NC} This will permanently remove /dev/push. Services will be stopped and containers/volumes deleted.\n"
+  printf "${YEL}This will permanently remove /dev/push. Services will be stopped and files deleted.${NC}\n"
   printf '\n'
   read -r -p "Proceed with uninstall? [y/N] " ans
   if [[ ! "$ans" =~ ^[Yy]$ ]]; then
@@ -104,52 +104,44 @@ fi
 
 # Uninstall
 printf '\n'
-printf "Uninstalling /dev/push...\n"
+printf "Stopping stack...\n"
 
 if systemctl list-unit-files | grep -q '^devpush.service'; then
-  run_cmd_try "${CHILD_MARK} Stopping services (systemd)..." systemctl stop devpush.service
-elif [[ -f "$APP_DIR/compose/run.yml" ]]; then
-  run_cmd_try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh"
-else
-  printf "${CHILD_MARK} Stopping services... ${YEL}⊘${NC}\n"
-  printf "${DIM}%s No compose/run.yml found${NC}\n" "$CHILD_MARK"
+  run_cmd_try "${CHILD_MARK} Stopping systemd..." systemctl stop devpush.service
 fi
+run_cmd_try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
 
 if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
-  set +e
-  run_cmd_try "${CHILD_MARK} Removing app directory..." rm -rf "$APP_DIR"
-  set -e
+  printf '\n'
+  run_cmd_try "Removing app directory..." rm -rf "$APP_DIR"
 fi
 
-set +e
 runner_images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^runner-' || true)
 if [[ -n "$runner_images" ]]; then
   image_count=$(printf '%s\n' "$runner_images" | wc -l | tr -d ' ')
-  run_cmd_try "${CHILD_MARK} Removing runner images ($image_count found)..." bash -c 'printf "%s\n" "$1" | xargs docker rmi -f' _ "$runner_images"
-else
-  printf "${CHILD_MARK} Removing runner images... ${YEL}⊘${NC}\n"
-  printf "${DIM}%s No runner images found${NC}\n" "$CHILD_MARK"
+  printf '\n'
+  run_cmd_try "Removing runner images ($image_count found)..." bash -c 'printf "%s\n" "$1" | xargs docker rmi -f' _ "$runner_images"
 fi
-set -e
 
 # Remove data directory (prompt unless --yes)
 data_removed=0
 if [[ -d $DATA_DIR ]]; then
   if (( yes_flag == 1 )); then
-    set +e
-    run_cmd_try "${CHILD_MARK} Removing data directory..." rm -rf "$DATA_DIR"
-    set -e
-    data_removed=1
+    printf '\n'
+    if run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"; then
+      data_removed=1
+    fi
   else
     printf '\n'
     read -r -p "Remove data directory ($DATA_DIR/)? This will delete all uploaded files, certificates, and config. [y/N] " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
-      set +e
-      run_cmd_try "${CHILD_MARK} Removing data directory..." rm -rf "$DATA_DIR"
-      set -e
-      data_removed=1
+      printf '\n'
+      if run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"; then
+        data_removed=1
+      fi
     else
-      printf "${DIM}%s Data directory kept (use rm -rf %s to remove manually)${NC}\n" "$CHILD_MARK" "$DATA_DIR"
+      printf '\n'
+      printf "${YEL}Data directory kept (use rm -rf %s to remove manually)${NC}\n" "$DATA_DIR"
     fi
   fi
 fi
@@ -158,22 +150,21 @@ fi
 log_removed=0
 if [[ -d "$LOG_DIR" && "$LOG_DIR" != "$DATA_DIR" ]]; then
   if (( yes_flag == 1 )); then
-    set +e
-    run_cmd_try "${CHILD_MARK} Removing log directory..." rm -rf "$LOG_DIR"
-    rc=$?
-    set -e
-    (( rc == 0 )) && log_removed=1
+    printf '\n'
+    if run_cmd_try "Removing log directory..." rm -rf "$LOG_DIR"; then
+      log_removed=1
+    fi
   else
     printf '\n'
     read -r -p "Remove log directory ($LOG_DIR/)? [y/N] " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
-      set +e
-      run_cmd_try "${CHILD_MARK} Removing log directory..." rm -rf "$LOG_DIR"
-      rc=$?
-      set -e
-      (( rc == 0 )) && log_removed=1
+      printf '\n'
+      if run_cmd_try "Removing log directory..." rm -rf "$LOG_DIR"; then
+        log_removed=1
+      fi
     else
-      printf "${DIM}%s Log directory kept (use rm -rf %s to remove manually)${NC}\n" "$CHILD_MARK" "$LOG_DIR"
+      printf '\n'
+      printf "${YEL}Log directory kept (use rm -rf %s to remove manually)${NC}\n" "$LOG_DIR"
     fi
   fi
 fi
@@ -183,19 +174,17 @@ if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
   printf '\n'
   read -r -p "Remove user '$user' and home directory ($user_home)? This will delete all files under that path. [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
-    set +e
-    run_cmd_try "${CHILD_MARK} Removing user '$user'..." userdel -r "$user"
-    rc=$?
-    set -e
-    if (( rc == 0 )); then
+    printf '\n'
+    if run_cmd_try "Removing user '$user'..." userdel -r "$user"; then
       [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
     else
-      printf "${YEL}Warning:${NC} Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.\n" "$user"
+      printf '\n'
+      printf "${YEL}Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.${NC}\n" "$user"
     fi
   fi
 elif id -u "$user" >/dev/null 2>&1; then
-  printf "%s Removing user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$user"
-  printf "  ${DIM}%s User '%s' kept (home: %s)${NC}\n" "$CHILD_MARK" "$user" "$user_home"
+  printf '\n'
+  printf "${YEL}User '%s' kept (home: %s)${NC}\n" "$user" "$user_home"
 fi
 
 if systemctl list-unit-files | grep -q '^devpush.service'; then

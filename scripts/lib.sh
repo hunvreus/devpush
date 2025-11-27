@@ -9,7 +9,7 @@ PROJECT_ROOT="$(cd "$LIB_DIR/.." && pwd)"
 if [[ -t 1 ]]; then
   RED="$(printf '\033[38;2;255;64;178m')"
   GRN="$(printf '\033[38;2;64;255;209m')"
-  YEL="$(printf '\033[38;2;255;250;128m')"
+  YEL="$(printf '\033[38;2;240;255;140m')"
   BLD="$(printf '\033[1m')"
   DIM="$(printf '\033[38;2;120;132;170m')"
   NC="$(printf '\033[0m')"

@@ -71,7 +71,7 @@ cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Check for uncommitted changes
 if [[ -n "$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" status --porcelain 2>/dev/null)" ]]; then
-  printf "${YEL}Warning:${NC} Working directory has uncommitted changes.\n"
+  printf "${YEL}Working directory has uncommitted changes.${NC}\n"
   if [[ ! -t 0 ]]; then
     if ((yes==0)); then
       err "Cannot proceed in non-interactive mode without --yes flag"

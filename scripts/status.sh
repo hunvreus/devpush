@@ -45,7 +45,7 @@ else
   printf "Status: ${DIM}down${NC}\n"
 fi
 
-printf "Environment: %s\n" "$ENVIRONMENT"
+printf "Environment: ${YEL}%s${NC}\n" "$ENVIRONMENT"
 
 # Check setup status
 if [[ -f "$CONFIG_FILE" ]]; then
