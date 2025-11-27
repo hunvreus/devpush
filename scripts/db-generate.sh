@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_ERR_LOG="/tmp/db-generate_error.log"
-exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; err "db-generate failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+init_script_logging "db-generate"
 
 usage(){
   cat <<USG

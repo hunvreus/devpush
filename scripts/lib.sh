@@ -25,7 +25,6 @@ VERBOSE="${VERBOSE:-0}"
 
 # Log files
 CMD_LOG="${TMPDIR:-/tmp}/devpush-cmd.$$.log"
-: "${SCRIPT_ERR_LOG:=/tmp/$(basename "$0" .sh)_error.log}"
 
 # Detect environment (production or development)
 ENVIRONMENT="${DEVPUSH_ENV:-}"
@@ -41,9 +40,11 @@ fi
 if [[ "$ENVIRONMENT" == "production" ]]; then
   APP_DIR="${DEVPUSH_APP_DIR:-/opt/devpush}"
   DATA_DIR="${DEVPUSH_DATA_DIR:-/var/lib/devpush}"
+  LOG_DIR="${DEVPUSH_LOG_DIR:-/var/log/devpush}"
 else
   APP_DIR="${DEVPUSH_APP_DIR:-$PROJECT_ROOT}"
   DATA_DIR="${DEVPUSH_DATA_DIR:-$APP_DIR/data}"
+  LOG_DIR="${DEVPUSH_LOG_DIR:-$APP_DIR/logs}"
 fi
 
 # Environment file, config file, and version file
@@ -51,7 +52,7 @@ ENV_FILE="$DATA_DIR/.env"
 CONFIG_FILE="$DATA_DIR/config.json"
 VERSION_FILE="$DATA_DIR/version.json"
 
-export ENVIRONMENT APP_DIR DATA_DIR ENV_FILE CONFIG_FILE VERSION_FILE
+export ENVIRONMENT APP_DIR DATA_DIR ENV_FILE CONFIG_FILE VERSION_FILE LOG_DIR
 
 # Spinner for long-running commands
 spinner() {
@@ -297,6 +298,106 @@ json_upsert() {
   chmod 0644 "$file" >/dev/null 2>&1 || true
 }
 
+_script_err_trap() {
+  local s=$?
+  local name="${CURRENT_SCRIPT_NAME:-script}"
+  err "${name} failed (exit $s)"
+  printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"
+  printf "%b\n" "${RED}Error output:${NC}"
+  if [[ -n "${SCRIPT_ERR_LOG:-}" && -f "$SCRIPT_ERR_LOG" ]]; then
+    cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"
+  else
+    printf "No error details captured\n"
+  fi
+  if declare -f on_error_hook >/dev/null 2>&1; then
+    on_error_hook "$s"
+  fi
+  exit $s
+}
+
+init_script_logging() {
+  local name="${1:-$(basename "$0" .sh)}"
+  local log_dir="${LOG_DIR:-/var/log/devpush}"
+  CURRENT_SCRIPT_NAME="$name"
+
+  install -d -m 0750 "$log_dir" >/dev/null 2>&1 || true
+  SCRIPT_ERR_LOG="$log_dir/${name}_error.log"
+  exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+  trap '_script_err_trap' ERR
+}
+
+# Build runner images (based on app/settings/images.json)
+build_runner_images() {
+  local no_cache=0
+  local target=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-cache) no_cache=1; shift ;;
+      --image) target="$2"; shift 2 ;;
+      --image=*) target="${1#*=}"; shift ;;
+      *) err "Unknown option: $1"; return 1 ;;
+    esac
+  done
+
+  local runner_dir="$APP_DIR/docker/runner"
+  local settings_json="$APP_DIR/app/settings/images.json"
+  local entries=()
+
+  if [[ -f "$settings_json" ]]; then
+    mapfile -t entries < <(jq -r 'to_entries[] | .value[] | "\(.slug)|\(.name)"' "$settings_json" 2>/dev/null || true)
+  fi
+
+  if ((${#entries[@]} == 0)); then
+    for dockerfile in "$runner_dir"/Dockerfile.*; do
+      [[ -f "$dockerfile" ]] || continue
+      local slug="${dockerfile##*.}"
+      entries+=("$slug|$slug")
+    done
+  fi
+
+  if ((${#entries[@]} == 0)); then
+    printf "  ${DIM}%s No runner definitions found${NC}\n" "$CHILD_MARK"
+    return 0
+  fi
+
+  local built=0
+  local failed=0
+  for entry in "${entries[@]}"; do
+    IFS='|' read -r slug name <<<"$entry"
+    [[ -n "$slug" ]] || continue
+    if [[ -n "$target" && "$slug" != "$target" ]]; then
+      continue
+    fi
+
+    local dockerfile="$runner_dir/Dockerfile.$slug"
+    if [[ ! -f "$dockerfile" ]]; then
+      printf "  ${DIM}%s Skipping %s (missing %s)${NC}\n" "$CHILD_MARK" "$name" "${dockerfile#$APP_DIR/}"
+      continue
+    fi
+
+    built=1
+    local rel_path="${dockerfile##*/}"
+    local label="Building ${name} (${rel_path})..."
+    local build_cmd=(docker build -f "$dockerfile" -t "runner-$slug")
+    ((no_cache==1)) && build_cmd+=(--no-cache)
+    build_cmd+=("$runner_dir")
+    if ! run_cmd_try "${CHILD_MARK} ${label}" "${build_cmd[@]}"; then
+      ((failed+=1))
+    fi
+  done
+
+  if ((built==0)); then
+    if [[ -n "$target" ]]; then
+      printf "  ${DIM}%s Runner image '%s' not found${NC}\n" "$CHILD_MARK" "$target"
+    else
+      printf "  ${DIM}%s No runners matched criteria${NC}\n" "$CHILD_MARK"
+    fi
+  elif ((failed>0)); then
+    printf "  ${DIM}%s %s runner build(s) failed${NC}\n" "$CHILD_MARK" "$failed"
+  fi
+}
+
 # Validate environment variables
 validate_env(){
   local env_file="$1"
@@ -460,10 +561,7 @@ persist_service_ids() {
     user="$(default_service_user)"
   fi
 
-  json_upsert "$CONFIG_FILE" \
-    service_user "$user" \
-    service_uid "@json:$uid" \
-    service_gid "@json:$gid"
+  json_upsert "$CONFIG_FILE" service_user "$user" service_uid "@json:$uid" service_gid "@json:$gid"
 }
 
 # Resolve SSL provider from env/config/default

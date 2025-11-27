@@ -2,25 +2,25 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-[[ $EUID -eq 0 ]] || { printf "update.sh must be run as root (sudo).\n" >&2; exit 1; }
-
-# Capture stderr for error reporting
-SCRIPT_ERR_LOG="/tmp/update_error.log"
-exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+[[ $EUID -eq 0 ]] || { printf "This script must be run as root (sudo).\n" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; printf "%b\n" "${RED}Update failed (exit $s)${NC}"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; if [[ -n "${current_commit:-}" ]]; then printf "To rollback: cd %s && git reset --hard %s\n" "$APP_DIR" "$current_commit"; fi; exit $s' ERR
+init_script_logging "update"
+on_error_hook() {
+  if [[ -n "${current_commit:-}" ]]; then
+    printf "To rollback: cd %s && git reset --hard %s\n" "$APP_DIR" "$current_commit"
+  fi
+}
 
 usage(){
   cat <<USG
-Usage: update.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update.sh [--ref <tag>] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple restarts).
 
-  --ref TAG         Git tag to update to (default: latest tag)
-  --include-prerelease  Allow beta/rc tags when selecting latest
+  --ref TAG         Git tag to update to (default: latest stable tag)
   --all             Update app,worker-arq,worker-monitor,alloy
   --components CSV  Comma-separated list of services to update (e.g. app,loki,alloy)
   --full            Full stack update (down whole stack, then up). Causes downtime
@@ -35,12 +35,11 @@ USG
 }
 
 # Parse CLI flags
-ref=""; comps=""; do_all=0; do_full=0; migrate=1; include_pre=0; yes=0; telemetry=1; ssl_provider=""
+ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; telemetry=1; ssl_provider=""
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref) ref="$2"; shift 2 ;;
-    --include-prerelease) include_pre=1; shift ;;
     --all) do_all=1; shift ;;
     --components) comps="$2"; shift 2 ;;
     --full) do_full=1; shift ;;
@@ -54,6 +53,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+ensure_service_ids
+
+# Guard: ensure setup completed before running updates
+if ! is_setup_complete; then
+  err "This script requires a completed setup. Run the setup wizard first."
+  exit 1
+fi
+
 # Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then
   err "update.sh is for production only. For development, simply pull code with git."
@@ -63,7 +70,7 @@ fi
 cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
 
 # Check for uncommitted changes
-if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+if [[ -n "$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" status --porcelain 2>/dev/null)" ]]; then
   printf "${YEL}Warning:${NC} Working directory has uncommitted changes.\n"
   if [[ ! -t 0 ]]; then
     if ((yes==0)); then
@@ -77,29 +84,27 @@ if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
 fi
 
 # Save current commit for rollback reference
-current_commit=$(git rev-parse HEAD 2>/dev/null || true)
-current_version=$(git describe --tags 2>/dev/null || printf "%s\n" "$current_commit")
+current_commit=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" rev-parse HEAD 2>/dev/null || true)
+current_version=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" describe --tags 2>/dev/null || printf "%s\n" "$current_commit")
 
 # Resolve ref, fetch, then exec the updated apply script
 printf '\n'
 printf "Resolving update target...\n"
 if [[ -z "$ref" ]]; then
-  run_cmd "${CHILD_MARK} Fetching tags..." git fetch --tags --quiet origin
-  if ((include_pre==1)); then
-    ref="$(git tag -l --sort=version:refname | tail -1 || true)"
-  else
-    ref="$(git tag -l --sort=version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | tail -1 || true)"
-    [[ -n "$ref" ]] || ref="$(git tag -l --sort=version:refname | tail -1 || true)"
-  fi
+  run_cmd "${CHILD_MARK} Fetching tags..." runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" fetch --tags --quiet origin
+  ref="$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" tag -l --sort=version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | tail -1 || true)"
+  [[ -n "$ref" ]] || ref="$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" tag -l --sort=version:refname | tail -1 || true)"
   [[ -n "$ref" ]] || ref="main"
-  printf "  ${DIM}%s Target: %s${NC}\n" "$CHILD_MARK" "$ref"
+  printf "  ${DIM}%s Using latest stable tag: %s${NC}\n" "$CHILD_MARK" "$ref"
+else
+  printf "  ${DIM}%s Using provided ref: %s${NC}\n" "$CHILD_MARK" "$ref"
 fi
 
 # Fetch update
 printf '\n'
 printf "Fetching update...\n"
-run_cmd "${CHILD_MARK} Fetching ref: $ref" bash -c "git fetch --depth 1 origin refs/tags/$ref || git fetch --depth 1 origin $ref"
-run_cmd "${CHILD_MARK} Checking out..." git reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Fetching ref: $ref" runuser -u "$SERVICE_USER" -- bash -c "cd \"$APP_DIR\" && git fetch --depth 1 origin refs/tags/$ref || git fetch --depth 1 origin $ref"
+run_cmd "${CHILD_MARK} Checking out..." runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
 
 # Run update-apply script (allows us to update the script itself)
 bash "$SCRIPT_DIR/update-apply.sh" --ref "$ref" "$@"

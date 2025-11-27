@@ -2,15 +2,12 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-[[ $EUID -eq 0 ]] || { printf "uninstall.sh must be run as root (sudo).\n" >&2; exit 1; }
-
-SCRIPT_ERR_LOG="/tmp/uninstall_error.log"
-exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+[[ $EUID -eq 0 ]] || { printf "This script must be run as root (sudo).\n" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; err "Uninstall failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+init_script_logging "uninstall"
 
 usage() {
   cat <<USG
@@ -61,6 +58,8 @@ fi
 user="devpush"
 version_ref=""
 telemetry_payload=""
+user_home="$(getent passwd "$user" | cut -d: -f6 2>/dev/null || true)"
+[[ -n "$user_home" ]] || user_home="$DATA_DIR"
 
 if [[ -f $VERSION_FILE ]]; then
   version_ref=$(json_get git_ref "$VERSION_FILE" "")
@@ -85,7 +84,10 @@ printf '\n'
 printf "Install detected:\n"
 printf "  - App directory: %s\n" "$APP_DIR"
 printf "  - Data directory: %s\n" "$DATA_DIR"
-id -u "$user" >/dev/null 2>&1 && printf "  - User: %s (home: %s/)\n" "$user" "$DATA_DIR"
+[[ -d "$LOG_DIR" ]] && printf "  - Log directory: %s\n" "$LOG_DIR"
+if id -u "$user" >/dev/null 2>&1; then
+  printf "  - User: %s (home: %s)\n" "$user" "$user_home"
+fi
 [[ -n "$version_ref" ]] && printf "  - Version (ref): %s\n" "$version_ref"
 
 # Warning and confirmation
@@ -152,24 +154,48 @@ if [[ -d $DATA_DIR ]]; then
   fi
 fi
 
+# Remove log directory if separate from data dir
+log_removed=0
+if [[ -d "$LOG_DIR" && "$LOG_DIR" != "$DATA_DIR" ]]; then
+  if (( yes_flag == 1 )); then
+    set +e
+    run_cmd_try "${CHILD_MARK} Removing log directory..." rm -rf "$LOG_DIR"
+    rc=$?
+    set -e
+    (( rc == 0 )) && log_removed=1
+  else
+    printf '\n'
+    read -r -p "Remove log directory ($LOG_DIR/)? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+      set +e
+      run_cmd_try "${CHILD_MARK} Removing log directory..." rm -rf "$LOG_DIR"
+      rc=$?
+      set -e
+      (( rc == 0 )) && log_removed=1
+    else
+      printf "${DIM}%s Log directory kept (use rm -rf %s to remove manually)${NC}\n" "$CHILD_MARK" "$LOG_DIR"
+    fi
+  fi
+fi
+
 # Interactive: Remove user?
 if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
   printf '\n'
-  read -r -p "Remove user '$user' and home directory? This will delete all files in /home/$user/. [y/N] " ans
+  read -r -p "Remove user '$user' and home directory ($user_home)? This will delete all files under that path. [y/N] " ans
   if [[ "$ans" =~ ^[Yy]$ ]]; then
-    set +eE
-    trap - ERR
-    if run_cmd_try "${CHILD_MARK} Removing user '$user'..." userdel -r "$user"; then
+    set +e
+    run_cmd_try "${CHILD_MARK} Removing user '$user'..." userdel -r "$user"
+    rc=$?
+    set -e
+    if (( rc == 0 )); then
       [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
     else
       printf "${YEL}Warning:${NC} Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.\n" "$user"
     fi
-    trap 's=$?; err "Uninstall failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat /tmp/uninstall_error.log 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
-    set -eE
   fi
 elif id -u "$user" >/dev/null 2>&1; then
   printf "%s Removing user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$user"
-  printf "  ${DIM}%s User '%s' kept (use 'userdel -r %s' to remove manually)${NC}\n" "$CHILD_MARK" "$user" "$user"
+  printf "  ${DIM}%s User '%s' kept (home: %s)${NC}\n" "$CHILD_MARK" "$user" "$user_home"
 fi
 
 if systemctl list-unit-files | grep -q '^devpush.service'; then
@@ -195,11 +221,15 @@ printf "  - Application: %s\n" "$APP_DIR"
 printf "  - Docker containers and volumes\n"
 [[ -n "$runner_images" ]] && printf "  - Runner images: %s images\n" "$image_count"
 (( data_removed == 1 )) && printf "  - Data: %s/\n" "$DATA_DIR"
+(( log_removed == 1 )) && printf "  - Logs: %s/\n" "$LOG_DIR"
 
-if [[ -d $DATA_DIR ]] || (( data_removed == 0 && yes_flag == 1 )) || id -u "$user" >/dev/null 2>&1; then
+if [[ -d $DATA_DIR ]] || (( data_removed == 0 && yes_flag == 1 )) || ( [[ -d "$LOG_DIR" ]] && (( log_removed == 0 )) && "$LOG_DIR" != "$DATA_DIR" ) || id -u "$user" >/dev/null 2>&1; then
   printf '\n'
   printf "Kept (manual cleanup if needed):\n"
   [[ -d $DATA_DIR ]] && printf "  - Data: %s/\n" "$DATA_DIR"
+  if [[ -d "$LOG_DIR" ]] && (( log_removed == 0 )) && [[ "$LOG_DIR" != "$DATA_DIR" ]]; then
+    printf "  - Logs: %s/\n" "$LOG_DIR"
+  fi
   id -u "$user" >/dev/null 2>&1 && printf "  - User: %s\n" "$user"
 fi
 

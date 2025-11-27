@@ -2,11 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# Require root early for consistent permissions
 [[ $EUID -eq 0 ]] || { printf "install.sh must be run as root (sudo).\n" >&2; exit 1; }
-
-SCRIPT_ERR_LOG="/tmp/install_error.log"
-exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 if [[ -z "$SCRIPT_PATH" || "$SCRIPT_PATH" == "-" ]]; then
@@ -59,7 +55,7 @@ else
   exit 1
 fi
 
-trap 's=$?; err "Install failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+init_script_logging "install"
 
 usage() {
   cat <<USG
@@ -122,17 +118,22 @@ if [[ "$ENVIRONMENT" == "development" ]]; then
 fi
 
 # Set up log file (timestamped) and track latest via symlink in /tmp
-LOG_DIR="/tmp"
+INSTALL_LOG_DIR="/tmp"
 timestamp="$(date +%Y%m%d-%H%M%S)"
-LOG="$LOG_DIR/devpush-install-${timestamp}.log"
-mkdir -p "$LOG_DIR" || true
+INSTALL_LOG="$INSTALL_LOG_DIR/devpush-install-${timestamp}.log"
+mkdir -p "$INSTALL_LOG_DIR" || true
 {
   printf "Install started: %s\n" "$(date -Iseconds)"
   printf "Effective ref: %s\n" "$ref"
-} >"$LOG"
-ln -sfn "$LOG" "$LOG_DIR/devpush-install.log"
-exec > >(tee -a "$LOG") 2>&1
-trap 's=$?; err "Install failed (exit $s). See $LOG"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+} >"$INSTALL_LOG"
+ln -sfn "$INSTALL_LOG" "$INSTALL_LOG_DIR/devpush-install.log"
+exec > >(tee -a "$INSTALL_LOG") 2>&1
+
+on_error_hook() {
+  if [[ -n "${INSTALL_LOG:-}" ]]; then
+    printf "%b\n" "${YEL}See install log for details: ${INSTALL_LOG}${NC}"
+  fi
+}
 
 # Warn if remnants of a prior install are present
 existing_summary=()
@@ -171,10 +172,10 @@ distro_version="${VERSION_ID:-unknown}"
 # Show summary of what we're installing
 printf '\n'
 printf "Installing /dev/push:\n"
-printf "  - Repo         : %s\n" "$repo"
-printf "  - Ref/Version  : %s\n" "$ref"
-printf "  - OS           : %s %s\n" "$distro_id" "$distro_version"
-printf "  - Architecture : %s\n" "$arch"
+printf "  - Repo: %s\n" "$repo"
+printf "  - Ref/Version: %s\n" "$ref"
+printf "  - OS: %s %s\n" "$distro_id" "$distro_version"
+printf "  - Architecture: %s\n" "$arch"
 
 # Banner
 printf '\n'
@@ -252,14 +253,7 @@ record_version() {
   if [[ -z "$install_id" ]]; then
     install_id=$(cat /proc/sys/kernel/random/uuid)
   fi
-  json_upsert "$VERSION_FILE" \
-    install_id "$install_id" \
-    git_ref "$ref" \
-    git_commit "$commit" \
-    updated_at "$ts" \
-    arch "$arch" \
-    distro "$distro_id" \
-    distro_version "$distro_version"
+  json_upsert "$VERSION_FILE" install_id "$install_id" git_ref "$ref" git_commit "$commit" updated_at "$ts" arch "$arch" distro "$distro_id" distro_version "$distro_version"
   chown "$user:$user" "$VERSION_FILE" || true
   chmod 0644 "$VERSION_FILE" || true
 }
@@ -292,6 +286,11 @@ service_gid="$(id -g "$user")"
 
 # Add data dirs
 run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$user" -g "$user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
+
+# Add log dir (production)
+if [[ "$ENVIRONMENT" == "production" ]]; then
+  run_cmd "${CHILD_MARK} Preparing log directory..." install -o "$user" -g "$user" -m 0750 -d /var/log/devpush
+fi
 
 # Persist service metadata
 persist_service_ids "$service_uid" "$service_gid" "$user"
@@ -340,7 +339,8 @@ cd "$APP_DIR"
 
 # Build runner images
 printf '\n'
-run_cmd "Building runner images..." bash "$APP_DIR/scripts/build-runners.sh"
+printf "Building runner images...\n"
+build_runner_images
 
 # Save install metadata (version.json)
 printf '\n'

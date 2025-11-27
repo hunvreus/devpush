@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_ERR_LOG="/tmp/start_error.log"
-exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; err "Start failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+init_script_logging "start"
 
 usage(){
   cat <<USG
@@ -107,7 +104,6 @@ mode_label=""
 # Start stack
 printf '\n'
 printf "Starting stack%s...\n" "$mode_label"
-run_cmd "${CHILD_MARK} Building runner images..." bash "$SCRIPT_DIR/build-runners.sh"
 run_cmd "${CHILD_MARK} Starting services..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
 
 # Run migrations when appropriate

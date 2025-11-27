@@ -188,7 +188,7 @@ See the [scripts](#scripts) section for more dev utilities.
 | Area | Script | What it does |
 |---|---|---|
 | Dev | `scripts/start.sh` | Start stack with logs (setup auto-detected; supports `--setup`, `--no-migrate`) |
-| Dev | `scripts/build-runners.sh` | Build runner images (default no cache; `--cache` to enable) |
+| Dev | `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <slug>`) |
 | Dev | `scripts/db-generate.sh` | Generate Alembic migration (prompts for message) |
 | Dev | `scripts/db-migrate.sh` | Apply Alembic migrations |
 | Dev | `scripts/db-reset.sh` | Drop and recreate `public` schema in DB |

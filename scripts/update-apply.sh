@@ -2,24 +2,20 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-[[ $EUID -eq 0 ]] || { printf "update-apply.sh must be run as root (sudo).\n" >&2; exit 1; }
-
-SCRIPT_ERR_LOG="/tmp/update_apply_error.log"
-exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
+[[ $EUID -eq 0 ]] || { printf "This script must be run as root (sudo).\n" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; printf "%b\n" "${RED}Update-apply failed (exit $s)${NC}"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+init_script_logging "update-apply"
 
 usage(){
   cat <<USG
-Usage: update-apply.sh [--ref <tag>] [--include-prerelease] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update-apply.sh [--ref <tag>] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
   --ref TAG         Git tag to record (best-effort if omitted)
-  --include-prerelease  No effect here; kept for arg parity
   --all             Update app,worker-arq,worker-monitor,alloy
   --components CSV  Comma-separated list of services to update (e.g. app,loki,alloy)
   --full            Full stack update (down whole stack, then up). Causes downtime
@@ -39,7 +35,6 @@ ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; skip_components=0; tele
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref) ref="$2"; shift 2 ;;
-    --include-prerelease) shift ;;
     --all) do_all=1; shift ;;
     --components) comps="$2"; shift 2 ;;
     --full) do_full=1; shift ;;
@@ -57,7 +52,12 @@ ensure_compose_cmd
 
 # Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then
-  err "update-apply.sh is for production only. For development, simply pull code with git."
+  err "This script is for production only. For development, simply pull code with git."
+  exit 1
+fi
+
+if ! is_setup_complete; then
+  err "This script requires a completed setup. Run the setup wizard first."
   exit 1
 fi
 
@@ -310,6 +310,11 @@ if ((skip_components==0)) && [[ "$comps" == *"app"* ]] && ((migrate==1)); then
   run_cmd "${CHILD_MARK} Running database migrations..." bash "$SCRIPT_DIR/db-migrate.sh"
 fi
 
+# Build runner images
+printf '\n'
+printf "Building runner images...\n"
+build_runner_images
+
 # Update install metadata (version.json)
 commit=$(git rev-parse --verify HEAD)
 if [[ -z "$ref" ]]; then
@@ -323,11 +328,7 @@ if [[ -z "$install_id" ]]; then
   install_id=$(cat /proc/sys/kernel/random/uuid)
 fi
 
-json_upsert "$VERSION_FILE" \
-  install_id "$install_id" \
-  git_ref "$ref" \
-  git_commit "$commit" \
-  updated_at "$ts"
+json_upsert "$VERSION_FILE" install_id "$install_id" git_ref "$ref" git_commit "$commit" updated_at "$ts"
 
 # Send telemetry
 if ((telemetry==1)); then

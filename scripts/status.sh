@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+[[ $EUID -eq 0 ]] || { printf "This script must be run as root (sudo).\n" >&2; exit 1; }
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
+
+init_script_logging "status"
 
 usage(){
   cat <<USG
@@ -56,10 +60,10 @@ fi
 
 printf "App directory: %s\n" "$APP_DIR"
 printf "Data directory: %s\n" "$DATA_DIR"
-printf '\n'
 
 # Show containers if running
 if is_stack_running; then
+  printf '\n'
   running_stack="$(detect_running_stack 2>/dev/null || echo "unknown")"
   
   if [[ "$running_stack" == "setup" ]]; then
@@ -76,14 +80,3 @@ if is_stack_running; then
     docker ps --filter "label=com.docker.compose.project=devpush" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
   fi
 fi
-
-# Systemd status (if in production)
-if [[ "$ENVIRONMENT" == "production" ]]; then
-  printf '\n'
-  if systemctl is-active --quiet devpush.service 2>/dev/null; then
-    printf "Systemd service: ${GRN}Active${NC}\n"
-  else
-    printf "Systemd service: ${DIM}Inactive${NC}\n"
-  fi
-fi
-

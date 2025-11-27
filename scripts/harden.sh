@@ -4,13 +4,10 @@ IFS=$'\n\t'
 
 [[ $EUID -eq 0 ]] || { printf "harden.sh must be run as root (sudo).\n" >&2; exit 2; }
 
-SCRIPT_ERR_LOG="/tmp/harden_error.log"
-exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-trap 's=$?; err "Harden failed (exit $s)"; printf "%b\n" "${RED}Last command: $BASH_COMMAND${NC}"; printf "%b\n" "${RED}Error output:${NC}"; cat "$SCRIPT_ERR_LOG" 2>/dev/null || printf "No error details captured\n"; exit $s' ERR
+init_script_logging "harden"
 
 usage() {
   cat <<USG
