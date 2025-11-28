@@ -129,7 +129,7 @@ if [[ -d $DATA_DIR ]]; then
   if (( yes_flag == 1 )); then
     printf '\n'
     if run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"; then
-      data_removed=1
+    data_removed=1
     fi
   else
     printf '\n'
@@ -137,7 +137,7 @@ if [[ -d $DATA_DIR ]]; then
     if [[ "$ans" =~ ^[Yy]$ ]]; then
       printf '\n'
       if run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"; then
-        data_removed=1
+      data_removed=1
       fi
     else
       printf '\n'

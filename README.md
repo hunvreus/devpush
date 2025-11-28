@@ -38,7 +38,15 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 Log in your server, run the following command and follow instructions:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh | sudo bash -s -- [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
+curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh \
+  | sudo bash -s -- [--ref <branch|tag>] [--repo <git_url>] [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
+```
+
+By default the installer picks the latest stable release from the main repo. Pass `--ref development` (and optionally `--repo <fork_url>`) when you need to test another branch, e.g.:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/development/scripts/install.sh \
+  | sudo bash -s -- --ref development
 ```
 
 You user must have sudo privileges.
@@ -197,7 +205,7 @@ See the [scripts](#scripts) section for more dev utilities.
 | Prod | `scripts/install.sh` | Server setup: Docker, user, clone repo, systemd unit |
 | Prod | `scripts/harden.sh` | System hardening (UFW, fail2ban, unattended-upgrades); add `--ssh` to harden SSH |
 | Prod | `scripts/start.sh` | Start services; supports `--setup`, `--no-migrate`, `--ssl-provider <prov>` |
-| Prod | `scripts/stop.sh` | Stop services (`--down` for hard stop, `--setup` for setup stack) |
+| Prod | `scripts/stop.sh` | Stop services (auto-detects run/setup). Use `--systemd` to stop the unit first or `--hard` to tear everything down (both stacks + containers). |
 | Prod | `scripts/restart.sh` | Restart services; supports `--setup`, `--no-migrate` |
 | Prod | `scripts/update.sh` | Update by tag; `--all`, `--full`, or `--components`; `--ssl-provider <prov>` |
 | Prod | `scripts/db-migrate.sh` | Apply DB migrations (waits for Postgres readiness) |
@@ -283,21 +291,6 @@ You will need to configure a GitHub App with the following settings:
   - Installation target
   - Push
   - Repository
-
-## Sign-in access control
-
-You can restrict who can sign up/sign in from **Admin → Settings → Allowlist**. Add entries for individual emails, whole domains, or regex patterns (e.g., `^[^@]+@(eng|research)\.example\.com$`). An empty allowlist means no restrictions.
-
-Additionally, if you set the `ACCESS_DENIED_WEBHOOK` [environment variable](#environment-variables), denied sign-in attempts will be posted to the provided URL with the following payload:
-
-```json
-{
-  "email": "user@example.com",
-  "provider": "google",
-  "ip": "203.0.113.10",
-  "user_agent": "Mozilla/5.0"
-}
-```
 
 ## License
 

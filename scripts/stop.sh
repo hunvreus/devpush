@@ -126,7 +126,7 @@ if [[ "$running_stack" == "setup" ]]; then
   stop_stack_mode setup "setup stack"
 elif [[ "$running_stack" == "run" ]]; then
   stop_stack_mode run "run stack"
-else
+    else
   force_stop_all
 fi
 
