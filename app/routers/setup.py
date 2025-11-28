@@ -249,14 +249,13 @@ async def setup_step_2(
 
     app_hostname = setup_data.get("app_hostname", "")
     server_ip = setup_data.get("server_ip", settings.server_ip)
-
-    # For localhost/dev, GitHub requires publicly accessible URLs via traefik.me
+    redirect_url = f"http://{server_ip}.traefik.me"
     if app_hostname in ("localhost", "") or app_hostname.endswith(".localhost"):
-        base_url = "http://localhost"
-        public_base_url = f"http://{server_ip}.traefik.me"
+        app_base_url = "http://localhost"
+        app_webhook_base_url = redirect_url
     else:
-        base_url = f"{settings.url_scheme}://{app_hostname}"
-        public_base_url = base_url
+        app_base_url = f"https://{app_hostname}"
+        app_webhook_base_url = app_base_url
 
     return TemplateResponse(
         request=request,
@@ -265,8 +264,9 @@ async def setup_step_2(
             "form": form,
             "server_ip": server_ip,
             "app_hostname": app_hostname,
-            "base_url": base_url,
-            "public_base_url": public_base_url,
+            "app_base_url": app_base_url,
+            "redirect_url": redirect_url,
+            "app_webhook_base_url": app_webhook_base_url,
             "current_step": 2,
             "total_steps": 4,
             "saved_step": get_current_step(request),

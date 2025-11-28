@@ -131,23 +131,24 @@
 
     dialog.close();
 
-    const baseUrl = "{{ base_url }}";
-    const publicBaseUrl = "{{ public_base_url }}";
+    const appBaseUrl = "{{ app_base_url }}";
+    const appWebhookBaseUrl = "{{ app_webhook_base_url }}";
+    const redirectUrl = "{{ redirect_url }}";
     const githubAppName = `devpush-${useOrg ? orgId : Math.random().toString(36).substring(2, 8)}`;
 
     const manifest = {
       name: githubAppName,
-      url: baseUrl,
+      url: appBaseUrl,
       hook_attributes: {
-        url: `${publicBaseUrl}/api/github/webhook`,
+        url: `${appWebhookBaseUrl}/api/github/webhook`,
         active: true,
       },
-      redirect_url: `${publicBaseUrl}/setup/github/callback`,
+      redirect_url: `${redirectUrl}/setup/github/callback`,
       callback_urls: [
-        `${baseUrl}/api/github/authorize/callback`,
-        `${baseUrl}/auth/github/callback`
+        `${appBaseUrl}/api/github/authorize/callback`,
+        `${appBaseUrl}/auth/github/callback`
       ],
-      setup_url: `${baseUrl}/api/github/install/callback`,
+      setup_url: `${appBaseUrl}/api/github/install/callback`,
       setup_on_update: true,
       public: false,
       default_permissions: {
