@@ -102,7 +102,7 @@ if (( yes_flag == 0 )); then
   fi
 fi
 
-# Uninstall
+# Stop stack
 printf '\n'
 printf "Stopping stack...\n"
 
@@ -110,6 +110,9 @@ if systemctl list-unit-files | grep -q '^devpush.service'; then
   run_cmd_try "${CHILD_MARK} Stopping systemd..." systemctl stop devpush.service
 fi
 run_cmd_try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
+
+# Clean up Docker networks explicitly to prevent conflicts
+run_cmd_try "${CHILD_MARK} Cleaning docker networks..." docker network rm devpush_default 2>/dev/null || true
 
 if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
   printf '\n'
@@ -189,7 +192,9 @@ fi
 
 if systemctl list-unit-files | grep -q '^devpush.service'; then
   run_cmd_try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
+  run_cmd_try "${CHILD_MARK} Stopping systemd unit..." systemctl stop devpush.service 2>/dev/null || true
   run_cmd_try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
+  run_cmd_try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service 2>/dev/null || true
   run_cmd_try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
 fi
 

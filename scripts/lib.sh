@@ -595,6 +595,10 @@ ensure_acme_json() {
   install -d -m 0755 "$DATA_DIR/traefik" >/dev/null 2>&1 || true
   touch "$DATA_DIR/traefik/acme.json" >/dev/null 2>&1 || true
   chmod 600 "$DATA_DIR/traefik/acme.json" >/dev/null 2>&1 || true
+  if [[ "$ENVIRONMENT" == "production" ]]; then
+    service_user="$(default_service_user)"
+    chown "$service_user:$service_user" "$DATA_DIR/traefik/acme.json" >/dev/null 2>&1 || true
+  fi
 }
 
 # Docker compose variables

@@ -45,6 +45,10 @@ mkdir -p "$DATA_DIR/traefik" "$DATA_DIR/upload"
 if [[ ! -f "$CONFIG_FILE" ]]; then
   printf "{}" > "$CONFIG_FILE"
   chmod 0644 "$CONFIG_FILE" || true
+  if [[ "$ENVIRONMENT" == "production" ]]; then
+    service_user="$(default_service_user)"
+    chown -R "$service_user:$service_user" "$DATA_DIR" || true
+  fi
 fi
 
 # Handle SSL provider overrides

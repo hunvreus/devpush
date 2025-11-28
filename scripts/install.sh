@@ -107,7 +107,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-user="devpush"
+service_user="$(default_service_user)"
 service_uid=""
 service_gid=""
 
@@ -239,22 +239,22 @@ add_docker_repo() {
 }
 
 create_user() {
-  if getent passwd "$user" >/dev/null 2>&1; then
+  if getent passwd "$service_user" >/dev/null 2>&1; then
     return 0
   fi
-  useradd --system --user-group --home "$DATA_DIR" --shell /usr/sbin/nologin --no-create-home "$user"
+  useradd --system --user-group --home "$DATA_DIR" --shell /usr/sbin/nologin --no-create-home "$service_user"
 }
 
 record_version() {
   local commit ts install_id
-  commit=$(runuser -u "$user" -- git -C "$APP_DIR" rev-parse --verify HEAD)
+  commit=$(runuser -u "$service_user" -- git -C "$APP_DIR" rev-parse --verify HEAD)
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   install_id=$(json_get install_id "$VERSION_FILE" "")
   if [[ -z "$install_id" ]]; then
     install_id=$(cat /proc/sys/kernel/random/uuid)
   fi
   json_upsert "$VERSION_FILE" install_id "$install_id" git_ref "$ref" git_commit "$commit" updated_at "$ts" arch "$arch" distro "$distro_id" distro_version "$distro_version"
-  chown "$user:$user" "$VERSION_FILE" || true
+  chown "$service_user:$service_user" "$VERSION_FILE" || true
   chmod 0644 "$VERSION_FILE" || true
 }
 
@@ -275,28 +275,31 @@ run_cmd "${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 
 # Create user
 printf '\n'
 printf "Preparing system user and data dirs...\n"
-if ! id -u "$user" >/dev/null 2>&1; then
-    run_cmd "${CHILD_MARK} Creating user '${user}'..." create_user
+if ! id -u "$service_user" >/dev/null 2>&1; then
+    run_cmd "${CHILD_MARK} Creating user '${service_user}'..." create_user
 else
-    printf "%s Creating user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$user"
+    printf "%s Creating user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$service_user"
     printf "  ${DIM}%s User already exists${NC}\n" "$CHILD_MARK"
 fi
-service_uid="$(id -u "$user")"
-service_gid="$(id -g "$user")"
+service_uid="$(id -u "$service_user")"
+service_gid="$(id -g "$service_user")"
 
 # Add data dirs
-run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$user" -g "$user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
-
-# Add log dir (production)
-if [[ "$ENVIRONMENT" == "production" ]]; then
-  run_cmd "${CHILD_MARK} Preparing log directory..." install -o "$user" -g "$user" -m 0750 -d /var/log/devpush
-fi
+run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$service_user" -g "$service_user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
 
 # Persist service metadata
-persist_service_ids "$service_uid" "$service_gid" "$user"
+persist_service_ids "$service_uid" "$service_gid" "$service_user"
 
 # Persist SSL provider
 persist_ssl_provider "$ssl_provider"
+
+# Making config.json owned by devpush
+run_cmd "${CHILD_MARK} Setting config.json ownership..." chown -R "$service_user:$service_user" "$CONFIG_FILE"
+
+# Add log dir (production)
+if [[ "$ENVIRONMENT" == "production" ]]; then
+  run_cmd "${CHILD_MARK} Preparing log directory..." install -o "$service_user" -g "$service_user" -m 0750 -d /var/log/devpush
+fi
 
 # Port conflicts warning
 if command -v ss >/dev/null 2>&1; then
@@ -307,7 +310,7 @@ fi
 
 # Create app dir
 run_cmd "${CHILD_MARK} Creating app directory..." install -d -m 0755 "$APP_DIR"
-run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$user:$user" "$APP_DIR"
+run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$service_user:$service_user" "$APP_DIR"
 
 # Get code from GitHub
 printf '\n'
@@ -320,7 +323,7 @@ if [[ -d "$APP_DIR/.git" ]]; then
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "${CHILD_MARK} Fetching updates for existing repo..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Fetching updates for existing repo..." runuser -u "$service_user" -- bash -c "$cmd_block"
 else
   # New clone
   cmd_block="
@@ -330,10 +333,10 @@ else
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "${CHILD_MARK} Cloning new repository..." runuser -u "$user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Cloning new repository..." runuser -u "$service_user" -- bash -c "$cmd_block"
 fi
 
-run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$user" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$service_user" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
 
 cd "$APP_DIR"
 
@@ -372,6 +375,14 @@ fi
 # Install systemd unit and start in setup mode
 printf '\n'
 printf "Installing systemd unit...\n"
+
+# Ensure clean slate
+if systemctl list-unit-files | grep -q '^devpush.service'; then
+  systemctl stop devpush.service 2>/dev/null || true
+  systemctl disable devpush.service 2>/dev/null || true
+  systemctl reset-failed devpush.service 2>/dev/null || true
+fi
+
 unit_path="/etc/systemd/system/devpush.service"
 run_cmd "${CHILD_MARK} Installing unit file..." install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
 run_cmd "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
