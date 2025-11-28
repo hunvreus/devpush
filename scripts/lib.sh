@@ -6,15 +6,15 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$LIB_DIR/.." && pwd)"
 
 # Colors and formatting
-if [[ -t 1 ]] || [[ -n "${TERM:-}" && "$TERM" != "dumb" ]]; then
-  RED="$(printf '\033[38;2;255;64;178m')"
-  GRN="$(printf '\033[38;2;64;255;209m')"
-  YEL="$(printf '\033[38;2;240;255;140m')"
+if [[ -t 1 ]]; then
+  RED="$(printf '\033[31m')"
+  GRN="$(printf '\033[32m')"
+  YEL="$(printf '\033[33m')"
   BLD="$(printf '\033[1m')"
-  DIM="$(printf '\033[38;2;120;132;170m')"
+  DIM="$(printf '\033[2m')"
   NC="$(printf '\033[0m')"
 else
-  RED=""; GRN=""; YEL=""; BLD=""; DIM=""; NC="$(printf '\033[0m')"
+  RED=""; GRN=""; YEL=""; BLD=""; DIM=""; NC=""
 fi
 
 is_utf8(){ case "${LC_ALL:-${LANG:-}}" in *UTF-8*|*utf8*) return 0;; *) return 1;; esac; }
