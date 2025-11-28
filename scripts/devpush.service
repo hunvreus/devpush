@@ -12,6 +12,8 @@ ExecStop=/opt/devpush/scripts/stop.sh
 ExecReload=/opt/devpush/scripts/restart.sh --no-migrate
 TimeoutStartSec=600
 TimeoutStopSec=600
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
