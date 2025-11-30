@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
@@ -40,19 +41,14 @@ if [[ $# -eq 0 ]]; then
   usage
 fi
 
-# Compose prerequisites
-ensure_compose_cmd
-cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
+cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
 # Build compose args
-ssl_provider="default"
-if [[ "$stack_mode" == "run" && "$ENVIRONMENT" == "production" ]]; then
-  ssl_provider="$(get_ssl_provider)"
-fi
 if [[ "$stack_mode" == "setup" ]]; then
-  get_compose_base setup
+  set_compose_base setup
 else
-  get_compose_base run "$ssl_provider"
+  ssl_provider="$(get_ssl_provider)"
+  set_compose_base run "$ssl_provider"
 fi
 
 # Execute compose

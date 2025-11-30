@@ -11,18 +11,20 @@ init_script_logging "update-apply"
 
 usage(){
   cat <<USG
-Usage: update-apply.sh [--ref <tag>] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update-apply.sh [--ref <tag>] [--all | --components <csv> | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
-  --ref TAG         Git tag to record (best-effort if omitted)
+  --ref <tag>       Git tag to record (best-effort if omitted)
   --all             Update app,worker-arq,worker-monitor,alloy
-  --components CSV  Comma-separated list of services to update (e.g. app,loki,alloy)
+  --components <csv>
+                    Comma-separated list of services to update (${VALID_COMPONENTS//|/, })
   --full            Full stack update (down whole stack, then up). Causes downtime
   --no-migrate      Do not run DB migrations after app update
   --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
-  --ssl-provider    One of: default|cloudflare|route53|gcloud|digitalocean|azure
+  --ssl-provider <name>
+                    One of: ${VALID_SSL_PROVIDERS//|/, }
   -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
@@ -36,11 +38,28 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref) ref="$2"; shift 2 ;;
     --all) do_all=1; shift ;;
-    --components) comps="$2"; shift 2 ;;
+    --components)
+      comps="$2"
+      IFS=',' read -ra _ua_secs <<< "$comps"
+      for comp in "${_ua_secs[@]}"; do
+        comp="${comp// /}"
+        [[ -z "$comp" ]] && continue
+        if ! validate_component "$comp"; then
+          exit 1
+        fi
+      done
+      shift 2
+      ;;
     --full) do_full=1; shift ;;
     --no-migrate) migrate=0; shift ;;
     --no-telemetry) telemetry=0; shift ;;
-    --ssl-provider) ssl_provider="$2"; shift 2 ;;
+    --ssl-provider)
+      if ! validate_ssl_provider "$2"; then
+        exit 1
+      fi
+      ssl_provider="$2"
+      shift 2
+      ;;
     --yes|-y) yes=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
@@ -48,10 +67,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ensure_compose_cmd
+if ((do_full==1)) && { ((do_all==1)) || [[ -n "$comps" ]]; }; then
+  err "--full cannot be combined with --all or --components"
+  exit 1
+fi
 
 if [[ "$ENVIRONMENT" == "development" ]]; then
-  err "This script is for production only. For development, simply pull code with git."
+  err "This script is for production only. For development, simply pull code with git. More information: https://devpu.sh/docs/installation/#development"
   exit 1
 fi
 
@@ -60,10 +82,20 @@ if ! is_setup_complete; then
   exit 1
 fi
 
-cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
+cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
+
+# Ensure required files exist
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  err "config.json not found. Run install.sh first."
+  exit 1
+fi
+if [[ ! -f "$VERSION_FILE" ]]; then
+  err "version.json not found. Run install.sh first."
+  exit 1
+fi
 
 # Persist ssl_provider if passed
-if [[ -n "$ssl_provider" ]]; then persist_ssl_provider "$ssl_provider"; fi
+if [[ -n "$ssl_provider" ]]; then json_upsert "$CONFIG_FILE" ssl_provider "$ssl_provider"; fi
 ssl_provider="${ssl_provider:-$(get_ssl_provider)}"
 
 # Validate environment variables
@@ -73,14 +105,13 @@ validate_env "$ENV_FILE" "$ssl_provider"
 ensure_acme_json
 
 # Build compose arguments
-get_compose_base run "$ssl_provider"
+set_compose_base run "$ssl_provider"
 
 # Version comparison helpers
 ver_lt() {
   [[ "$1" == "$2" ]] && return 1
   [[ "$(printf '%s\n%s' "$1" "$2" | sort -V | head -n1)" == "$1" ]]
 }
-
 ver_lte() {
   [[ "$1" == "$2" ]] && return 0
   ver_lt "$1" "$2"
@@ -118,7 +149,7 @@ run_upgrade_hooks() {
   for script in "${eligible[@]}"; do
     local hook_name
     hook_name=$(basename "$script")
-    if ! run_cmd_try "${CHILD_MARK} Running $hook_name..." bash "$script"; then
+    if ! run_cmd --try "${CHILD_MARK} Running $hook_name..." bash "$script"; then
       printf "${YEL}Upgrade %s failed (continuing update).${NC}\n" "$hook_name"
     fi
   done
@@ -154,10 +185,6 @@ full_update() {
 
 # Option1: Full update (with downtime)
 if ((do_full==1)); then
-  if ((do_all==1)) || [[ -n "$comps" ]]; then
-    err "--full cannot be combined with --all or --components"
-    exit 1
-  fi
   if ((yes!=1)); then
     printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
     read -p "Proceed? [y/N]: " ans
@@ -180,8 +207,7 @@ elif [[ -z "$comps" ]]; then
   printf "2) app\n"
   printf "3) worker-arq\n"
   printf "4) worker-monitor\n"
-  printf "5) alloy\n"
-  printf "6) Full stack (with downtime)\n"
+  printf "5) Full stack (with downtime)\n"
   read -r -p "Choice [1-6]: " ch
   ch="${ch//[^0-9]/}"
   case "$ch" in
@@ -189,8 +215,7 @@ elif [[ -z "$comps" ]]; then
     2) comps="app" ;;
     3) comps="worker-arq" ;;
     4) comps="worker-monitor" ;;
-    5) comps="alloy" ;;
-    6)
+    5)
       printf '\n'
       printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
       read -r -p "Proceed with FULL stack update? [y/N]: " ans
@@ -234,7 +259,7 @@ blue_green_rollout() {
     exit 1'
   new_id=$(docker ps --filter "name=devpush-$service" --format '{{.ID}}' | tr ' ' '\n' | sort | comm -13 <(printf '%s\n' "$old_ids" | tr ' ' '\n' | sort) -)
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
-  printf "  ${DIM}%s Container ID: %s${NC}\n" "$CHILD_MARK" "$new_id"
+  printf "  ${DIM}${CHILD_MARK} Container ID: %s${NC}\n" "$new_id"
 
   run_cmd "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)..." bash -c '
     deadline=$(( $(date +%s) + '"$timeout_s"' ))
@@ -251,13 +276,22 @@ blue_green_rollout() {
     done'
   
   if [[ -n "$old_ids" ]]; then
-    run_cmd "${CHILD_MARK} Retiring old container(s)..." bash -c '
-      for id in '"$old_ids"'; do
-        docker stop "$id" >/dev/null 2>&1 || true
-        docker rm "$id" >/dev/null 2>&1 || true
-      done'
-    for id in $old_ids; do
-      printf "  ${DIM}%s Container ID: %s${NC}\n" "$CHILD_MARK" "$id"
+    mapfile -t OLD_CONTAINERS <<<"$old_ids"
+    run_cmd --try "${CHILD_MARK} Retiring old container(s)..." bash -s -- "${OLD_CONTAINERS[@]}" <<'EOF'
+set -Eeuo pipefail
+while [[ $# -gt 0 ]]; do
+  id="$1"; shift
+  [[ -z "$id" ]] && continue
+  if ! docker stop "$id" >/dev/null 2>&1; then
+    printf "  Failed to stop container %s\n" "$id" >&2
+  fi
+  if ! docker rm "$id" >/dev/null 2>&1; then
+    printf "  Failed to remove container %s\n" "$id" >&2
+  fi
+done
+EOF
+    for id in "${OLD_CONTAINERS[@]}"; do
+      printf "  ${DIM}${CHILD_MARK} Container ID: %s${NC}\n" "$id"
     done
   fi
 
@@ -332,7 +366,9 @@ json_upsert "$VERSION_FILE" install_id "$install_id" git_ref "$ref" git_commit "
 # Send telemetry
 if ((telemetry==1)); then
 printf '\n'
-  run_cmd "Sending telemetry..." send_telemetry update
+  if ! run_cmd --try "Sending telemetry..." send_telemetry update; then
+    printf "  ${DIM}${CHILD_MARK} Telemetry failed (non-fatal). Continuing update.${NC}\n"
+  fi
 fi
 
 # Get public IP for display (automatically saved to config)

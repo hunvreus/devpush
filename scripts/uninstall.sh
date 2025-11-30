@@ -15,7 +15,7 @@ Usage: uninstall.sh [--yes] [--no-telemetry] [--verbose]
 
 Uninstall /dev/push from this server.
 
-  --yes, -y         Non-interactive, proceed without prompts (keeps user and data by default)
+  --yes, -y         Non-interactive; skip prompts and remove data/logs if they exist
   --no-telemetry    Do not send telemetry
   -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
@@ -35,26 +35,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then
-  err "uninstall.sh is for production only. For development, stop the stack with (scripts/stop.sh), uninstall dependencies and remove the app directory. More information: https://devpu.sh/docs/installation/#development"
+  err "This script is for production only. For development, simply stop the stack (scripts/stop.sh), run the cleanup script (scripts/clean.sh --remove-all) and delete the code directory. More information: https://devpu.sh/docs/installation/#development"
   exit 1
 fi
 
-# Guard: prevent running from directories that will be deleted
 cwd="$(pwd)"
-if [[ "$cwd" == $APP_DIR* ]] || [[ "$cwd" == $DATA_DIR* ]]; then
+if [[ "$cwd" == "$APP_DIR"* ]] || [[ "$cwd" == "$DATA_DIR"* ]]; then
   err "Cannot run from $cwd (will be deleted). Run from a safe directory (e.g., /tmp or ~root)."
   exit 1
 fi
 
-# Guard: check if logged in as user that will be deleted
 if [[ "$(whoami)" == "devpush" ]] || [[ "${SUDO_USER:-}" == "devpush" ]]; then
   err "Cannot run as user 'devpush' (user will be deleted). Run as root or another user."
   exit 1
 fi
 
-# Detect installation and save telemetry data early
+# Detect installation and save telemetry data
 user="devpush"
 version_ref=""
 telemetry_payload=""
@@ -71,7 +68,7 @@ fi
 # Check if anything is installed
 if [[ ! -f $VERSION_FILE && ! -d $APP_DIR/.git ]]; then
   printf '\n'
-  printf "No /dev/push installation detected.\n"
+  printf "No installation detected.\n"
   printf '\n'
   printf "Checked:\n"
   printf "  - %s/version.json\n" "$DATA_DIR"
@@ -81,7 +78,7 @@ fi
 
 # Show what was detected
 printf '\n'
-printf "Install detected:\n"
+printf "Installation detected:\n"
 printf "  - App directory: %s\n" "$APP_DIR"
 printf "  - Data directory: %s\n" "$DATA_DIR"
 [[ -d "$LOG_DIR" ]] && printf "  - Log directory: %s\n" "$LOG_DIR"
@@ -90,7 +87,7 @@ if id -u "$user" >/dev/null 2>&1; then
 fi
 [[ -n "$version_ref" ]] && printf "  - Version (ref): %s\n" "$version_ref"
 
-# Warning and confirmation
+# Warning/confirmation
 if (( yes_flag == 0 )); then
   printf '\n'
   printf "${YEL}This will permanently remove /dev/push. Services will be stopped and files deleted.${NC}\n"
@@ -102,131 +99,100 @@ if (( yes_flag == 0 )); then
   fi
 fi
 
-# Stop stack
+# Stopping the Docker compose stack
 printf '\n'
 printf "Stopping stack...\n"
 
 if systemctl list-unit-files | grep -q '^devpush.service'; then
-  run_cmd_try "${CHILD_MARK} Stopping systemd..." systemctl stop devpush.service
+  run_cmd --try "${CHILD_MARK} Stopping systemd..." systemctl stop devpush.service
 fi
-run_cmd_try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
+run_cmd --try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
 
-# Clean up Docker networks explicitly to prevent conflicts
-run_cmd_try "${CHILD_MARK} Cleaning docker networks..." docker network rm devpush_default 2>/dev/null || true
+# Remove systemd unit
+if systemctl list-unit-files | grep -q '^devpush.service'; then
+  printf '\n'
+  printf "Removing systemd unit...\n"
+  run_cmd --try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
+  run_cmd --try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
+  run_cmd --try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service 2>/dev/null || true
+  run_cmd --try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
+fi
 
+# Remove Docker resources
+printf '\n'
+printf "Removing Docker resources...\n"
+
+# Remove Docker containers
+compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
+runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
+containers="$(printf "%s\n%s\n" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
+if [[ -n "$containers" ]]; then
+  container_count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
+  run_cmd --try "${CHILD_MARK} Removing containers ($container_count found)..." docker rm -f $containers
+fi
+
+# Remove Docker images
+compose_images="$(docker images --filter "reference=devpush*" -q 2>/dev/null || true)"
+runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || true)"
+images="$(printf "%s\n%s\n" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
+if [[ -n "$images" ]]; then
+  image_count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
+  run_cmd --try "${CHILD_MARK} Removing images ($image_count found)..." docker rmi -f $images
+fi
+
+# Remove Docker networks
+networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
+if [[ -n "$networks" ]]; then
+  network_count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
+  run_cmd --try "${CHILD_MARK} Removing networks ($network_count found)..." docker network rm $networks
+fi
+
+# Remove Docker volumes
+volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
+if [[ -n "$volumes" ]]; then
+  volume_count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
+  run_cmd --try "${CHILD_MARK} Removing volumes ($volume_count found)..." docker volume rm $volumes
+fi
+
+# Remove data directory
+if [[ -d $DATA_DIR ]]; then
+  printf '\n'
+  run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
+fi
+
+# Remove log directory
+if [[ -d "$LOG_DIR" ]]; then
+  printf '\n'
+  run_cmd --try "Removing log directory..." rm -rf "$LOG_DIR"
+fi
+
+# Remove app directory
 if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
   printf '\n'
-  run_cmd_try "Removing app directory..." rm -rf "$APP_DIR"
+  run_cmd --try "Removing app directory..." rm -rf "$APP_DIR"
 fi
 
-runner_images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^runner-' || true)
-if [[ -n "$runner_images" ]]; then
-  image_count=$(printf '%s\n' "$runner_images" | wc -l | tr -d ' ')
+# Remove user
+if id -u "$user" >/dev/null 2>&1; then
   printf '\n'
-  run_cmd_try "Removing runner images ($image_count found)..." bash -c 'printf "%s\n" "$1" | xargs docker rmi -f' _ "$runner_images"
-fi
-
-# Remove data directory (prompt unless --yes)
-data_removed=0
-if [[ -d $DATA_DIR ]]; then
-  if (( yes_flag == 1 )); then
-    printf '\n'
-    if run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"; then
-    data_removed=1
-    fi
+  if run_cmd --try "Removing user '$user'..." userdel -r "$user"; then
+    [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
   else
-    printf '\n'
-    read -r -p "Remove data directory ($DATA_DIR/)? This will delete all uploaded files, certificates, and config. [y/N] " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
-      printf '\n'
-      if run_cmd_try "Removing data directory..." rm -rf "$DATA_DIR"; then
-      data_removed=1
-      fi
-    else
-      printf '\n'
-      printf "${YEL}Data directory kept (use rm -rf %s to remove manually)${NC}\n" "$DATA_DIR"
-    fi
+    printf "${YEL}Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.${NC}\n" "$user"
   fi
-fi
-
-# Remove log directory if separate from data dir
-log_removed=0
-if [[ -d "$LOG_DIR" && "$LOG_DIR" != "$DATA_DIR" ]]; then
-  if (( yes_flag == 1 )); then
-    printf '\n'
-    if run_cmd_try "Removing log directory..." rm -rf "$LOG_DIR"; then
-      log_removed=1
-    fi
-  else
-    printf '\n'
-    read -r -p "Remove log directory ($LOG_DIR/)? [y/N] " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
-      printf '\n'
-      if run_cmd_try "Removing log directory..." rm -rf "$LOG_DIR"; then
-        log_removed=1
-      fi
-    else
-      printf '\n'
-      printf "${YEL}Log directory kept (use rm -rf %s to remove manually)${NC}\n" "$LOG_DIR"
-    fi
-  fi
-fi
-
-# Interactive: Remove user?
-if (( yes_flag == 0 )) && id -u "$user" >/dev/null 2>&1; then
-  printf '\n'
-  read -r -p "Remove user '$user' and home directory ($user_home)? This will delete all files under that path. [y/N] " ans
-  if [[ "$ans" =~ ^[Yy]$ ]]; then
-    printf '\n'
-    if run_cmd_try "Removing user '$user'..." userdel -r "$user"; then
-      [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
-    else
-      printf '\n'
-      printf "${YEL}Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.${NC}\n" "$user"
-    fi
-  fi
-elif id -u "$user" >/dev/null 2>&1; then
-  printf '\n'
-  printf "${YEL}User '%s' kept (home: %s)${NC}\n" "$user" "$user_home"
-fi
-
-if systemctl list-unit-files | grep -q '^devpush.service'; then
-  run_cmd_try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
-  run_cmd_try "${CHILD_MARK} Stopping systemd unit..." systemctl stop devpush.service 2>/dev/null || true
-  run_cmd_try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
-  run_cmd_try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service 2>/dev/null || true
-  run_cmd_try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
 fi
 
 # Send telemetry
 if ((telemetry==1)) && [[ -n "$telemetry_payload" ]]; then
   printf '\n'
-  if ! run_cmd_try "Sending telemetry..." send_telemetry uninstall "$telemetry_payload"; then
-    printf "  ${DIM}%s Telemetry failed (non-fatal). Continuing uninstall.${NC}\n" "$CHILD_MARK"
+  if ! run_cmd --try "Sending telemetry..." send_telemetry uninstall "$telemetry_payload"; then
+    printf "  ${DIM}${CHILD_MARK} Telemetry failed (non-fatal). Continuing uninstall.${NC}\n"
   fi
 fi
 
 # Final summary
 printf '\n'
 printf "${GRN}Uninstall complete. ✔${NC}\n"
-printf '\n'
-printf "Removed:\n"
-printf "  - Application: %s\n" "$APP_DIR"
-printf "  - Docker containers and volumes\n"
-[[ -n "$runner_images" ]] && printf "  - Runner images: %s images\n" "$image_count"
-(( data_removed == 1 )) && printf "  - Data: %s/\n" "$DATA_DIR"
-(( log_removed == 1 )) && printf "  - Logs: %s/\n" "$LOG_DIR"
-
-if [[ -d $DATA_DIR ]] || (( data_removed == 0 && yes_flag == 1 )) || ( [[ -d "$LOG_DIR" ]] && (( log_removed == 0 )) && "$LOG_DIR" != "$DATA_DIR" ) || id -u "$user" >/dev/null 2>&1; then
-  printf '\n'
-  printf "Kept (manual cleanup if needed):\n"
-  [[ -d $DATA_DIR ]] && printf "  - Data: %s/\n" "$DATA_DIR"
-  if [[ -d "$LOG_DIR" ]] && (( log_removed == 0 )) && [[ "$LOG_DIR" != "$DATA_DIR" ]]; then
-    printf "  - Logs: %s/\n" "$LOG_DIR"
-  fi
-  id -u "$user" >/dev/null 2>&1 && printf "  - User: %s\n" "$user"
-fi
-
 printf '\n'
 printf "System packages not removed:\n"
 printf "  - Docker, git, jq, curl\n"

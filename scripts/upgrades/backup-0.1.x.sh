@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
 
 # One-off backup script for pre-0.2.0 installs (old layout under /srv/devpush)
 # Captures /srv/devpush and the app checkout under /home/devpush/devpush if present.

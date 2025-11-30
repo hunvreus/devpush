@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
@@ -8,11 +9,14 @@ init_script_logging "clean"
 
 usage(){
   cat <<USG
-Usage: clean.sh [--hard] [--yes] [-h|--help]
+Usage: clean.sh [--remove-all] [--remove-data] [--remove-containers] [--remove-images] [--yes] [-h|--help]
 
-Stop the services and remove Docker data. Use --hard to remove ALL containers/images.
+Stop the services and remove Docker data. Use --remove-all to remove data directory, containers and images.
 
-  --hard            Stop/remove ALL containers/images/images (dangerous)
+  --remove-all      Remove data directory, containers and images (in addition to volumes/networks)
+  --remove-data     Remove data directory
+  --remove-containers Remove containers
+  --remove-images   Remove images
   --yes             Skip confirmation prompts
   -h, --help        Show this help
 USG
@@ -20,20 +24,24 @@ USG
 }
 
 # Parse CLI flags
-hard=0
+remove_all=0
+remove_data=0
+remove_containers=0
+remove_images=0
 yes_flag=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --hard) hard=1; shift ;;
+    --remove-all) remove_all=1; shift ;;
+    --remove-data) remove_data=1; shift ;;
+    --remove-containers) remove_containers=1; shift ;;
+    --remove-images) remove_images=1; shift ;;
     --yes|-y) yes_flag=1; shift ;;
     -h|--help) usage ;;
     *) err "Unknown option: $1"; usage ;;
   esac
 done
 
-ensure_compose_cmd
-
-cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
+cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
 # Confirmation prompt
 if ((yes_flag==0)); then
@@ -46,33 +54,53 @@ if ((yes_flag==0)); then
   [[ "$ans" =~ ^[Yy]$ ]] || { printf "Aborted.\n"; exit 0; }
 fi
 
-# Clean up
 printf '\n'
-printf "Cleaning up...\n"
+run_cmd --try "Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
 
-run_cmd_try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh"
-
-ssl_provider="default"
-if [[ "$ENVIRONMENT" == "production" ]]; then
-  ssl_provider="$(get_ssl_provider)"
+# Remove Docker volumes
+volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
+if [[ -n "$volumes" ]]; then
+  volume_count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
+  printf '\n'
+  run_cmd --try "Removing volumes ($volume_count found)..." docker volume rm $volumes >/dev/null 2>&1 || true
 fi
 
-get_compose_base run "$ssl_provider"
-run_cmd_try "${CHILD_MARK} Removing volumes (run stack)..." "${COMPOSE_BASE[@]}" down --remove-orphans --volumes
-
-get_compose_base setup
-run_cmd_try "${CHILD_MARK} Removing volumes (setup stack)..." "${COMPOSE_BASE[@]}" down --remove-orphans --volumes
-
-run_cmd_try "${CHILD_MARK} Removing networks and named volumes..." bash -c 'docker network rm devpush_default devpush_internal >/dev/null 2>&1 || true; docker volume rm devpush_devpush-db devpush_loki-data devpush_alloy-data >/dev/null 2>&1 || true'
-
-if [[ "$ENVIRONMENT" == "development" ]]; then
-  run_cmd "${CHILD_MARK} Removing data directory..." rm -rf "$DATA_DIR"
-else
-  printf "${CHILD_MARK} Skipping data directory removal in production (${DATA_DIR})\n"
+# Remove Docker networks
+networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
+if [[ -n "$networks" ]]; then
+  network_count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
+  printf '\n'
+  run_cmd --try "Removing networks ($network_count found)..." docker network rm $networks >/dev/null 2>&1 || true
 fi
 
-if ((hard==1)); then
-  run_cmd "${CHILD_MARK} Hard pruning Docker resources..." bash -c 'docker ps -aq | xargs -r docker stop; docker ps -aq | xargs -r docker rm; docker images -aq | xargs -r docker rmi -f'
+if ((remove_data==1)) || ((remove_all==1)); then
+  printf '\n'
+  run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
+fi
+
+# If remove containers or remove all, remove the containers
+if ((remove_containers==1)) || ((remove_all==1)); then
+  compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
+  runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
+  containers="$(printf "%s\n%s\n" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
+  if [[ -n "$containers" ]]; then
+    run_cmd --try "Removing containers..." docker rm -f $containers >/dev/null 2>&1 || true
+  else
+    printf "Removing containers... ${YEL}⊘${NC}\n"
+    printf "${DIM}${CHILD_MARK} No containers found${NC}\n"
+  fi
+fi
+
+if ((remove_images==1)) || ((remove_all==1)); then
+  compose_images="$(docker images --filter "reference=devpush*" -q 2>/dev/null || true)"
+  runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || true)"
+  images="$(printf "%s\n%s\n" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
+  if [[ -n "$images" ]]; then
+    run_cmd --try "Removing images..." docker rmi -f $images >/dev/null 2>&1 || true
+  else
+    printf "Removing images... ${YEL}⊘${NC}\n"
+    printf "${DIM}${CHILD_MARK} No images found${NC}\n"
+  fi
 fi
 
 # Success message

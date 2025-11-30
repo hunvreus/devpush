@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
@@ -10,9 +11,9 @@ usage() {
   cat <<USG
 Usage: db-migrate.sh [--timeout <sec>] [-h|--help]
 
-Run Alembic upgrades after ensuring Postgres is ready.
+Run Alembic upgrades after ensuring Postgres and app are ready.
 
-  --timeout <sec>    Max seconds to wait for Postgres (default: 120)
+  --timeout <sec>    Max seconds to wait for services (default: 120)
   -h, --help         Show this help
 USG
   exit 0
@@ -28,45 +29,68 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Compose prerequisites
-ensure_compose_cmd
+cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
-cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
-
-# Determine compose stack
-ssl_provider="default"
+start_cmd="scripts/start.sh"
 if [[ "$ENVIRONMENT" == "production" ]]; then
-  ssl_provider="$(get_ssl_provider)"
+  start_cmd="systemctl start devpush.service"
 fi
 
-# Build compose args
-get_compose_base run "$ssl_provider"
+ssl_provider="$(get_ssl_provider)"
+set_compose_base run "$ssl_provider"
 
 # Validate environment variables
 validate_env "$ENV_FILE" "$ssl_provider"
 
-# Wait for database
-step_sleep=5
-max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
-(( max_attempts < 1 )) && max_attempts=1
+postgres_user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"
+postgres_user="${postgres_user:-devpush-app}"
 
-printf "Waiting for database...\n"
-user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"
-user="${user:-devpush-app}"
-for ((attempt=1; attempt<=max_attempts; attempt++)); do
-  if "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$user" >/dev/null 2>&1; then
-    break
-  fi
-  if ((attempt==max_attempts)); then
-    err "Database not ready within ${timeout}s."
-    exit 1
-  fi
-  sleep "$step_sleep"
-done
+# Wait for database
+wait_for_db() {
+  local step_sleep=5
+  local max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
+  (( max_attempts < 1 )) && max_attempts=1
+  
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    if "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$postgres_user" >/dev/null 2>&1; then
+      return 0
+    fi
+    if ((attempt==max_attempts)); then
+      err "Database not ready within ${timeout}s. Start the stack with $start_cmd first."
+      return 1
+    fi
+    sleep "$step_sleep"
+  done
+}
+
+# Wait for app container
+wait_for_app() {
+  local step_sleep=5
+  local max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
+  (( max_attempts < 1 )) && max_attempts=1
+  
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    app_container_ids=$(docker ps --filter "name=devpush-app" -q 2>/dev/null || true)
+    if [[ -n "$app_container_ids" ]]; then
+      return 0
+    fi
+    if ((attempt==max_attempts)); then
+      err "App container not ready within ${timeout}s. Start the stack with $start_cmd first."
+      return 1
+    fi
+    sleep "$step_sleep"
+  done
+}
+
+# Wait for database and app
+printf '\n'
+run_cmd "Waiting for database..." wait_for_db
+printf '\n'
+run_cmd "Waiting for app..." wait_for_app
 
 # Run migrations
-printf "Running database migrations...\n"
-run_cmd "${CHILD_MARK} Alembic upgrade head" "${COMPOSE_BASE[@]}" exec -T app uv run alembic upgrade head
+printf '\n'
+run_cmd "Apply migrations..." "${COMPOSE_BASE[@]}" exec -T app uv run alembic upgrade head
 
 # Success message
 printf "${GRN}Migrations applied. ✔${NC}\n"

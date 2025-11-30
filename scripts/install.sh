@@ -2,11 +2,10 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-[[ $EUID -eq 0 ]] || { printf "install.sh must be run as root (sudo).\n" >&2; exit 1; }
+[[ $EUID -eq 0 ]] || { printf "This script must be run as root (sudo).\n" >&2; exit 1; }
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 if [[ -z "$SCRIPT_PATH" || "$SCRIPT_PATH" == "-" ]]; then
-  # Piped execution
   SCRIPT_DIR="$(pwd)"
 else
   SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
@@ -55,22 +54,37 @@ else
   exit 1
 fi
 
+# Logging
 init_script_logging "install"
+
+INSTALL_LOG_DIR="/tmp"
+timestamp="$(date +%Y%m%d-%H%M%S)"
+INSTALL_LOG="$INSTALL_LOG_DIR/devpush-install-${timestamp}.log"
+mkdir -p "$INSTALL_LOG_DIR" || true
+{
+  printf "Install started: %s\n" "$(date -Iseconds)"
+  printf "Effective ref: %s\n" "$ref"
+} >"$INSTALL_LOG"
+ln -sfn "$INSTALL_LOG" "$INSTALL_LOG_DIR/devpush-install.log"
+exec > >(tee -a "$INSTALL_LOG") 2>&1
+
+on_error_hook() {
+  if [[ -n "${INSTALL_LOG:-}" ]]; then
+    printf "%b\n" "${YEL}See install log for details: ${INSTALL_LOG}${NC}"
+  fi
+}
 
 usage() {
   cat <<USG
-Usage: install.sh [--repo <url>] [--ref <ref>] [--ssh-pub <key_or_path>] [--harden] [--harden-ssh] [--yes] [--no-telemetry] [--ssl-provider <name>] [--verbose]
+Usage: install.sh [--repo <url>] [--ref <ref>] [--yes] [--no-telemetry] [--ssl-provider <name>] [--verbose]
 
 Install and configure /dev/push on a server (Docker, user, repo, .env).
 
-  --repo URL             Git repo to clone (default: https://github.com/hunvreus/devpush.git)
-  --ref REF              Git ref (branch/tag/commit) to install (default: latest stable tag)
-  --ssh-pub KEY|PATH     Public key content or file to seed authorized_keys for the user
-  --harden               Run system hardening at the end (non-fatal)
-  --harden-ssh           Run SSH hardening at the end (non-fatal)
+  --repo <url>           Git repo to clone (default: https://github.com/hunvreus/devpush.git)
+  --ref <ref>            Git ref (branch/tag/commit) to install (default: latest stable tag)
   --yes, -y              Non-interactive, proceed without prompts
   --no-telemetry         Do not send telemetry
-  --ssl-provider         SSL provider: default|cloudflare|route53|gcloud|digitalocean|azure
+  --ssl-provider <name>  SSL provider: ${VALID_SSL_PROVIDERS//|/, }
   -v, --verbose          Enable verbose output for debugging
   -h, --help             Show this help
 USG
@@ -79,22 +93,16 @@ USG
 
 # Parse CLI flags
 repo="https://github.com/hunvreus/devpush.git"
-ssh_pub=""; run_harden=0; run_harden_ssh=0; telemetry=1; ssl_provider="default"; yes_flag=0
+telemetry=1; ssl_provider="default"; yes_flag=0
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
-
-valid_ssl_providers="default|cloudflare|route53|gcloud|digitalocean|azure"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) repo="$2"; shift 2 ;;
     --ref) ref="$2"; shift 2 ;;
     --no-telemetry) telemetry=0; shift ;;
-    --ssh-pub) ssh_pub="$2"; shift 2 ;;
-    --harden) run_harden=1; shift ;;
-    --harden-ssh) run_harden_ssh=1; shift ;;
     --ssl-provider)
-      if [[ ! "$2" =~ ^(default|cloudflare|route53|gcloud|digitalocean|azure)$ ]]; then
-        err "Invalid --ssl-provider: $2 (must be one of: $valid_ssl_providers)"
+      if ! validate_ssl_provider "$2"; then
         exit 1
       fi
       ssl_provider="$2"
@@ -113,27 +121,9 @@ service_gid=""
 
 # Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then
-  err "install.sh is for production only. For development, install dependencies and start the stack (scripts/start.sh). More information: https://devpu.sh/docs/installation/#development"
+  err "This script is for production only. For development, install dependencies and start the stack (scripts/start.sh). More information: https://devpu.sh/docs/installation/#development"
   exit 1
 fi
-
-# Set up log file (timestamped) and track latest via symlink in /tmp
-INSTALL_LOG_DIR="/tmp"
-timestamp="$(date +%Y%m%d-%H%M%S)"
-INSTALL_LOG="$INSTALL_LOG_DIR/devpush-install-${timestamp}.log"
-mkdir -p "$INSTALL_LOG_DIR" || true
-{
-  printf "Install started: %s\n" "$(date -Iseconds)"
-  printf "Effective ref: %s\n" "$ref"
-} >"$INSTALL_LOG"
-ln -sfn "$INSTALL_LOG" "$INSTALL_LOG_DIR/devpush-install.log"
-exec > >(tee -a "$INSTALL_LOG") 2>&1
-
-on_error_hook() {
-  if [[ -n "${INSTALL_LOG:-}" ]]; then
-    printf "%b\n" "${YEL}See install log for details: ${INSTALL_LOG}${NC}"
-  fi
-}
 
 # Warn if remnants of a prior install are present
 existing_summary=()
@@ -191,7 +181,7 @@ export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 command -v curl >/dev/null || (apt-get update -yq && apt-get install -yq curl >/dev/null)
 
-# Helpers
+# Installs packages using apt-get
 apt_install() {
   local pkgs=("$@"); local i
   for i in {1..5}; do
@@ -200,11 +190,8 @@ apt_install() {
   done
   return 1
 }
-gen_hex(){ openssl rand -hex 32; }
-gen_pw(){ openssl rand -base64 24 | tr -d '\n=' | cut -c1-32; }
-gen_fernet(){ openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'; }
 
-# Helper functions (must be defined before use with run_cmd)
+# Adds the Docker repository to the system
 add_docker_repo() {
     install -m 0755 -d /etc/apt/keyrings
     case "${ID}" in
@@ -238,6 +225,7 @@ add_docker_repo() {
     printf "deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] %s %s stable\n" "$arch" "$repo_url" "$codename" >/etc/apt/sources.list.d/docker.list
 }
 
+# Creates the system user
 create_user() {
   if getent passwd "$service_user" >/dev/null 2>&1; then
     return 0
@@ -245,6 +233,7 @@ create_user() {
   useradd --system --user-group --home "$DATA_DIR" --shell /usr/sbin/nologin --no-create-home "$service_user"
 }
 
+# Records the install metadata
 record_version() {
   local commit ts install_id
   commit=$(runuser -u "$service_user" -- git -C "$APP_DIR" rev-parse --verify HEAD)
@@ -273,48 +262,47 @@ run_cmd "${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
 run_cmd "${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 
 # Create user
-printf '\n'
-printf "Preparing system user and data dirs...\n"
 if ! id -u "$service_user" >/dev/null 2>&1; then
-    run_cmd "${CHILD_MARK} Creating user '${service_user}'..." create_user
+  printf '\n'
+  run_cmd "Creating system user (${service_user})..." create_user
 else
-    printf "%s Creating user '%s'... ${YEL}⊘${NC}\n" "$CHILD_MARK" "$service_user"
-    printf "  ${DIM}%s User already exists${NC}\n" "$CHILD_MARK"
+  printf '\n'
+  printf "Creating system user '%s'... ${YEL}⊘${NC}\n" "$service_user"
+  printf "${DIM}${CHILD_MARK} User already exists${NC}\n"
 fi
 service_uid="$(id -u "$service_user")"
 service_gid="$(id -g "$service_user")"
 
-# Add data dirs
-run_cmd "${CHILD_MARK} Preparing data directories..." install -o "$service_user" -g "$service_user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
+printf '\n'
+printf "Setting up data...\n"
+
+# Create data directory
+run_cmd "${CHILD_MARK} Creating data directory ($DATA_DIR)..." install -o "$service_user" -g "$service_user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
 
 # Persist service metadata
-persist_service_ids "$service_uid" "$service_gid" "$service_user"
+if [[ -n "$service_uid" && -n "$service_gid" ]]; then
+  run_cmd "${CHILD_MARK} Saving service metadata (config.json)..." json_upsert "$CONFIG_FILE" service_user "$service_user" service_uid "@json:$service_uid" service_gid "@json:$service_gid"
+fi
 
 # Persist SSL provider
-persist_ssl_provider "$ssl_provider"
+run_cmd "${CHILD_MARK} Saving SSL provider (config.json)..." json_upsert "$CONFIG_FILE" ssl_provider "$ssl_provider"
 
 # Making config.json owned by devpush
-run_cmd "${CHILD_MARK} Setting config.json ownership..." chown -R "$service_user:$service_user" "$CONFIG_FILE"
+run_cmd "${CHILD_MARK} Setting config.json ownership..." chown "$service_user:$service_user" "$CONFIG_FILE" || true
 
 # Add log dir (production)
 if [[ "$ENVIRONMENT" == "production" ]]; then
-  run_cmd "${CHILD_MARK} Preparing log directory..." install -o "$service_user" -g "$service_user" -m 0750 -d /var/log/devpush
+  printf '\n'
+  run_cmd "Creating log directory ($LOG_DIR)..." install -o "$service_user" -g "$service_user" -m 0750 -d "$LOG_DIR"
 fi
 
-# Port conflicts warning
-if command -v ss >/dev/null 2>&1; then
-  if conflicts=$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/'); [[ -n "${conflicts:-}" ]]; then
-    printf "${YEL}Ports 80/443 are in use. Traefik may fail to start later.${NC}\n"
-  fi
-fi
+printf '\n'
+printf "Setting up app...\n"
 
-# Create app dir
 run_cmd "${CHILD_MARK} Creating app directory..." install -d -m 0755 "$APP_DIR"
 run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$service_user:$service_user" "$APP_DIR"
 
 # Get code from GitHub
-printf '\n'
-printf "Cloning repository...\n"
 if [[ -d "$APP_DIR/.git" ]]; then
   # Repo exists, just fetch
   cmd_block="
@@ -323,7 +311,7 @@ if [[ -d "$APP_DIR/.git" ]]; then
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "${CHILD_MARK} Fetching updates for existing repo..." runuser -u "$service_user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Fetching repo updates ($repo)..." runuser -u "$service_user" -- bash -c "$cmd_block"
 else
   # New clone
   cmd_block="
@@ -333,10 +321,10 @@ else
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "${CHILD_MARK} Cloning new repository..." runuser -u "$service_user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Cloning repo ($repo)..." runuser -u "$service_user" -- bash -c "$cmd_block"
 fi
 
-run_cmd "${CHILD_MARK} Checking out: $ref" runuser -u "$service_user" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Checking out ref ($ref)" runuser -u "$service_user" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
 
 cd "$APP_DIR"
 
@@ -347,32 +335,16 @@ build_runner_images
 
 # Save install metadata (version.json)
 printf '\n'
-run_cmd "Recording install metadata..." record_version
-
-# Optional hardening (non-fatal) - run before telemetry
-if ((run_harden==1)); then
-  printf '\n'
-  if ! run_cmd_try "Running server hardening..." bash "$APP_DIR/scripts/harden.sh" ${ssh_pub:+--ssh-pub "$ssh_pub"}; then
-    printf "${YEL}Hardening skipped/failed. Install succeeded.${NC}\n"
-  fi
-fi
-
-if ((run_harden_ssh==1)); then
-  printf '\n'
-  if ! run_cmd_try "Running SSH hardening..." bash "$APP_DIR/scripts/harden.sh" --ssh ${ssh_pub:+--ssh-pub "$ssh_pub"}; then
-    printf "${YEL}SSH hardening skipped/failed. Install succeeded.${NC}\n"
-  fi
-fi
+run_cmd "Saving install metadata (${VERSION_FILE})..." record_version
 
 # Send telemetry
 if ((telemetry==1)); then
   printf '\n'
-  if ! run_cmd_try "Sending telemetry..." send_telemetry install; then
-    printf "  ${DIM}%s Telemetry failed (non-fatal). Continuing install.${NC}\n" "$CHILD_MARK"
+  if ! run_cmd --try "Sending telemetry..." send_telemetry install; then
+    printf "  ${DIM}${CHILD_MARK} Telemetry failed (non-fatal). Continuing install.${NC}\n"
   fi
 fi
 
-# Install systemd unit and start in setup mode
 printf '\n'
 printf "Installing systemd unit...\n"
 
@@ -383,6 +355,7 @@ if systemctl list-unit-files | grep -q '^devpush.service'; then
   systemctl reset-failed devpush.service 2>/dev/null || true
 fi
 
+# Install systemd unit
 unit_path="/etc/systemd/system/devpush.service"
 run_cmd "${CHILD_MARK} Installing unit file..." install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
 run_cmd "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
@@ -396,8 +369,19 @@ printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
 printf '\n'
 run_cmd "Starting stack..." systemctl start devpush.service
 
-# Show setup URL
+# Port conflicts warning
+if command -v ss >/dev/null 2>&1; then
+  if conflicts=$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/'); [[ -n "${conflicts:-}" ]]; then
+    printf "${YEL}Ports 80/443 are in use. Traefik may fail to start.${NC}\n"
+  fi
+fi
+
+# Get public IP and persist to config.json
 sip=$(get_public_ip 2>/dev/null || true)
+if [[ -n "$sip" ]]; then
+  json_upsert "$CONFIG_FILE" public_ip "$sip"
+fi
+
 printf '\n'
 if [ -z "$sip" ]; then
   printf "${YEL}Could not determine public IP; using localhost:${NC}\n"

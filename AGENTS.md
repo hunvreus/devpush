@@ -25,10 +25,10 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 
 ### Docker / Compose Usage
 
-1. Call `ensure_compose_cmd` before issuing any compose commands (or rely on `get_compose_base` which calls it internally).
-2. Use `get_compose_base <mode> [ssl-provider]` (`mode` is `run` or `setup`) to populate `COMPOSE_BASE`.
+1. Call `ensure_compose_cmd` before issuing any compose commands (or rely on `set_compose_base` which calls it internally).
+2. Use `set_compose_base <mode> [ssl-provider]` (`mode` is `run` or `setup`) to populate `COMPOSE_BASE`.
 3. Run compose via `run_cmd "Message..." "${COMPOSE_BASE[@]}" <subcommand> …`. Never spell `docker compose` / `docker-compose` directly.
-4. `get_compose_base` also ensures `SERVICE_UID`/`SERVICE_GID` are exported so Docker builds run with the correct user. Never assume UID/GID 1000; always go through the helper.
+4. `set_compose_base` also ensures `SERVICE_UID`/`SERVICE_GID` are exported so Docker builds run with the correct user. Never assume UID/GID 1000; always go through the helper.
 
 ### Output & Spacing
 

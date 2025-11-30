@@ -72,12 +72,6 @@ You can use the provisioning script to get a server up and running:
    ```bash
    ssh <login_user>@<server_ip>
    ```
-6. **Run hardening for system and SSH**:
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/harden.sh | sudo bash -s -- --ssh
-  ```
-
-Even if you already have a server, we recommend you harden security (ufw, fail2ban, disabled root SSH, etc). You can do that using `scripts/harden.sh`.
 
 #### DNS records
 
@@ -203,7 +197,6 @@ See the [scripts](#scripts) section for more dev utilities.
 | Dev | `scripts/clean.sh` | Stop stack and clean dev data (`--hard` for global) |
 | Prod | `scripts/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
 | Prod | `scripts/install.sh` | Server setup: Docker, user, clone repo, systemd unit |
-| Prod | `scripts/harden.sh` | System hardening (UFW, fail2ban, unattended-upgrades); add `--ssh` to harden SSH |
 | Prod | `scripts/start.sh` | Start services; supports `--setup`, `--no-migrate`, `--ssl-provider <prov>` |
 | Prod | `scripts/stop.sh` | Stop services (auto-detects run/setup). Use `--systemd` to stop the unit first or `--hard` to tear everything down (both stacks + containers). |
 | Prod | `scripts/restart.sh` | Restart services; supports `--setup`, `--no-migrate` |

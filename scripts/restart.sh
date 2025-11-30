@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
@@ -38,7 +39,7 @@ if ! is_stack_running; then
 fi
 
 # Detect what's currently running (for stop label)
-current_mode="$(detect_running_stack 2>/dev/null || echo "unknown")"
+current_mode="$(get_running_stack 2>/dev/null || echo "unknown")"
 stop_mode_label=""
 if [[ "$current_mode" == "setup" ]]; then
   stop_mode_label=" (setup mode)"
@@ -63,7 +64,7 @@ run_cmd "${CHILD_MARK} Stopping stack${stop_mode_label}..." bash "$SCRIPT_DIR/st
 start_args=()
 ((force_setup==1)) && start_args+=(--setup)
 ((run_migrations==0)) && start_args+=(--no-migrate)
-if ((${#start_args[@]} > 0)); then
+if ((${#start_args[@]})); then
   run_cmd "${CHILD_MARK} Starting stack${start_mode_label}..." bash "$SCRIPT_DIR/start.sh" "${start_args[@]}"
 else
   run_cmd "${CHILD_MARK} Starting stack${start_mode_label}..." bash "$SCRIPT_DIR/start.sh"

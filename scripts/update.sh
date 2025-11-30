@@ -16,18 +16,20 @@ on_error_hook() {
 
 usage(){
   cat <<USG
-Usage: update.sh [--ref <tag>] [--all | --components app,worker-arq,worker-monitor,alloy | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update.sh [--ref <tag>] [--all | --components <csv> | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
 
 Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple restarts).
 
-  --ref TAG         Git tag to update to (default: latest stable tag)
+  --ref <tag>       Git tag to update to (default: latest stable tag)
   --all             Update app,worker-arq,worker-monitor,alloy
-  --components CSV  Comma-separated list of services to update (e.g. app,loki,alloy)
+  --components <csv>
+                    Comma-separated list of services (${VALID_COMPONENTS//|/, })
   --full            Full stack update (down whole stack, then up). Causes downtime
   --no-migrate      Do not run DB migrations after app update
   --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
-  --ssl-provider    One of: default|cloudflare|route53|gcloud|digitalocean|azure
+  --ssl-provider <name>
+                    One of: ${VALID_SSL_PROVIDERS//|/, }
   -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
@@ -41,11 +43,28 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref) ref="$2"; shift 2 ;;
     --all) do_all=1; shift ;;
-    --components) comps="$2"; shift 2 ;;
+    --components)
+      comps="$2"
+      IFS=',' read -ra _up_secs <<< "$comps"
+      for comp in "${_up_secs[@]}"; do
+        comp="${comp// /}"
+        [[ -z "$comp" ]] && continue
+        if ! validate_component "$comp"; then
+          exit 1
+        fi
+      done
+      shift 2
+      ;;
     --full) do_full=1; shift ;;
     --no-migrate) migrate=0; shift ;;
     --no-telemetry) telemetry=0; shift ;;
-    --ssl-provider) ssl_provider="$2"; shift 2 ;;
+    --ssl-provider)
+      if ! validate_ssl_provider "$2"; then
+        exit 1
+      fi
+      ssl_provider="$2"
+      shift 2
+      ;;
     --yes|-y) yes=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
@@ -53,21 +72,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ensure_service_ids
+if ((do_all==1)) && [[ -n "$comps" ]]; then
+  err "--all cannot be combined with --components"
+  exit 1
+fi
+if ((do_full==1)) && { ((do_all==1)) || [[ -n "$comps" ]]; }; then
+  err "--full cannot be combined with --all or --components"
+  exit 1
+fi
 
-# Guard: ensure setup completed before running updates
 if ! is_setup_complete; then
   err "This script requires a completed setup. Run the setup wizard first."
   exit 1
 fi
 
-# Guard: prevent running in development mode
 if [[ "$ENVIRONMENT" == "development" ]]; then
-  err "update.sh is for production only. For development, simply pull code with git."
+  err "This script is for production only. For development, simply pull code with git. More information: https://devpu.sh/docs/installation/#development"
   exit 1
 fi
 
-cd "$APP_DIR" || { err "app dir not found: $APP_DIR"; exit 1; }
+cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
+
+set_service_ids
 
 # Check for uncommitted changes
 if [[ -n "$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" status --porcelain 2>/dev/null)" ]]; then
@@ -95,9 +121,9 @@ if [[ -z "$ref" ]]; then
   ref="$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" tag -l --sort=version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | tail -1 || true)"
   [[ -n "$ref" ]] || ref="$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" tag -l --sort=version:refname | tail -1 || true)"
   [[ -n "$ref" ]] || ref="main"
-  printf "  ${DIM}%s Using latest stable tag: %s${NC}\n" "$CHILD_MARK" "$ref"
+  printf "  ${DIM}${CHILD_MARK} Using latest stable tag: %s${NC}\n" "$ref"
 else
-  printf "  ${DIM}%s Using provided ref: %s${NC}\n" "$CHILD_MARK" "$ref"
+  printf "  ${DIM}${CHILD_MARK} Using provided ref: %s${NC}\n" "$ref"
 fi
 
 # Fetch update

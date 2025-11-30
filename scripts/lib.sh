@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$LIB_DIR/.." && pwd)"
@@ -41,23 +40,25 @@ if [[ -z "$ENVIRONMENT" ]]; then
   fi
 fi
 
-# Application and data paths
+# Application, data, log, and backup paths
 if [[ "$ENVIRONMENT" == "production" ]]; then
   APP_DIR="${DEVPUSH_APP_DIR:-/opt/devpush}"
   DATA_DIR="${DEVPUSH_DATA_DIR:-/var/lib/devpush}"
   LOG_DIR="${DEVPUSH_LOG_DIR:-/var/log/devpush}"
+  BACKUP_DIR="${DEVPUSH_BACKUP_DIR:-/var/backups/devpush}"
 else
   APP_DIR="${DEVPUSH_APP_DIR:-$PROJECT_ROOT}"
   DATA_DIR="${DEVPUSH_DATA_DIR:-$APP_DIR/data}"
   LOG_DIR="${DEVPUSH_LOG_DIR:-$APP_DIR/logs}"
+  BACKUP_DIR="${DEVPUSH_BACKUP_DIR:-$APP_DIR/backups}"
 fi
 
-# Environment file, config file, and version file
+# Environment file, config file, version file
 ENV_FILE="$DATA_DIR/.env"
 CONFIG_FILE="$DATA_DIR/config.json"
 VERSION_FILE="$DATA_DIR/version.json"
 
-export ENVIRONMENT APP_DIR DATA_DIR ENV_FILE CONFIG_FILE VERSION_FILE LOG_DIR
+export ENVIRONMENT APP_DIR DATA_DIR ENV_FILE CONFIG_FILE VERSION_FILE LOG_DIR BACKUP_DIR
 
 # Spinner for long-running commands
 spinner() {
@@ -74,74 +75,13 @@ spinner() {
   { tput cnorm 2>/dev/null || printf "\033[?25h"; } 2>/dev/null
 }
 
-# Run command and bail out on failure
+# Run command with optional --try flag to return instead of exiting on failure
 run_cmd() {
-  local msg="$1"; shift
-  local cmd=("$@")
-
-  if ((VERBOSE == 1)); then
-    printf "%s\n" "$msg"
-    "${cmd[@]}"
-    local exit_code=$?
-    if [[ $exit_code -ne 0 ]]; then
-      err "Failed running: ${cmd[*]}"
-      exit $exit_code
-    else
-        printf "%b\n" "${GRN}Done ✔${NC}"
-    fi
-  else
-    : >"$CMD_LOG"
-    "${cmd[@]}" >"$CMD_LOG" 2>&1 &
-    local pid=$!
-    SPIN_PREFIX="$msg"
-    spinner "$pid"
-    printf "\r\033[K"
-    local saved_trap saved_e
-    saved_trap="$(trap -p ERR 2>/dev/null || echo '')"
-    saved_e="$-"
-    trap - ERR 2>/dev/null || true
-    set +e
-    wait "$pid"
-    local exit_code=$?
-    if [[ "$saved_e" == *e* ]]; then
-      set -e
-    else
-      set +e
-    fi
-    if [[ -n "$saved_trap" ]]; then
-      if ! eval "$saved_trap" 2>/dev/null; then
-        err "Failed to restore ERR trap - error handling may be compromised"
-      fi
-    fi
-    if [[ $exit_code -ne 0 ]]; then
-      printf "%b\n" "$SPIN_PREFIX ${RED}✖${NC}"
-      printf '\n'
-      err "Failed. Command output:"
-      if [[ -s "$CMD_LOG" ]]; then
-        if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-          sed "s/^/  ${DIM}/" "$CMD_LOG" | sed "s/$/${NC}/" | tee -a "$SCRIPT_ERR_LOG" >&2
-        else
-          sed "s/^/  ${DIM}/" "$CMD_LOG" | sed "s/$/${NC}/" >&2
-        fi
-      else
-        if [[ -n "${SCRIPT_ERR_LOG:-}" ]]; then
-            printf "%b\n" "  ${DIM}(no output captured)${NC}" | tee -a "$SCRIPT_ERR_LOG" >&2
-        else
-            printf "%b\n" "  ${DIM}(no output captured)${NC}" >&2
-        fi
-      fi
-      printf '\n'
-      rm -f "$CMD_LOG" 2>/dev/null || true
-      exit $exit_code
-    else
-      printf "%b\n" "$SPIN_PREFIX ${GRN}✔${NC}"
-      rm -f "$CMD_LOG" 2>/dev/null || true
-    fi
+  local no_exit=0
+  if [[ "${1:-}" == "--try" ]]; then
+    no_exit=1
+    shift
   fi
-}
-
-# Same as run_cmd but returns non-zero instead of exiting
-run_cmd_try() {
   local msg="$1"; shift
   local cmd=("$@")
 
@@ -151,7 +91,11 @@ run_cmd_try() {
     local exit_code=$?
     if [[ $exit_code -ne 0 ]]; then
       err "Failed running: ${cmd[*]}"
-      return $exit_code
+      if (( no_exit == 1 )); then
+        return $exit_code
+      else
+        exit $exit_code
+      fi
     else
       printf "%b\n" "${GRN}Done ✔${NC}"
       return 0
@@ -199,7 +143,11 @@ run_cmd_try() {
       fi
       printf '\n'
       rm -f "$CMD_LOG" 2>/dev/null || true
-      return $exit_code
+      if (( no_exit == 1 )); then
+        return $exit_code
+      else
+        exit $exit_code
+      fi
     else
       printf "%b\n" "$SPIN_PREFIX ${GRN}✔${NC}"
       rm -f "$CMD_LOG" 2>/dev/null || true
@@ -258,10 +206,19 @@ json_upsert() {
     return 1
   fi
 
-  local dir tmp
-  dir="$(dirname "$file")"
-  install -d -m 0750 "$dir" >/dev/null 2>&1 || true
-  tmp="$file.tmp"
+  local exists=0
+  if [[ -f "$file" ]]; then
+    exists=1
+  else
+    local dir
+    dir="$(dirname "$file")"
+    if [[ ! -d "$dir" ]]; then
+      mkdir -p -m 0750 "$dir" || {
+        err "json_upsert: failed to create directory: $dir"
+        return 1
+      }
+    fi
+  fi
 
   local jq_args=()
   local filter='(. // {}) as $base | $base + {'
@@ -293,16 +250,26 @@ json_upsert() {
 
   filter+='}'
 
-  if [[ -f "$file" ]]; then
-    jq "${jq_args[@]}" "$filter" "$file" | jq '.' >"$tmp"
+  local output
+  if (( exists )); then
+    output="$(jq -c "${jq_args[@]}" "$filter" "$file")" || {
+      err "json_upsert: failed to update $file"
+      return 1
+    }
   else
-    jq -n "${jq_args[@]}" "$filter" | jq '.' >"$tmp"
+    output="$(jq -c -n "${jq_args[@]}" "$filter")" || {
+      err "json_upsert: failed to build JSON for $file"
+      return 1
+    }
   fi
 
-  mv "$tmp" "$file"
-  chmod 0644 "$file" >/dev/null 2>&1 || true
+  printf '%s' "$output" > "$file" || {
+    err "json_upsert: failed writing to $file"
+    return 1
+  }
 }
 
+# Error trap used by init_script_logging
 _script_err_trap() {
   local s=$?
   local name="${CURRENT_SCRIPT_NAME:-script}"
@@ -320,6 +287,7 @@ _script_err_trap() {
   exit $s
 }
 
+# Initialize script logging
 init_script_logging() {
   local name="${1:-$(basename "$0" .sh)}"
   local log_dir="${LOG_DIR:-/var/log/devpush}"
@@ -362,7 +330,7 @@ build_runner_images() {
   fi
 
   if ((${#entries[@]} == 0)); then
-    printf "  ${DIM}%s No runner definitions found${NC}\n" "$CHILD_MARK"
+    printf "  ${DIM}${CHILD_MARK} No runner definitions found${NC}\n"
     return 0
   fi
 
@@ -377,7 +345,7 @@ build_runner_images() {
 
     local dockerfile="$runner_dir/Dockerfile.$slug"
     if [[ ! -f "$dockerfile" ]]; then
-      printf "  ${DIM}%s Skipping %s (missing %s)${NC}\n" "$CHILD_MARK" "$name" "${dockerfile#$APP_DIR/}"
+      printf "  ${DIM}${CHILD_MARK} Skipping %s (missing %s)${NC}\n" "$name" "${dockerfile#$APP_DIR/}"
       continue
     fi
 
@@ -387,19 +355,19 @@ build_runner_images() {
     local build_cmd=(docker build -f "$dockerfile" -t "runner-$slug")
     ((no_cache==1)) && build_cmd+=(--no-cache)
     build_cmd+=("$runner_dir")
-    if ! run_cmd_try "${CHILD_MARK} ${label}" "${build_cmd[@]}"; then
+    if ! run_cmd --try "${CHILD_MARK} ${label}" "${build_cmd[@]}"; then
       ((failed+=1))
     fi
   done
 
   if ((built==0)); then
     if [[ -n "$target" ]]; then
-      printf "  ${DIM}%s Runner image '%s' not found${NC}\n" "$CHILD_MARK" "$target"
+      printf "  ${DIM}${CHILD_MARK} Runner image '%s' not found${NC}\n" "$target"
     else
-      printf "  ${DIM}%s No runners matched criteria${NC}\n" "$CHILD_MARK"
+      printf "  ${DIM}${CHILD_MARK} No runners matched criteria${NC}\n"
     fi
   elif ((failed>0)); then
-    printf "  ${DIM}%s %s runner build(s) failed${NC}\n" "$CHILD_MARK" "$failed"
+    printf "  ${DIM}${CHILD_MARK} %s runner build(s) failed${NC}\n" "$failed"
   fi
 }
 
@@ -485,6 +453,30 @@ is_setup_complete() {
   [[ "$(json_get setup_complete "$CONFIG_FILE" false)" == "true" ]]
 }
 
+# Validation constants
+VALID_SSL_PROVIDERS="default|cloudflare|route53|gcloud|digitalocean|azure"
+VALID_COMPONENTS="app|worker-arq|worker-monitor|alloy|traefik|loki|redis|docker-proxy|pgsql"
+
+# Validate SSL provider
+validate_ssl_provider() {
+  local provider="$1"
+  if [[ ! "$provider" =~ ^(${VALID_SSL_PROVIDERS//|/|})$ ]]; then
+    err "Invalid SSL provider: $provider (must be one of: $VALID_SSL_PROVIDERS)"
+    return 1
+  fi
+  return 0
+}
+
+# Validate component
+validate_component() {
+  local comp="$1"
+  if [[ ! "$comp" =~ ^(${VALID_COMPONENTS//|/|})$ ]]; then
+    err "Invalid component: $comp (must be one of: $VALID_COMPONENTS)"
+    return 1
+  fi
+  return 0
+}
+
 # Service user (used for ownership + container UID/GID)
 SERVICE_USER="${DEVPUSH_SERVICE_USER:-}"
 SERVICE_UID="${SERVICE_UID:-}"
@@ -513,7 +505,7 @@ default_service_user() {
 }
 
 # Ensure service UID/GID are set
-ensure_service_ids() {
+set_service_ids() {
   local config_user config_uid config_gid
   config_user="$(json_get service_user "$CONFIG_FILE" "" || true)"
   config_uid="$(json_get service_uid "$CONFIG_FILE" "" || true)"
@@ -554,21 +546,6 @@ ensure_service_ids() {
   export SERVICE_USER SERVICE_UID SERVICE_GID
 }
 
-# Persist service UID/GID to config.json
-persist_service_ids() {
-  local uid="$1"
-  local gid="$2"
-  local user="$3"
-
-  [[ -n "$uid" && -n "$gid" ]] || return 0
-
-  if [[ -z "$user" ]]; then
-    user="$(default_service_user)"
-  fi
-
-  json_upsert "$CONFIG_FILE" service_user "$user" service_uid "@json:$uid" service_gid "@json:$gid"
-}
-
 # Resolve SSL provider from env/config/default
 get_ssl_provider() {
   if [[ -n "${SSL_PROVIDER:-}" ]]; then
@@ -584,13 +561,7 @@ get_ssl_provider() {
   printf "default\n"
 }
 
-# Persist SSL provider choice to config.json
-persist_ssl_provider() {
-  local provider="$1"
-  json_upsert "$CONFIG_FILE" ssl_provider "$provider"
-}
-
-# Ensure traefik/acme.json exists with strict perms
+# Ensure traefik/acme.json exists with proper perms
 ensure_acme_json() {
   install -d -m 0755 "$DATA_DIR/traefik" >/dev/null 2>&1 || true
   touch "$DATA_DIR/traefik/acme.json" >/dev/null 2>&1 || true
@@ -608,7 +579,7 @@ COMPOSE_ENV=()
 COMPOSE_BASE=()
 
 # Detect compose command (`docker compose` preferred)
-detect_compose_cmd() {
+set_compose_cmd() {
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     COMPOSE_BIN=(docker compose)
     return 0
@@ -617,16 +588,6 @@ detect_compose_cmd() {
     return 0
   fi
   return 1
-}
-
-# Ensure compose command is detected
-ensure_compose_cmd() {
-  if ((${#COMPOSE_BIN[@]} == 0)); then
-    if ! detect_compose_cmd; then
-      err "Neither 'docker compose' nor 'docker-compose' is available. Install Docker v20.10+ or docker-compose."
-      exit 1
-    fi
-  fi
 }
 
 # Build compose arguments for stack/setup modes
@@ -663,12 +624,17 @@ compose_args() {
 }
 
 # Populate COMPOSE_BASE for docker compose invocations
-get_compose_base() {
+set_compose_base() {
   local mode="${1:-run}"
   local ssl="${2:-default}"
 
-  ensure_service_ids
-  ensure_compose_cmd
+  set_service_ids
+  if ((${#COMPOSE_BIN[@]} == 0)); then
+    if ! set_compose_cmd; then
+      err "Neither 'docker compose' nor 'docker-compose' is available. Install Docker v20.10+ or docker-compose."
+      exit 1
+    fi
+  fi
   compose_args "$mode" "$ssl"
   COMPOSE_BASE=("${COMPOSE_BIN[@]}")
   if ((${#COMPOSE_ENV[@]})); then
@@ -680,7 +646,7 @@ get_compose_base() {
 }
 
 # Detect which stack is actually running by checking container labels
-detect_running_stack() {
+get_running_stack() {
   local container
   container=$(docker ps --filter "label=com.docker.compose.project=devpush" --filter "label=com.docker.compose.service=app" --format "{{.ID}}" 2>/dev/null | head -1)
   if [[ -z "$container" ]]; then
@@ -707,11 +673,6 @@ is_stack_running() {
 
 # Fetch public IP and persist unless --no-save
 get_public_ip() {
-  local save=1
-  if [[ "${1:-}" == "--no-save" ]]; then
-    save=0
-  fi
-
   local ip=""
 
   # Try outbound services first
@@ -733,10 +694,6 @@ get_public_ip() {
     elif [[ "$(uname -s)" == "Darwin" ]]; then
       ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || printf '')"
     fi
-  fi
-
-  if [[ -n "$ip" && $save -eq 1 ]]; then
-    json_upsert "$CONFIG_FILE" public_ip "$ip"
   fi
 
   printf "%s\n" "$ip"

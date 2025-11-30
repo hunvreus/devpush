@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
 
 APP_DIR="/opt/devpush"
 DATA_DIR="/var/lib/devpush"

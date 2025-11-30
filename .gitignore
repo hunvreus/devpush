@@ -18,6 +18,7 @@ supervisord.pid
 # Data (uploads and Traefik)
 /data/
 /logs/
+/backups/
 
 # Node
 node_modules/

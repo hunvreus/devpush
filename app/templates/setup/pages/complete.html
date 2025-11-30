@@ -2,8 +2,13 @@
 {% block title %}{{ _("Restarting...") }}{% endblock %}
 
 {% block base_content %}
-{% set command = "sudo systemctl restart devpush" if environment == "production" else "./scripts/start.sh" %}
-{% set instructions = _("Restart the services by running the following command on the server:") if environment == "production" else _("Stop the services (<kbd class='kbd'>Ctrl + C</kbd>) and start them again:") %}
+{% if environment == "production" %}
+  {% set command = "sudo systemctl restart devpush" %}
+  {% set instructions = _("Restart the services by running the following command on the server:") %}
+{% else %}
+  {% set command = "./scripts/restart.sh" %}
+  {% set instructions = _("Restart the services locally by running:") %}
+{% endif %}
 <div class="h-screen flex items-center justify-center">
   <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-lg border-dashed p-6 text-center text-balance md:p-12">
     <header class="flex max-w-sm flex-col items-center gap-2 text-center">
