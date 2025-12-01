@@ -268,7 +268,7 @@ if ! id -u "$service_user" >/dev/null 2>&1; then
 else
   printf '\n'
   printf "Creating system user '%s'... ${YEL}⊘${NC}\n" "$service_user"
-  printf "${DIM}${CHILD_MARK} User already exists${NC}\n"
+  printf "${DIM}%s User already exists${NC}\n" "${CHILD_MARK}"
 fi
 service_uid="$(id -u "$service_user")"
 service_gid="$(id -g "$service_user")"
@@ -288,7 +288,7 @@ fi
 run_cmd "${CHILD_MARK} Saving SSL provider (config.json)..." json_upsert "$CONFIG_FILE" ssl_provider "$ssl_provider"
 
 # Making config.json owned by devpush
-run_cmd "${CHILD_MARK} Setting config.json ownership..." chown "$service_user:$service_user" "$CONFIG_FILE" || true
+run_cmd --try "${CHILD_MARK} Setting config.json ownership..." chown "$service_user:$service_user" "$CONFIG_FILE"
 
 # Add log dir (production)
 if [[ "$ENVIRONMENT" == "production" ]]; then
@@ -391,4 +391,4 @@ fi
 printf "${GRN}Stack started. ✔${NC}\n"
 printf "${DIM}The app may take a while to be ready.${NC}\n"
 printf '\n'
-printf "${YEL}Visit this URL to complete the setup: http://%s${NC}\n" "$sip"
+printf "${GRN}Visit this URL to complete the setup: http://%s${NC}\n" "$sip"

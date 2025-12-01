@@ -43,6 +43,8 @@ done
 
 cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
+docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
+
 # Confirmation prompt
 if ((yes_flag==0)); then
   printf '\n'
@@ -50,6 +52,7 @@ if ((yes_flag==0)); then
   if [[ "$ENVIRONMENT" == "production" ]]; then
     printf "${RED}WARNING:${NC} You are running in production.\n"
   fi
+  printf '\n'
   read -r -p "Continue? [y/N] " ans
   [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { printf "Aborted.\n"; exit 0; }
 fi
@@ -57,25 +60,25 @@ fi
 printf '\n'
 run_cmd --try "Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
 
+printf '\n'
+printf "Removing Docker resources...\n"
+
 # Remove Docker volumes
 volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
 if [[ -n "$volumes" ]]; then
   volume_count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
-  printf '\n'
-  run_cmd --try "Removing volumes ($volume_count found)..." docker volume rm $volumes >/dev/null 2>&1 || true
+  run_cmd --try "${CHILD_MARK} Removing Docker volumes ($volume_count found)..." docker volume rm $volumes
+else
+  printf "%s Removing Docker volumes (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # Remove Docker networks
 networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
 if [[ -n "$networks" ]]; then
   network_count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
-  printf '\n'
-  run_cmd --try "Removing networks ($network_count found)..." docker network rm $networks >/dev/null 2>&1 || true
-fi
-
-if ((remove_data==1)) || ((remove_all==1)); then
-  printf '\n'
-  run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
+  run_cmd --try "${CHILD_MARK} Removing Docker networks ($network_count found)..." docker network rm $networks
+else
+  printf "%s Removing Docker networks (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # If remove containers or remove all, remove the containers
@@ -83,11 +86,11 @@ if ((remove_containers==1)) || ((remove_all==1)); then
   compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
   runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
   containers="$(printf "%s\n%s\n" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
+  container_count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
   if [[ -n "$containers" ]]; then
-    run_cmd --try "Removing containers..." docker rm -f $containers >/dev/null 2>&1 || true
+    run_cmd --try "${CHILD_MARK} Removing Docker containers ($container_count found)..." docker rm -f $containers
   else
-    printf "Removing containers... ${YEL}⊘${NC}\n"
-    printf "${DIM}${CHILD_MARK} No containers found${NC}\n"
+    printf "%s Removing Docker containers (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
 fi
 
@@ -95,12 +98,17 @@ if ((remove_images==1)) || ((remove_all==1)); then
   compose_images="$(docker images --filter "reference=devpush*" -q 2>/dev/null || true)"
   runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || true)"
   images="$(printf "%s\n%s\n" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
+  image_count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
   if [[ -n "$images" ]]; then
-    run_cmd --try "Removing images..." docker rmi -f $images >/dev/null 2>&1 || true
+    run_cmd --try "${CHILD_MARK} Removing Docker images ($image_count found)..." docker rmi -f $images
   else
-    printf "Removing images... ${YEL}⊘${NC}\n"
-    printf "${DIM}${CHILD_MARK} No images found${NC}\n"
+    printf "%s Removing Docker images (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
+fi
+
+if ((remove_data==1)) || ((remove_all==1)); then
+  printf '\n'
+  run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
 fi
 
 # Success message

@@ -114,7 +114,7 @@ if systemctl list-unit-files | grep -q '^devpush.service'; then
   printf "Removing systemd unit...\n"
   run_cmd --try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
   run_cmd --try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
-  run_cmd --try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service 2>/dev/null || true
+  run_cmd --try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service
   run_cmd --try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
 fi
 
@@ -138,6 +138,8 @@ images="$(printf "%s\n%s\n" "$compose_images" "$runner_images" | grep -v '^\s*$'
 if [[ -n "$images" ]]; then
   image_count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
   run_cmd --try "${CHILD_MARK} Removing images ($image_count found)..." docker rmi -f $images
+else
+  printf "%s Removing Docker images (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # Remove Docker networks
@@ -145,6 +147,8 @@ networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
 if [[ -n "$networks" ]]; then
   network_count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
   run_cmd --try "${CHILD_MARK} Removing networks ($network_count found)..." docker network rm $networks
+else
+  printf "%s Removing Docker networks (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # Remove Docker volumes
@@ -152,6 +156,8 @@ volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
 if [[ -n "$volumes" ]]; then
   volume_count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
   run_cmd --try "${CHILD_MARK} Removing volumes ($volume_count found)..." docker volume rm $volumes
+else
+  printf "%s Removing Docker volumes (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # Remove data directory

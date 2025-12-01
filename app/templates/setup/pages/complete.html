@@ -4,10 +4,8 @@
 {% block base_content %}
 {% if environment == "production" %}
   {% set command = "sudo systemctl restart devpush" %}
-  {% set instructions = _("Restart the services by running the following command on the server:") %}
 {% else %}
   {% set command = "./scripts/restart.sh" %}
-  {% set instructions = _("Restart the services locally by running:") %}
 {% endif %}
 <div class="h-screen flex items-center justify-center">
   <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-6 rounded-lg border-dashed p-6 text-center text-balance md:p-12">
@@ -18,7 +16,7 @@
       <h3 class="text-lg font-semibold tracking-tight">{{ _("Setup complete") }}</h3>
       <p class="text-muted-foreground text-sm/relaxed">
         {{ _("The configuration has been saved.") }}
-        {{ instructions | safe }}
+        {{ _("Restart the services by running the following command on the server:") }}
       </p>
     </header>
     <section class="flex w-full min-w-0 flex-col items-center gap-3">

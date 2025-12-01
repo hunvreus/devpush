@@ -33,5 +33,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
+
 printf "Building runner images...\n"
 build_runner_images "${args[@]}"

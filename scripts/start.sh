@@ -45,6 +45,8 @@ done
 
 cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
+docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
+
 # Default data directory
 mkdir -p -m 0750 "$DATA_DIR/traefik" "$DATA_DIR/upload"
 if [[ ! -f "$CONFIG_FILE" ]]; then

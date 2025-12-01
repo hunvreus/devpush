@@ -28,6 +28,8 @@ done
 
 cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
+docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
+
 printf '\n'
 
 # Check stack status

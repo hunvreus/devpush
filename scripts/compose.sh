@@ -43,6 +43,8 @@ fi
 
 cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
+docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
+
 # Build compose args
 if [[ "$stack_mode" == "setup" ]]; then
   set_compose_base setup
