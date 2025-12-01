@@ -51,7 +51,7 @@ if ((yes_flag==0)); then
     printf "${RED}WARNING:${NC} You are running in production.\n"
   fi
   read -r -p "Continue? [y/N] " ans
-  [[ "$ans" =~ ^[Yy]$ ]] || { printf "Aborted.\n"; exit 0; }
+  [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { printf "Aborted.\n"; exit 0; }
 fi
 
 printf '\n'

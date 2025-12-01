@@ -3,57 +3,68 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib.sh"
+source "$SCRIPT_DIR/lib.sh"
 
 init_script_logging "restore"
 
 usage(){
   cat <<USG
-Usage: restore.sh --archive <file> [--no-db] [--no-data] [--restart] [--yes] [-v|--verbose]
+Usage: restore.sh --archive <file> [--no-db] [--no-data] [--no-code] [--no-restart] [--no-backup] [--timeout <sec>] [--yes] [-v|--verbose]
 
 Restore a backup produced by scripts/backup.sh.
 
   --archive <file>   Backup archive to restore (required)
   --no-db            Skip restoring the pg_dump from the archive
   --no-data          Skip restoring the data directory
-  --restart          Restart the stack after restore
-  --yes              Skip confirmation prompts (except backup warning)
+  --no-code          Skip restoring the code repository
+  --no-restart       Skip restarting the stack after restore
+  --no-backup        Skip creating a backup before restoring
+  --timeout <sec>    Max seconds to wait for pgsql to be ready (default: 60)
+  --yes              Skip confirmation prompts
   -v, --verbose      Enable verbose output
   -h, --help         Show this help
 USG
   exit 0
 }
 
-# Backup existing path
-backup_existing_path() {
-  local target="$1"
-  local label="$2"
-  local stamp="$3"
-  if [[ -e "$target" || -L "$target" ]]; then
-    local backup="${target}.pre-restore-${stamp}"
-    local counter=1
-    while [[ -e "$backup" || -L "$backup" ]]; do
-      backup="${target}.pre-restore-${stamp}-${counter}"
-      ((counter+=1))
-    done
-    mv "$target" "$backup"
-    printf "  ${DIM}${CHILD_MARK} Existing %s moved to %s${NC}\n" "$label" "$backup"
-  fi
+# Wait for the pgsql container to be ready
+wait_for_pgsql() {
+  local user="$1"
+  local max_attempts="$2"
+  local sleep_seconds="${3:-5}"
+  local timeout=$((max_attempts * sleep_seconds))
+  local attempt=0
+
+  while (( attempt < max_attempts )); do
+    if "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$user" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+    ((attempt+=1))
+  done
+  err "pgsql did not become ready within ${timeout}s. Inspect logs with: scripts/compose.sh logs pgsql"
+  return 1
 }
 
 # Parse CLI flags
 archive_path=""
 restore_data=1
 restore_db=1
-restart_stack=0
-assume_yes=0
+restore_code=1
+restart_stack=1
+timeout=60
+skip_backup=0
+yes=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --archive) archive_path="$2"; shift 2 ;;
     --no-db) restore_db=0; shift ;;
     --no-data) restore_data=0; shift ;;
-    --restart) restart_stack=1; shift ;;
-    --yes) assume_yes=1; shift ;;
+    --no-code) restore_code=0; shift ;;
+    --no-restart) restart_stack=0; shift ;;
+    --no-backup) skip_backup=1; shift ;;
+    --timeout) timeout="$2"; shift 2 ;;
+    --yes) yes=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) err "Unknown option: $1"; usage ;;
@@ -62,13 +73,19 @@ done
 
 [[ -n "$archive_path" ]] || { err "--archive is required"; usage; }
 [[ -f "$archive_path" ]] || { err "Archive not found: $archive_path"; exit 1; }
-[[ "$ENVIRONMENT" == "production" && $EUID -ne 0 ]] && { err "Run restore.sh as root (sudo)."; exit 1; }
-if (( restore_data == 0 && restore_db == 0 )); then
-  err "Nothing to do: both --no-data and --no-db supplied."
+
+[[ "$ENVIRONMENT" == "production" && $EUID -ne 0 ]] && { err "This script must be run as root (sudo)."; exit 1; }
+
+if (( restore_data == 0 && restore_db == 0 && restore_code == 0 )); then
+  err "Nothing to do: both --no-data, --no-db and --no-code supplied."
   exit 1
 fi
+
 cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
+set_service_ids
+
+# Create a temporary directory for the restore
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/devpush-restore.XXXXXX")"
 cleanup() {
   rm -rf "$stage_dir"
@@ -76,94 +93,86 @@ cleanup() {
 trap cleanup EXIT
 
 printf '\n'
-printf "Unpacking archive...\n"
-run_cmd "${CHILD_MARK} Extracting..." tar -xzf "$archive_path" -C "$stage_dir"
+run_cmd "Unpacking archive..." tar -xzf "$archive_path" -C "$stage_dir"
 
-stage_data="$stage_dir/data"
-stage_db_dir="$stage_dir/db"
-metadata_path="$stage_dir/metadata.json"
-[[ -d "$stage_data" ]] || { err "Archive missing data/ directory"; exit 1; }
-embedded_dump="$stage_db_dir/pgdump.sql"
+[[ -d "$stage_dir/data" ]] || { err "Archive missing data/ directory"; exit 1; }
+[[ -f "$stage_dir/data/version.json" ]] || { err "Archive missing data/version.json"; exit 1; }
+[[ -f "$stage_dir/data/config.json" ]] || { err "Archive missing data/config.json"; exit 1; }
+if (( restore_db == 1 )); then
+  [[ -d "$stage_dir/db" ]] || { err "Archive missing db/ directory"; exit 1; }
+  [[ -f "$stage_dir/db/pgdump.sql" ]] || { err "Archive missing db/pgdump.sql"; exit 1; }
+fi
 
-timestamp="$(date +%Y%m%d-%H%M%S)"
 ssl_provider="default"
 if [[ "$ENVIRONMENT" == "production" ]]; then
   ssl_provider="$(get_ssl_provider 2>/dev/null || echo "default")"
 fi
 
+affected_resources=()
+(( restore_data == 1 )) && affected_resources+=("data directory")
+(( restore_db == 1 )) && affected_resources+=("PostgreSQL database")
+(( restore_code == 1 )) && affected_resources+=("code repository")
+IFS=', '; affected_list="${affected_resources[*]}"; unset IFS
+
 printf '\n'
-printf "Restore plan:\n"
-printf "  - Archive: %s\n" "$archive_path"
-if [[ -f "$metadata_path" ]]; then
-  meta_created="$(json_get created_at "$metadata_path" "" || true)"
-  meta_env="$(json_get environment "$metadata_path" "" || true)"
-  meta_host="$(json_get host "$metadata_path" "" || true)"
+printf "${YEL}WARNING: This will stop the stack, replace data from your current stack ($affected_list) with the data from the backup and start the stack again. A safety backup of your current stack will be created before restoring.${NC}\n"
+
+printf '\n'
+printf "${YEL}Restore from:${NC}\n"
+printf "${YEL}  - Archive: %s${NC}\n" "$archive_path"
+if [[ -f "$stage_dir/metadata.json" ]]; then
+  meta_created="$(json_get created_at "$stage_dir/metadata.json" "" || true)"
+  meta_env="$(json_get environment "$stage_dir/metadata.json" "" || true)"
+  meta_host_name="$(json_get host_name "$stage_dir/metadata.json" "" || true)"
+  meta_host_ip="$(json_get host_ip "$stage_dir/metadata.json" "" || true)"
   [[ -n "$meta_created" ]] && printf "  - Created at: %s\n" "$meta_created"
   [[ -n "$meta_env" ]] && printf "  - Source environment: %s\n" "$meta_env"
-  [[ -n "$meta_host" ]] && printf "  - Source host: %s\n" "$meta_host"
-fi
-if (( restore_data == 1 )); then
-  printf "  - Data: restore into %s\n" "$DATA_DIR"
-else
-  printf "  - Data: skipped (--no-data)\n"
-fi
-if (( restore_db == 1 )); then
-  printf "  - Database: restore from embedded dump\n"
-else
-  printf "  - Database: skipped (--no-db)\n"
-fi
-if (( restart_stack == 1 )); then
-  printf "  - Restart stack: yes\n"
-else
-  printf "  - Restart stack: no (use --restart to enable)\n"
+  if [[ -n "$meta_host_name" || -n "$meta_host_ip" ]]; then
+    host_display="${meta_host_name:-unknown}"
+    [[ -n "$meta_host_ip" ]] && host_display="${host_display} ($meta_host_ip)"
+    printf "  - Host: %s\n" "$host_display"
+  fi
 fi
 
-if (( assume_yes == 0 )); then
+if (( yes == 0 )); then
   printf '\n'
-  read -r -p "Proceed with restore? [y/N]: " answer
-  if [[ ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+  read -r -p "Proceed with restore? [y/N]: " proceed_answer
+  if [[ ! "$proceed_answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
     printf "${YEL}Restore aborted by user.${NC}\n"
     exit 0
   fi
 fi
 
-backup_first=0
-if (( assume_yes == 0 )); then
-  read -r -p "Capture a backup before restoring? [y/N]: " backup_answer
-  if [[ "$backup_answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
-    backup_first=1
+# Create a safety backup before restoring
+if (( skip_backup == 0 )); then
+  printf '\n'
+  run_cmd "Creating backup before restore..." bash "$SCRIPT_DIR/backup.sh"
+  latest_backup="$(ls -t "$BACKUP_DIR"/devpush-*.tar.gz 2>/dev/null | head -n1 || true)"
+  if [[ -n "$latest_backup" ]]; then
+    printf "  ${DIM}${CHILD_MARK} Saved to: %s${NC}\n" "$latest_backup"
   fi
 fi
 
-if (( backup_first == 1 )); then
-  printf '\n'
-  printf "Running backup before restore...\n"
-  run_cmd "${CHILD_MARK} Capturing backup..." bash "$SCRIPT_DIR/backup.sh"
-fi
-
+# Stop the stack
 printf '\n'
-printf "Ensuring stack is stopped...\n"
-bash "$SCRIPT_DIR/../stop.sh"
+run_cmd "Stopping stack..." bash "$SCRIPT_DIR/stop.sh"
 
-# Restore DATA_DIR
+# Restore data directory
 if (( restore_data == 1 )); then
   printf '\n'
   printf "Restoring data directory...\n"
-  mkdir -p "$(dirname "$DATA_DIR")"
-  backup_existing_path "$DATA_DIR" "$DATA_DIR" "$timestamp"
-  install -d -m 0750 "$DATA_DIR"
-  run_cmd "${CHILD_MARK} Copying data..." bash -c '
-    set -Eeuo pipefail
-    src="$1"; dest="$2"
-    tar -C "$src" -cf - . | tar -C "$dest" -xf -
-  ' copy "$stage_data" "$DATA_DIR"
+  if [[ -d "$DATA_DIR" ]]; then
+    run_cmd "${CHILD_MARK} Removing existing data dir..." rm -rf "$DATA_DIR"
+  fi
+  mkdir -p -m 0750 "$DATA_DIR"
+  run_cmd "${CHILD_MARK} Restoring data from backup..." cp -a "$stage_dir/data/." "$DATA_DIR/"
+  if [[ -n "${SERVICE_USER:-}" ]]; then
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" >/dev/null 2>&1 || true
+  fi
   ensure_acme_json
-else
-  printf '\n'
-  printf "${DIM}Skipping data restore (--no-data).${NC}\n"
 fi
 
-# Restore database when requested
+# Restore database
 if (( restore_db == 1 )); then
   [[ -f "$ENV_FILE" ]] || { err "Cannot restore database without $ENV_FILE"; exit 1; }
   pg_db="$(read_env_value "$ENV_FILE" POSTGRES_DB)"
@@ -173,46 +182,85 @@ if (( restore_db == 1 )); then
   pg_password="$(read_env_value "$ENV_FILE" POSTGRES_PASSWORD)"
   [[ -n "$pg_password" ]] || { err "POSTGRES_PASSWORD missing in $ENV_FILE"; exit 1; }
 
-  db_source="$embedded_dump"
-  if [[ ! -f "$db_source" ]]; then
-    err "Archive missing db/pgdump.sql and no --no-db flag supplied."
-    exit 1
-  fi
-
   printf '\n'
   printf "Restoring database...\n"
   set_compose_base run "$ssl_provider"
   run_cmd "${CHILD_MARK} Starting pgsql..." "${COMPOSE_BASE[@]}" up -d pgsql
-
   pg_container="$(docker ps --filter "label=com.docker.compose.project=devpush" --filter "label=com.docker.compose.service=pgsql" --format '{{.ID}}' | head -n1 || true)"
   if [[ -z "$pg_container" ]]; then
     err "pgsql container did not start. Inspect logs with: scripts/compose.sh logs pgsql"
     exit 1
   fi
 
-  export PG_RESTORE_FILE="$db_source" PG_RESTORE_PASS="$pg_password"
+  step_sleep=5
+  max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
+  (( max_attempts < 1 )) && max_attempts=1
+  run_cmd "${CHILD_MARK} Waiting for database..." wait_for_pgsql "$pg_user" "$max_attempts" "$step_sleep"
+
+  export PG_RESTORE_FILE="$stage_dir/db/pgdump.sql" PG_RESTORE_PASS="$pg_password"
   run_cmd "${CHILD_MARK} Importing dump..." bash -c '
     set -Eeuo pipefail
     cat "$PG_RESTORE_FILE" | env "PGPASSWORD=$PG_RESTORE_PASS" "$@" >/dev/null
   ' restore "${COMPOSE_BASE[@]}" exec -T pgsql psql -v ON_ERROR_STOP=1 -U "$pg_user" -d "$pg_db"
   unset PG_RESTORE_FILE PG_RESTORE_PASS
   run_cmd "${CHILD_MARK} Stopping pgsql..." "${COMPOSE_BASE[@]}" stop pgsql
-else
-  printf '\n'
-  printf "${DIM}Skipping database restore (--no-db).${NC}\n"
 fi
 
+# Restore code
+if (( restore_code == 1 )); then
+  version_file="$DATA_DIR/version.json"
+  printf '\n'
+  printf "Restoring code...\n"
+  
+  restore_ref="$(json_get git_ref "$stage_dir/data/version.json" "" || true)"
+  restore_commit="$(json_get git_commit "$stage_dir/data/version.json" "" || true)"
+
+  [[ -n "$restore_commit" ]] || { err "No git commit recorded in backup metadata"; exit 1; }
+  [[ -d "$APP_DIR/.git" ]] || { err "Git repo not found at $APP_DIR"; exit 1; }
+  
+  git_cmd=(git -C "$APP_DIR")
+  if [[ "$(id -un)" != "$SERVICE_USER" ]]; then
+    git_cmd=(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR")
+  fi
+  current_commit="$("${git_cmd[@]}" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "$current_commit" == "$restore_commit" ]]; then
+    printf "  ${DIM}${CHILD_MARK} Skipping: Repository already at commit %s${NC}\n" "$restore_commit"
+  else
+    display_target="$restore_commit"
+    [[ -n "$restore_ref" ]] && display_target="$display_target (recorded as $restore_ref)"
+    if ! run_cmd --try "${CHILD_MARK} Checking out commit ${restore_commit} locally..." "${git_cmd[@]}" checkout -f "$restore_commit"; then
+      remote_name="$("${git_cmd[@]}" remote 2>/dev/null | head -n1 || true)"
+      if [[ -n "$remote_name" && -n "$restore_ref" ]]; then
+        run_cmd "${CHILD_MARK} Fetching ${restore_ref} from ${remote_name}..." "${git_cmd[@]}" fetch "$remote_name" "$restore_ref"
+        if ! run_cmd --try "${CHILD_MARK} Checking out commit ${restore_commit}..." "${git_cmd[@]}" checkout -f "$restore_commit"; then
+          err "Failed to checkout commit ${restore_commit} after fetching ${restore_ref}. The commit may not be on that ref, or may not exist in the remote repository."
+          exit 1
+        fi
+      elif [[ -z "$remote_name" ]]; then
+        err "Failed to checkout commit ${restore_commit} (not found locally) and no remote is configured to fetch from."
+        exit 1
+      else
+        err "Failed to checkout commit ${restore_commit} (not found locally) and no ref was recorded in the backup to fetch from."
+        exit 1
+      fi
+    fi
+  fi
+fi
+
+# Start the stack
 if (( restart_stack == 1 )); then
   printf '\n'
-  printf "Starting stack...\n"
-  bash "$SCRIPT_DIR/../start.sh"
+  run_cmd "Starting stack..." bash "$SCRIPT_DIR/start.sh"
+  printf "${DIM}The app may take a while to be ready.${NC}\n"
 else
+  start_cmd="scripts/start.sh"
+  if [[ "$ENVIRONMENT" == "production" ]]; then
+    start_cmd="systemctl start devpush.service"
+  fi
   printf '\n'
-  printf "${DIM}Skipping stack restart (use --restart to enable).${NC}\n"
+  printf "${YEL}Skipping stack restart (--no-restart). Start the stack manually with: $start_cmd${NC}\n"
 fi
 
+# Success message
 printf '\n'
 printf "${GRN}Restore complete. ✔${NC}\n"
-printf "Next steps:\n"
-printf "  - Verify application access\n"
-printf "  - Confirm deployments reconcile\n"

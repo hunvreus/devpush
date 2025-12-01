@@ -95,12 +95,20 @@ run_cmd "Creating database dump..." bash -c '
 unset PG_DUMP_FILE PG_DUMP_PASS
 
 # Persist metadata
+host_name="$(hostname 2>/dev/null || printf 'unknown')"
+host_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || printf '')"
+if [[ -z "$host_ip" ]]; then
+  host_ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || printf '')"
+fi
+
 cat >"$tmp_dir/metadata.json" <<JSON
 {
   "created_at": "$(date -Iseconds)",
   "environment": "$ENVIRONMENT",
   "data_dir": "$DATA_DIR",
   "app_dir": "$APP_DIR",
+  "host_name": "$host_name",
+  "host_ip": "$host_ip",
   "archive_path": "$output_path"
 }
 JSON
@@ -121,4 +129,4 @@ size_display="$(du -h "$output_path" 2>/dev/null | awk 'NR==1 {print $1}')"
 
 printf '\n'
 printf "${GRN}Backup complete. ✔${NC}\n"
-printf "${DIM}Archive: %s (%s)${NC}\n" "$output_path" "$size_display"
+printf "${DIM}Saved to: %s (%s)${NC}\n" "$output_path" "$size_display"

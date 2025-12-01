@@ -146,6 +146,27 @@ Notes:
 - Full mode will rebuild images and run DB migrations by default. Add `--no-migrate` to skip migrations.
 - For non-interactive usage (CI), pass `--all` or `--components <csv>` to avoid the interactive selection prompt.
 
+### Backup & Restore
+
+Backups include the data directory, PostgreSQL database dump, and code repository metadata (commit SHA and ref). Backups are stored in `/var/backups/devpush` (production) or `./backups` (development).
+
+**Create a backup:**
+```bash
+scripts/backup.sh [--output <path>]
+```
+
+**Restore from backup:**
+```bash
+scripts/restore.sh --archive <backup_file> [--no-db] [--no-data] [--no-code] [--no-restart] [--no-backup] [--timeout <sec>] [--yes]
+```
+
+Notes:
+
+- By default, restore creates a safety backup before restoring (use `--no-backup` to skip).
+- Restore stops the stack, restores selected components, and optionally restarts the stack.
+- Code restore requires the exact commit SHA from the backup; it will fetch the ref if needed.
+- Use `--no-restart` to restore without restarting the stack (useful for manual verification).
+
 ## Development
 
 > ⚠️ Development scripts target macOS for now.
@@ -189,19 +210,20 @@ See the [scripts](#scripts) section for more dev utilities.
 
 | Area | Script | What it does |
 |---|---|---|
-| Dev | `scripts/start.sh` | Start stack with logs (setup auto-detected; supports `--setup`, `--no-migrate`) |
-| Dev | `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <slug>`) |
+| Dev | `scripts/start.sh` | Start stack with logs (setup auto-detected; supports `--setup`, `--no-migrate`, `--ssl-provider <value>`, `--verbose`) |
+| Dev | `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <name>`) |
 | Dev | `scripts/db-generate.sh` | Generate Alembic migration (prompts for message) |
-| Dev | `scripts/db-migrate.sh` | Apply Alembic migrations |
-| Dev | `scripts/db-reset.sh` | Drop and recreate `public` schema in DB |
-| Dev | `scripts/clean.sh` | Stop stack and clean dev data (`--hard` for global) |
+| Dev | `scripts/db-migrate.sh` | Apply Alembic migrations (`--timeout <sec>`) |
+| Dev | `scripts/clean.sh` | Stop stack and clean dev data (`--remove-all`, `--remove-data`, `--remove-containers`, `--remove-images`, `--yes`) |
 | Prod | `scripts/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
 | Prod | `scripts/install.sh` | Server setup: Docker, user, clone repo, systemd unit |
-| Prod | `scripts/start.sh` | Start services; supports `--setup`, `--no-migrate`, `--ssl-provider <prov>` |
-| Prod | `scripts/stop.sh` | Stop services (auto-detects run/setup). Use `--systemd` to stop the unit first or `--hard` to tear everything down (both stacks + containers). |
+| Prod | `scripts/start.sh` | Start services; supports `--setup`, `--no-migrate`, `--ssl-provider <value>`, `--verbose` |
+| Prod | `scripts/stop.sh` | Stop services (auto-detects run/setup). Use `--hard` to force stop all containers. |
 | Prod | `scripts/restart.sh` | Restart services; supports `--setup`, `--no-migrate` |
-| Prod | `scripts/update.sh` | Update by tag; `--all`, `--full`, or `--components`; `--ssl-provider <prov>` |
+| Prod | `scripts/update.sh` | Update by tag; `--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--ssl-provider <prov>`, `--verbose` |
 | Prod | `scripts/db-migrate.sh` | Apply DB migrations (waits for Postgres readiness) |
+| Prod | `scripts/backup.sh` | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`) |
+| Prod | `scripts/restore.sh` | Restore from backup archive; requires `--archive <file>`; supports `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--timeout <sec>`, `--yes`, `--verbose` |
 
 ## Environment variables
 

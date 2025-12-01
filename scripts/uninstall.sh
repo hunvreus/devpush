@@ -93,7 +93,7 @@ if (( yes_flag == 0 )); then
   printf "${YEL}This will permanently remove /dev/push. Services will be stopped and files deleted.${NC}\n"
   printf '\n'
   read -r -p "Proceed with uninstall? [y/N] " ans
-  if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+  if [[ ! "$ans" =~ ^[Yy]([Ee][Ss])?$ ]]; then
     printf "Aborted.\n"
     exit 0
   fi

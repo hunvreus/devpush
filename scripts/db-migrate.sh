@@ -45,48 +45,53 @@ validate_env "$ENV_FILE" "$ssl_provider"
 postgres_user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"
 postgres_user="${postgres_user:-devpush-app}"
 
-# Wait for database
+# Wait for the pgsql container to be ready
 wait_for_db() {
-  local step_sleep=5
-  local max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
-  (( max_attempts < 1 )) && max_attempts=1
-  
-  for ((attempt=1; attempt<=max_attempts; attempt++)); do
-    if "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$postgres_user" >/dev/null 2>&1; then
+  local user="$1"
+  local max_attempts="$2"
+  local sleep_seconds="${3:-5}"
+  local timeout=$((max_attempts * sleep_seconds))
+  local attempt=0
+
+  while (( attempt < max_attempts )); do
+    if "${COMPOSE_BASE[@]}" exec -T pgsql pg_isready -U "$user" >/dev/null 2>&1; then
       return 0
     fi
-    if ((attempt==max_attempts)); then
-      err "Database not ready within ${timeout}s. Start the stack with $start_cmd first."
-      return 1
-    fi
-    sleep "$step_sleep"
+    sleep "$sleep_seconds"
+    ((attempt+=1))
   done
+  err "Database not ready within ${timeout}s."
+  return 1
 }
 
 # Wait for app container
 wait_for_app() {
-  local step_sleep=5
-  local max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
-  (( max_attempts < 1 )) && max_attempts=1
-  
-  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+  local max_attempts="$1"
+  local sleep_seconds="${2:-5}"
+  local timeout=$((max_attempts * sleep_seconds))
+  local attempt=0
+
+  while (( attempt < max_attempts )); do
     app_container_ids=$(docker ps --filter "name=devpush-app" -q 2>/dev/null || true)
     if [[ -n "$app_container_ids" ]]; then
       return 0
     fi
-    if ((attempt==max_attempts)); then
-      err "App container not ready within ${timeout}s. Start the stack with $start_cmd first."
-      return 1
-    fi
-    sleep "$step_sleep"
+    sleep "$sleep_seconds"
+    ((attempt+=1))
   done
+  err "App container not ready within ${timeout}s."
+  return 1
 }
 
 # Wait for database and app
+step_sleep=5
+max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
+(( max_attempts < 1 )) && max_attempts=1
+
 printf '\n'
-run_cmd "Waiting for database..." wait_for_db
+run_cmd "Waiting for database..." wait_for_db "$postgres_user" "$max_attempts" "$step_sleep"
 printf '\n'
-run_cmd "Waiting for app..." wait_for_app
+run_cmd "Waiting for app..." wait_for_app "$max_attempts" "$step_sleep"
 
 # Run migrations
 printf '\n'

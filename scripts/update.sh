@@ -105,7 +105,7 @@ if [[ -n "$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" status --porcelain 2
     fi
   else
     read -r -p "Continue anyway? This will discard local changes. [y/N] " ans
-    [[ "$ans" =~ ^[Yy]$ ]] || { printf "Aborted.\n"; exit 0; }
+    [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { printf "Aborted.\n"; exit 0; }
   fi
 fi
 

@@ -188,7 +188,7 @@ if ((do_full==1)); then
   if ((yes!=1)); then
     printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
     read -p "Proceed? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
+    [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { info "Aborted."; exit 1; }
   fi
   full_update
 fi
@@ -219,7 +219,7 @@ elif [[ -z "$comps" ]]; then
       printf '\n'
       printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
       read -r -p "Proceed with FULL stack update? [y/N]: " ans
-      [[ "$ans" =~ ^[Yy]$ ]] || { info "Aborted."; exit 1; }
+      [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { info "Aborted."; exit 1; }
       full_update
       ;;
     *)
