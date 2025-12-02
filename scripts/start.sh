@@ -161,14 +161,14 @@ mode_label=""
 
 # Start stack
 printf '\n'
-printf "Starting stack%s...\n" "$mode_label"
-run_cmd "${CHILD_MARK} Starting services..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
+run_cmd "Starting services$mode_label..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
 
 # Wait for app container to be healthy
 step_sleep=2
 max_attempts=$(( (timeout_app + step_sleep - 1) / step_sleep ))
 (( max_attempts < 1 )) && max_attempts=1
-run_cmd "${CHILD_MARK} Waiting for app to be ready..." wait_for_app_health "$max_attempts" "$step_sleep"
+printf '\n'
+run_cmd "Waiting for app to be ready..." wait_for_app_health "$max_attempts" "$step_sleep"
 
 # Run migrations when appropriate
 if ((run_migrations==1)); then

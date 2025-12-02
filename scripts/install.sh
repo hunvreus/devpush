@@ -348,13 +348,6 @@ fi
 printf '\n'
 printf "Installing systemd unit...\n"
 
-# Ensure clean slate
-if systemctl list-unit-files | grep -q '^devpush.service'; then
-  systemctl stop devpush.service 2>/dev/null || true
-  systemctl disable devpush.service 2>/dev/null || true
-  systemctl reset-failed devpush.service 2>/dev/null || true
-fi
-
 # Install systemd unit
 unit_path="/etc/systemd/system/devpush.service"
 run_cmd "${CHILD_MARK} Installing unit file..." install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
@@ -371,7 +364,8 @@ run_cmd "Starting stack..." systemctl start devpush.service
 
 # Port conflicts warning
 if command -v ss >/dev/null 2>&1; then
-  if conflicts=$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/'); [[ -n "${conflicts:-}" ]]; then
+  conflicts="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/' || true)"
+  if [[ -n "${conflicts:-}" ]]; then
     printf "${YEL}Ports 80/443 are in use. Traefik may fail to start.${NC}\n"
   fi
 fi

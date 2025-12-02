@@ -39,13 +39,14 @@ force_stop_all() {
 # Stop the stack for the given mode (run or setup)
 stop_stack_mode() {
   local mode="$1"
-  local label="$2"
   local compose_file
 
   if [[ "$mode" == "run" ]]; then
     compose_file="$APP_DIR/compose/run.yml"
+    label=""
   else
     compose_file="$APP_DIR/compose/setup.yml"
+    label=" (setup mode)"
   fi
 
   if [[ "$mode" == "run" ]]; then
@@ -55,7 +56,7 @@ stop_stack_mode() {
   fi
 
   printf '\n'
-  run_cmd "Stopping stack ${label}..." "${COMPOSE_BASE[@]}" stop
+  run_cmd "Stopping stack${label}..." "${COMPOSE_BASE[@]}" stop
 }
 
 # Parse CLI flags
@@ -82,17 +83,14 @@ fi
 
 ssl_provider="$(get_ssl_provider)"
 
-printf '\n'
-printf "Stopping stack...\n"
-
 if ((hard_mode==1)); then
   force_stop_all
 else
   running_stack="$(get_running_stack 2>/dev/null || echo "unknown")"
   if [[ "$running_stack" == "setup" ]]; then
-    stop_stack_mode setup "setup stack"
+    stop_stack_mode setup
   elif [[ "$running_stack" == "run" ]]; then
-    stop_stack_mode run "run stack"
+    stop_stack_mode run
   else
     stop_stack_mode setup "setup stack"
     stop_stack_mode run "run stack"

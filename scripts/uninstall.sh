@@ -99,24 +99,18 @@ if (( yes_flag == 0 )); then
   fi
 fi
 
-# Stopping the Docker compose stack
+# Stopping the stack
 printf '\n'
-printf "Stopping stack...\n"
-
-if systemctl list-unit-files | grep -q '^devpush.service'; then
-  run_cmd --try "${CHILD_MARK} Stopping systemd..." systemctl stop devpush.service
-fi
-run_cmd --try "${CHILD_MARK} Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
+run_cmd --try "Stopping stack..." bash "$SCRIPT_DIR/stop.sh" --hard
 
 # Remove systemd unit
-if systemctl list-unit-files | grep -q '^devpush.service'; then
-  printf '\n'
-  printf "Removing systemd unit...\n"
-  run_cmd --try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
-  run_cmd --try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
-  run_cmd --try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service
-  run_cmd --try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
-fi
+printf '\n'
+printf "Removing systemd unit...\n"
+run_cmd --try "${CHILD_MARK} Stopping systemd..." systemctl stop devpush.service
+run_cmd --try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
+run_cmd --try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
+run_cmd --try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service
+run_cmd --try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
 
 # Remove Docker resources
 printf '\n'
