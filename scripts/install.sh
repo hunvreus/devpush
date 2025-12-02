@@ -331,7 +331,7 @@ cd "$APP_DIR"
 # Build runner images
 printf '\n'
 printf "Building runner images...\n"
-# build_runner_images
+build_runner_images
 
 # Save install metadata (version.json)
 printf '\n'
