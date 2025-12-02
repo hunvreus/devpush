@@ -357,14 +357,17 @@ run_cmd "${CHILD_MARK} Enabling devpush.service..." systemctl enable devpush.ser
 # Success message
 printf '\n'
 printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
+printf '\n'
 printf "${DIM}Directories:${NC}\n"
 printf "${DIM}  - Code: %s${NC}\n" "$APP_DIR"
 printf "${DIM}  - Scripts: %s${NC}\n" "$APP_DIR/scripts"
 printf "${DIM}  - Data: %s${NC}\n" "$DATA_DIR"
 printf "${DIM}  - Logs: %s${NC}\n" "$LOG_DIR"
+printf '\n'
 printf "${DIM}Configuration files:${NC}\n"
 printf "${DIM}  - Config: %s${NC}\n" "$CONFIG_FILE"
 printf "${DIM}  - Environment: %s${NC}\n" "$ENV_FILE"
+printf '\n'
 printf "${DIM}Service management:${NC}\n"
 printf "${DIM}  - Status: systemctl status devpush.service${NC}\n"
 printf "${DIM}  - Start: systemctl start devpush.service${NC}\n"
