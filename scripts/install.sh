@@ -357,18 +357,32 @@ run_cmd "${CHILD_MARK} Enabling devpush.service..." systemctl enable devpush.ser
 # Success message
 printf '\n'
 printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
+printf "${DIM}Directories:${NC}\n"
+printf "${DIM}  - Code: %s${NC}\n" "$APP_DIR"
+printf "${DIM}  - Scripts: %s${NC}\n" "$APP_DIR/scripts"
+printf "${DIM}  - Data: %s${NC}\n" "$DATA_DIR"
+printf "${DIM}  - Logs: %s${NC}\n" "$LOG_DIR"
+printf "${DIM}Configuration files:${NC}\n"
+printf "${DIM}  - Config: %s${NC}\n" "$CONFIG_FILE"
+printf "${DIM}  - Environment: %s${NC}\n" "$ENV_FILE"
+printf "${DIM}Service management:${NC}\n"
+printf "${DIM}  - Status: systemctl status devpush.service${NC}\n"
+printf "${DIM}  - Start: systemctl start devpush.service${NC}\n"
+printf "${DIM}  - Stop: systemctl stop devpush.service${NC}\n"
+printf "${DIM}  - Logs: journalctl -u devpush.service -f${NC}\n"
+
+# Port conflicts warning (check before starting)
+if command -v ss >/dev/null 2>&1; then
+  conflicts="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/' || true)"
+  if [[ -n "${conflicts:-}" ]]; then
+    printf '\n'
+    printf "${YEL}Warning: Ports 80/443 are in use. Traefik may fail to start.${NC}\n"
+  fi
+fi
 
 # Start stack
 printf '\n'
 run_cmd "Starting stack..." systemctl restart devpush.service
-
-# Port conflicts warning
-if command -v ss >/dev/null 2>&1; then
-  conflicts="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:80$|:443$/' || true)"
-  if [[ -n "${conflicts:-}" ]]; then
-    printf "${YEL}Ports 80/443 are in use. Traefik may fail to start.${NC}\n"
-  fi
-fi
 
 # Get public IP and persist to config.json
 sip=$(get_public_ip 2>/dev/null || true)
