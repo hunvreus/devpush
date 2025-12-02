@@ -3,8 +3,6 @@ from fastapi.responses import RedirectResponse
 import json
 import os
 import httpx
-import socket
-import re
 import secrets
 import base64
 import uuid
@@ -51,48 +49,6 @@ async def setup_step_1(
     settings: Settings = Depends(get_settings),
 ):
     """Setup step 1: Domains & SSL configuration."""
-    # DNS check
-    if request.headers.get("HX-Request") and check_dns:
-        form_data = await request.form()
-        domain = form_data.get(check_dns, "")
-        server_ip = form_data.get("server_ip", settings.server_ip)
-
-        status = None
-        message = ""
-
-        if domain and domain.strip():
-            domain_regex = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
-            if re.match(domain_regex, domain):
-                # In development, accept localhost / *.localhost / *.local without resolution
-                if settings.env == "development" and (
-                    domain == "localhost"
-                    or domain.endswith(".localhost")
-                    or domain.endswith(".local")
-                ):
-                    status = "valid"
-                    message = "Local development domain"
-                else:
-                    try:
-                        resolved_ips = socket.gethostbyname_ex(domain)[2]
-
-                        if server_ip in resolved_ips:
-                            status = "valid"
-                            message = f"Resolves to {server_ip}"
-                        else:
-                            status = "invalid"
-                            message = f"Resolves to {', '.join(resolved_ips)}"
-                    except socket.gaierror:
-                        status = "invalid"
-                        message = "Domain does not resolve"
-                    except Exception:
-                        pass
-
-        return TemplateResponse(
-            request=request,
-            name="setup/partials/_dns-status.html",
-            context={"status": status, "message": message},
-        )
-
     form = await DomainsSSLForm.from_formdata(request)
 
     if request.method == "POST" and await form.validate_on_submit():

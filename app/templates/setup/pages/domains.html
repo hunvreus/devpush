@@ -45,25 +45,14 @@ endblock %}
 
       <div class="space-y-3">
         {{ form.app_hostname.label(class="label") }}
-        <div class="relative">
-          {{ form.app_hostname(
-            class="input w-full pr-9",
-            placeholder="deploy.example.com",
-            **{
-              ":required": "true",
-              "aria-invalid": "true" if form.app_hostname.errors else "",
-              "hx-post": url_for('setup_step_1').include_query_params(check_dns="app_hostname"),
-              "hx-trigger": "input delay:500ms, blur, load",
-              "hx-target": "next div + div",
-              "hx-indicator": "next .htmx-indicator",
-              "hx-include": "[name='server_ip']"
-            }
-          ) }}
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground [&>svg]:size-4 opacity-50 [&>svg]:animate-spin htmx-indicator peer">
-            {% include "icons/loader.svg" %}
-          </div>
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground [&>svg]:size-4 peer-[.htmx-request]:hidden"></div>
-        </div>
+        {{ form.app_hostname(
+          class="input w-full pr-9",
+          placeholder="example.com",
+          **{
+            ":required": "true",
+            "aria-invalid": "true" if form.app_hostname.errors else "",
+          }
+        ) }}
         <p class="text-muted-foreground text-sm [&>a:hover]:text-primary [&>a]:underline [&>a]:underline-offset-4 [&>code]:text-mono [&>code]:text-[13px]">{{ _("Domain for the main application. Point your DNS records to the server IP above.") }}</p>
         {% for error in form.app_hostname.errors %}
           <p class="text-destructive text-sm">{{ error }}</p>
@@ -72,25 +61,14 @@ endblock %}
 
       <div class="space-y-3">
         {{ form.deploy_domain.label(class="label") }}
-        <div class="relative">
-          {{ form.deploy_domain(
-            class="input w-full pr-9",
-            placeholder="deploy.example.com",
-            **{
-              ":required": "true",
-              "aria-invalid": "true" if form.deploy_domain.errors else "",
-              "hx-post": url_for('setup_step_1').include_query_params(check_dns="deploy_domain"),
-              "hx-trigger": "input delay:500ms, blur, load",
-              "hx-target": "next div + div",
-              "hx-indicator": "next .htmx-indicator",
-              "hx-include": "[name='server_ip']"
-            }
-          ) }}
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground [&>svg]:size-4 opacity-50 [&>svg]:animate-spin htmx-indicator peer">
-            {% include "icons/loader.svg" %}
-          </div>
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground [&>svg]:size-4 peer-[.htmx-request]:hidden"></div>
-        </div>
+        {{ form.deploy_domain(
+          class="input w-full pr-9",
+          placeholder="deploy.example.com",
+          **{
+            ":required": "true",
+            "aria-invalid": "true" if form.deploy_domain.errors else "",
+          }
+        ) }}
         <p class="text-muted-foreground text-sm">{{ _("Domain for deployments. Needs a wildcard DNS record pointing to the server IP above.") }}</p>
         {% for error in form.deploy_domain.errors %}
           <p class="text-destructive text-sm">{{ error }}</p>

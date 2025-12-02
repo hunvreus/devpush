@@ -1,9 +1,0 @@
-{% if status == 'valid' %}
-<div class="text-green-600 dark:text-green-400 [&>svg]:size-4" data-tooltip="{{ message }}" data-side="left">
-  {% include "icons/circle-check.svg" %}
-</div>
-{% elif status == 'invalid' %}
-<div class="text-destructive [&>svg]:size-4" data-tooltip="{{ message }}" data-side="left">
-  {% include "icons/circle-x.svg" %}
-</div>
-{% endif %}
