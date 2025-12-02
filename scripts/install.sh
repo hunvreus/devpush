@@ -331,7 +331,7 @@ cd "$APP_DIR"
 # Build runner images
 printf '\n'
 printf "Building runner images...\n"
-build_runner_images
+# build_runner_images
 
 # Save install metadata (version.json)
 printf '\n'
@@ -360,7 +360,7 @@ printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
 
 # Start stack
 printf '\n'
-run_cmd "Starting stack..." systemctl start devpush.service
+run_cmd "Starting stack..." systemctl restart devpush.service
 
 # Port conflicts warning
 if command -v ss >/dev/null 2>&1; then

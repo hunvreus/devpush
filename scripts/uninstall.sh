@@ -51,6 +51,15 @@ if [[ "$(whoami)" == "devpush" ]] || [[ "${SUDO_USER:-}" == "devpush" ]]; then
   exit 1
 fi
 
+cleanup_systemd_unit() {
+  systemctl stop devpush.service || true
+  systemctl disable devpush.service || true
+  rm -f /etc/systemd/system/devpush.service || true
+  systemctl reset-failed devpush.service || true
+  systemctl daemon-reload || true
+  return 0
+}
+
 # Detect installation and save telemetry data
 user="devpush"
 version_ref=""
@@ -105,12 +114,7 @@ run_cmd --try "Stopping stack..." bash "$SCRIPT_DIR/stop.sh" --hard
 
 # Remove systemd unit
 printf '\n'
-printf "Removing systemd unit...\n"
-run_cmd --try "${CHILD_MARK} Stopping systemd..." systemctl stop devpush.service
-run_cmd --try "${CHILD_MARK} Disabling systemd unit..." systemctl disable devpush.service
-run_cmd --try "${CHILD_MARK} Removing systemd unit..." rm -f /etc/systemd/system/devpush.service
-run_cmd --try "${CHILD_MARK} Resetting failed state..." systemctl reset-failed devpush.service
-run_cmd --try "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
+run_cmd "Cleaning up systemd unit..." cleanup_systemd_unit
 
 # Remove Docker resources
 printf '\n'
