@@ -358,21 +358,21 @@ run_cmd "${CHILD_MARK} Enabling devpush.service..." systemctl enable devpush.ser
 printf '\n'
 printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
 printf '\n'
-printf "${DIM}Directories:${NC}\n"
-printf "${DIM}  - Code: %s${NC}\n" "$APP_DIR"
-printf "${DIM}  - Scripts: %s${NC}\n" "$APP_DIR/scripts"
-printf "${DIM}  - Data: %s${NC}\n" "$DATA_DIR"
-printf "${DIM}  - Logs: %s${NC}\n" "$LOG_DIR"
+printf "Directories:\n"
+printf "  - Code: %s\n" "$APP_DIR"
+printf "  - Scripts: %s\n" "$APP_DIR/scripts"
+printf "  - Data: %s\n" "$DATA_DIR"
+printf "  - Logs: %s\n" "$LOG_DIR"
 printf '\n'
-printf "${DIM}Configuration files:${NC}\n"
-printf "${DIM}  - Config: %s${NC}\n" "$CONFIG_FILE"
-printf "${DIM}  - Environment: %s${NC}\n" "$ENV_FILE"
+printf "Configuration files:\n"
+printf "  - Config: %s\n" "$CONFIG_FILE"
+printf "  - Environment: %s\n" "$ENV_FILE"
 printf '\n'
-printf "${DIM}Service management:${NC}\n"
-printf "${DIM}  - Status: systemctl status devpush.service${NC}\n"
-printf "${DIM}  - Start: systemctl start devpush.service${NC}\n"
-printf "${DIM}  - Stop: systemctl stop devpush.service${NC}\n"
-printf "${DIM}  - Logs: journalctl -u devpush.service -f${NC}\n"
+printf "Service management:\n"
+printf "  - Status: systemctl status devpush.service\n"
+printf "  - Start: systemctl start devpush.service\n"
+printf "  - Stop: systemctl stop devpush.service\n"
+printf "  - Logs: journalctl -u devpush.service -f\n"
 
 # Port conflicts warning (check before starting)
 if command -v ss >/dev/null 2>&1; then
@@ -400,6 +400,5 @@ if [ -z "$sip" ]; then
 fi
 
 printf "${GRN}Stack started. ✔${NC}\n"
-printf "${DIM}The app may take a while to be ready.${NC}\n"
 printf '\n'
 printf "${GRN}Visit this URL to complete the setup: http://%s${NC}\n" "$sip"
