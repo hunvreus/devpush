@@ -38,7 +38,7 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 Log in your server and run the following command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh | sudo bash -s -- [--ref <branch|tag>] [--repo <git_url>] [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
+curl -fsSL https://install.devpu.sh | sudo bash
 ```
 
 Once installed you will be directed to open the setup wizard in your browser at `http://<server_ip_address>`. After completing this step you can restart the app with `sudo systemctl restart devpush.service` and visit the app `https://<app_hostname>`.
