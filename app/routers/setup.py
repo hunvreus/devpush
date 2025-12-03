@@ -154,6 +154,10 @@ async def setup_step_2(
                     action={
                         "label": _("Settings"),
                         "href": settings_url,
+                        "attrs": {
+                            "onclick": "event.stopPropagation();",
+                            "target": "_blank",
+                        },
                     },
                     attrs={"data-duration": "-1"},
                 )
@@ -173,6 +177,10 @@ async def setup_step_2(
                         action={
                             "label": _("Settings"),
                             "href": settings_url,
+                            "attrs": {
+                                "onclick": "event.stopPropagation();",
+                                "target": "_blank",
+                            },
                         },
                         attrs={"data-duration": "-1"},
                     )

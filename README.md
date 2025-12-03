@@ -30,200 +30,54 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 
 - User documentation: [devpu.sh/docs](https://devpu.sh/docs)
 - Technical documentation: [ARCHITECTURE](ARCHITECTURE.md)
+- Install
+- Update
+- Backup and restore
+- Scripts
 
 ## Quickstart
 
 > ⚠️ Supported on Ubuntu/Debian. Other distros may work but aren't officially supported (yet).
 
-Log in your server, run the following command and follow instructions:
+Log in your server and run the following command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh \
-  | sudo bash -s -- [--ref <branch|tag>] [--repo <git_url>] [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
+curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh | sudo bash -s -- [--ref <branch|tag>] [--repo <git_url>] [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
 ```
 
-By default the installer picks the latest stable release from the main repo. Pass `--ref development` (and optionally `--repo <fork_url>`) when you need to test another branch, e.g.:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/development/scripts/install.sh \
-  | sudo bash -s -- --ref development
-```
-
-You user must have sudo privileges.
-
-## Install & Update
-
-### Prerequisites
-
-#### Server
+Once installed you will be directed to open the setup wizard in your browser at `http://<server_ip_address>`. After completing this step you can restart the app with `sudo systemctl restart devpush.service` and visit the app `https://<app_hostname>`.
 
 You will need a fresh Ubuntu/Debian server you can SSH into with sudo privileges. We recommend a CPX31 from [Hetzner](https://www.hetzner.com).
 
-You can use the provisioning script to get a server up and running:
+We also recommend you use [Cloudflare](https://cloudflare.com):
 
-1. **Sign in or sign up for a Hetzner account**: [Hetzner Cloud Console](https://console.hetzner.cloud/)
-2. **Generate an API token**: [Creating an API token](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/)
-3. **Provision a server** (requires `--token`; optional: `--user`, `--name`, `--region`, `--type`):
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/provision/hetzner.sh | bash -s -- --token <hetzner_api_key> [--user <login_user>] [--name <hostname>] [--region <fsn1|nbg1|hel1|ash|hil|sin>] [--type <cpx11|cpx21|cpx31|cpx41|cpx51>]
-   ```
-   Tip: run `curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/provision/hetzner.sh | bash -s -- --help` to list regions and types (with specs). Defaults: region `hil`, type `cpx31`.
-5. **SSH into your new server**: The provision script will have created a user for you.
-   ```bash
-   ssh <login_user>@<server_ip>
-   ```
-
-#### DNS records
-
-- Create A record for `APP_HOSTNAME` (e.g., `app.devpu.sh`) → server IP
-- Create wildcard A record for `*.${DEPLOY_DOMAIN}` (e.g., `*.devpush.app`) → server IP
-- If using Cloudflare, set SSL/TLS to "Full (strict)" and keep records proxied.
-
-#### SSL strategy (optional)
-
-- Default (no flag): HTTP‑01 per-host certificates. Simple; each new deployed app issues a cert.
-- Recommended: DNS‑01 wildcard for deployments + SAN for `APP_HOSTNAME`:
-  - Faster deploys, avoids rate limits, works behind Cloudflare proxy.
-  - Pick provider with scripts (persisted to `/var/lib/devpush/config.json`):
-    - `--ssl-provider cloudflare|route53|gcloud|digitalocean|azure`
-  - Set required env vars in `.env`:
-    - Cloudflare: `CF_DNS_API_TOKEN`
-    - Route53: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
-    - Google Cloud DNS: `GCE_PROJECT` and mount `/srv/devpush/gcloud-sa.json`
-    - DigitalOcean: `DO_AUTH_TOKEN`
-    - Azure DNS: `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_RESOURCE_GROUP`
-  - Scripts ensure `/srv/devpush/traefik/acme.json` exists with correct permissions.
-
-### Install
-
-1. **SSH into the server**:
-   ```bash
-   ssh <login_user>@<server_ip>
-   ```
-2. **Install /dev/push**:
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/hunvreus/devpush/main/scripts/install.sh | sudo bash
-   ```
-3. **Switch to `devpush` user**:
-  ```bash
-  sudo -iu devpush
-  ```
-4. **Edit `.env`**:
-  ```bash
-  cd devpush && vi .env
-  ```
-  Tip: you will need to fill in at least the following: `LE_EMAIL`, `APP_HOSTNAME`, `DEPLOY_DOMAIN`, `EMAIL_SENDER_ADDRESS`, `RESEND_API_KEY` and your [GitHub app](#github-app) settings (see [environment-variables] for details). `SERVER_IP`, `SECRET_KEY`, `ENCRYPTION_KEY`, `POSTGRES_PASSWORD` should be pre-filled. **You can ignore all commented out environment variables**.
-5. Start services:
-   ```bash
-  scripts/start.sh --migrate [--ssl-provider <cloudflare|route53|gcloud|digitalocean|azure>]
-   ```
-6. Visit your URL: `https://<APP_HOSTNAME>`
-
-### Update
-
-The follwing commands must be run as `devpush` user (`su - devpush`).
-
-In most cases, you can run an update with:
-
-```bash
-scripts/update.sh --all
-```
-
-Alternatively, you can force a full upgrade (**with downtime**) using:
-
-```bash
-scripts/update.sh --full -y
-```
-
-You can update specific components:
-
-```bash
-scripts/update.sh --components <component_name>
-```
-
-Notes:
-
-- Full mode will rebuild images and run DB migrations by default. Add `--no-migrate` to skip migrations.
-- For non-interactive usage (CI), pass `--all` or `--components <csv>` to avoid the interactive selection prompt.
-
-### Backup & Restore
-
-Backups include the data directory, PostgreSQL database dump, and code repository metadata (commit SHA and ref). Backups are stored in `/var/backups/devpush` (production) or `./backups` (development).
-
-**Create a backup:**
-```bash
-scripts/backup.sh [--output <path>]
-```
-
-**Restore from backup:**
-```bash
-scripts/restore.sh --archive <backup_file> [--no-db] [--no-data] [--no-code] [--no-restart] [--no-backup] [--timeout <sec>] [--yes]
-```
-
-Notes:
-
-- By default, restore creates a safety backup before restoring (use `--no-backup` to skip).
-- Restore stops the stack, restores selected components, and optionally restarts the stack.
-- Code restore requires the exact commit SHA from the backup; it will fetch the ref if needed.
-- Use `--no-restart` to restore without restarting the stack (useful for manual verification).
+- Set SSL/TLS to "Full (strict)" and leave records proxied for the app hostname and deploy domain, unless you are using subdomains.
+- Select "Cloudflare DNS" as "SSL Provider" (you'll need an API)
 
 ## Development
 
-> ⚠️ Development scripts target macOS for now.
-
-### Install
-
-1. Install Colima:
-   ```bash
-   scripts/install.sh
-   ```
-2. Set up environment variables:
-   ```bash
-   cp .env.dev.example .env
-   ```
-3. Start the stack (streams logs):
-   ```bash
-   scripts/start.sh
-   ```
-   - Add `--prune` to prune dangling images before build
-   - Add `--cache` to use the build cache (default is no cache)
-4. Initialize your database once containers are up:
-   ```bash
-   scripts/db-migrate.sh
-   ```
-
-See the [scripts](#scripts) section for more dev utilities.
-
-### Update
-
-- The app is mounted inside containers, so code changes reflect immediately. Some SSE endpoints may require closing browser tabs to trigger a reload.
-- The workers require a restart:
-  ```bash
-  docker-compose restart worker-arq
-  ```
-- To apply migrations:
-  ```bash
-  scripts/db-migrate.sh
-  ```
+1. Install the dependencies (i.e. Docker, Colima),
+2. Start the setup wizard: `./scripts/start.sh`
+3. Once completed, start the app: `./scripts/restart.sh`
 
 ## Scripts
 
-| Area | Script | What it does |
+| Script | What it does |
 |---|---|---|
-| Dev | `scripts/start.sh` | Start stack with logs (setup auto-detected; supports `--setup`, `--no-migrate`, `--ssl-provider <value>`, `--verbose`) |
-| Dev | `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <name>`) |
-| Dev | `scripts/db-generate.sh` | Generate Alembic migration (prompts for message) |
-| Dev | `scripts/db-migrate.sh` | Apply Alembic migrations (`--timeout <sec>`) |
-| Dev | `scripts/clean.sh` | Stop stack and clean dev data (`--remove-all`, `--remove-data`, `--remove-containers`, `--remove-images`, `--yes`) |
-| Prod | `scripts/provision/hetzner.sh` | Provision a Hetzner server (API token, regions from API, fixed sizes) |
-| Prod | `scripts/install.sh` | Server setup: Docker, user, clone repo, systemd unit |
-| Prod | `scripts/start.sh` | Start services; supports `--setup`, `--no-migrate`, `--ssl-provider <value>`, `--verbose` |
-| Prod | `scripts/stop.sh` | Stop services (auto-detects run/setup). Use `--hard` to force stop all containers. |
-| Prod | `scripts/restart.sh` | Restart services; supports `--setup`, `--no-migrate` |
-| Prod | `scripts/update.sh` | Update by tag; `--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--ssl-provider <prov>`, `--verbose` |
-| Prod | `scripts/db-migrate.sh` | Apply DB migrations (waits for Postgres readiness) |
-| Prod | `scripts/backup.sh` | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`) |
-| Prod | `scripts/restore.sh` | Restore from backup archive; requires `--archive <file>`; supports `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--timeout <sec>`, `--yes`, `--verbose` |
+| `scripts/backup.sh` | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`) |
+| `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <name>`) |
+| `scripts/clean.sh` | Stop stack and clean dev data (`--remove-all`, `--remove-data`, `--remove-containers`, `--remove-images`, `--yes`) |
+| `scripts/compose.sh` | Docker compose wrapper with correct files/env (`--setup`, `--`) |
+| `scripts/db-generate.sh` | Generate Alembic migration (prompts for message) |
+| `scripts/db-migrate.sh` | Apply Alembic migrations (`--timeout <sec>`) |
+| `scripts/install.sh` | Server setup: Docker, user, clone repo, systemd unit (`--repo <url>`, `--ref <ref>`, `--yes`, `--no-telemetry`, `--ssl-provider <name>`, `--verbose`) |
+| `scripts/restart.sh` | Restart services (`--setup`, `--no-migrate`) |
+| `scripts/restore.sh` | Restore from backup archive; requires `--archive <file>` (`--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--timeout <sec>`, `--yes`, `--verbose`) |
+| `scripts/start.sh` | Start stack (setup auto-detected) (`--setup`, `--no-migrate`, `--timeout-docker <sec>`, `--timeout-app <sec>`, `--ssl-provider <value>`, `--verbose`) |
+| `scripts/status.sh` | Show stack status |
+| `scripts/stop.sh` | Stop services (auto-detects run/setup) (`--hard`) |
+| `scripts/uninstall.sh` | Uninstall from server (`--yes`, `--no-telemetry`, `--verbose`) |
+| `scripts/update.sh` | Update by tag (`--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--ssl-provider <name>`, `--verbose`) |
 
 ## Environment variables
 
@@ -272,40 +126,6 @@ Variable | Comments | Default
 `ACCESS_DENIED_WEBHOOK` | Optional webhook to receive denied events (read more about [Sign-in access control](#sign-in-access-control)). | `""`
 `LOGIN_HEADER` | HTML snippet displayed above the login form. | `""`
 `TOASTER_HEADER` | HTML snippet displayed at the top of the toaster (useful to display a permanent toast on all pages). | `""`
-
-## GitHub App
-
-You will need to configure a GitHub App with the following settings:
-
-- **Homepage URL**: Your instance URL (e.g., https://app.example.com)
-- **Identifying and authorizing users**:
-  - **Callback URL**: add two callback URLs with your domain:
-    - https://example.com/api/github/authorize/callback
-    - https://example.com/auth/github/callback
-  - **Expire user authorization tokens**: No
-- **Post installation**:
-  - **Setup URL**: https://example.com/api/github/install/callback
-  - **Redirect on update**: Yes
-- **Webhook**:
-  - **Active**: Yes
-  - **Webhook URL**: https://example.com/api/github/webhook
-- **Permissions**:
-  - **Repository permissions**
-    - **Administration**: Read and write
-    - **Checks**: Read and write
-    - **Commit statuses**: Read and write
-    - **Contents**: Read and write
-    - **Deployments**: Read and write
-    - **Issues**: Read and write
-    - **Metadata**: Read-only
-    - **Pull requests**: Read and write
-    - **Webhooks**: Read and write
-  - **Account permissions**:
-    - **Email addresses**: Read-only
-- **Subscribe to events**:
-  - Installation target
-  - Push
-  - Repository
 
 ## License
 

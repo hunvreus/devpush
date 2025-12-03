@@ -31,6 +31,8 @@ class CachedStaticFiles(StaticFiles):
 
 
 def check_setup_complete(config_file: str) -> bool:
+    if os.getenv("FORCE_SETUP_MODE", "").lower() in ("1", "true", "yes"):
+        return False
     try:
         if not os.path.exists(config_file):
             return False

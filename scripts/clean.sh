@@ -63,6 +63,19 @@ run_cmd --try "Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
 printf '\n'
 printf "Removing Docker resources...\n"
 
+# Remove Docker containers
+if ((remove_containers==1)) || ((remove_all==1)); then
+  compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
+  runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
+  containers="$(printf "%s\n%s\n" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
+  container_count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
+  if [[ -n "$containers" ]]; then
+    run_cmd --try "${CHILD_MARK} Removing Docker containers ($container_count found)..." docker rm -f $containers
+  else
+    printf "%s Removing Docker containers (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+  fi
+fi
+
 # Remove Docker volumes
 volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
 if [[ -n "$volumes" ]]; then
@@ -81,19 +94,7 @@ else
   printf "%s Removing Docker networks (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
-# If remove containers or remove all, remove the containers
-if ((remove_containers==1)) || ((remove_all==1)); then
-  compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
-  runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
-  containers="$(printf "%s\n%s\n" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
-  container_count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
-  if [[ -n "$containers" ]]; then
-    run_cmd --try "${CHILD_MARK} Removing Docker containers ($container_count found)..." docker rm -f $containers
-  else
-    printf "%s Removing Docker containers (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
-  fi
-fi
-
+# Remove Docker images
 if ((remove_images==1)) || ((remove_all==1)); then
   compose_images="$(docker images --filter "reference=devpush*" -q 2>/dev/null || true)"
   runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || true)"
@@ -106,6 +107,7 @@ if ((remove_images==1)) || ((remove_all==1)); then
   fi
 fi
 
+# Remove data directory
 if ((remove_data==1)) || ((remove_all==1)); then
   printf '\n'
   run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
