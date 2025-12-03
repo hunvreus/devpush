@@ -30,7 +30,7 @@ This document describes the high‑level architecture of /dev/push, how the main
 - `app/workers`: The workers (`arq` and `monitor`)
 - `docker/`: Container definitions and entrypoint scripts. Includes local development specific files (e.g. `Dockerfile.app.dev`, `entrypoint.worker-arq.dev.sh`).
 - `scripts/`: Helper scripts for local (macOS) and production environments
-- `compose/`: Container orchestration with [Docker Compose](https://docs.docker.com/compose/) files (`run.yml`, `run.override.yml`, `run.override.dev.yml`, `ssl-*.yml`, `setup*.yml`).
+- `compose/`: Container orchestration with [Docker Compose](https://docs.docker.com/compose/) files. Main stack: `run.yml`, `run.override.yml`, `run.override.dev.yml`, and SSL provider-specific files (`ssl-default.yml`, `ssl-cloudflare.yml`, etc.). Setup stack: `setup.yml` and `setup.override.dev.yml`.
 
 ## System Diagram
 
@@ -92,6 +92,7 @@ Notes:
 
 - Web app and webhook API, allowing users to login and manage teams/projects/deployments.
 - Processes GitHub webhooks; creates deployments; serves SSE for project updates and deployment logs.
+- Setup mode: When `FORCE_SETUP_MODE=1` or `config.json` lacks `setup_complete=true`, runs setup wizard instead of main app (no Redis/Loki initialization).
 - Files: `app/main.py`, `app/routers/*`, `app/services/*`, `app/models.py`.
 
 ### Workers
@@ -112,6 +113,7 @@ Notes:
 
 - Reverse proxy with Docker and file providers; optional TLS via ACME.
 - Routes: app (`APP_HOSTNAME`) and deployments (by Docker labels and dynamic file for aliases/domains).
+- Catch-all router: `deployment-not-found` redirects unknown deployment subdomains to a "deployment not found" page.
 
 ### Docker Socket Proxy
 
@@ -202,3 +204,5 @@ Notes:
 - Traefik dynamic config for aliases/domains is written to `TRAEFIK_DIR` per project (`DeploymentService.update_traefik_config`).
 - Runner images are language‑specific (e.g., Python, Node). Selection and commands come from project config.
 - SSE endpoints: `app/routers/event.py` for project updates and deployment logs.
+- Stack modes: `setup` (setup wizard, minimal services) vs `run` (full stack). Selected via `--setup` flag or auto-detected from `config.json`.
+- SSL provider selection: Determines which `ssl-*.yml` compose file is loaded; persisted in `config.json` and can be overridden via `--ssl-provider` flag.
