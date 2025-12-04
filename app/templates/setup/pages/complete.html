@@ -22,22 +22,36 @@
     <section class="flex w-full min-w-0 flex-col items-center gap-3">
       <div class="relative max-w-75 w-full">
         <input type="text" class="input font-mono text-[13px] pr-9  w-full" value="{{ command }}" readonly>
-        <button 
+        <button
           type="button"
           data-copied="false"
           onclick="
-            const input = this.previousElementSibling;
-            const value = input.value;
-            navigator.clipboard.writeText(value);
-            this.dataset.copied = 'true';
-            setTimeout(() => this.dataset.copied = 'false', 2000);
+            const button = this;
+            const input = button.previousElementSibling;
+            if (!input) return;
+            const value = input.value || '';
+            const setCopied = () => {
+              button.dataset.copied = 'true';
+              setTimeout(() => button.dataset.copied = 'false', 1000);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(value).then(setCopied);
+            } else {
+              const textarea = document.createElement('textarea');
+              textarea.value = value;
+              document.body.appendChild(textarea);
+              textarea.select();
+              document.execCommand('copy');
+              document.body.removeChild(textarea);
+              setCopied();
+            }
           "
           class="group absolute right-1.5 top-1/2 -translate-y-1/2 btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-6"
         >
-          <span class="group-data-[copied=false]:block group-data-[copied=true]:hidden">
+          <span class="group-data-[copied=true]:hidden">
             {% include "icons/copy.svg" %}
           </span>
-          <span class="group-data-[copied=true]:block group-data-[copied=false]:hidden">
+          <span class="hidden group-data-[copied=true]:block">
             {% include "icons/check.svg" %}
           </span>
         </button>
@@ -45,4 +59,5 @@
     </section>
   </div>
 </div>
+
 {% endblock %}
