@@ -11,7 +11,7 @@ init_script_logging "update-apply"
 
 usage(){
   cat <<USG
-Usage: update-apply.sh [--ref <tag>] [--all | --components <csv> | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update-apply.sh [--ref <tag>] [--all | --components <csv> | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--verbose]
 
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
@@ -23,8 +23,6 @@ Apply a fetched update: validate, pull images, rollout, migrate, and record vers
   --no-migrate      Do not run DB migrations after app update
   --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
-  --ssl-provider <name>
-                    One of: ${VALID_SSL_PROVIDERS//|/, }
   -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
@@ -32,7 +30,7 @@ USG
 }
 
 # Parse CLI flags
-ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; skip_components=0; telemetry=1; ssl_provider="";
+ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; skip_components=0; telemetry=1
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,13 +51,6 @@ while [[ $# -gt 0 ]]; do
     --full) do_full=1; shift ;;
     --no-migrate) migrate=0; shift ;;
     --no-telemetry) telemetry=0; shift ;;
-    --ssl-provider)
-      if ! validate_ssl_provider "$2"; then
-        exit 1
-      fi
-      ssl_provider="$2"
-      shift 2
-      ;;
     --yes|-y) yes=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
@@ -77,35 +68,22 @@ if [[ "$ENVIRONMENT" == "development" ]]; then
   exit 1
 fi
 
-if ! is_setup_complete; then
-  err "This script requires a completed setup. Run the setup wizard first."
-  exit 1
-fi
-
 cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
-# Ensure required files exist
-if [[ ! -f "$CONFIG_FILE" ]]; then
-  err "config.json not found. Run install.sh first."
-  exit 1
-fi
+# Ensure version.json exists
 if [[ ! -f "$VERSION_FILE" ]]; then
   err "version.json not found. Run install.sh first."
   exit 1
 fi
 
-# Persist ssl_provider if passed
-if [[ -n "$ssl_provider" ]]; then json_upsert "$CONFIG_FILE" ssl_provider "$ssl_provider"; fi
-ssl_provider="${ssl_provider:-$(get_ssl_provider)}"
-
 # Validate environment variables
-validate_env "$ENV_FILE" "$ssl_provider"
+validate_env "$ENV_FILE"
 
 # Ensure acme.json exists with strict perms (in case update runs standalone)
 ensure_acme_json
 
 # Build compose arguments
-set_compose_base run "$ssl_provider"
+set_compose_base
 
 # Version comparison helpers
 ver_lt() {

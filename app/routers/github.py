@@ -64,13 +64,6 @@ async def github_repo_select(
             403,
         ]:
             has_github_oauth_token = False
-            flash(
-                request,
-                _(
-                    "GitHub token has expired or is invalid. Please reconnect your account."
-                ),
-                "warning",
-            )
         else:
             flash(request, _("Error fetching installations from GitHub."), "error")
 

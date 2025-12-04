@@ -99,16 +99,11 @@ run_cmd "Unpacking archive..." tar -xzf "$archive_path" -C "$stage_dir"
 
 [[ -d "$stage_dir/data" ]] || { err "Archive missing data/ directory"; exit 1; }
 [[ -f "$stage_dir/data/version.json" ]] || { err "Archive missing data/version.json"; exit 1; }
-[[ -f "$stage_dir/data/config.json" ]] || { err "Archive missing data/config.json"; exit 1; }
 if (( restore_db == 1 )); then
   [[ -d "$stage_dir/db" ]] || { err "Archive missing db/ directory"; exit 1; }
   [[ -f "$stage_dir/db/pgdump.sql" ]] || { err "Archive missing db/pgdump.sql"; exit 1; }
 fi
 
-ssl_provider="default"
-if [[ "$ENVIRONMENT" == "production" ]]; then
-  ssl_provider="$(get_ssl_provider 2>/dev/null || echo "default")"
-fi
 
 affected_resources=()
 (( restore_data == 1 )) && affected_resources+=("data directory")
@@ -186,7 +181,7 @@ if (( restore_db == 1 )); then
 
   printf '\n'
   printf "Restoring database...\n"
-  set_compose_base run "$ssl_provider"
+  set_compose_base
   run_cmd "${CHILD_MARK} Starting pgsql..." "${COMPOSE_BASE[@]}" up -d pgsql
   pg_container="$(docker ps --filter "label=com.docker.compose.project=devpush" --filter "label=com.docker.compose.service=pgsql" --format '{{.ID}}' | head -n1 || true)"
   if [[ -z "$pg_container" ]]; then

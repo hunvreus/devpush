@@ -16,7 +16,7 @@ on_error_hook() {
 
 usage(){
   cat <<USG
-Usage: update.sh [--ref <tag>] [--all | --components <csv> | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--ssl-provider <name>] [--verbose]
+Usage: update.sh [--ref <tag>] [--all | --components <csv> | --full] [--no-migrate] [--no-telemetry] [--yes|-y] [--verbose]
 
 Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple restarts).
 
@@ -28,8 +28,6 @@ Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple re
   --no-migrate      Do not run DB migrations after app update
   --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
-  --ssl-provider <name>
-                    One of: ${VALID_SSL_PROVIDERS//|/, }
   -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
 USG
@@ -37,7 +35,7 @@ USG
 }
 
 # Parse CLI flags
-ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; telemetry=1; ssl_provider=""
+ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; telemetry=1
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,13 +56,6 @@ while [[ $# -gt 0 ]]; do
     --full) do_full=1; shift ;;
     --no-migrate) migrate=0; shift ;;
     --no-telemetry) telemetry=0; shift ;;
-    --ssl-provider)
-      if ! validate_ssl_provider "$2"; then
-        exit 1
-      fi
-      ssl_provider="$2"
-      shift 2
-      ;;
     --yes|-y) yes=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
@@ -78,11 +69,6 @@ if ((do_all==1)) && [[ -n "$comps" ]]; then
 fi
 if ((do_full==1)) && { ((do_all==1)) || [[ -n "$comps" ]]; }; then
   err "--full cannot be combined with --all or --components"
-  exit 1
-fi
-
-if ! is_setup_complete; then
-  err "This script requires a completed setup. Run the setup wizard first."
   exit 1
 fi
 

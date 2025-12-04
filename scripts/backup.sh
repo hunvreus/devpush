@@ -57,12 +57,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ssl_provider="default"
-if [[ "$ENVIRONMENT" == "production" ]]; then
-  ssl_provider="$(get_ssl_provider 2>/dev/null || echo "default")"
-fi
-
-set_compose_base run "$ssl_provider"
+set_compose_base
 
 # Stage data directory
 mkdir -p -m 0750 "$tmp_dir/data"

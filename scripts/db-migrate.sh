@@ -38,11 +38,10 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   start_cmd="systemctl start devpush.service"
 fi
 
-ssl_provider="$(get_ssl_provider)"
-set_compose_base run "$ssl_provider"
+set_compose_base
 
 # Validate environment variables
-validate_env "$ENV_FILE" "$ssl_provider"
+validate_env "$ENV_FILE"
 
 postgres_user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"
 postgres_user="${postgres_user:-devpush-app}"

@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -18,6 +17,7 @@ from config import get_settings, Settings
 from db import get_db, AsyncSessionLocal
 from dependencies import get_current_user, TemplateResponse
 from models import User, Team, Deployment, Project
+from routers import auth, project, github, google, team, user, event, admin
 from services.loki import LokiService
 
 settings = get_settings()
@@ -30,21 +30,6 @@ class CachedStaticFiles(StaticFiles):
         return response
 
 
-def check_setup_complete(config_file: str) -> bool:
-    if os.getenv("FORCE_SETUP_MODE", "").lower() in ("1", "true", "yes"):
-        return False
-    try:
-        if not os.path.exists(config_file):
-            return False
-        with open(config_file, encoding="utf-8") as f:
-            config = json.load(f)
-        return config.get("setup_complete", False)
-    except Exception:
-        return False
-
-
-SETUP_COMPLETE = check_setup_complete(settings.config_file)
-
 log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 logging.basicConfig(level=log_level)
 if log_level > logging.DEBUG:
@@ -53,19 +38,17 @@ if log_level > logging.DEBUG:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if SETUP_COMPLETE:
-        redis_settings = RedisSettings.from_dsn(settings.redis_url)
-        app.state.redis_pool = await create_pool(redis_settings)
-        app.state.loki_service = LokiService()
+    redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    app.state.redis_pool = await create_pool(redis_settings)
+    app.state.loki_service = LokiService()
     try:
         yield
     finally:
-        if SETUP_COMPLETE:
-            try:
-                await app.state.loki_service.client.aclose()
-                await app.state.redis_pool.close()
-            except Exception:
-                pass
+        try:
+            await app.state.loki_service.client.aclose()
+            await app.state.redis_pool.close()
+        except Exception:
+            pass
 
 
 app = FastAPI(
@@ -153,38 +136,28 @@ async def catch_all_missing_container(
     )
 
 
-if not SETUP_COMPLETE:
-    from routers import setup
+@app.get("/", name="root")
+async def root(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Team.slug).where(Team.id == current_user.default_team_id)
+    )
+    team_slug = result.scalar_one_or_none()
+    if team_slug:
+        return RedirectResponse(f"/{team_slug}", status_code=302)
 
-    @app.get("/", name="root")
-    async def root():
-        return RedirectResponse("/setup", status_code=303)
 
-    app.include_router(setup.router)
-else:
-    from routers import auth, project, github, google, team, user, event, admin
-
-    @app.get("/", name="root")
-    async def root(
-        request: Request,
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user),
-    ):
-        result = await db.execute(
-            select(Team.slug).where(Team.id == current_user.default_team_id)
-        )
-        team_slug = result.scalar_one_or_none()
-        if team_slug:
-            return RedirectResponse(f"/{team_slug}", status_code=302)
-
-    app.include_router(auth.router)
-    app.include_router(admin.router)
-    app.include_router(user.router)
-    app.include_router(project.router)
-    app.include_router(github.router)
-    app.include_router(google.router)
-    app.include_router(team.router)
-    app.include_router(event.router)
+app.include_router(auth.router)
+app.include_router(admin.router)
+app.include_router(user.router)
+app.include_router(project.router)
+app.include_router(github.router)
+app.include_router(google.router)
+app.include_router(team.router)
+app.include_router(event.router)
 
 
 @app.exception_handler(404)

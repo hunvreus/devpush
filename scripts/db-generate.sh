@@ -28,8 +28,7 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
   start_cmd="systemctl start devpush.service"
 fi
 
-ssl_provider="$(get_ssl_provider)"
-set_compose_base run "$ssl_provider"
+set_compose_base
 
 # Check if database is ready
 postgres_user="$(read_env_value "$ENV_FILE" POSTGRES_USER)"

@@ -374,7 +374,6 @@ build_runner_images() {
 # Validate environment variables
 validate_env(){
   local env_file="$1"
-  local provider="${2:-default}"
 
   [[ -f "$env_file" ]] || { err "Not found: $env_file"; exit 1; }
 
@@ -404,10 +403,13 @@ validate_env(){
     [[ -n "$value" ]] || missing+=("$key")
   done
 
-  # Optional SSL provider environment variables
+  # SSL provider-specific environment variables
   if [[ "$ENVIRONMENT" == "production" ]]; then
     local email="${LE_EMAIL:-$(read_env_value "$env_file" LE_EMAIL)}"
     [[ -n "$email" ]] || missing+=("LE_EMAIL")
+
+    local provider="$(read_env_value "$env_file" SSL_PROVIDER)"
+    provider="${provider:-default}"
 
     case "$provider" in
       default)
@@ -446,11 +448,6 @@ validate_env(){
     err "Missing values in $env_file: $joined"
     exit 1
   fi
-}
-
-# Returns 0 when setup_complete flag is true
-is_setup_complete() {
-  [[ "$(json_get setup_complete "$CONFIG_FILE" false)" == "true" ]]
 }
 
 # Validation constants
@@ -506,23 +503,19 @@ default_service_user() {
 
 # Ensure service UID/GID are set
 set_service_ids() {
-  local config_user config_uid config_gid
-  config_user="$(json_get service_user "$CONFIG_FILE" "" || true)"
-  config_uid="$(json_get service_uid "$CONFIG_FILE" "" || true)"
-  config_gid="$(json_get service_gid "$CONFIG_FILE" "" || true)"
+  local env_uid env_gid
+  env_uid="$(read_env_value "$ENV_FILE" SERVICE_UID)"
+  env_gid="$(read_env_value "$ENV_FILE" SERVICE_GID)"
 
   local candidate="${SERVICE_USER:-${DEVPUSH_SERVICE_USER:-}}"
-  if [[ -z "$candidate" && -n "$config_user" ]]; then
-    candidate="$config_user"
-  fi
   if [[ -z "$candidate" ]]; then
     candidate="$(default_service_user)"
   fi
 
   local uid="" gid=""
-  if [[ -n "$config_uid" && -n "$config_gid" && "$candidate" == "$config_user" ]]; then
-    uid="$config_uid"
-    gid="$config_gid"
+  if [[ -n "$env_uid" && -n "$env_gid" ]]; then
+    uid="$env_uid"
+    gid="$env_gid"
   fi
 
   if [[ -z "$uid" || -z "$gid" ]]; then
@@ -546,14 +539,14 @@ set_service_ids() {
   export SERVICE_USER SERVICE_UID SERVICE_GID
 }
 
-# Resolve SSL provider from env/config/default
+# Resolve SSL provider from env
 get_ssl_provider() {
   if [[ -n "${SSL_PROVIDER:-}" ]]; then
     printf "%s\n" "$SSL_PROVIDER"
     return
   fi
   local provider
-  provider="$(json_get ssl_provider "$CONFIG_FILE" "")"
+  provider="$(read_env_value "$ENV_FILE" SSL_PROVIDER)"
   if [[ -n "$provider" ]]; then
     printf "%s\n" "$provider"
     return
@@ -590,44 +583,8 @@ set_compose_cmd() {
   return 1
 }
 
-# Build compose arguments for stack/setup modes
-compose_args() {
-  local mode="${1:-run}"
-  local ssl="${2:-default}"
-
-  if [[ "$mode" == "stack" || "$mode" == "app" ]]; then
-    mode="run"
-  fi
-
-  COMPOSE_ARGS=(-p devpush)
-  COMPOSE_ENV=()
-
-  if [[ "$mode" == "setup" ]]; then
-    COMPOSE_ARGS+=(-f "$APP_DIR/compose/setup.yml")
-    if [[ "$ENVIRONMENT" == "development" ]]; then
-      COMPOSE_ARGS+=(-f "$APP_DIR/compose/setup.override.dev.yml")
-    fi
-  else
-    COMPOSE_ARGS+=(-f "$APP_DIR/compose/run.yml")
-    if [[ "$ENVIRONMENT" == "production" ]]; then
-      COMPOSE_ARGS+=(-f "$APP_DIR/compose/run.override.yml")
-      COMPOSE_ARGS+=(-f "$APP_DIR/compose/ssl-${ssl}.yml")
-    else
-      COMPOSE_ARGS+=(-f "$APP_DIR/compose/run.override.dev.yml")
-    fi
-  fi
-  if [[ -f "$ENV_FILE" ]]; then
-    COMPOSE_ENV=(--env-file "$ENV_FILE")
-  else
-    COMPOSE_ENV=()
-  fi
-}
-
 # Populate COMPOSE_BASE for docker compose invocations
 set_compose_base() {
-  local mode="${1:-run}"
-  local ssl="${2:-default}"
-
   set_service_ids
   if ((${#COMPOSE_BIN[@]} == 0)); then
     if ! set_compose_cmd; then
@@ -635,36 +592,23 @@ set_compose_base() {
       exit 1
     fi
   fi
-  compose_args "$mode" "$ssl"
+
+  local ssl="$(get_ssl_provider)"
+  COMPOSE_ARGS=(-p devpush -f "$APP_DIR/compose/base.yml")
+  if [[ "$ENVIRONMENT" == "production" ]]; then
+    COMPOSE_ARGS+=(-f "$APP_DIR/compose/override.yml")
+    COMPOSE_ARGS+=(-f "$APP_DIR/compose/ssl-${ssl}.yml")
+  else
+    COMPOSE_ARGS+=(-f "$APP_DIR/compose/override.dev.yml")
+  fi
+
   COMPOSE_BASE=("${COMPOSE_BIN[@]}")
-  if ((${#COMPOSE_ENV[@]})); then
-    COMPOSE_BASE+=("${COMPOSE_ENV[@]}")
+  if [[ -f "$ENV_FILE" ]]; then
+    COMPOSE_BASE+=(--env-file "$ENV_FILE")
   fi
-  if ((${#COMPOSE_ARGS[@]})); then
-    COMPOSE_BASE+=("${COMPOSE_ARGS[@]}")
-  fi
+  COMPOSE_BASE+=("${COMPOSE_ARGS[@]}")
 }
 
-# Detect which stack is actually running by checking container labels
-get_running_stack() {
-  local container
-  container=$(docker ps --filter "label=com.docker.compose.project=devpush" --filter "label=com.docker.compose.service=app" --format "{{.ID}}" 2>/dev/null | head -1)
-  if [[ -z "$container" ]]; then
-    return 1
-  fi
-  
-  local config_files
-  config_files=$(docker inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || echo "")
-  
-  if [[ "$config_files" == *"setup.yml"* ]]; then
-    echo "setup"
-  elif [[ "$config_files" == *"run.yml"* ]]; then
-    echo "run"
-  else
-    echo "unknown"
-  fi
-  return 0
-}
 
 # Check if any devpush containers are running
 is_stack_running() {

@@ -26,7 +26,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 ### Docker / Compose Usage
 
 1. Call `ensure_compose_cmd` before issuing any compose commands (or rely on `set_compose_base` which calls it internally).
-2. Use `set_compose_base <mode> [ssl-provider]` (`mode` is `run` or `setup`) to populate `COMPOSE_BASE`.
+2. Use `set_compose_base` to populate `COMPOSE_BASE` (reads `SSL_PROVIDER` from `.env` internally).
 3. Run compose via `run_cmd "Message..." "${COMPOSE_BASE[@]}" <subcommand> …`. Never spell `docker compose` / `docker-compose` directly.
 4. `set_compose_base` also ensures `SERVICE_UID`/`SERVICE_GID` are exported so Docker builds run with the correct user. Never assume UID/GID 1000; always go through the helper.
 
@@ -46,7 +46,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 
 ### Flags & CLI UX
 
-1. Keep flag sets minimal; only add options when they're truly needed (e.g., `--setup`, `--no-migrate`, `--ssl-provider <value>`).
+1. Keep flag sets minimal; only add options when they're truly needed (e.g., `--no-migrate`, `--timeout <value>`).
 2. In usage blocks, show value placeholders as `<value>` and list allowed values inline.
 3. Validate flag values early and exit via `usage` on invalid input.
 4. For sensitive input (tokens, passwords), make flags optional and prompt securely with `read -s` if not provided and TTY is available.
@@ -79,7 +79,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 
 ### Project Structure
 
-- `app/routers/`: Route handlers organized by domain (auth, project, team, user, admin, setup, etc.)
+- `app/routers/`: Route handlers organized by domain (auth, project, team, user, admin, etc.)
 - `app/forms/`: WTForms form definitions (one file per domain)
 - `app/models.py`: SQLAlchemy ORM models
 - `app/services/`: Business logic services (GitHub, deployment, domain, Loki, etc.)
@@ -92,7 +92,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 
 ### Routing Conventions
 
-1. **Router organization**: One router per domain (auth, project, team, user, admin, setup, etc.)
+1. **Router organization**: One router per domain (auth, project, team, user, admin, etc.)
 2. **Route naming**: Use `name="route_name"` for URL generation via `request.url_for()`
 3. **Dependencies**: Use FastAPI's `Depends()` for dependency injection:
    - `get_current_user`: Require authentication
@@ -178,11 +178,9 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 ### Compose Files
 
 1. **Base files**:
-   - `compose/run.yml`: Main application stack
-   - `compose/run.override.yml`: Production overrides
-   - `compose/run.override.dev.yml`: Development overrides
-   - `compose/setup.yml`: Setup wizard stack
-   - `compose/setup.override.dev.yml`: Setup dev overrides
+   - `compose/base.yml`: Main application stack
+   - `compose/override.yml`: Production overrides
+   - `compose/override.dev.yml`: Development overrides
    - `compose/ssl-*.yml`: SSL provider-specific overrides
 
 2. **Naming**: Use `run` mode (not `app` or `stack`) for the main application stack
