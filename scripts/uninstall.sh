@@ -11,11 +11,12 @@ init_script_logging "uninstall"
 
 usage() {
   cat <<USG
-Usage: uninstall.sh [--yes] [--no-telemetry] [--verbose]
+Usage: uninstall.sh [--yes] [--skip-backup] [--no-telemetry] [--verbose]
 
 Uninstall /dev/push from this server.
 
   --yes, -y         Non-interactive; skip prompts and remove data/logs if they exist
+  --skip-backup     Skip creating a backup before uninstalling
   --no-telemetry    Do not send telemetry
   -v, --verbose     Enable verbose output for debugging
   -h, --help        Show this help
@@ -24,10 +25,11 @@ USG
 }
 
 # Parse CLI flags
-yes_flag=0; telemetry=1
+yes_flag=0; skip_backup=0; telemetry=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes|-y) yes_flag=1; shift ;;
+    --skip-backup) skip_backup=1; shift ;;
     --no-telemetry) telemetry=0; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
@@ -95,6 +97,19 @@ if id -u "$user" >/dev/null 2>&1; then
   printf "  - User: %s (home: %s)\n" "$user" "$user_home"
 fi
 [[ -n "$version_ref" ]] && printf "  - Version (ref): %s\n" "$version_ref"
+
+# Create backup before uninstalling
+if (( skip_backup == 0 )); then
+  printf '\n'
+  if (( yes_flag == 0 )); then
+    read -r -p "Create a backup before uninstalling? [Y/n] " ans
+    if [[ -z "$ans" || "$ans" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+      run_cmd "Creating backup..." bash "$SCRIPT_DIR/backup.sh"
+    fi
+  else
+    run_cmd "Creating backup..." bash "$SCRIPT_DIR/backup.sh"
+  fi
+fi
 
 # Warning/confirmation
 if (( yes_flag == 0 )); then
@@ -197,6 +212,8 @@ fi
 # Final summary
 printf '\n'
 printf "${GRN}Uninstall complete. ✔${NC}\n"
+printf '\n'
+printf "Backup files were preserved (%s).\n" "$BACKUP_DIR"
 printf '\n'
 printf "System packages not removed:\n"
 printf "  - Docker, git, jq, curl\n"

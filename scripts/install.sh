@@ -389,24 +389,16 @@ run_cmd "${CHILD_MARK} Enabling devpush.service..." systemctl enable devpush.ser
 printf '\n'
 printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
 printf '\n'
-printf "Directories:\n"
+printf "Files & Directories:\n"
 printf "  - Code: %s\n" "$APP_DIR"
 printf "  - Scripts: %s\n" "$APP_DIR/scripts"
 printf "  - Data: %s\n" "$DATA_DIR"
 printf "  - Logs: %s\n" "$LOG_DIR"
+printf "  - Environment variables: %s\n" "$ENV_FILE"
 printf '\n'
-printf "Configuration:\n"
-printf "  - Environment: %s\n" "$ENV_FILE"
-printf '\n'
-printf "Service management:\n"
-printf "  - Status: systemctl status devpush.service\n"
-printf "  - Start: systemctl start devpush.service\n"
-printf "  - Stop: systemctl stop devpush.service\n"
-printf "  - Logs: journalctl -u devpush.service -f\n"
-printf '\n'
-printf "${YEL}Next steps:${NC}\n"
-printf "  1. Create a GitHub App at https://github.devpu.sh\n"
+printf "Next steps:\n"
+printf "  1. Create a GitHub App: https://devpu.sh/gh-app\n"
 printf "  2. Edit %s and fill in the required values\n" "$ENV_FILE"
 printf "  3. Start the service: systemctl start devpush.service\n"
 printf '\n'
-printf "Documentation: https://devpu.sh/docs\n"
+printf "Documentation: https://devpu.sh/docs/installation\n"

@@ -77,7 +77,7 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 | `scripts/start.sh` | Start stack (`--no-migrate`, `--timeout <sec>`, `--verbose`) |
 | `scripts/status.sh` | Show stack status |
 | `scripts/stop.sh` | Stop services (`--hard`) |
-| `scripts/uninstall.sh` | Uninstall from server (`--yes`, `--no-telemetry`, `--verbose`) |
+| `scripts/uninstall.sh` | Uninstall from server (`--yes`, `--skip-backup`, `--no-telemetry`, `--verbose`) |
 | `scripts/update.sh` | Update by tag (`--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--verbose`) |
 
 ## Environment variables
