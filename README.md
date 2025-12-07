@@ -47,7 +47,32 @@ For more information, including manual installation or updates, refer to [the do
 
 ## Development
 
-Start the stack with `./scripts/start.sh`. The stack auto-detects development mode on macOS.
+**Prerequisites**: Docker and Docker Compose v2+. On macOS, [Colima](https://github.com/abiosoft/colima) works well as an alternative to Docker Desktop.
+
+```bash
+git clone https://github.com/hunvreus/devpush.git
+cd devpush
+mkdir -p data
+cp .env.dev.example data/.env
+# Edit data/.env with your GitHub App credentials
+```
+
+Start the stack:
+
+```bash
+./scripts/start.sh
+```
+
+The stack auto-detects development mode on macOS and enables hot reloading. Data is stored in `./data/`.
+
+**Key scripts**:
+
+- `./scripts/start.sh` / `stop.sh` / `restart.sh` — manage the stack
+- `./scripts/compose.sh logs -f app` — view logs
+- `./scripts/db-generate.sh` — create database migration
+- `./scripts/clean.sh` — remove all Docker resources and data
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 
 ## Documentation
 
@@ -67,7 +92,7 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 |---|---|
 | `scripts/backup.sh` | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`) |
 | `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <name>`) |
-| `scripts/clean.sh` | Stop stack and clean dev data (`--remove-all`, `--remove-data`, `--remove-containers`, `--remove-images`, `--yes`) |
+| `scripts/clean.sh` | Stop stack and remove all Docker resources and data (`--keep-docker`, `--keep-data`, `--yes`) |
 | `scripts/compose.sh` | Docker compose wrapper with correct files/env (`--`) |
 | `scripts/db-generate.sh` | Generate Alembic migration (prompts for message) |
 | `scripts/db-migrate.sh` | Apply Alembic migrations (`--timeout <sec>`) |
@@ -113,7 +138,11 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 | `DOCKER_HOST` | Docker API. Default: `tcp://docker-proxy:2375`. |
 | `DATA_DIR` | Data directory. Default: `/var/lib/devpush`. |
 | `APP_DIR` | Code directory. Default: `/opt/devpush`. |
-| `DEFAULT_MEMORY_MB` | Container memory limit (MB). Default: `2048`. |
+| `DEFAULT_CPUS` | Default CPU cores per container. Default: `0.5`. |
+| `DEFAULT_MEMORY_MB` | Default memory limit (MB). Default: `2048`. |
+| `MAX_CPUS` | Maximum CPU cores per container. Default: `4.0`. |
+| `MAX_MEMORY_MB` | Maximum memory limit (MB). Default: `8192`. |
+| `ALLOW_CUSTOM_RESOURCES` | Allow projects to override CPU/memory. Default: `false`. |
 | `JOB_TIMEOUT` | Job timeout (seconds). Default: `320`. |
 | `DEPLOYMENT_TIMEOUT` | Deployment timeout (seconds). Default: `300`. |
 | `LOG_LEVEL` | Logging level. Default: `WARNING`. |

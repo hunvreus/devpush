@@ -80,17 +80,17 @@ fi
 
 # Validate env
 validate_env "$ENV_FILE"
-ensure_acme_json
+  ensure_acme_json
 
 # Check if stack is already running
 if is_stack_running; then
   stop_cmd="scripts/stop.sh"
-  if [[ "$ENVIRONMENT" == "production" ]]; then
+    if [[ "$ENVIRONMENT" == "production" ]]; then
     stop_cmd="systemctl stop devpush.service"
   fi
   printf '\n'
   err "Stack is already running. Stop it first with: $stop_cmd"
-  exit 1
+    exit 1
 fi
 
 # Build compose args

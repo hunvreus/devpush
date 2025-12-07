@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     version_file: str = ""
     default_cpus: float = 0.5
     default_memory_mb: int = 2048
+    max_cpus: float = 4.0
+    max_memory_mb: int = 8192
+    allow_custom_resources: bool = False
     presets: list[dict] = []
     images: list[dict] = []
     job_timeout: int = 320

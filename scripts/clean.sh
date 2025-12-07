@@ -9,32 +9,26 @@ init_script_logging "clean"
 
 usage(){
   cat <<USG
-Usage: clean.sh [--remove-all] [--remove-data] [--remove-containers] [--remove-images] [--yes] [-h|--help]
+Usage: clean.sh [--keep-docker] [--keep-data] [--yes] [-h|--help]
 
-Stop the services and remove Docker data. Use --remove-all to remove data directory, containers and images.
+Stop services and remove all Docker resources and data directory.
 
-  --remove-all      Remove data directory, containers and images (in addition to volumes/networks)
-  --remove-data     Remove data directory
-  --remove-containers Remove containers
-  --remove-images   Remove images
-  --yes             Skip confirmation prompts
-  -h, --help        Show this help
+  --keep-docker   Keep Docker resources (containers, volumes, networks, images)
+  --keep-data     Keep data directory
+  --yes           Skip confirmation prompts
+  -h, --help      Show this help
 USG
   exit 0
 }
 
 # Parse CLI flags
-remove_all=0
-remove_data=0
-remove_containers=0
-remove_images=0
+keep_docker=0
+keep_data=0
 yes_flag=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --remove-all) remove_all=1; shift ;;
-    --remove-data) remove_data=1; shift ;;
-    --remove-containers) remove_containers=1; shift ;;
-    --remove-images) remove_images=1; shift ;;
+    --keep-docker) keep_docker=1; shift ;;
+    --keep-data) keep_data=1; shift ;;
     --yes|-y) yes_flag=1; shift ;;
     -h|--help) usage ;;
     *) err "Unknown option: $1"; usage ;;
@@ -45,10 +39,24 @@ cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
 docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
 
+# Validate flags
+if ((keep_docker==1)) && ((keep_data==1)); then
+  err "Cannot use both --keep-docker and --keep-data. Nothing would be cleaned."
+  exit 1
+fi
+
 # Confirmation prompt
 if ((yes_flag==0)); then
   printf '\n'
-  printf "${YEL}This will stop docker compose services, remove volumes and networks, and delete the data directory.${NC}\n"
+  msg="This will stop services"
+  if ((keep_docker==0)); then
+    msg+=" and remove all Docker resources"
+  fi
+  if ((keep_data==0)); then
+    msg+=" and data directory"
+  fi
+  msg+="."
+  printf "${YEL}%s${NC}\n" "$msg"
   if [[ "$ENVIRONMENT" == "production" ]]; then
     printf "${RED}WARNING:${NC} You are running in production.\n"
   fi
@@ -57,62 +65,62 @@ if ((yes_flag==0)); then
   [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { printf "Aborted.\n"; exit 0; }
 fi
 
+# Stop services
 printf '\n'
 run_cmd --try "Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
 
-printf '\n'
-printf "Removing Docker resources...\n"
+# Remove Docker resources
+if ((keep_docker==0)); then
+  printf '\n'
+  printf "Removing Docker resources...\n"
 
-# Remove Docker containers
-if ((remove_containers==1)) || ((remove_all==1)); then
+  # Containers
   compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
   runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
-  containers="$(printf "%s\n%s\n" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
-  container_count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
+  containers="$(printf "%s\n%s" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
   if [[ -n "$containers" ]]; then
-    run_cmd --try "${CHILD_MARK} Removing Docker containers ($container_count found)..." docker rm -f $containers
+    count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
+    run_cmd --try "${CHILD_MARK} Removing containers ($count found)..." docker rm -f $containers
   else
-    printf "%s Removing Docker containers (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "%s Removing containers (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
-fi
 
-# Remove Docker volumes
-volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
-if [[ -n "$volumes" ]]; then
-  volume_count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
-  run_cmd --try "${CHILD_MARK} Removing Docker volumes ($volume_count found)..." docker volume rm $volumes
-else
-  printf "%s Removing Docker volumes (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
-fi
+  # Volumes
+  volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
+  if [[ -n "$volumes" ]]; then
+    count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
+    run_cmd --try "${CHILD_MARK} Removing volumes ($count found)..." docker volume rm $volumes
+  else
+    printf "%s Removing volumes (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+  fi
 
-# Remove Docker networks
-networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
-if [[ -n "$networks" ]]; then
-  network_count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
-  run_cmd --try "${CHILD_MARK} Removing Docker networks ($network_count found)..." docker network rm $networks
-else
-  printf "%s Removing Docker networks (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
-fi
+  # Networks
+  networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
+  if [[ -n "$networks" ]]; then
+    count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
+    run_cmd --try "${CHILD_MARK} Removing networks ($count found)..." docker network rm $networks
+  else
+    printf "%s Removing networks (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+  fi
 
-# Remove Docker images
-if ((remove_images==1)) || ((remove_all==1)); then
+  # Images
   compose_images="$(docker images --filter "reference=devpush*" -q 2>/dev/null || true)"
   runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || true)"
-  images="$(printf "%s\n%s\n" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
-  image_count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
+  images="$(printf "%s\n%s" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
   if [[ -n "$images" ]]; then
-    run_cmd --try "${CHILD_MARK} Removing Docker images ($image_count found)..." docker rmi -f $images
+    count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
+    run_cmd --try "${CHILD_MARK} Removing images ($count found)..." docker rmi -f $images
   else
-    printf "%s Removing Docker images (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "%s Removing images (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
 fi
 
 # Remove data directory
-if ((remove_data==1)) || ((remove_all==1)); then
+if ((keep_data==0)); then
   printf '\n'
   run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
 fi
 
-# Success message
+# Success
 printf '\n'
 printf "${GRN}Clean up complete. ✔${NC}\n"

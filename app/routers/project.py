@@ -1231,15 +1231,15 @@ async def project_settings(
         },
     )
 
-    if fragment == "resources":
+    if settings.allow_custom_resources and fragment == "resources":
         if await resources_form.validate_on_submit():
-            project.config = {
-                **project.config,
-                "cpus": float(resources_form.cpus.data)
+            cpus = (
+                float(resources_form.cpus.data)
                 if resources_form.cpus.data is not None
-                else None,
-                "memory": resources_form.memory.data,
-            }
+                else None
+            )
+            memory = resources_form.memory.data
+            project.config = {**project.config, "cpus": cpus, "memory": memory}
             await db.commit()
             flash(request, _("Resources updated."), "success")
 
@@ -1254,6 +1254,7 @@ async def project_settings(
                     "resources_form": resources_form,
                     "default_cpus": settings.default_cpus,
                     "default_memory": settings.default_memory_mb,
+                    "allow_custom_resources": settings.allow_custom_resources,
                 },
             )
 
@@ -1451,6 +1452,7 @@ async def project_settings(
             "resources_form": resources_form,
             "default_cpus": settings.default_cpus,
             "default_memory": settings.default_memory_mb,
+            "allow_custom_resources": settings.allow_custom_resources,
             "env_vars_form": env_vars_form,
             "delete_project_form": delete_project_form,
             "domain_form": domain_form,

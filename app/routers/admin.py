@@ -172,6 +172,8 @@ async def admin_settings(
                                 _("An error occurred while adding the entry."),
                                 "error",
                             )
+            else:
+                flash(request, _("Invalid allowlist data."), "error")
 
         allowlist_pagination = await get_allowlist_pagination(
             db, allowlist_page, allowlist_search
