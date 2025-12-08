@@ -115,8 +115,8 @@ printf '\n'
 printf "${YEL}WARNING: This will stop the stack, replace data from your current stack ($affected_list) with the data from the backup and start the stack again. A safety backup of your current stack will be created before restoring.${NC}\n"
 
 printf '\n'
-printf "${YEL}Restore from:${NC}\n"
-printf "${YEL}  - Archive: %s${NC}\n" "$archive_path"
+printf "$Restore from:\n"
+printf "$  - Archive: %s\n" "$archive_path"
 if [[ -f "$stage_dir/metadata.json" ]]; then
   meta_created="$(json_get created_at "$stage_dir/metadata.json" "" || true)"
   meta_env="$(json_get environment "$stage_dir/metadata.json" "" || true)"
@@ -194,12 +194,18 @@ if (( restore_db == 1 )); then
   (( max_attempts < 1 )) && max_attempts=1
   run_cmd "${CHILD_MARK} Waiting for database..." wait_for_pgsql "$pg_user" "$max_attempts" "$step_sleep"
 
+  export PG_RESET_PASS="$pg_password"
+  run_cmd "${CHILD_MARK} Resetting database schema..." bash -c '
+    set -Eeuo pipefail
+    env "PGPASSWORD=$PG_RESET_PASS" "$@" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+  ' reset "${COMPOSE_BASE[@]}" exec -T pgsql psql -U "$pg_user" -d "$pg_db"
+
   export PG_RESTORE_FILE="$stage_dir/db/pgdump.sql" PG_RESTORE_PASS="$pg_password"
   run_cmd "${CHILD_MARK} Importing dump..." bash -c '
     set -Eeuo pipefail
     cat "$PG_RESTORE_FILE" | env "PGPASSWORD=$PG_RESTORE_PASS" "$@" >/dev/null
   ' restore "${COMPOSE_BASE[@]}" exec -T pgsql psql -v ON_ERROR_STOP=1 -U "$pg_user" -d "$pg_db"
-  unset PG_RESTORE_FILE PG_RESTORE_PASS
+  unset PG_RESTORE_FILE PG_RESTORE_PASS PG_RESET_PASS
   run_cmd "${CHILD_MARK} Stopping pgsql..." "${COMPOSE_BASE[@]}" stop pgsql
 fi
 
