@@ -115,8 +115,8 @@ printf '\n'
 printf "${YEL}WARNING: This will stop the stack, replace data from your current stack ($affected_list) with the data from the backup and start the stack again. A safety backup of your current stack will be created before restoring.${NC}\n"
 
 printf '\n'
-printf "$Restore from:\n"
-printf "$  - Archive: %s\n" "$archive_path"
+printf "Restore from:\n"
+printf "  - Archive: %s\n" "$archive_path"
 if [[ -f "$stage_dir/metadata.json" ]]; then
   meta_created="$(json_get created_at "$stage_dir/metadata.json" "" || true)"
   meta_env="$(json_get environment "$stage_dir/metadata.json" "" || true)"
