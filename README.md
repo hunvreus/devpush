@@ -18,6 +18,13 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 - **Custom domains**: Support for custom domain and automatic Let's Encrypt SSL certificates.
 - **Self-hosted and open source**: Run on your own servers, MIT licensed.
 
+## Prerequisites
+
+- **Server**: Ubuntu 20.04+ or Debian 11+ with SSH access and sudo privileges. A [Hetzner CPX31](https://devpu.sh/docs/guides/create-hetzner-server) works well.
+- **DNS**: We recommend [Cloudflare](https://cloudflare.com).
+- **GitHub account**: You'll create a GitHub App for login and repository access.
+- **Email provider**: A [Resend](https://resend.com) account for login emails and invitations.
+
 ## Quickstart
 
 > ⚠️ Supported on Ubuntu/Debian. Other distros may work but aren't officially supported (yet).
@@ -30,14 +37,9 @@ curl -fsSL https://install.devpu.sh | sudo bash
 
 2. **Create a GitHub App** at [devpu.sh/docs/guides/create-github-app](https://devpu.sh/docs/guides/create-github-app)
 
-3. **Configure** by editing `/var/lib/devpush/.env` with your GitHub App credentials and domains. For Cloudflare DNS-01, set `CERT_CHALLENGE_PROVIDER=cloudflare` and add `CF_DNS_API_TOKEN`; leave `CERT_CHALLENGE_PROVIDER=default` for HTTP-01.
+3. **Configure** by editing `/var/lib/devpush/.env` with your GitHub App credentials and domains.
 
-4. **Set DNS** (example):
-
-| Type | Name | Value | Purpose |
-|------|------|-------|---------|
-| A | `example.com` | Server IP | App hostname |
-| A (wildcard) | `*.example.com` | Server IP | Deployments |
+4. **Set DNS** by adding Two A records pointing to your server's IP—one for the app (e.g. `example.com`) and a wildcard for deployments (e.g. `*.example.com`).
 
 5. **Start** the service:
 
@@ -45,12 +47,7 @@ curl -fsSL https://install.devpu.sh | sudo bash
 sudo systemctl start devpush.service
 ```
 
-For more information, including manual installation or updates, refer to [the documentation](https://devpu.sh/docs).
-
-> ℹ️ We recommend a CPX31 from [Hetzner](https://www.hetzner.com) and using [Cloudflare](https://cloudflare.com):
-> 
-> - Set SSL/TLS to "Full (strict)" and leave records proxied for the app hostname
-> - For deployments using sub-subdomains (e.g., `*.deploy.example.com`), either disable proxy or use Cloudflare's Advanced Certificate Manager
+For more information, including manual installation or updates, refer to [the documentation](https://devpu.sh/docs/installation).
 
 ## Development
 
