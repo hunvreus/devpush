@@ -142,7 +142,7 @@ fi
 
 # Create a safety backup before restoring
 if (( skip_backup == 0 )); then
-  printf '\n'
+printf '\n'
   run_cmd "Creating backup before restore..." bash "$SCRIPT_DIR/backup.sh"
   latest_backup="$(ls -t "$BACKUP_DIR"/devpush-*.tar.gz 2>/dev/null | head -n1 || true)"
   if [[ -n "$latest_backup" ]]; then

@@ -173,7 +173,7 @@ async def admin_settings(
                                 "error",
                             )
             else:
-                flash(request, _("Invalid allowlist data."), "error")
+                flash(request, _("Invalid allowlist value."), "error")
 
         allowlist_pagination = await get_allowlist_pagination(
             db, allowlist_page, allowlist_search

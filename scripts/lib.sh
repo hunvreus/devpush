@@ -403,13 +403,13 @@ validate_env(){
     [[ -n "$value" ]] || missing+=("$key")
   done
 
-  # SSL provider-specific environment variables
+  # Certificate challenge provider-specific environment variables
   if [[ "$ENVIRONMENT" == "production" ]]; then
     local email="${LE_EMAIL:-$(read_env_value "$env_file" LE_EMAIL)}"
     [[ -n "$email" ]] || missing+=("LE_EMAIL")
 
-    local provider="$(read_env_value "$env_file" SSL_PROVIDER)"
-    provider="${provider:-default}"
+    local provider
+    provider="$(get_cert_challenge_provider "$env_file")"
 
     case "$provider" in
       default)
@@ -435,7 +435,7 @@ validate_env(){
         done
         ;;
       *)
-        err "Unknown SSL provider: $provider"
+        err "Unknown certificate challenge provider: $provider"
         exit 1
         ;;
     esac
@@ -451,17 +451,25 @@ validate_env(){
 }
 
 # Validation constants
-VALID_SSL_PROVIDERS="default|cloudflare|route53|gcloud|digitalocean|azure"
+VALID_CERT_CHALLENGE_PROVIDERS="default|cloudflare|route53|gcloud|digitalocean|azure"
 VALID_COMPONENTS="app|worker-arq|worker-monitor|alloy|traefik|loki|redis|docker-proxy|pgsql"
 
-# Validate SSL provider
-validate_ssl_provider() {
-  local provider="$1"
-  if [[ ! "$provider" =~ ^(${VALID_SSL_PROVIDERS//|/|})$ ]]; then
-    err "Invalid SSL provider: $provider (must be one of: $VALID_SSL_PROVIDERS)"
-    return 1
+# Resolve certificate challenge provider from env
+get_cert_challenge_provider() {
+  local env_file="${1:-$ENV_FILE}"
+  local provider="${CERT_CHALLENGE_PROVIDER:-}"
+
+  if [[ -z "$provider" ]]; then
+    provider="$(read_env_value "$env_file" CERT_CHALLENGE_PROVIDER)"
   fi
-  return 0
+
+  provider="${provider:-default}"
+  if [[ ! "$provider" =~ ^(${VALID_CERT_CHALLENGE_PROVIDERS//|/|})$ ]]; then
+    err "Invalid certificate challenge provider: $provider (must be one of: $VALID_CERT_CHALLENGE_PROVIDERS)"
+    exit 1
+  fi
+
+  printf "%s\n" "$provider"
 }
 
 # Validate component
@@ -539,21 +547,6 @@ set_service_ids() {
   export SERVICE_USER SERVICE_UID SERVICE_GID
 }
 
-# Resolve SSL provider from env
-get_ssl_provider() {
-  if [[ -n "${SSL_PROVIDER:-}" ]]; then
-    printf "%s\n" "$SSL_PROVIDER"
-    return
-  fi
-  local provider
-  provider="$(read_env_value "$ENV_FILE" SSL_PROVIDER)"
-  if [[ -n "$provider" ]]; then
-    printf "%s\n" "$provider"
-    return
-  fi
-  printf "default\n"
-}
-
 # Ensure traefik/acme.json exists with proper perms
 ensure_acme_json() {
   install -d -m 0755 "$DATA_DIR/traefik" >/dev/null 2>&1 || true
@@ -593,7 +586,7 @@ set_compose_base() {
     fi
   fi
 
-  local ssl="$(get_ssl_provider)"
+  local ssl="$(get_cert_challenge_provider)"
   COMPOSE_ARGS=(-p devpush -f "$APP_DIR/compose/base.yml")
   if [[ "$ENVIRONMENT" == "production" ]]; then
     COMPOSE_ARGS+=(-f "$APP_DIR/compose/override.yml")

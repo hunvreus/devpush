@@ -113,7 +113,7 @@ Notes:
 - Reverse proxy with Docker and file providers; TLS via ACME.
 - Routes: app (`APP_HOSTNAME`) and deployments (by Docker labels and dynamic file for aliases/domains).
 - Catch-all router: `deployment-not-found` redirects unknown deployment subdomains to a "deployment not found" page.
-- SSL provider selection: Determines which `ssl-*.yml` compose file is loaded; configured via `SSL_PROVIDER` in `.env`.
+- Certificate challenge provider selection: Determines which `ssl-*.yml` compose file is loaded; configured via `CERT_CHALLENGE_PROVIDER` in `.env`.
 
 ### Docker Socket Proxy
 

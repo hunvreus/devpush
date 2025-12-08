@@ -287,7 +287,7 @@ POSTGRES_PASSWORD="${postgres_password}"
 SERVICE_UID="${service_uid}"
 SERVICE_GID="${service_gid}"
 SERVER_IP="${server_ip}"
-SSL_PROVIDER="default"
+CERT_CHALLENGE_PROVIDER="default"
 
 # GitHub App (from github.devpu.sh)
 GITHUB_APP_ID=""
@@ -389,16 +389,10 @@ run_cmd "${CHILD_MARK} Enabling devpush.service..." systemctl enable devpush.ser
 printf '\n'
 printf "${GRN}Install complete (version: %s). ✔${NC}\n" "$ref"
 printf '\n'
-printf "Files & Directories:\n"
-printf "  - Code: %s\n" "$APP_DIR"
-printf "  - Scripts: %s\n" "$APP_DIR/scripts"
-printf "  - Data: %s\n" "$DATA_DIR"
-printf "  - Logs: %s\n" "$LOG_DIR"
-printf "  - Environment variables: %s\n" "$ENV_FILE"
-printf '\n'
 printf "Next steps:\n"
 printf "  1. Create a GitHub App: https://devpu.sh/gh-app\n"
 printf "  2. Edit %s and fill in the required values\n" "$ENV_FILE"
-printf "  3. Start the service: systemctl start devpush.service\n"
+printf "  3. Ensure your DNS is configured and propagated\n"
+printf "  4. Start the service: sudo systemctl start devpush.service\n"
 printf '\n'
 printf "Documentation: https://devpu.sh/docs/installation\n"

@@ -26,7 +26,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 ### Docker / Compose Usage
 
 1. Call `ensure_compose_cmd` before issuing any compose commands (or rely on `set_compose_base` which calls it internally).
-2. Use `set_compose_base` to populate `COMPOSE_BASE` (reads `SSL_PROVIDER` from `.env` internally).
+2. Use `set_compose_base` to populate `COMPOSE_BASE` (reads `CERT_CHALLENGE_PROVIDER` from `.env` internally).
 3. Run compose via `run_cmd "Message..." "${COMPOSE_BASE[@]}" <subcommand> …`. Never spell `docker compose` / `docker-compose` directly.
 4. `set_compose_base` also ensures `SERVICE_UID`/`SERVICE_GID` are exported so Docker builds run with the correct user. Never assume UID/GID 1000; always go through the helper.
 
@@ -71,7 +71,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 2. When running commands as the service user from privileged scripts (e.g., install), wrap them in `runuser -u "$user" -- bash -c '…'` so files are owned by `devpush`.
 3. When creating files/dirs that might already exist, guard with `[[ ! -f … ]]` / `install -d …` and let them be no-ops if present.
 4. For comment documentation aimed at future maintainers, keep it short and factual—no personal notes or TODOs; use `AGENTS.md` instead.
-5. Use `validate_env "$ENV_FILE" "$ssl_provider"` whenever you need to enforce required environment variables; it handles core values and SSL-provider-specific secrets for production.
+5. Use `validate_env "$ENV_FILE"` whenever you need to enforce required environment variables; it handles core values and certificate-challenge-specific secrets for production.
 
 ---
 
@@ -181,7 +181,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
    - `compose/base.yml`: Main application stack
    - `compose/override.yml`: Production overrides
    - `compose/override.dev.yml`: Development overrides
-   - `compose/ssl-*.yml`: SSL provider-specific overrides
+   - `compose/ssl-*.yml`: Certificate/DNS provider-specific overrides
 
 2. **Naming**: Use `run` mode (not `app` or `stack`) for the main application stack
 
@@ -205,7 +205,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 3. **worker-monitor**: Monitor background worker
 4. **pgsql**: PostgreSQL database
 5. **redis**: Redis cache/queue
-6. **traefik**: Reverse proxy and SSL termination
+6. **traefik**: Reverse proxy and TLS termination
 7. **loki**: Log aggregation
 8. **alloy**: Telemetry agent (ships logs to Loki)
 

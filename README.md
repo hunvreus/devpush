@@ -115,7 +115,7 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 | `SERVICE_UID` | Container user UID. Auto-set to match host user. |
 | `SERVICE_GID` | Container user GID. Auto-set to match host user. |
 | `SERVER_IP` | Public IP of the server. Auto-detected by install.sh. |
-| `SSL_PROVIDER` | SSL provider: `default`, `cloudflare`, `route53`, `gcloud`, `digitalocean`, `azure`. Default: `default`. |
+| `CERT_CHALLENGE_PROVIDER` | ACME challenge provider: `default` (HTTP-01) or `cloudflare`, `route53`, `gcloud`, `digitalocean`, `azure` (DNS-01). Default: `default`. |
 | `GITHUB_APP_ID` | GitHub App ID. |
 | `GITHUB_APP_NAME` | GitHub App name. |
 | `GITHUB_APP_PRIVATE_KEY` | GitHub App private key (PEM format, use `\n` for newlines). |
