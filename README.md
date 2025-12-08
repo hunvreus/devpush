@@ -39,7 +39,9 @@ curl -fsSL https://install.devpu.sh | sudo bash
 
 3. **Configure** by editing `/var/lib/devpush/.env` with your GitHub App credentials and domains.
 
-4. **Set DNS** by adding Two A records pointing to your server's IP—one for the app (e.g. `example.com`) and a wildcard for deployments (e.g. `*.example.com`).
+4. **Set DNS**:
+   - `A` `example.com` → server IP (app hostname)
+   - `A` `*.example.com` → server IP (deployments)
 
 5. **Start** the service:
 
