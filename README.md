@@ -104,7 +104,7 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 | `scripts/db-migrate.sh` | Apply Alembic migrations (`--timeout <sec>`) |
 | `scripts/install.sh` | Server setup: Docker, user, clone repo, .env, systemd (`--repo <url>`, `--ref <ref>`, `--yes`, `--no-telemetry`, `--verbose`) |
 | `scripts/restart.sh` | Restart services (`--no-migrate`) |
-| `scripts/restore.sh` | Restore from backup archive (`--archive <file>`, `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--timeout <sec>`, `--yes`, `--verbose`) |
+| `scripts/restore.sh` | Restore from backup archive (`--archive <file>`, `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--remove-runners`, `--timeout <sec>`, `--yes`, `--verbose`) |
 | `scripts/start.sh` | Start stack (`--no-migrate`, `--timeout <sec>`, `--verbose`) |
 | `scripts/status.sh` | Show stack status |
 | `scripts/stop.sh` | Stop services (`--hard`) |

@@ -19,6 +19,7 @@ Restore a backup produced by scripts/backup.sh.
   --no-code          Skip restoring the code repository
   --no-restart       Skip restarting the stack after restore
   --no-backup        Skip creating a backup before restoring
+  --remove-runners   Remove runner containers before restoring
   --timeout <sec>    Max seconds to wait for pgsql to be ready (default: 60)
   --yes              Skip confirmation prompts
   -v, --verbose      Enable verbose output
@@ -54,6 +55,7 @@ restore_code=1
 restart_stack=1
 timeout=60
 skip_backup=0
+remove_runners=0
 yes=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --no-code) restore_code=0; shift ;;
     --no-restart) restart_stack=0; shift ;;
     --no-backup) skip_backup=1; shift ;;
+    --remove-runners) remove_runners=1; shift ;;
     --timeout) timeout="$2"; shift 2 ;;
     --yes) yes=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
@@ -167,6 +170,18 @@ if (( restore_data == 1 )); then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" >/dev/null 2>&1 || true
   fi
   ensure_acme_json
+fi
+
+# Remove runner containers if requested
+if (( remove_runners == 1 )); then
+  printf '\n'
+  runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
+  if [[ -n "$runner_containers" ]]; then
+    count=$(printf '%s\n' "$runner_containers" | wc -l | tr -d ' ')
+    run_cmd --try "Removing runner containers ($count found)..." docker rm -f $runner_containers
+  else
+    printf "Removing runner containers (0 found)... ${YEL}⊘${NC}\n"
+  fi
 fi
 
 # Restore database
