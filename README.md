@@ -28,11 +28,18 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 curl -fsSL https://install.devpu.sh | sudo bash
 ```
 
-2. **Create a GitHub App** at [github.devpu.sh](https://github.devpu.sh)
+2. **Create a GitHub App** at [devpu.sh/docs/guides/create-github-app](https://devpu.sh/docs/guides/create-github-app)
 
-3. **Configure** by editing `/var/lib/devpush/.env` with your GitHub App credentials and domains
+3. **Configure** by editing `/var/lib/devpush/.env` with your GitHub App credentials and domains. For Cloudflare DNS-01, set `CERT_CHALLENGE_PROVIDER=cloudflare` and add `CF_DNS_API_TOKEN`; leave `CERT_CHALLENGE_PROVIDER=default` for HTTP-01.
 
-4. **Start** the service:
+4. **Set DNS** (example):
+
+| Type | Name | Value | Purpose |
+|------|------|-------|---------|
+| A | `example.com` | Server IP | App hostname |
+| A (wildcard) | `*.example.com` | Server IP | Deployments |
+
+5. **Start** the service:
 
 ```bash
 sudo systemctl start devpush.service
