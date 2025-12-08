@@ -160,7 +160,26 @@ run_cmd() {
 read_env_value(){
   local env_file="$1"; local key="$2"
   [[ -f "$env_file" ]] || return 0
-  awk -F= -v k="$key" '$1==k{sub(/^[^=]*=/,""); print}' "$env_file" | sed 's/^"\|"$//g' | head -n1
+  awk -v k="$key" '
+    /^[[:space:]]*#/ {next}
+    {
+      if (match($0, /^[[:space:]]*([^=[:space:]]+)[[:space:]]*=/, m) && m[1] == k) {
+        val = substr($0, RSTART + RLENGTH)
+        sub(/^[[:space:]]*/, "", val)
+        if (val ~ /^"/) {
+          val = substr(val, 2)
+          sub(/"$/, "", val)
+        } else if (val ~ /^'\''/) {
+          val = substr(val, 2)
+          sub(/'\''$/, "", val)
+        } else {
+          sub(/[[:space:]]*#.*$/, "", val)
+        }
+        print val
+        exit
+      }
+    }
+  ' "$env_file"
 }
 
 # Get a value from a JSON file

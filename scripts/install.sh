@@ -296,6 +296,7 @@ APP_HOSTNAME=
 DEPLOY_DOMAIN=
 LE_EMAIL=
 CERT_CHALLENGE_PROVIDER=default # default|cloudflare|route53|gcloud|digitalocean|azure
+# CF_DNS_API_TOKEN=
 
 # GitHub App (see https://devpu.sh/gh-app)
 GITHUB_APP_ID=

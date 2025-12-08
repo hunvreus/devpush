@@ -85,6 +85,6 @@ body:not(.loading):after {
   }
 
   &[data-category="warning"] .toast-content svg {
-    @apply text-orange-600 dark:text-orange-400;
+    @apply text-amber-600 dark:text-amber-400;
   }
 }
