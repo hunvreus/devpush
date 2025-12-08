@@ -15,14 +15,16 @@ from dependencies import get_translation as _, get_lazy_translation as _l
 from models import TeamMember, User, Team, TeamInvite, utc_now
 
 FORBIDDEN_TEAM_SLUGS = [
-    "auth",
+    "admin",
     "api",
-    "health",
     "assets",
+    "auth",
+    "deployment-not-found",
+    "health",
+    "new-team",
+    "setup",
     "upload",
     "user",
-    "deployment-not-found",
-    "new-team",
 ]
 
 

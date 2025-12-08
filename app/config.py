@@ -1,7 +1,9 @@
-from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
+import os
+from functools import lru_cache
 from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -31,24 +33,32 @@ class Settings(BaseSettings):
     postgres_password: str = ""
     redis_url: str = "redis://redis:6379"
     docker_host: str = "tcp://docker-proxy:2375"
-    upload_dir: str = "/app/upload"
-    traefik_config_dir: str = "/data/traefik"
+    data_dir: str = "/var/lib/devpush"
+    app_dir: str = "/opt/devpush"
+    upload_dir: str = ""
+    traefik_dir: str = ""
+    env_file: str = ""
+    config_file: str = ""
+    version_file: str = ""
     default_cpus: float = 0.5
     default_memory_mb: int = 2048
+    max_cpus: float = 4.0
+    max_memory_mb: int = 8192
+    allow_custom_resources: bool = False
     presets: list[dict] = []
     images: list[dict] = []
     job_timeout: int = 320
     job_completion_wait: int = 300
     deployment_timeout: int = 300
+    container_delete_grace_seconds: int = 3
     db_echo: bool = False
     log_level: str = "WARNING"
     env: str = "production"
-    access_rules_path: str = "settings/access.json"
     access_denied_message: str = "Sign-in not allowed for this email."
     access_denied_webhook: str = ""
     login_header: str = ""
     toaster_header: str = ""
-    server_ip: str = ""
+    server_ip: str = "127.0.0.1"
 
     model_config = SettingsConfigDict(extra="ignore")
 
@@ -56,6 +66,19 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings():
     settings = Settings()
+
+    settings.url_scheme = "http" if settings.env == "development" else "https"
+
+    if not settings.upload_dir:
+        settings.upload_dir = os.path.join(settings.data_dir, "upload")
+    if not settings.traefik_dir:
+        settings.traefik_dir = os.path.join(settings.data_dir, "traefik")
+    if not settings.env_file:
+        settings.env_file = os.path.join(settings.data_dir, ".env")
+    if not settings.config_file:
+        settings.config_file = os.path.join(settings.data_dir, "config.json")
+    if not settings.version_file:
+        settings.version_file = os.path.join(settings.data_dir, "version.json")
 
     presets_file = Path("settings/presets.json")
     images_file = Path("settings/images.json")

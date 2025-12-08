@@ -1,0 +1,25 @@
+FROM python:3.13-slim
+
+# Create non-root user
+RUN addgroup --system appgroup && adduser --system --group appuser
+
+# System dependencies
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# Set UV cache directory and home
+ENV UV_CACHE_DIR=/tmp/uv
+ENV HOME=/app
+
+# Switch to non-root user
+USER appuser
+
+EXPOSE 8000
+
+COPY docker/entrypoint.app.dev.sh /entrypoint.app.dev.sh
+COPY docker/entrypoint.worker-arq.dev.sh /entrypoint.worker-arq.dev.sh
+COPY docker/entrypoint.worker-monitor.dev.sh /entrypoint.worker-monitor.dev.sh

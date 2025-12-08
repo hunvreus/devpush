@@ -17,9 +17,8 @@ supervisord.pid
 
 # Data (uploads and Traefik)
 /data/
-
-# Access rules
-/access.json
+/logs/
+/backups/
 
 # Node
 node_modules/

@@ -15,7 +15,7 @@ from models import Project, Deployment, User, Team, TeamMember, utc_now, TeamInv
 from dependencies import (
     get_current_user,
     get_team_by_slug,
-    get_deployment_queue,
+    get_job_queue,
     flash,
     get_translation as _,
     TemplateResponse,
@@ -164,7 +164,7 @@ async def team_settings(
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     db: AsyncSession = Depends(get_db),
-    deployment_queue: ArqRedis = Depends(get_deployment_queue),
+    job_queue: ArqRedis = Depends(get_job_queue),
     settings: Settings = Depends(get_settings),
 ):
     team, membership = team_and_membership
@@ -197,7 +197,7 @@ async def team_settings(
                         await db.commit()
 
                         # Team is marked as deleted, actual cleanup is delegated to a job
-                        await deployment_queue.enqueue_job("cleanup_team", team.id)
+                        await job_queue.enqueue_job("cleanup_team", team.id)
 
                         flash(
                             request,
@@ -216,9 +216,6 @@ async def team_settings(
                             _("An error occurred while marking the team for deletion."),
                             "error",
                         )
-
-                for error in delete_team_form.confirm.errors:
-                    flash(request, error, "error")
 
     # General
     general_form: Any = await TeamGeneralForm.from_formdata(

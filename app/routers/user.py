@@ -18,7 +18,7 @@ from dependencies import (
     TemplateResponse,
     templates,
     get_current_user,
-    get_deployment_queue,
+    get_job_queue,
     RedirectResponseX,
 )
 from db import get_db
@@ -43,18 +43,18 @@ async def user_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    deployment_queue: ArqRedis = Depends(get_deployment_queue),
+    job_queue: ArqRedis = Depends(get_job_queue),
 ):
     # Delete
     delete_form: Any = await UserDeleteForm.from_formdata(request, user=current_user)
     if request.method == "POST" and fragment == "danger":
         if await delete_form.validate_on_submit():
             try:
-                delete_form.status = "deleted"
+                # User is marked as deleted, actual cleanup is delegated to a job
+                current_user.status = "deleted"
                 await db.commit()
 
-                # User is marked as deleted, actual cleanup is delegated to a job
-                await deployment_queue.enqueue_job("cleanup_user", current_user.id)
+                await job_queue.enqueue_job("cleanup_user", current_user.id)
 
                 flash(
                     request,
@@ -76,9 +76,6 @@ async def user_settings(
                     _("An error occurred while marking the user for deletion."),
                     "error",
                 )
-
-        for error in delete_form.confirm.errors:
-            flash(request, error, "error")
 
         return RedirectResponse(
             url=str(request.url_for("user_settings")) + "#danger",

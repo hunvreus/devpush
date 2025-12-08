@@ -14,27 +14,27 @@
 
 @keyframes progress-bar {
   0% {
-    width: 0%
+    width: 0%;
   }
 
   10% {
-    width: 40%
+    width: 40%;
   }
 
   30% {
-    width: 60%
+    width: 60%;
   }
 
   60% {
-    width: 70%
+    width: 70%;
   }
 
   90% {
-    width: 75%
+    width: 75%;
   }
 
   100% {
-    width: 78%
+    width: 78%;
   }
 }
 

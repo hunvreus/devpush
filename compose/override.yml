@@ -1,0 +1,20 @@
+services:
+  app:
+    labels:
+      - traefik.http.routers.app.entrypoints=websecure
+      - traefik.http.routers.app.tls=true
+      - traefik.http.routers.app.tls.certresolver=le
+      - traefik.http.routers.app.priority=10
+  traefik:
+    ports:
+      - "80:80"
+      - "443:443"
+    labels:
+      - "traefik.http.routers.deployment-not-found-https.rule=HostRegexp(`^(.+)\\.${DEPLOY_DOMAIN}$`)"
+      - "traefik.http.routers.deployment-not-found-https.entrypoints=websecure"
+      - "traefik.http.routers.deployment-not-found-https.tls=true"
+      - "traefik.http.routers.deployment-not-found-https.tls.certresolver=le"
+      - "traefik.http.routers.deployment-not-found-https.priority=1"
+      - "traefik.http.routers.deployment-not-found-https.service=noop@internal"
+      - "traefik.http.routers.deployment-not-found-https.middlewares=deployment-redirect"
+      - "traefik.http.middlewares.deployment-redirect.redirectRegex.replacement=https://${APP_HOSTNAME}/deployment-not-found/$$1"

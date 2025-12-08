@@ -110,7 +110,7 @@ def get_redis_client() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=True)
 
 
-def get_deployment_queue(request: Request) -> ArqRedis:
+def get_job_queue(request: Request) -> ArqRedis:
     return request.app.state.redis_pool
 
 
@@ -193,14 +193,30 @@ def get_lazy_translation(key: str, **kwargs):
 
 
 def flash(
-    request: Request, title: str, category: str = "info", description: str | None = None
+    request: Request,
+    title: str,
+    category: str = "info",
+    description: str | None = None,
+    action: dict | None = None,
+    cancel: dict | None = None,
+    attrs: dict | None = None,
 ):
     if "_messages" not in request.session:
         request.session["_messages"] = []
 
-    request.session["_messages"].append(
-        {"title": title, "category": category, "description": description}
-    )
+    message = {
+        "title": title,
+        "category": category,
+        "description": description,
+    }
+    if action:
+        message["action"] = action
+    if cancel:
+        message["cancel"] = cancel
+    if attrs:
+        message["attrs"] = attrs
+
+    request.session["_messages"].append(message)
 
 
 @pass_context
@@ -322,6 +338,10 @@ async def get_deployment_by_id(
     return deployment
 
 
+def is_superadmin(user: User) -> bool:
+    return user.id == 1
+
+
 async def get_role(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -401,6 +421,7 @@ templates.env.globals["get_flashed_messages"] = get_flashed_messages
 templates.env.globals["toaster_header"] = settings.toaster_header
 templates.env.filters["time_ago"] = time_ago_filter
 templates.env.globals["get_access"] = get_access
+templates.env.globals["is_superadmin"] = is_superadmin
 
 
 def TemplateResponse(

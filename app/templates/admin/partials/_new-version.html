@@ -1,0 +1,9 @@
+{% if latest_tag %}
+<div class="alert [&>h2]:text-amber-600 [&>svg]:text-amber-600 dark:[&>h2]:text-amber-400 dark:[&>svg]:text-amber-400">
+  {% include "icons/triangle-alert.svg" %}
+  <h2>{{ _('New version available') }}</h2>
+  <section>
+    <p>{{ _('A new version is available: <a href="http://github.com/hunvreus/devpush/releases/tag/%(latest)s" class="underline decoration-muted-foreground/50 hover:decoration-muted-foreground transition-colors" target="_blank">%(latest)s</a>. <a href="https://devpu.sh/docs/installation/#update" class="underline decoration-muted-foreground/50 hover:decoration-muted-foreground transition-colors" target="_blank">Read more about how to update</a>.', latest=latest_tag) | safe }}</p>
+  </section>
+</div>
+{% endif %}

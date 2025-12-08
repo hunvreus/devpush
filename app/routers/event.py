@@ -44,13 +44,15 @@ async def deployment_event(
         status_start_position = "0-0"
 
         last_event_id = request.headers.get("Last-Event-ID")  # Reconnection
-        logs_start_timestamp = (
-            int(last_event_id)
-            if last_event_id
-            else start_timestamp
-            if start_timestamp
-            else None
-        )
+        now_ns = int(time.time() * 1e9)
+        if last_event_id:
+            # Reconnect: resume exactly from the last event id (no padding)
+            logs_start_timestamp = int(last_event_id)
+        else:
+            # Initial connect: start from the earlier of client start and (now - 5s)
+            pad_cutoff = max(0, now_ns - 5_000_000_000)
+            base_start = int(start_timestamp) if start_timestamp else now_ns
+            logs_start_timestamp = min(base_start, pad_cutoff)
 
         logs_template = templates.get_template("deployment/macros/log-list.html")
 

@@ -7,7 +7,9 @@ This document describes the high‑level architecture of /dev/push, how the main
 - Docker & [Docker Compose](https://github.com/docker/compose)
 - [Traefik](https://github.com/traefik/traefik)
 - [Loki](https://github.com/grafana/loki)
+- [Alloy](https://github.com/grafana/alloy)
 - [PostgreSQL](https://www.postgresql.org/)
+- [Redis](https://redis.io/)
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [arq](https://arq-docs.helpmanual.io/)
 - [HTMX](https://htmx.org)
@@ -19,16 +21,16 @@ This document describes the high‑level architecture of /dev/push, how the main
 - **App**: The app handles all of the user-facing logic (managing teams/projects, authenticating, searching logs...). It communicates with the workers via Redis.
 - **Workers**: When we create a new deployment, we queue a deploy job using arq (`app/workers/arq.py`). It will start a container, then delegate monitoring to a separate background worker (`app/workers/monitor.py`), before wrapping things back with yet another job. These workers are also used to run certain batch jobs (e.g. deleting a team, cleaning up inactive deployments and their containers).
 - **Logs**: build and runtime logs are streamed from Loki and served to the user via an SSE endpoint in the app.
-- **Runners**: User apps are deployed on one of the runner containers (e.g. `Docker/runner/Dockerfile.python-3.12`). They are created in the deploy job (`app/workers/tasks/deploy.py`) and then run a series of commands based on the user configuration.
+- **Runners**: User apps are deployed on one of the runner containers (e.g. `docker/runner/Dockerfile.python-3.12`). They are created in the deploy job (`app/workers/tasks/deploy.py`) and then run a series of commands based on the user configuration.
 - **Reverse proxy**: We have Traefik sitting in front of both app and the deployed runner containers. All routing is done using Traefik labels, and we also maintain environment and branch aliases (e.g. `my-project-env-staging.devpush.app`) using Traefik config files.
 
 ## File structure
 
 - `app/`: The main FastAPI application (see README file).
 - `app/workers`: The workers (`arq` and `monitor`)
-- `Docker/`: Container definitions and entrypoint scripts. Includes local development specific files (e.g. `Dockerfile.app.dev`, `entrypoint.worker-arq.dev.sh`).
+- `docker/`: Container definitions and entrypoint scripts. Includes local development specific files (e.g. `Dockerfile.app.dev`, `entrypoint.worker-arq.dev.sh`).
 - `scripts/`: Helper scripts for local (macOS) and production environments
-- `docker-compose.yml`: Container orchestration with [Docker Compose](https://docs.docker.com/compose/) with overrides for local development (`docker-compose.override.dev.yml`).
+- `compose/`: Container orchestration with Docker Compose. Files: `base.yml`, `override.yml`, `override.dev.yml`, and SSL provider-specific files (`ssl-default.yml`, `ssl-cloudflare.yml`, etc.).
 
 ## System Diagram
 
@@ -53,6 +55,7 @@ flowchart TB
   subgraph Data
     PG[(PostgreSQL)]
     R[(Redis)]
+    AL[Alloy]
     L[(Loki)]
   end
 
@@ -73,13 +76,14 @@ flowchart TB
   W -- Docker API --> DP
   M -- Docker API --> DP
   DP -- create/manage --> RC
-  RC -- logs --> L
+  RC -- logs --> AL
+  AL -- ingest --> L
   A -- query logs --> L
 ```
 
 Notes:
 
-- Runner containers push logs to Loki via the Docker Loki log driver. The app queries Loki to stream build/runtime logs to clients (SSE).
+- Runner containers write logs locally; Alloy tails those files and ships them to Loki. The app queries Loki to stream build/runtime logs to clients (SSE).
 - Traefik routes both the app and user deployments. Dynamic file configuration is generated for aliases and custom domains.
 
 ## Components
@@ -106,8 +110,10 @@ Notes:
 
 ### Traefik
 
-- Reverse proxy with Docker and file providers; optional TLS via ACME.
+- Reverse proxy with Docker and file providers; TLS via ACME.
 - Routes: app (`APP_HOSTNAME`) and deployments (by Docker labels and dynamic file for aliases/domains).
+- Catch-all router: `deployment-not-found` redirects unknown deployment subdomains to a "deployment not found" page.
+- Certificate challenge provider selection: Determines which `ssl-*.yml` compose file is loaded; configured via `CERT_CHALLENGE_PROVIDER` in `.env`.
 
 ### Docker Socket Proxy
 
@@ -132,7 +138,7 @@ Notes:
   - Manual: user selects commit/env -> create DB record -> enqueue `deploy_start`.
 
 2) `deploy_start`
-  - Create runner container (language image, env vars, resource limits, Loki log driver, Traefik labels).
+  - Create runner container (language image, env vars, resource limits, Traefik labels; Alloy tails container logs).
   - Inside container: clone repo at commit, run optional build/pre‑deploy commands, then start app.
   - Mark deployment `in_progress`, set `container_id=…`, emit Redis Stream update.
 
@@ -195,6 +201,6 @@ Notes:
 
 ## Implementation Notes
 
-- Traefik dynamic config for aliases/domains is written to `TRAEFIK_CONFIG_DIR` per project (`DeploymentService.update_traefik_config`).
+- Traefik dynamic config for aliases/domains is written to `TRAEFIK_DIR` per project (`DeploymentService.update_traefik_config`).
 - Runner images are language‑specific (e.g., Python, Node). Selection and commands come from project config.
 - SSE endpoints: `app/routers/event.py` for project updates and deployment logs.

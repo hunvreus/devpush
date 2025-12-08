@@ -1,0 +1,41 @@
+{% from "macros/avatar.html" import avatar with context %}
+{% from "macros/dialog.html" import dialog %}
+{% from "admin/macros/pagination.html" import pagination %}
+
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _('Users') }}</h2>
+    <p>{{ _('Manage the users registered on your platform.') }}</p>
+  </header>
+
+  <section class="space-y-4">
+    <header class="flex items-center gap-x-2">
+      <div class="relative mr-auto">
+        <input
+          type="text"
+          class="input pl-9 rounded-full h-8"
+          placeholder="{{ _('Search...') }}"
+          name="users_search"
+          value="{{ users_search or '' }}"
+          hx-get="{{ url_for('admin_settings').include_query_params(**{'fragment': 'users-content'}) }}"
+          hx-target="#users-content"
+          hx-trigger="input changed delay:300ms"
+          hx-push-url="true"
+        >
+        <div class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground [&>svg]:size-4">
+          {% include "icons/search.svg" %}
+        </div>
+      </div>
+    </header>
+    <div id="users-content" class="scroll-mt-[124px]">
+      {% include "admin/partials/_settings-users-content.html" %}
+    </div>
+  </section>
+</div>
+
+<div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
+  <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+    {% include "icons/loader.svg" %}
+    {{ _('Saving') }}
+  </div>
+</div>

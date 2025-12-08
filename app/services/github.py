@@ -2,6 +2,7 @@ import httpx
 import jwt
 import time
 from typing import Any
+from email.utils import parsedate_to_datetime
 
 
 class GitHubService:
@@ -14,6 +15,32 @@ class GitHubService:
         self.private_key = private_key
         self._jwt_token = None
         self._jwt_expires_at = None
+        self._time_offset = None
+        self._time_offset_checked_at = None
+
+    def _check_time_offset(self) -> int:
+        """Check time offset between server and GitHub. Returns offset in seconds."""
+        now = int(time.time())
+
+        if (
+            self._time_offset is not None
+            and self._time_offset_checked_at is not None
+            and now - self._time_offset_checked_at < 3600
+        ):
+            return self._time_offset
+
+        try:
+            response = httpx.get("https://api.github.com", timeout=5.0)
+            if "Date" in response.headers:
+                github_time = parsedate_to_datetime(response.headers["Date"])
+                github_timestamp = int(github_time.timestamp())
+                self._time_offset = github_timestamp - now
+                self._time_offset_checked_at = now
+                return self._time_offset
+        except Exception:
+            pass
+
+        return self._time_offset or 0
 
     @property
     def jwt_token(self) -> str:
@@ -25,11 +52,14 @@ class GitHubService:
             not self._jwt_token
             or not self._jwt_expires_at
             or self._jwt_expires_at - now < 60
-        ):  # Buffer of 1 minute
-            # Token expires in 10 minutes
+        ):
+            offset = self._check_time_offset()
+            adjusted_now = now + offset
+            adjusted_exp = adjusted_now + (10 * 60)
+
             self._jwt_expires_at = now + (10 * 60)
             self._jwt_token = jwt.encode(
-                {"iat": now, "exp": self._jwt_expires_at, "iss": self.app_id},
+                {"iat": adjusted_now, "exp": adjusted_exp, "iss": self.app_id},
                 self.private_key,
                 algorithm="RS256",
             )

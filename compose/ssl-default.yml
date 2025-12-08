@@ -1,0 +1,18 @@
+services:
+  traefik:
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.endpoint=tcp://docker-proxy:2375"
+      - "--providers.docker.watch=true"
+      - "--providers.file.directory=/etc/traefik/dynamic_conf"
+      - "--providers.file.watch=true"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.le.acme.email=${LE_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/etc/traefik/dynamic_conf/acme.json"
+      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+    volumes:
+      - ${DATA_DIR:-/var/lib/devpush}/traefik:/etc/traefik/dynamic_conf
+

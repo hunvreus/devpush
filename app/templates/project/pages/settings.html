@@ -20,7 +20,9 @@
       <a href="#environment-variables" class="btn-sm-ghost justify-start">{{ _('Environment variables') }}</a>
       <a href="#domains" class="btn-sm-ghost justify-start">{{ _('Domains') }}</a>
       <a href="#build-and-deploy" class="btn-sm-ghost justify-start">{{ _('Build & Deploy') }}</a>
-      <a href="#resources" class="btn-sm-ghost justify-start">{{ _('Resources') }}</a>
+      {% if allow_custom_resources %}
+        <a href="#resources" class="btn-sm-ghost justify-start">{{ _('Resources') }}</a>
+      {% endif %}
       <a href="#danger"
         class="btn-sm-ghost justify-start text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 focus:bg-destructive/10 dark:focus:bg-destructive/20 focus:text-destructive">{{
         _('Danger') }}</a>
@@ -53,9 +55,11 @@
       </section>
 
       {# RESOURCES #}
-      <section class="relative rounded-xl scroll-mt-[101px]" id="resources">
-        {% include "project/partials/_settings-resources.html" %}
-      </section>
+      {% if allow_custom_resources %}
+        <section class="relative rounded-xl scroll-mt-[101px]" id="resources">
+          {% include "project/partials/_settings-resources.html" %}
+        </section>
+      {% endif %}
 
       {# DANGER ZONE #}
       <section class="relative rounded-xl scroll-mt-[101px]" id="danger">

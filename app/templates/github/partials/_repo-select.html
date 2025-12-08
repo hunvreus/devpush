@@ -1,12 +1,15 @@
 {% if not has_github_oauth_token %}
-<section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
+<section
+  class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4"
+>
   <div class="max-w-sm">
     <div class="text-center">
       <h2 class="h4">{{ _('Connect your GitHub account') }}</h2>
-      <p class="text-muted-foreground mt-1">{{ _('Connect your GitHub account to search for repositories.') }}</p>
+      <p class="text-muted-foreground mt-1">
+        {{ _('Connect your GitHub account to search for repositories.') }}
+      </p>
       <a class="btn-sm mt-4" href="{{ url_for('github_authorize') }}">
-        {% include "icons/github.svg" %}
-        {{ _('Connect account') }}
+        {% include "icons/github.svg" %} {{ _('Connect account') }}
       </a>
     </div>
   </div>
@@ -23,22 +26,21 @@
     "
     hx-get="{{ url_for('github_repo_list').include_query_params(type=request.query_params.get('type', '')) }}"
     hx-target="next [role='listbox']"
-    hx-boost="true"
     hx-indicator="next div > .htmx-indicator"
   >
-    {% from "macros/select.html" import select %}
-    {% call select(
-      id="account-select",
-      selected=selected_account,
-      name="account"
-    ) %}
-    {% for account in accounts %}
-      <div role="option" data-value="{{ account }}">
-        <span class="flex items-center gap-x-2">
-          <img src="https://github.com/{{ account }}.png" alt="{{ account }}" class="size-5 rounded">
-          {{ account }}
-        </span>
-      </div>
+    {% from "macros/select.html" import select %} {% call select(
+    id="account-select", selected=selected_account, name="account" ) %} {% for
+    account in accounts %}
+    <div role="option" data-value="{{ account }}">
+      <span class="flex items-center gap-x-2">
+        <img
+          src="https://github.com/{{ account }}.png"
+          alt="{{ account }}"
+          class="size-5 rounded"
+        />
+        {{ account }}
+      </span>
+    </div>
     {% endfor %}
     <hr role="separator" />
     <a role="option" href="{{ url_for('github_install') }}">
@@ -47,8 +49,15 @@
     {% endcall %}
 
     <div class="relative flex-1">
-      <input name="query" type="search" class="w-full !pl-9" placeholder="{{ _('Search by name') }}">
-      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-50 [&>svg]:size-4">
+      <input
+        name="query"
+        type="search"
+        class="w-full !pl-9"
+        placeholder="{{ _('Search by name') }}"
+      />
+      <span
+        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-50 [&>svg]:size-4"
+      >
         {% include "icons/search.svg" %}
       </span>
     </div>
@@ -63,14 +72,18 @@
   </div>
 </section>
 {% else %}
-<section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
+<section
+  class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4"
+>
   <div class="max-w-sm">
     <div class="text-center">
       <h2 class="h4">{{ _('Install the GitHub app') }}</h2>
-      <p class="text-muted-foreground mt-1">{{ _('Install the GitHub application for the accounts you want to select repositories from.') }}</p>
+      <p class="text-muted-foreground mt-1">
+        {{ _('Install the GitHub application for the accounts you want to select
+        repositories from.') }}
+      </p>
       <a class="btn-sm mt-4" href="{{ url_for('github_install') }}">
-        {% include "icons/github.svg" %}
-        {{ _('Install app') }}
+        {% include "icons/github.svg" %} {{ _('Install app') }}
       </a>
     </div>
   </div>

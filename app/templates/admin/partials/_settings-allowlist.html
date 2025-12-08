@@ -1,0 +1,126 @@
+{% from "macros/dialog.html" import dialog %}
+
+{% call dialog(
+  id="dialog-add-allowlist",
+  title=_("Add allowlist rule"),
+  description=_('Add a new rule to allow sign up/sign in. You can add email addresses (e.g., user@example.com),  domains (e.g., example.com) or regex patterns (e.g., ^[^@]+@example\\.com$).'),
+  dialog_attrs={"class": "max-w-md"},
+  trigger_attrs={"class": "btn-outline"}
+) %}
+  <form
+    method="post"
+    action=""
+    hx-post=""
+    hx-target="#allowlist-card"
+    hx-swap="outerHTML"
+    hx-indicator="next .htmx-indicator"
+    hx-push-url="false"
+    x-init
+    @htmx:after-request="$el.closest('dialog').close()"
+    class="space-y-4 form"
+  >
+    {{ add_allowlist_form.csrf_token() }}
+    <div class="flex items-center gap-x-2">
+      <div class="space-y-3">
+        <label>{{ _('Type') }}</label>
+        {{ add_allowlist_form.type(class_="w-full") }}
+      </div>
+      <div class="space-y-3 flex-1">
+        <label>{{ _('Value') }}</label>
+        {{ add_allowlist_form.value(class_="w-full", placeholder=_('Enter value...')) }}
+      </div>
+    </div>
+    <footer class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end mt-4">
+      <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+      <button type="submit" name="action" value="add_allowlist" class="btn">{{ _('Add rule') }}</button>
+    </footer>
+  </form>
+{% endcall %}
+
+{% call dialog(
+  id="dialog-import-allowlist",
+  title=_("Bulk import email addresses"),
+  description=_("Paste a list of email addresses (one per line or comma-separated) to add them to the allowlist."),
+  dialog_attrs={"class": "max-w-md"}
+) %}
+  <form
+    id="form-import-allowlist"
+    method="post"
+    action=""
+    hx-post=""
+    hx-target="#allowlist-card"
+    hx-swap="outerHTML"
+    hx-indicator="next .htmx-indicator"
+    hx-push-url="false"
+    @htmx:after-request="$el.closest('dialog').close()"
+    x-init
+    class="space-y-4 form"
+  >
+    {{ import_allowlist_form.csrf_token() }}
+    {{ import_allowlist_form.emails(
+      class_="w-full font-mono min-h-24 py-[7px] break-all max-h-36 overflow-y-auto text-[13px]",
+      placeholder="alice@example.com\nbob@example.com, carol@example.com"
+    ) }}
+    <footer class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end mt-4">
+      <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+      <button type="submit" name="action" value="import_allowlist" class="btn" form="form-import-allowlist">{{ _('Import') }}</button>
+    </footer>
+  </form>
+{% endcall %}
+
+{% from "admin/macros/pagination.html" import pagination %}
+
+<div class="card" id="allowlist-card">
+  <header class="border-b">
+    <h2>{{ _('Allowlist') }}</h2>
+    <p>{{ _('Control who can sign up and sign in. An empty allowlist means no restrictions.') }}</p>
+  </header>
+
+  <section class="space-y-4">
+    <header class="flex items-center gap-x-2">
+      <div class="relative mr-auto">
+        <input
+          type="text"
+          class="input pl-9 rounded-full h-8"
+          placeholder="{{ _('Search...') }}"
+          name="allowlist_search"
+          value="{{ allowlist_search or '' }}"
+          hx-get="{{ url_for('admin_settings').include_query_params(**{'fragment': 'allowlist-content'}) }}"
+          hx-target="#allowlist-content"
+          hx-trigger="input changed delay:300ms"
+          hx-push-url="true"
+        >
+        <div class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground [&>svg]:size-4">
+          {% include "icons/search.svg" %}
+        </div>
+      </div>
+      
+      <button
+        type="button"
+        class="btn-sm-outline"
+        onclick="document.getElementById('dialog-add-allowlist').showModal()"
+      >
+        {% include "icons/plus.svg" %}
+        {{ _('Add rule') }}
+      </button>
+      <button
+        type="button"
+        class="btn-sm-icon-outline"
+        onclick="document.getElementById('dialog-import-allowlist').showModal()"
+        data-tooltip="{{ _('Import emails') }}"
+      >
+        {% include "icons/file-text.svg" %}
+      </button>
+    </header>
+    <div id="allowlist-content" class="scroll-mt-[124px]">
+      {% include "admin/partials/_settings-allowlist-content.html" %}
+    </div>
+  </section>
+</div>
+
+<div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
+  <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+    {% include "icons/loader.svg" %}
+    {{ _('Updating') }}
+  </div>
+</div>

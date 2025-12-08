@@ -1,44 +1,45 @@
 {% macro avatar(
-item,
-prefix,
-name,
-fallback=None,
-use_fallback=False,
-size=None,
-class=None)
+  item,
+  prefix,
+  name,
+  fallback=None,
+  use_fallback=False,
+  size=None,
+  class=None)
 %}
 {% if item.has_avatar and not use_fallback %}
-<img
-  src="{{ url_for('upload', path='avatars/' + prefix + '_' + item.id|string + '.webp') }}?v={{ item.updated_at.timestamp()|string }}"
-  alt="{{ item.name }}" class="
-    object-cover shrink-0
-    {% if size == 'xs' %}size-5 rounded
-    {% elif size == 'sm' %}size-6 rounded-md
-    {% elif size == 'md' %}size-10 rounded-lg
-    {% elif size == 'lg' %}size-14 rounded-xl
-    {% else %}size-8 rounded-lg
-    {% endif %}
-    {% if class %}{{ class }}{% endif %}
-  " />
+  <img
+    src="{{ url_for('upload', path='avatars/' + prefix + '_' + item.id|string + '.webp') }}?v={{ item.updated_at.timestamp()|string }}"
+    alt="{{ item.name }}" class="
+      object-cover shrink-0
+      {% if size == 'xs' %}size-5 rounded
+      {% elif size == 'sm' %}size-6 rounded-md
+      {% elif size == 'md' %}size-10 rounded-lg
+      {% elif size == 'lg' %}size-14 rounded-xl
+      {% else %}size-8 rounded-lg
+      {% endif %}
+      {% if class %}{{ class }}{% endif %}
+    "
+  />
 {% elif fallback %}
-{{ fallback }}
+  {{ fallback }}
 {% else %}
-<div class="
-  flex items-center justify-center uppercase bg-gradient-to-tl border shrink-0
-  {% if size == 'xs' %}size-5 rounded text-xs font-semibold
-  {% elif size == 'sm' %}size-6 rounded-md text-sm font-semibold
-  {% elif size == 'md' %}size-10 rounded-lg text-xl font-medium
-  {% elif size == 'lg' %}size-14 rounded-xl text-4xl font-medium
-  {% else %}size-8 rounded-lg text-lg font-semibold
-  {% endif %}
-  from-{{ item.color }}-100 to-{{ item.color }}-100/50 
-  border-{{ item.color }}-200 
-  dark:from-{{ item.color }}-950/50 dark:to-{{ item.color }}-950
-  dark:border-{{ item.color }}-900
-  text-{{ item.color }}-500
-  {% if class %}{{ class }}{% endif %}
-">
-  {{ name[0] }}
-</div>
+  <div class="
+    flex items-center justify-center uppercase bg-gradient-to-tl border shrink-0
+    {% if size == 'xs' %}size-5 rounded text-xs font-semibold
+    {% elif size == 'sm' %}size-6 rounded-md text-sm font-semibold
+    {% elif size == 'md' %}size-10 rounded-lg text-xl font-medium
+    {% elif size == 'lg' %}size-14 rounded-xl text-4xl font-medium
+    {% else %}size-8 rounded-lg text-lg font-semibold
+    {% endif %}
+    from-{{ item.color }}-100 to-{{ item.color }}-100/50 
+    border-{{ item.color }}-200 
+    dark:from-{{ item.color }}-950/50 dark:to-{{ item.color }}-950
+    dark:border-{{ item.color }}-900
+    text-{{ item.color }}-500
+    {% if class %}{{ class }}{% endif %}
+  ">
+    {{ name[0] }}
+  </div>
 {% endif %}
 {% endmacro %}

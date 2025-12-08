@@ -19,7 +19,6 @@ from wtforms.validators import (
     Length,
     Regexp,
     Optional,
-    NumberRange,
 )
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -245,22 +244,29 @@ class ProjectDeleteEnvironmentForm(StarletteForm):
 
 
 class ProjectResourcesForm(StarletteForm):
-    cpus = DecimalField(
-        _l("CPUs"),
-        validators=[
-            Optional(),
-            NumberRange(min=0, max=64, message=_l("CPUs must be between 0 and 64.")),
-        ],
-    )
-    memory = IntegerField(
-        _l("Memory (MB)"),
-        validators=[
-            Optional(),
-            NumberRange(
-                min=0, max=262144, message=_l("Memory must be between 0 and 262144 MB.")
-            ),
-        ],
-    )
+    cpus = DecimalField(_l("CPUs"), validators=[Optional()])
+    memory = IntegerField(_l("Memory (MB)"), validators=[Optional()])
+
+    def validate_cpus(self, field):
+        if field.data is None:
+            return
+        settings = get_settings()
+        cpus = float(field.data)
+        if cpus < 0:
+            raise ValidationError(_("Must be 0 or greater."))
+        if settings.max_cpus > 0 and cpus > settings.max_cpus:
+            raise ValidationError(_("Maximum allowed: %(max)s", max=settings.max_cpus))
+
+    def validate_memory(self, field):
+        if field.data is None:
+            return
+        settings = get_settings()
+        if field.data < 0:
+            raise ValidationError(_("Must be 0 or greater."))
+        if settings.max_memory_mb > 0 and field.data > settings.max_memory_mb:
+            raise ValidationError(
+                _("Maximum allowed: %(max)s MB", max=settings.max_memory_mb)
+            )
 
 
 class ProjectDomainForm(StarletteForm):

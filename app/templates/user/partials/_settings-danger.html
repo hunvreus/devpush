@@ -40,10 +40,7 @@
             >{{ _('Cancel') }}</button>
             {{ delete_form.submit(
               class_="btn-destructive",
-              **{
-                ':disabled': "confirm !== '" + current_user.email + "'",
-                'data-icon': 'trash'
-              }
+              **{':disabled': "confirm !== '" + current_user.email + "'"}
             ) }}
           </footer>
         </form>

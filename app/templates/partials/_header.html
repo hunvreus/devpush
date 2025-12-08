@@ -25,7 +25,7 @@
 		<nav class="flex items-center gap-x-1.5 sm:gap-x-2.5">
 			<a
 				href="/"
-				class="w-6 h-8 shrink-0 flex items-center justify-center"
+				class="w-6 h-8 shrink-0 flex items-center justify-center [&>svg]:size-6"
 				aria-label="{{ app_name }}" 
 				x-boost="true"
 			>
@@ -119,6 +119,12 @@
 		</nav>
 
 		<nav class="flex items-center gap-x-2" aria-label="User menu">
+			{% if current_user and is_superadmin(current_user) %}
+				<a href="{{ url_for('admin_settings') }}" class="btn-sm-icon-ghost rounded-full max-sm:hidden">
+					{% include "icons/settings.svg" %}
+				</a>
+			{% endif %}
+			
 			{% set trigger %}
 				{% include "icons/circle-question-mark.svg" %}
 			{% endset %}
@@ -140,6 +146,7 @@
 					</span>
 				</a>
 			{% endcall %}
+			
 			{% if current_user %}
 				<div
 					hx-get="{{ url_for('user_notifications') }}"
@@ -168,10 +175,14 @@
 						<div class="font-medium">{{ current_user.name if current_user.name else current_user.username }}</div>
 						<div class="text-muted-foreground">{{ current_user.email }}</div>
 					</header>
+					
 					<hr role="separator" />
+					
 					<a href="{{ url_for('user_settings') }}" role="menuitem" hx-boost="true">{{ _('Account settings') }}</a>
 					<a href="/" role="menuitem" hx-boost="true">{{ _('Default team') }}</a>
+					
 					<hr role="separator" />
+
 					<button
 						type="button"
 						role="menuitem"
@@ -184,6 +195,7 @@
 					</button>
 
 					<hr role="separator" class="sm:hidden" />
+
 					<a href="https://devpu.sh/docs" target="_blank" role="menuitem" class="sm:hidden">
 						{{ _('Documentation') }}
 						<span class="ml-auto text-muted-foreground [&>svg]:size-3">
@@ -198,6 +210,7 @@
 					</a>
 
 					<hr role="separator" />
+					
 					<a href="{{ url_for('auth_logout') }}" role="menuitem">
 						{{ _('Sign out') }}
 					</a>

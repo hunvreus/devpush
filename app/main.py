@@ -1,22 +1,26 @@
+import logging
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Depends, HTTPException, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
-from starlette.middleware import Middleware
-from starlette.middleware.sessions import SessionMiddleware
+
 from arq import create_pool
 from arq.connections import RedisSettings
-from starlette_wtf import CSRFProtectMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import FastAPI, Request, Depends, HTTPException, Response
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
-import logging
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware
+from starlette_wtf import CSRFProtectMiddleware
 
-from routers import auth, project, github, google, team, user, event
 from config import get_settings, Settings
 from db import get_db, AsyncSessionLocal
-from models import User, Team, Deployment, Project
 from dependencies import get_current_user, TemplateResponse
+from models import User, Team, Deployment, Project
+from routers import auth, project, github, google, team, user, event, admin
 from services.loki import LokiService
+
+settings = get_settings()
 
 
 class CachedStaticFiles(StaticFiles):
@@ -25,8 +29,6 @@ class CachedStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
-
-settings = get_settings()
 
 log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 logging.basicConfig(level=log_level)
@@ -57,7 +59,8 @@ app = FastAPI(
     ],
 )
 app.mount("/assets", CachedStaticFiles(directory="assets"), name="assets")
-app.mount("/upload", StaticFiles(directory="upload"), name="upload")
+os.makedirs(settings.upload_dir, exist_ok=True)
+app.mount("/upload", StaticFiles(directory=settings.upload_dir), name="upload")
 
 
 @app.get("/health")
@@ -148,6 +151,7 @@ async def root(
 
 
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(user.router)
 app.include_router(project.router)
 app.include_router(github.router)
