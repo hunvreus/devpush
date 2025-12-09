@@ -22,6 +22,7 @@ Restore a backup produced by scripts/backup.sh.
   --remove-runners   Remove runner containers before restoring
   --timeout <sec>    Max seconds to wait for pgsql to be ready (default: 60)
   --yes              Skip confirmation prompts
+  --keep-secret      Do not rotate SECRET_KEY after restore
   -v, --verbose      Enable verbose output
   -h, --help         Show this help
 USG
@@ -57,6 +58,7 @@ timeout=60
 skip_backup=0
 remove_runners=0
 yes=0
+rotate_secret=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --archive) archive_path="$2"; shift 2 ;;
@@ -68,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --remove-runners) remove_runners=1; shift ;;
     --timeout) timeout="$2"; shift 2 ;;
     --yes) yes=1; shift ;;
+    --keep-secret) rotate_secret=0; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) err "Unknown option: $1"; usage ;;
@@ -170,6 +173,41 @@ if (( restore_data == 1 )); then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" >/dev/null 2>&1 || true
   fi
   ensure_acme_json
+fi
+
+# Rotate SECRET_KEY unless opted out
+if (( restore_data == 1 && rotate_secret == 1 )); then
+  printf '\n'
+  printf "Rotating SECRET_KEY...\n"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    err "Cannot rotate SECRET_KEY: $ENV_FILE not found"
+    exit 1
+  fi
+  run_cmd "${CHILD_MARK} Writing new SECRET_KEY to ${ENV_FILE}..." bash -c '
+    set -Eeuo pipefail
+    env_file="$1"
+    new_secret="$(openssl rand -hex 32)"
+    tmp_env="$(mktemp "${TMPDIR:-/tmp}/env.XXXXXX")"
+    awk -v val="$new_secret" -v seen=0 '
+      /^[[:space:]]*#/ {print; next}
+      /^[[:space:]]*SECRET_KEY[[:space:]]*=/ {
+        print "SECRET_KEY=\"" val "\""
+        seen=1
+        next
+      }
+      {print}
+      END {
+        if (seen == 0) {
+          print "SECRET_KEY=\"" val "\""
+        }
+      }
+    ' "$env_file" > "$tmp_env"
+    mv "$tmp_env" "$env_file"
+    chmod 0600 "$env_file"
+  ' rotate "$ENV_FILE"
+  if [[ -n "${SERVICE_USER:-}" ]]; then
+    chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE" >/dev/null 2>&1 || true
+  fi
 fi
 
 # Remove runner containers if requested
