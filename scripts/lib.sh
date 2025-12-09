@@ -163,20 +163,26 @@ read_env_value(){
   awk -v k="$key" '
     /^[[:space:]]*#/ {next}
     {
-      if (match($0, /^[[:space:]]*([^=[:space:]]+)[[:space:]]*=/, m) && m[1] == k) {
-        val = substr($0, RSTART + RLENGTH)
-        sub(/^[[:space:]]*/, "", val)
-        if (val ~ /^"/) {
-          val = substr(val, 2)
-          sub(/"$/, "", val)
-        } else if (val ~ /^'\''/) {
-          val = substr(val, 2)
-          sub(/'\''$/, "", val)
-        } else {
-          sub(/[[:space:]]*#.*$/, "", val)
+      match($0, /^[[:space:]]*([^=[:space:]]+)[[:space:]]*=/)
+      if (RSTART > 0) {
+        key_part = substr($0, RSTART, RLENGTH)
+        gsub(/^[[:space:]]+|[[:space:]]+$|[[:space:]]*=$/, "", key_part)
+        if (key_part == k) {
+          val = substr($0, RSTART + RLENGTH)
+          sub(/^[[:space:]]+/, "", val)
+          if (val ~ /^"/) {
+            val = substr(val, 2)
+            sub(/"$/, "", val)
+          } else if (val ~ /^'\''/) {
+            val = substr(val, 2)
+            sub(/'\''$/, "", val)
+          } else {
+            sub(/[[:space:]]*#.*$/, "", val)
+          }
+          sub(/[[:space:]]+$/, "", val)
+          print val
+          exit
         }
-        print val
-        exit
       }
     }
   ' "$env_file"
@@ -337,7 +343,14 @@ build_runner_images() {
   local entries=()
 
   if [[ -f "$settings_json" ]]; then
-    mapfile -t entries < <(jq -r 'to_entries[] | .value[] | "\(.slug)|\(.name)"' "$settings_json" 2>/dev/null || true)
+    runner_list_cmd=(jq -r 'to_entries[] | .value[] | "\(.slug)|\(.name)"' "$settings_json")
+    if command -v mapfile >/dev/null 2>&1; then
+      mapfile -t entries < <("${runner_list_cmd[@]}" 2>/dev/null || true)
+    else
+      while IFS= read -r line; do
+        entries+=("$line")
+      done < <("${runner_list_cmd[@]}" 2>/dev/null || true)
+    fi
   fi
 
   if ((${#entries[@]} == 0)); then

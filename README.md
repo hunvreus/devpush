@@ -128,8 +128,8 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 | `GITHUB_APP_WEBHOOK_SECRET` | GitHub webhook secret. |
 | `GITHUB_APP_CLIENT_ID` | GitHub OAuth client ID. |
 | `GITHUB_APP_CLIENT_SECRET` | GitHub OAuth client secret. |
-| `APP_HOSTNAME` | Domain for the app (e.g., `app.devpu.sh`). |
-| `DEPLOY_DOMAIN` | Domain for deployments. Default: `APP_HOSTNAME`. |
+| `APP_HOSTNAME` | Domain for the app (e.g., `example.com`). |
+| `DEPLOY_DOMAIN` | Domain for deployments (wildcard root). No default—set explicitly (e.g., `deploy.example.com`). |
 | `LE_EMAIL` | Email for Let's Encrypt notifications. |
 | `EMAIL_SENDER_ADDRESS` | Email sender for invites/login. |
 | `RESEND_API_KEY` | API key for [Resend](https://resend.com). |

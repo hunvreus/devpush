@@ -1,0 +1,26 @@
+FROM oven/bun:1.3-slim
+
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Set permissions and Bun install dir
+RUN chown -R appuser:appgroup /app && \
+    mkdir -p /home/appuser/.bun && \
+    chown -R appuser:appgroup /home/appuser
+
+# Switch to non-root user
+USER appuser
+
+# Set Bun environment variables
+ENV BUN_INSTALL=/home/appuser/.bun
+ENV PATH=${BUN_INSTALL}/bin:${PATH}
+ENV HOME=/home/appuser
