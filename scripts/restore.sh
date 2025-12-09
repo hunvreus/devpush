@@ -187,22 +187,11 @@ if (( restore_data == 1 && rotate_secret == 1 )); then
     set -Eeuo pipefail
     env_file="$1"
     new_secret="$(openssl rand -hex 32)"
-    tmp_env="$(mktemp "${TMPDIR:-/tmp}/env.XXXXXX")"
-    awk -v val="$new_secret" -v seen=0 '
-      /^[[:space:]]*#/ {print; next}
-      /^[[:space:]]*SECRET_KEY[[:space:]]*=/ {
-        print "SECRET_KEY=\"" val "\""
-        seen=1
-        next
-      }
-      {print}
-      END {
-        if (seen == 0) {
-          print "SECRET_KEY=\"" val "\""
-        }
-      }
-    ' "$env_file" > "$tmp_env"
-    mv "$tmp_env" "$env_file"
+    if grep -q "^[[:space:]]*SECRET_KEY[[:space:]]*=" "$env_file"; then
+      sed -i'' -e "s|^[[:space:]]*SECRET_KEY[[:space:]]*=.*|SECRET_KEY=\"${new_secret}\"|" "$env_file"
+    else
+      printf "\\nSECRET_KEY=\"%s\"\\n" "$new_secret" >> "$env_file"
+    fi
     chmod 0600 "$env_file"
   ' rotate "$ENV_FILE"
   if [[ -n "${SERVICE_USER:-}" ]]; then
