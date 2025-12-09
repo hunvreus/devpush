@@ -406,11 +406,22 @@ async def deploy_fail(ctx, deployment_id: str, reason: str = None):
                     # Grace period to allow logs to be ingested
                     await asyncio.sleep(settings.container_delete_grace_seconds)
                     await container.delete(force=True)
-                deployment.container_status = "removed"
-                logger.info(
-                    f"{log_prefix} Cleaned up failed container {deployment.container_id}"
-                )
+                    deployment.container_status = "removed"
+                    logger.info(
+                        f"{log_prefix} Cleaned up failed container {deployment.container_id}"
+                    )
 
+            except aiodocker.DockerError as error:
+                if error.status == 404:
+                    logger.warning(
+                        f"{log_prefix} Container {deployment.container_id} not found, already removed"
+                    )
+                    deployment.container_status = "removed"
+                else:
+                    logger.error(
+                        f"{log_prefix} Docker error cleaning up container {deployment.container_id}: {error}",
+                        exc_info=True,
+                    )
             except Exception:
                 logger.warning(
                     f"{log_prefix} Could not cleanup container {deployment.container_id}.",
