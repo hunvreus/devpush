@@ -76,6 +76,9 @@ if [[ ! -f "$VERSION_FILE" ]]; then
   exit 1
 fi
 
+# Determine service user/group
+set_service_ids
+
 # Validate environment variables
 validate_env "$ENV_FILE"
 
@@ -186,7 +189,7 @@ elif [[ -z "$comps" ]]; then
   printf "3) worker-arq\n"
   printf "4) worker-monitor\n"
   printf "5) Full stack (with downtime)\n"
-  read -r -p "Choice [1-6]: " ch
+  read -r -p "Choice [1-5]: " ch
   ch="${ch//[^0-9]/}"
   case "$ch" in
     1) comps="app,worker-arq,worker-monitor,alloy" ;;
@@ -327,11 +330,11 @@ printf "Building runner images...\n"
 build_runner_images
 
 # Update install metadata (version.json)
-commit=$(git rev-parse --verify HEAD)
+commit=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" rev-parse --verify HEAD)
 if [[ -z "$ref" ]]; then
-  ref=$(git describe --tags --exact-match 2>/dev/null || true)
-  [[ -n "$ref" ]] || ref=$(git describe --tags --abbrev=0 2>/dev/null || true)
-  [[ -n "$ref" ]] || ref=$(git rev-parse --short "$commit")
+  ref=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" describe --tags --exact-match 2>/dev/null || true)
+  [[ -n "$ref" ]] || ref=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" describe --tags --abbrev=0 2>/dev/null || true)
+  [[ -n "$ref" ]] || ref=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" rev-parse --short "$commit")
 fi
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 install_id=$(json_get install_id "$VERSION_FILE" "")
