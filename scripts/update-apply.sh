@@ -258,25 +258,18 @@ blue_green_rollout() {
   
   if [[ -n "$old_ids" ]]; then
     mapfile -t OLD_CONTAINERS <<<"$old_ids"
-    run_cmd --try "${CHILD_MARK} Retiring old container(s)..." bash -s -- "${OLD_CONTAINERS[@]}" <<'EOF'
-set -Eeuo pipefail
-while [[ $# -gt 0 ]]; do
-  id="$1"; shift
-  [[ -z "$id" ]] && continue
-  if ! docker stop "$id" >/dev/null 2>&1; then
-    printf "  Failed to stop container %s\n" "$id" >&2
-  fi
-  if ! docker rm "$id" >/dev/null 2>&1; then
-    printf "  Failed to remove container %s\n" "$id" >&2
-  fi
-done
-EOF
+    run_cmd --try "${CHILD_MARK} Retiring old container(s)..." bash -c '
+      set -Eeuo pipefail
+      for id in "$@"; do
+        [[ -z "$id" ]] && continue
+        docker stop "$id" >/dev/null 2>&1 || printf "  Failed to stop container %s\n" "$id" >&2
+        docker rm "$id" >/dev/null 2>&1 || printf "  Failed to remove container %s\n" "$id" >&2
+      done
+    ' retire "${OLD_CONTAINERS[@]}"
     for id in "${OLD_CONTAINERS[@]}"; do
       printf "  ${DIM}${CHILD_MARK} Container ID: %s${NC}\n" "$id"
     done
   fi
-
-  run_cmd "${CHILD_MARK} Scaling to 1..." "${COMPOSE_BASE[@]}" up -d --scale "$service=1" --no-recreate
 }
 
 # Build/pull then rollout per service

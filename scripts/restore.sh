@@ -20,6 +20,8 @@ Restore a backup produced by scripts/backup.sh.
   --no-restart       Skip restarting the stack after restore
   --no-backup        Skip creating a backup before restoring
   --remove-runners   Remove runner containers before restoring
+  --no-rebuild-images
+                     Skip rebuilding app/worker images after restore (default: rebuild)
   --timeout <sec>    Max seconds to wait for pgsql to be ready (default: 60)
   --yes              Skip confirmation prompts
   --keep-secret      Do not rotate SECRET_KEY after restore
@@ -59,6 +61,7 @@ skip_backup=0
 remove_runners=0
 yes=0
 rotate_secret=1
+rebuild_images=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --archive) archive_path="$2"; shift 2 ;;
@@ -68,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --no-restart) restart_stack=0; shift ;;
     --no-backup) skip_backup=1; shift ;;
     --remove-runners) remove_runners=1; shift ;;
+    --no-rebuild-images) rebuild_images=0; shift ;;
     --timeout) timeout="$2"; shift 2 ;;
     --yes) yes=1; shift ;;
     --keep-secret) rotate_secret=0; shift ;;
@@ -290,6 +294,13 @@ if (( restore_code == 1 )); then
       fi
     fi
   fi
+fi
+
+# Optionally rebuild images (app + workers) after restore
+if (( rebuild_images == 1 )); then
+  printf '\n'
+  set_compose_base
+  run_cmd "Rebuilding app/worker images..." "${COMPOSE_BASE[@]}" build app worker-arq worker-monitor
 fi
 
 # Start the stack
