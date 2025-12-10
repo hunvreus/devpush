@@ -352,13 +352,6 @@ printf '\n'
   fi
 fi
 
-# Get public IP for display (automatically saved to config)
-public_ip=$(get_public_ip || printf '')
-
 # Success message
 printf '\n'
 printf "${GRN}Update complete (%s → %s). ✔${NC}\n" "${old_version:-unknown}" "$ref"
-if [[ -n "$public_ip" ]]; then
-  printf '\n'
-  printf "Your instance is accessible at: http://%s\n" "$public_ip"
-fi
