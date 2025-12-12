@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Query
+import httpx
 from fastapi.responses import Response, RedirectResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,9 +144,24 @@ async def new_project_details(
                 request.url_for("new_project", team_slug=team.slug), status_code=303
             )
 
-        installation = await github_service.get_repository_installation(
-            repo["full_name"]
-        )
+        try:
+            installation = await github_service.get_repository_installation(
+                repo["full_name"]
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                flash(
+                    request,
+                    _(
+                        "Install the GitHub app on %(repo)s to continue.",
+                        repo=repo["full_name"],
+                    ),
+                    "error",
+                )
+                return RedirectResponse(
+                    request.url_for("new_project", team_slug=team.slug), status_code=303
+                )
+            raise
         github_installation = (
             await github_installation_service.get_or_refresh_installation(
                 installation["id"], db
