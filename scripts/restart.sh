@@ -55,4 +55,3 @@ fi
 # Success message
 printf '\n'
 printf "${GRN}Stack restarted. ✔${NC}\n"
-printf "${DIM}The app may take a while to be ready.${NC}\n"

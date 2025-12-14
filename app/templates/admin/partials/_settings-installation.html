@@ -10,8 +10,11 @@
         hx-get="{{ url_for('admin_settings') }}?fragment=system"
         hx-swap="outerHTML"
         hx-trigger="load"
-        class="hidden"
-      ></div>
+        class="alert [&>svg]:size-4 [&>svg]:animate-spin text-muted-foreground"
+      >
+        {% include "icons/loader.svg" %}
+       <h2>{{ _('Checking for updates...') }}</h2>
+      </div>
       <ul class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <li>
           <div class="text-muted-foreground text-sm">{{ _('Version') }}</div>

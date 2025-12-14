@@ -251,19 +251,24 @@ class ProjectResourcesForm(StarletteForm):
         if field.data is None:
             return
         settings = get_settings()
+        if not settings.allow_custom_cpu:
+            return
         cpus = float(field.data)
-        if cpus < 0:
-            raise ValidationError(_("Must be 0 or greater."))
-        if settings.max_cpus > 0 and cpus > settings.max_cpus:
+        if cpus <= 0:
+            raise ValidationError(_("Must be greater than 0."))
+        if settings.max_cpus is not None and cpus > settings.max_cpus:
             raise ValidationError(_("Maximum allowed: %(max)s", max=settings.max_cpus))
 
     def validate_memory(self, field):
         if field.data is None:
             return
         settings = get_settings()
-        if field.data < 0:
-            raise ValidationError(_("Must be 0 or greater."))
-        if settings.max_memory_mb > 0 and field.data > settings.max_memory_mb:
+        if not settings.allow_custom_memory:
+            return
+        memory = int(field.data)
+        if memory <= 0:
+            raise ValidationError(_("Must be greater than 0."))
+        if settings.max_memory_mb is not None and memory > settings.max_memory_mb:
             raise ValidationError(
                 _("Maximum allowed: %(max)s MB", max=settings.max_memory_mb)
             )

@@ -6,4 +6,9 @@
     <p>{{ _('A new version is available: <a href="http://github.com/hunvreus/devpush/releases/tag/%(latest)s" class="underline decoration-muted-foreground/50 hover:decoration-muted-foreground transition-colors" target="_blank">%(latest)s</a>. <a href="https://devpu.sh/docs/updating" class="underline decoration-muted-foreground/50 hover:decoration-muted-foreground transition-colors" target="_blank">Read more about how to update</a>.', latest=latest_tag) | safe }}</p>
   </section>
 </div>
+{% else %}
+<div class="alert [&>h2]:text-green-600 [&>svg]:text-green-600 dark:[&>h2]:text-green-400 dark:[&>svg]:text-green-400">
+  {% include "icons/circle-check.svg" %}
+  <h2>{{ _('You are running the latest version') }}</h2>
+</div>
 {% endif %}

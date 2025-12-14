@@ -162,6 +162,7 @@ async def new_project_details(
                     request.url_for("new_project", team_slug=team.slug), status_code=303
                 )
             raise
+
         github_installation = (
             await github_installation_service.get_or_refresh_installation(
                 installation["id"], db
@@ -1242,20 +1243,27 @@ async def project_settings(
         request=request,
         project=project,
         data={
-            "cpus": project.config.get("cpus") or None,
-            "memory": project.config.get("memory") or None,
+            "cpus": project.config.get("cpus"),
+            "memory": project.config.get("memory"),
         },
     )
 
-    if settings.allow_custom_resources and fragment == "resources":
+    allow_custom_cpu = settings.allow_custom_cpu
+    allow_custom_memory = settings.allow_custom_memory
+    allow_custom_resources = allow_custom_cpu or allow_custom_memory
+
+    if allow_custom_resources and fragment == "resources":
         if await resources_form.validate_on_submit():
-            cpus = (
-                float(resources_form.cpus.data)
-                if resources_form.cpus.data is not None
-                else None
-            )
-            memory = resources_form.memory.data
-            project.config = {**project.config, "cpus": cpus, "memory": memory}
+            project_config: dict[str, object] = {}
+            if allow_custom_cpu:
+                project_config["cpus"] = (
+                    float(resources_form.cpus.data)
+                    if resources_form.cpus.data is not None
+                    else None
+                )
+            if allow_custom_memory:
+                project_config["memory"] = resources_form.memory.data
+            project.config = {**(project.config or {}), **project_config}
             await db.commit()
             flash(request, _("Resources updated."), "success")
 
@@ -1270,7 +1278,11 @@ async def project_settings(
                     "resources_form": resources_form,
                     "default_cpus": settings.default_cpus,
                     "default_memory": settings.default_memory_mb,
-                    "allow_custom_resources": settings.allow_custom_resources,
+                    "max_cpus": settings.max_cpus,
+                    "max_memory": settings.max_memory_mb,
+                    "allow_custom_cpu": allow_custom_cpu,
+                    "allow_custom_memory": allow_custom_memory,
+                    "allow_custom_resources": allow_custom_resources,
                 },
             )
 
@@ -1468,7 +1480,11 @@ async def project_settings(
             "resources_form": resources_form,
             "default_cpus": settings.default_cpus,
             "default_memory": settings.default_memory_mb,
-            "allow_custom_resources": settings.allow_custom_resources,
+            "max_cpus": settings.max_cpus,
+            "max_memory": settings.max_memory_mb,
+            "allow_custom_cpu": allow_custom_cpu,
+            "allow_custom_memory": allow_custom_memory,
+            "allow_custom_resources": allow_custom_resources,
             "env_vars_form": env_vars_form,
             "delete_project_form": delete_project_form,
             "domain_form": domain_form,

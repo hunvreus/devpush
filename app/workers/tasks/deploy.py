@@ -163,19 +163,38 @@ async def deploy_start(ctx, deployment_id: str):
                 else:
                     labels[f"traefik.http.routers.{router}.entrypoints"] = "web"
 
-                try:
-                    cpus = float(deployment.config.get("cpus") or settings.default_cpus)
-                    memory_mb = int(
-                        deployment.config.get("memory") or settings.default_memory_mb
-                    )
-                except (ValueError, TypeError):
-                    cpus = settings.default_cpus
-                    memory_mb = settings.default_memory_mb
-                    logger.warning(
-                        f"{log_prefix} Invalid CPU/memory values in config, using defaults."
-                    )
+                config = deployment.config or {}
 
-                image = deployment.config.get("image")
+                cpus: float | None = settings.default_cpus
+                memory_mb: int | None = settings.default_memory_mb
+
+                if settings.allow_custom_cpu and config.get("cpus") is not None:
+                    max_cpus = settings.max_cpus
+                    assert max_cpus is not None
+                    try:
+                        override_cpus = float(config.get("cpus"))
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            f"{log_prefix} Invalid CPU override in config; using default."
+                        )
+                    else:
+                        if override_cpus > 0:
+                            cpus = min(override_cpus, max_cpus)
+
+                if settings.allow_custom_memory and config.get("memory") is not None:
+                    max_memory_mb = settings.max_memory_mb
+                    assert max_memory_mb is not None
+                    try:
+                        override_memory_mb = int(config.get("memory"))
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            f"{log_prefix} Invalid memory override in config; using default."
+                        )
+                    else:
+                        if override_memory_mb > 0:
+                            memory_mb = min(override_memory_mb, max_memory_mb)
+
+                image = config.get("image")
 
                 # Create and start container
                 container = await docker_client.containers.create_or_replace(
@@ -190,12 +209,12 @@ async def deploy_start(ctx, deployment_id: str):
                         "HostConfig": {
                             **(
                                 {"CpuQuota": int(cpus * 100000), "CpuPeriod": 100000}
-                                if cpus > 0
+                                if cpus is not None and cpus > 0
                                 else {}
                             ),
                             **(
                                 {"Memory": memory_mb * 1024 * 1024}
-                                if memory_mb > 0
+                                if memory_mb is not None and memory_mb > 0
                                 else {}
                             ),
                             "SecurityOpt": ["no-new-privileges:true"],

@@ -1,9 +1,12 @@
 import json
 import os
+import logging
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -40,11 +43,10 @@ class Settings(BaseSettings):
     env_file: str = ""
     config_file: str = ""
     version_file: str = ""
-    default_cpus: float = 0.5
-    default_memory_mb: int = 2048
-    max_cpus: float = 4.0
-    max_memory_mb: int = 8192
-    allow_custom_resources: bool = False
+    default_cpus: float | None = None
+    max_cpus: float | None = None
+    default_memory_mb: int | None = None
+    max_memory_mb: int | None = None
     presets: list[dict] = []
     images: list[dict] = []
     job_timeout: int = 320
@@ -62,13 +64,73 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore")
 
+    @property
+    def allow_custom_cpu(self) -> bool:
+        return self.default_cpus is not None and self.max_cpus is not None
+
+    @property
+    def allow_custom_memory(self) -> bool:
+        return self.default_memory_mb is not None and self.max_memory_mb is not None
+
 
 @lru_cache
 def get_settings():
     settings = Settings()
 
+    # Set URL scheme based on environment
     settings.url_scheme = "http" if settings.env == "development" else "https"
 
+    # CPU default/max normalization
+    if settings.default_cpus is not None and settings.default_cpus <= 0:
+        logger.warning("DEFAULT_CPUS must be > 0; ignoring and treating as unlimited.")
+        settings.default_cpus = None
+    if settings.max_cpus is not None and settings.max_cpus <= 0:
+        logger.warning("MAX_CPUS must be > 0; ignoring.")
+        settings.max_cpus = None
+    if settings.default_cpus is None and settings.max_cpus is not None:
+        logger.warning("MAX_CPUS is set but DEFAULT_CPUS is not; ignoring MAX_CPUS.")
+        settings.max_cpus = None
+    if settings.allow_custom_cpu:
+        default_cpus = settings.default_cpus
+        max_cpus = settings.max_cpus
+        if (
+            default_cpus is not None
+            and max_cpus is not None
+            and default_cpus > max_cpus
+        ):
+            logger.warning(
+                "DEFAULT_CPUS is greater than MAX_CPUS; clamping default to max."
+            )
+            settings.default_cpus = max_cpus
+
+    # Memory default/max normalization
+    if settings.default_memory_mb is not None and settings.default_memory_mb <= 0:
+        logger.warning(
+            "DEFAULT_MEMORY_MB must be > 0; ignoring and treating as unlimited."
+        )
+        settings.default_memory_mb = None
+    if settings.max_memory_mb is not None and settings.max_memory_mb <= 0:
+        logger.warning("MAX_MEMORY_MB must be > 0; ignoring.")
+        settings.max_memory_mb = None
+    if settings.default_memory_mb is None and settings.max_memory_mb is not None:
+        logger.warning(
+            "MAX_MEMORY_MB is set but DEFAULT_MEMORY_MB is not; ignoring MAX_MEMORY_MB."
+        )
+        settings.max_memory_mb = None
+    if settings.allow_custom_memory:
+        default_memory_mb = settings.default_memory_mb
+        max_memory_mb = settings.max_memory_mb
+        if (
+            default_memory_mb is not None
+            and max_memory_mb is not None
+            and default_memory_mb > max_memory_mb
+        ):
+            logger.warning(
+                "DEFAULT_MEMORY_MB is greater than MAX_MEMORY_MB; clamping default to max."
+            )
+            settings.default_memory_mb = max_memory_mb
+
+    # Directories/files normalization
     if not settings.upload_dir:
         settings.upload_dir = os.path.join(settings.data_dir, "upload")
     if not settings.traefik_dir:
@@ -80,6 +142,7 @@ def get_settings():
     if not settings.version_file:
         settings.version_file = os.path.join(settings.data_dir, "version.json")
 
+    # Load presets/images from files
     presets_file = Path("settings/presets.json")
     images_file = Path("settings/images.json")
     try:

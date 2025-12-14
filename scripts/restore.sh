@@ -307,7 +307,6 @@ fi
 if (( restart_stack == 1 )); then
   printf '\n'
   run_cmd "Starting stack..." bash "$SCRIPT_DIR/start.sh"
-  printf "${DIM}The app may take a while to be ready.${NC}\n"
 else
   start_cmd="scripts/start.sh"
   if [[ "$ENVIRONMENT" == "production" ]]; then
