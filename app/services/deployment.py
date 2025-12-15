@@ -145,17 +145,36 @@ class DeploymentService:
         if not environment:
             raise ValueError("No environment found for this branch.")
 
+        commit_user_author = commit.get("author") or {}
+        commit_user_committer = commit.get("committer") or {}
+        commit_payload = commit.get("commit") or {}
+        commit_payload_author = commit_payload.get("author") or {}
+        commit_payload_committer = commit_payload.get("committer") or {}
+
+        author = (
+            commit_user_author.get("login")
+            or commit_user_committer.get("login")
+            or commit_payload_author.get("name")
+            or commit_payload_committer.get("name")
+            or ""
+        )
+        message = commit_payload.get("message") or ""
+        date_raw = (
+            commit_payload_author.get("date")
+            or commit_payload_committer.get("date")
+            or datetime.now(timezone.utc).isoformat()
+        )
+        date = datetime.fromisoformat(date_raw.replace("Z", "+00:00")).isoformat()
+
         deployment = Deployment(
             project=project,
             environment_id=environment.get("id", ""),
             branch=branch,
             commit_sha=commit["sha"],
             commit_meta={
-                "author": commit["author"]["login"],
-                "message": commit["commit"]["message"],
-                "date": datetime.fromisoformat(
-                    commit["commit"]["author"]["date"].replace("Z", "+00:00")
-                ).isoformat(),
+                "author": author,
+                "message": message,
+                "date": date,
             },
             trigger=trigger,
             created_by_user_id=current_user.id
