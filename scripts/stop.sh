@@ -63,7 +63,11 @@ if ((hard_mode==1)); then
 else
   set_compose_base
   printf '\n'
-  run_cmd "Stopping stack..." "${COMPOSE_BASE[@]}" stop
+  if ! run_cmd --try "Stopping stack..." "${COMPOSE_BASE[@]}" stop; then
+    printf '\n'
+    err "Graceful stop failed; force-stopping containers."
+    force_stop_all
+  fi
 fi
 
 # Success message

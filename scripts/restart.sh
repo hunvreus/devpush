@@ -34,11 +34,6 @@ cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
 
 # Check if stack is running
-if ! is_stack_running; then
-  err "No running services to restart."
-  exit 1
-fi
-
 # Restart stack
 printf '\n'
 printf "Restarting stack...\n"

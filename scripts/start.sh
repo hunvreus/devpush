@@ -82,23 +82,16 @@ fi
 validate_env "$ENV_FILE"
   ensure_acme_json
 
-# Check if stack is already running
-if is_stack_running; then
-  stop_cmd="scripts/stop.sh"
-    if [[ "$ENVIRONMENT" == "production" ]]; then
-    stop_cmd="systemctl stop devpush.service"
-  fi
-  printf '\n'
-  err "Stack is already running. Stop it first with: $stop_cmd"
-    exit 1
-fi
-
 # Build compose args
 set_compose_base
 
 # Start stack
 printf '\n'
-run_cmd "Starting services..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
+if is_stack_running; then
+  run_cmd "Ensuring services are running..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
+else
+  run_cmd "Starting services..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
+fi
 
 # Wait for app container to be healthy
 printf '\n'

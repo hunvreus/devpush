@@ -86,6 +86,7 @@ services:
 
   docker-proxy:
     image: tecnativa/docker-socket-proxy
+    restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
