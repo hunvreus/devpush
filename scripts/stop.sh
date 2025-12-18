@@ -25,12 +25,31 @@ force_stop_all() {
     err "Docker is required for --hard"
     exit 1
   fi
-  local containers
-  containers=$(docker ps --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)
-  containers_count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
+  local containers_count
+  local -a containers=()
+  local containers_out=""
+  local container_id=""
+  if ! containers_out="$(docker ps --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null)"; then
+    err "Failed to query running containers for the devpush project."
+    return 1
+  fi
+  while IFS= read -r container_id; do
+    [[ -n "$container_id" ]] || continue
+    containers+=("$container_id")
+  done <<<"$containers_out"
+  containers_count="${#containers[@]}"
   printf '\n'
-  if [[ -n "$containers" ]]; then
-    run_cmd --try "Stopping containers ($containers_count found)..." docker stop $containers
+  if (( containers_count > 0 )); then
+    if ! run_cmd --try "Stopping containers ($containers_count found)..." docker stop "${containers[@]}"; then
+      if ! docker ps --filter "label=com.docker.compose.project=devpush" >/dev/null 2>&1; then
+        err "Unable to verify whether containers are stopped (docker ps failed)."
+        return 1
+      fi
+      if ! is_stack_running; then
+        return 0
+      fi
+      return 1
+    fi
   else
     printf "Stopping containers (0 found)... ${YEL}⊘${NC}\n"
   fi
@@ -59,15 +78,32 @@ if ((hard_mode==0)); then
 fi
 
 if ((hard_mode==1)); then
-  force_stop_all
+  if ! force_stop_all; then
+    exit 1
+  fi
 else
   set_compose_base
   printf '\n'
   if ! run_cmd --try "Stopping stack..." "${COMPOSE_BASE[@]}" stop; then
     printf '\n'
     err "Graceful stop failed; force-stopping containers."
-    force_stop_all
+    if ! force_stop_all; then
+      exit 1
+    fi
   fi
+fi
+
+# Verify stop outcome
+if ! docker ps --filter "label=com.docker.compose.project=devpush" >/dev/null 2>&1; then
+  printf '\n'
+  err "Unable to verify whether containers are stopped (docker ps failed)."
+  exit 1
+fi
+if is_stack_running; then
+  printf '\n'
+  err "Stack still has running containers."
+  err "Try: scripts/stop.sh --hard (or run with sudo)."
+  exit 1
 fi
 
 # Success message
