@@ -26,15 +26,5 @@
       "slug": "go-1.25",
       "name": "Go 1.25"
     }
-  ],
-  "PHP": [
-    {
-      "slug": "php-franken-8.3",
-      "name": "FrankenPHP (PHP 8.3)"
-    },
-    {
-      "slug": "php-fpm-8.3",
-      "name": "PHP-FPM (PHP 8.3)"
-    }
   ]
 }
