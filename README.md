@@ -63,6 +63,12 @@ cp .env.dev.example data/.env
 # Edit data/.env with your GitHub App credentials
 ```
 
+Build the runner images (only on first start or if you've modified the runners):
+
+```bash
+./scripts/build-runners.sh
+```
+
 Start the stack:
 
 ```bash
