@@ -18,6 +18,10 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 - **Custom domains**: Support for custom domain and automatic Let's Encrypt SSL certificates.
 - **Self-hosted and open source**: Run on your own servers, MIT licensed.
 
+## Documentation
+
+See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and usage. For technical details, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Prerequisites
 
 - **Server**: Ubuntu 20.04+ or Debian 11+ with SSH access and sudo privileges. A [Hetzner CPX31](https://devpu.sh/docs/guides/create-hetzner-server) works well.
@@ -86,18 +90,6 @@ The stack auto-detects development mode on macOS and enables hot reloading. Data
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 
-## Documentation
-
-See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and usage. For technical details, see [ARCHITECTURE.md](ARCHITECTURE.md).
-
-## Support the project 
-
-- [Contribute code](/CONTRIBUTING.md)
-- [Report issues](https://github.com/hunvreus/devpush/issues)
-- [Sponsor me](https://github.com/sponsors/hunvreus)
-- [Star the project on GitHub](https://github.com/hunvreus/devpush)
-- [Join the Discord chat](https://devpu.sh/chat)
-
 ## Scripts
 
 | Script | What it does |
@@ -157,6 +149,14 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 | `JOB_TIMEOUT` | Job timeout (seconds). Default: `320`. |
 | `DEPLOYMENT_TIMEOUT` | Deployment timeout (seconds). Default: `300`. |
 | `LOG_LEVEL` | Logging level. Default: `WARNING`. |
+
+## Support the project 
+
+- [Contribute code](/CONTRIBUTING.md)
+- [Report issues](https://github.com/hunvreus/devpush/issues)
+- [Sponsor me](https://github.com/sponsors/hunvreus)
+- [Star the project on GitHub](https://github.com/hunvreus/devpush)
+- [Join the Discord chat](https://devpu.sh/chat)
 
 ## License
 

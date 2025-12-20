@@ -376,14 +376,16 @@ build_runner_images() {
     fi
 
     local dockerfile="$runner_dir/Dockerfile.$slug"
+    local rel_path="${dockerfile##*/}"
+    local label="Building ${name} (${rel_path})..."
+    
     if [[ ! -f "$dockerfile" ]]; then
-      printf "  ${DIM}${CHILD_MARK} Skipping %s (missing %s)${NC}\n" "$name" "${dockerfile#$APP_DIR/}"
+      printf "${CHILD_MARK} ${label} ${YEL}⊘${NC}\n"
+      printf "  ${DIM}${CHILD_MARK} Skipping (missing %s)${NC}\n" "${dockerfile#$APP_DIR/}"
       continue
     fi
 
     built=1
-    local rel_path="${dockerfile##*/}"
-    local label="Building ${name} (${rel_path})..."
     local build_cmd=(docker build -f "$dockerfile" -t "runner-$slug")
     ((no_cache==1)) && build_cmd+=(--no-cache)
     build_cmd+=("$runner_dir")
