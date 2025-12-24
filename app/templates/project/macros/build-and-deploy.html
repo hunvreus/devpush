@@ -1,45 +1,54 @@
 {% macro render_build_and_deploy(form, presets, images) %}
+<script>
+  var presets = {{ presets | tojson }};
+  var images = {{ images | tojson }};
+  presets = presets.map(preset => {
+    const presetTags = Array.isArray(preset?.tags) ? preset.tags : [];
+    if (!presetTags.length) return { ...preset, allowedImages: null };
+
+    const matched = images.filter(i =>
+      Array.isArray(i.tags) && presetTags.every(t => i.tags.includes(t))
+    );
+
+    return { ...preset, allowedImages: matched.length ? matched : null };
+  });
+</script>
 <div
   class="space-y-6"
   x-data="{
-    presets: {{ presets | tojson | replace('"', "'") | safe }},
-    images: {{ images | tojson | replace('"', "'") | safe }},
-    selectedImage: '{{ form.image.data or '' }}',
-    setImages(presetSlug = null) {
-      if (!presetSlug) presetSlug = '{{ form.preset.data or '' }}';
-      if (!presetSlug) presetSlug = this.presets[0].slug;
-
-      const preset = this.presets.find(p => p.slug === presetSlug);
-      if (!preset) {
-        console.error('Can not find framework preset.');
-        return;
-      }
-      
-      const availableImages = this.images[preset.image];
-
-      if ($refs.imageInput) {
-        $refs.imageInput.value = availableImages[0].slug;
-        $refs.imageInput.querySelectorAll('option').forEach(option => {
-            if (option.value && !availableImages.find(i => i.slug === option.value)) {
-                option.disabled = true;
-            } else {
-                option.disabled = false;
-            }
-        });
-      }
-
-      return preset;
+    selectedPreset: '{{ form.preset.data }}',
+    disableImageOptions(preset) {
+      if (!$refs.imageInput) return;
+      $refs.imageInput.querySelectorAll('option').forEach(option => {
+        if (!preset?.category) {
+          option.disabled = false;
+        } else {
+          if (option.parentElement.tagName === 'OPTGROUP' && option.parentElement.label === preset?.category) {
+            option.disabled = false;
+          } else {
+            option.disabled = true;
+          }
+        }
+      });
     },
-    setPreset(slug = null) {
-      const preset = this.setImages(slug)
-
-      if ($refs.rootDirectoryInput) $refs.rootDirectoryInput.value = preset.root_directory || '';
-      if ($refs.buildCommandInput) $refs.buildCommandInput.value = preset.build_command || '';
-      if ($refs.preDeployCommandInput) $refs.preDeployCommandInput.value = preset.pre_deploy_command || '';
-      if ($refs.startCommandInput) $refs.startCommandInput.value = preset.start_command || '';
+    setPreset(slug = null, force = false) {
+      if (!slug) return;
+      const preset = presets.find(p => p.slug === slug);
+      const applyValue = (ref, value) => {
+        if (!ref) return;
+        if (force || !ref.value) ref.value = value || '';
+      };
+      if ($refs.imageInput) {
+        this.disableImageOptions(preset);
+        applyValue($refs.imageInput, preset?.image);
+      }
+      applyValue($refs.rootDirectoryInput, preset?.root_directory);
+      applyValue($refs.buildCommandInput, preset?.build_command);
+      applyValue($refs.preDeployCommandInput, preset?.pre_deploy_command);
+      applyValue($refs.startCommandInput, preset?.start_command);
     },
   }"
-  x-init="{{ 'setImages()' if form.preset.data else 'setPreset()' }}"
+  x-init="setPreset(selectedPreset)"
 >
   {# FRAMEWORK PRESET #}
   <div class="space-y-3">
@@ -48,8 +57,16 @@
     {% call select(
       name="preset",
       selected=form.preset.data,
-      main_attrs={'@change': 'setPreset(event.detail.value)'}
+      main_attrs={'@change': 'setPreset(event.detail.value, true)'},
+      is_combobox=True,
+      listbox_attrs={'class': 'max-h-[162px] overflow-y-auto scrollbar'}
     ) %}
+      <div role="option" data-value="">
+        <span class="flex items-center gap-x-2 [&>svg]:text-muted-foreground">
+          {% include "icons/circle-off.svg" %}
+          {{ _('None') }}
+        </span>
+      </div>
       {% for preset in presets %}
         <div role="option" data-value="{{ preset.slug }}">
           <span class="flex items-center gap-x-2">
@@ -70,11 +87,7 @@
   {# DOCKER IMAGE #}
   <div class="space-y-3">
     {{ form.image.label() }}
-    {{ form.image(
-      id=False,
-      class="font-mono text-[13px]",
-      **{'x-ref': 'imageInput'}
-    ) }}
+    {{ form.image(**{'x-ref': 'imageInput'}) }}
     {% for error in form.image.errors %}
       <p class="text-sm text-destructive">{{ error }}</p>
     {% endfor %}

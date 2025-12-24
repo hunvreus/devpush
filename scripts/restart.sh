@@ -36,15 +36,15 @@ docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or ad
 # Check if stack is running
 # Restart stack
 printf '\n'
-printf "Restarting stack...\n"
-run_cmd "${CHILD_MARK} Stopping stack..." bash "$SCRIPT_DIR/stop.sh"
+printf "Restarting stack\n"
+run_cmd "${CHILD_MARK} Stopping stack" bash "$SCRIPT_DIR/stop.sh"
 
 start_args=()
 ((run_migrations==0)) && start_args+=(--no-migrate)
 if ((${#start_args[@]})); then
-  run_cmd "${CHILD_MARK} Starting stack..." bash "$SCRIPT_DIR/start.sh" "${start_args[@]}"
+  run_cmd "${CHILD_MARK} Starting stack" bash "$SCRIPT_DIR/start.sh" "${start_args[@]}"
 else
-  run_cmd "${CHILD_MARK} Starting stack..." bash "$SCRIPT_DIR/start.sh"
+  run_cmd "${CHILD_MARK} Starting stack" bash "$SCRIPT_DIR/start.sh"
 fi
 
 # Success message

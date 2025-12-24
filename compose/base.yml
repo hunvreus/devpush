@@ -17,7 +17,7 @@ services:
     env_file:
       - ${DATA_DIR:-../data}/.env
     volumes:
-      - ${DATA_DIR:-../data}:/var/lib/devpush
+      - ${DATA_DIR:-../data}:/data
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.app.rule=Host(`${APP_HOSTNAME}`)"
@@ -51,7 +51,7 @@ services:
     env_file:
       - ${DATA_DIR:-../data}/.env
     volumes:
-      - ${DATA_DIR:-../data}/traefik:/var/lib/devpush/traefik
+      - ${DATA_DIR:-../data}/traefik:/data/traefik
     healthcheck:
       test: ["CMD", "uv", "run", "arq", "--check", "workers.arq.WorkerSettings"]
       interval: 60s

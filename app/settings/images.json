@@ -1,44 +1,52 @@
-{
-  "Python": [
-    {
-      "slug": "python-3.12",
-      "name": "Python 3.12"
-    },
-    {
-      "slug": "pypy-3.11",
-      "name": "PyPy (Python 3.11)"
-    }
-  ],
-  "Node.js": [
-    {
-      "slug": "node-20",
-      "name": "Node.js 20"
-    }
-  ],
-  "Bun": [
-    {
-      "slug": "bun-1.3",
-      "name": "Bun 1.3"
-    }
-  ],
-  "Go": [
-    {
-      "slug": "go-1.25",
-      "name": "Go 1.25"
-    }
-  ],
-  "PHP": [
-    {
-      "slug": "frankenphp-8.3",
-      "name": "FrankenPHP"
-    },
-    {
-      "slug": "php-fpm-8.3",
-      "name": "PHP-FPM + Caddy"
-    },
-    {
-      "slug": "frankenphp-node-8.3",
-      "name": "FrankenPHP + Node"
-    }
-  ]
-}
+[
+  {
+    "slug": "python-3.12",
+    "name": "Python 3.12",
+    "category": "Python"
+  },
+  {
+    "slug": "pypy-3.11",
+    "name": "PyPy (Python 3.11)",
+    "category": "Python"
+  },
+  {
+    "slug": "node-20",
+    "name": "Node.js 20",
+    "category": "Node.js"
+  },
+  {
+    "slug": "bun-1.3",
+    "name": "Bun 1.3",
+    "category": "Bun"
+  },
+  {
+    "slug": "go-1.25",
+    "name": "Go 1.25",
+    "category": "Go"
+  },
+  {
+    "slug": "php-fpm-8.3",
+    "name": "PHP-FPM 8.3 + Caddy",
+    "category": "PHP"
+  },
+  {
+    "slug": "php-fpm-node-8.3",
+    "name": "PHP-FPM 8.3 + Caddy + Node 22",
+    "category": "PHP"
+  },
+  {
+    "slug": "frankenphp-8.3",
+    "name": "FrankenPHP (PHP 8.3)",
+    "category": "PHP"
+  },
+  {
+    "slug": "frankenphp-node-8.3",
+    "name": "FrankenPHP (PHP 8.3) + Node 22",
+    "category": "PHP"
+  },
+  {
+    "slug": "frankenphp-node-worker-8.3",
+    "name": "FrankenPHP (PHP 8.3, Worker Mode) + Node 22",
+    "category": "PHP"
+  }
+]

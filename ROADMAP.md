@@ -29,3 +29,5 @@
 - [ ] **Notifications**: Send notifications on events (e.g., error/success)
 - [ ] **Audit logs**: Implement basic audit logs (especially logins and deployments).
 - [ ] **Redirects**: Redirect rules (incl. bulk import).
+- [ ] **devpush.json**: Configuration file to override project settings.
+- [ ] **Logs improvements**: Copy button, better out of logs errors handling, imrpove log type parsing (e.g. error/warning/success).

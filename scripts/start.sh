@@ -69,7 +69,7 @@ wait_for_app_health() {
 
 # Validate Docker availability
 printf '\n'
-run_cmd "Waiting for Docker to be ready..." wait_for_docker
+run_cmd "Waiting for Docker to be ready" wait_for_docker
 
 # Default data directory
 mkdir -p -m 0750 "$DATA_DIR/traefik" "$DATA_DIR/upload"
@@ -88,18 +88,18 @@ set_compose_base
 # Start stack
 printf '\n'
 if is_stack_running; then
-  run_cmd "Ensuring services are running..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
+  run_cmd "Ensuring services are running" "${COMPOSE_BASE[@]}" up -d --remove-orphans
 else
-  run_cmd "Starting services..." "${COMPOSE_BASE[@]}" up -d --remove-orphans
+  run_cmd "Starting services" "${COMPOSE_BASE[@]}" up -d --remove-orphans
 fi
 
 # Wait for app container to be healthy
 printf '\n'
-run_cmd "Waiting for app to be ready..." wait_for_app_health "$timeout"
+run_cmd "Waiting for app to be ready" wait_for_app_health "$timeout"
 
 # Run migrations when appropriate
 if ((run_migrations==1)); then
-  run_cmd "${CHILD_MARK} Running database migrations..." bash "$SCRIPT_DIR/db-migrate.sh"
+  run_cmd "${CHILD_MARK} Running database migrations" bash "$SCRIPT_DIR/db-migrate.sh"
 fi
 
 # Success message

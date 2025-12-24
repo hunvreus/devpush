@@ -1204,12 +1204,6 @@ async def project_settings(
         },
     )
 
-    preset_choices = []
-    for preset in settings.presets:
-        preset_choices.append((preset["slug"], preset["name"]))
-
-    build_and_deploy_form.preset.choices = preset_choices
-
     if fragment == "build_and_deploy":
         if await build_and_deploy_form.validate_on_submit():
             project.config = {

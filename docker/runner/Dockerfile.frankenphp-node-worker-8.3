@@ -1,0 +1,39 @@
+FROM ghcr.io/hunvreus/devpush-frankenphp-base:8.3
+
+USER root
+
+# Install Node.js
+ARG NODE_MAJOR=22
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gnupg \
+    && mkdir -p /usr/share/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Default Caddy config (Laravel-style, worker mode)
+RUN install -d -m 0755 /etc/caddy && \
+    install -d -m 0755 -o appuser -g appgroup /tmp/caddy && \
+    cat > /etc/caddy/Caddyfile <<'EOF'
+{
+  admin off
+  persist_config off
+  storage file_system {
+    root /tmp/caddy
+  }
+}
+:8000 {
+  root * /app/public
+  encode zstd gzip
+  php_server {
+    worker /app/public/index.php 2
+  }
+}
+EOF
+
+USER appuser

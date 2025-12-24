@@ -11,6 +11,7 @@ services:
     environment:
       ENV: development
       UV_PROJECT_ENVIRONMENT: /opt/venv
+
   worker-arq:
     build:
       dockerfile: docker/Dockerfile.app.dev

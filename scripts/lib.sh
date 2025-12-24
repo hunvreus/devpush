@@ -324,7 +324,7 @@ init_script_logging() {
   trap '_script_err_trap' ERR
 }
 
-# Build runner images (based on app/settings/images.json)
+# Build runner images (data-dir override or core images.json)
 build_runner_images() {
   local no_cache=0
   local target=""
@@ -338,12 +338,19 @@ build_runner_images() {
     esac
   done
 
-  local runner_dir="$APP_DIR/docker/runner"
-  local settings_json="$APP_DIR/app/settings/images.json"
+  local core_runner_dir="$APP_DIR/docker/runner"
+  local override_runner_dir="$DATA_DIR/runner"
+  local core_images_json="$APP_DIR/app/settings/images.json"
+  local override_images_json="$DATA_DIR/images.json"
+  local settings_json="$core_images_json"
   local entries=()
 
-  if [[ -f "$settings_json" ]]; then
-    runner_list_cmd=(jq -r 'to_entries[] | .value[] | "\(.slug)|\(.name)"' "$settings_json")
+  if [[ -f "$override_images_json" ]]; then
+    settings_json="$override_images_json"
+  fi
+
+  if [[ -f "$settings_json" && -n "${settings_json:-}" ]]; then
+    runner_list_cmd=(jq -r '.[] | select(type=="object") | select(.slug and (.slug|type=="string")) | "\(.slug)|\(.name // .slug)"' "$settings_json")
     if command -v mapfile >/dev/null 2>&1; then
       mapfile -t entries < <("${runner_list_cmd[@]}" 2>/dev/null || true)
     else
@@ -354,15 +361,7 @@ build_runner_images() {
   fi
 
   if ((${#entries[@]} == 0)); then
-    for dockerfile in "$runner_dir"/Dockerfile.*; do
-      [[ -f "$dockerfile" ]] || continue
-      local slug="${dockerfile##*.}"
-      entries+=("$slug|$slug")
-    done
-  fi
-
-  if ((${#entries[@]} == 0)); then
-    printf "  ${DIM}${CHILD_MARK} No runner definitions found${NC}\n"
+    printf "  ${DIM}${CHILD_MARK} Skipping (no runner definitions found)${NC}\n"
     return 0
   fi
 
@@ -375,20 +374,26 @@ build_runner_images() {
       continue
     fi
 
-    local dockerfile="$runner_dir/Dockerfile.$slug"
-    local rel_path="${dockerfile##*/}"
-    local label="Building ${name} (${rel_path})..."
+    local dockerfile="$override_runner_dir/Dockerfile.$slug"
+    local dockerfile_dir="$override_runner_dir"
+    if [[ ! -f "$dockerfile" ]]; then
+      dockerfile="$core_runner_dir/Dockerfile.$slug"
+      dockerfile_dir="$core_runner_dir"
+    fi
+    local label="${name}"
     
     if [[ ! -f "$dockerfile" ]]; then
       printf "${CHILD_MARK} ${label} ${YEL}⊘${NC}\n"
-      printf "  ${DIM}${CHILD_MARK} Skipping (missing %s)${NC}\n" "${dockerfile#$APP_DIR/}"
+      local display_path="${dockerfile#$APP_DIR/}"
+      [[ "$display_path" == "$dockerfile" ]] && display_path="${dockerfile#$DATA_DIR/}"
+      printf "  ${DIM}${CHILD_MARK} Skipping (missing %s)${NC}\n" "$display_path"
       continue
     fi
 
     built=1
     local build_cmd=(docker build -f "$dockerfile" -t "runner-$slug")
     ((no_cache==1)) && build_cmd+=(--no-cache)
-    build_cmd+=("$runner_dir")
+    build_cmd+=("$dockerfile_dir")
     if ! run_cmd --try "${CHILD_MARK} ${label}" "${build_cmd[@]}"; then
       ((failed+=1))
     fi
@@ -396,7 +401,7 @@ build_runner_images() {
 
   if ((built==0)); then
     if [[ -n "$target" ]]; then
-      printf "  ${DIM}${CHILD_MARK} Runner image '%s' not found${NC}\n" "$target"
+      printf "  ${DIM}${CHILD_MARK} 'Dockerfile.%s' not found${NC}\n" "$target"
     else
       printf "  ${DIM}${CHILD_MARK} No runners matched criteria${NC}\n"
     fi
