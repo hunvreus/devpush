@@ -133,7 +133,7 @@ if ((${#existing_summary[@]})); then
     printf "  - %s\n" "$line"
   done
   if (( yes_flag == 0 )); then
-    printf "Run scripts/uninstall.sh or re-run this installer with --yes to overwrite.\n"
+    printf "Run sudo %s/scripts/uninstall.sh or re-run this installer with --yes to overwrite.\n" "$APP_DIR"
     exit 0
   fi
 fi
@@ -241,35 +241,35 @@ record_version() {
 
 # Install base packages
 printf '\n'
-run_cmd "Installing base packages..." apt_install ca-certificates git jq curl gnupg
+run_cmd "Installing base packages" apt_install ca-certificates git jq curl gnupg
 
 # Install Docker
 printf '\n'
-printf "Installing Docker...\n"
-run_cmd "${CHILD_MARK} Adding Docker repository..." add_docker_repo
-run_cmd "${CHILD_MARK} Installing Docker packages..." apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+printf "Installing Docker\n"
+run_cmd "${CHILD_MARK} Adding Docker repository" add_docker_repo
+run_cmd "${CHILD_MARK} Installing Docker packages" apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Ensure Docker service is running
-run_cmd "${CHILD_MARK} Enabling Docker service..." systemctl enable --now docker
-run_cmd "${CHILD_MARK} Waiting for Docker daemon..." bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+run_cmd "${CHILD_MARK} Enabling Docker service" systemctl enable --now docker
+run_cmd "${CHILD_MARK} Waiting for Docker daemon" bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 
 # Create user
 if ! id -u "$service_user" >/dev/null 2>&1; then
   printf '\n'
-  run_cmd "Creating system user (${service_user})..." create_user
+  run_cmd "Creating system user (${service_user})" create_user
 else
   printf '\n'
-  printf "Creating system user '%s'... ${YEL}⊘${NC}\n" "$service_user"
+  printf "Creating system user '%s' ${YEL}⊘${NC}\n" "$service_user"
   printf "${DIM}%s User already exists${NC}\n" "${CHILD_MARK}"
 fi
 service_uid="$(id -u "$service_user")"
 service_gid="$(id -g "$service_user")"
 
 printf '\n'
-printf "Setting up data...\n"
+printf "Setting up data\n"
 
 # Create data directory
-run_cmd "${CHILD_MARK} Creating data directory ($DATA_DIR)..." install -o "$service_user" -g "$service_user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
+run_cmd "${CHILD_MARK} Creating data directory ($DATA_DIR)" install -o "$service_user" -g "$service_user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
 
 # Generate .env file with secrets
 generate_env() {
@@ -332,23 +332,23 @@ EOF
 }
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  run_cmd "${CHILD_MARK} Generating .env file..." generate_env
+  run_cmd "${CHILD_MARK} Generating .env file" generate_env
 else
-  printf "%s Generating .env file... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+  printf "%s Generating .env file ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   printf "${DIM}%s File already exists, skipping${NC}\n" "${CHILD_MARK}"
 fi
 
 # Add log dir (production)
 if [[ "$ENVIRONMENT" == "production" ]]; then
   printf '\n'
-  run_cmd "Creating log directory ($LOG_DIR)..." install -o "$service_user" -g "$service_user" -m 0750 -d "$LOG_DIR"
+  run_cmd "Creating log directory ($LOG_DIR)" install -o "$service_user" -g "$service_user" -m 0750 -d "$LOG_DIR"
 fi
 
 printf '\n'
-printf "Setting up app...\n"
+printf "Setting up app\n"
 
-run_cmd "${CHILD_MARK} Creating app directory..." install -d -m 0755 "$APP_DIR"
-run_cmd "${CHILD_MARK} Setting app directory ownership..." chown -R "$service_user:$service_user" "$APP_DIR"
+run_cmd "${CHILD_MARK} Creating app directory" install -d -m 0755 "$APP_DIR"
+run_cmd "${CHILD_MARK} Setting app directory ownership" chown -R "$service_user:$service_user" "$APP_DIR"
 
 # Get code from GitHub
 if [[ -d "$APP_DIR/.git" ]]; then
@@ -359,7 +359,7 @@ if [[ -d "$APP_DIR/.git" ]]; then
     git remote get-url origin >/dev/null 2>&1 || git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "${CHILD_MARK} Fetching repo updates ($repo)..." runuser -u "$service_user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Fetching repo updates ($repo)" runuser -u "$service_user" -- bash -c "$cmd_block"
 else
   # New clone
   cmd_block="
@@ -369,7 +369,7 @@ else
     git remote add origin '$repo'
     git fetch --depth 1 origin '$ref'
   "
-  run_cmd "${CHILD_MARK} Cloning repo ($repo)..." runuser -u "$service_user" -- bash -c "$cmd_block"
+  run_cmd "${CHILD_MARK} Cloning repo ($repo)" runuser -u "$service_user" -- bash -c "$cmd_block"
 fi
 
 run_cmd "${CHILD_MARK} Checking out ref ($ref)" runuser -u "$service_user" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
@@ -378,29 +378,29 @@ cd "$APP_DIR"
 
 # Build runner images
 printf '\n'
-printf "Building runner images...\n"
+printf "Building runner images\n"
 build_runner_images
 
 # Save install metadata (version.json)
 printf '\n'
-run_cmd "Saving install metadata (${VERSION_FILE})..." record_version
+run_cmd "Saving install metadata (${VERSION_FILE})" record_version
 
 # Send telemetry
 if ((telemetry==1)); then
   printf '\n'
-  if ! run_cmd --try "Sending telemetry..." send_telemetry install; then
+  if ! run_cmd --try "Sending telemetry" send_telemetry install; then
     printf "  ${DIM}${CHILD_MARK} Telemetry failed (non-fatal). Continuing install.${NC}\n"
   fi
 fi
 
 printf '\n'
-printf "Installing systemd unit...\n"
+printf "Installing systemd unit\n"
 
 # Install systemd unit
 unit_path="/etc/systemd/system/devpush.service"
-run_cmd "${CHILD_MARK} Installing unit file..." install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
-run_cmd "${CHILD_MARK} Reloading systemd..." systemctl daemon-reload
-run_cmd "${CHILD_MARK} Enabling devpush.service..." systemctl enable devpush.service
+run_cmd "${CHILD_MARK} Installing unit file" install -m 0644 "$APP_DIR/scripts/devpush.service" "$unit_path"
+run_cmd "${CHILD_MARK} Reloading systemd" systemctl daemon-reload
+run_cmd "${CHILD_MARK} Enabling devpush.service" systemctl enable devpush.service
 
 # Success message
 printf '\n'

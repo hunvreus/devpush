@@ -90,13 +90,13 @@ max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
 (( max_attempts < 1 )) && max_attempts=1
 
 printf '\n'
-run_cmd "Waiting for database..." wait_for_db "$postgres_user" "$max_attempts" "$step_sleep"
+run_cmd "Waiting for database" wait_for_db "$postgres_user" "$max_attempts" "$step_sleep"
 printf '\n'
-run_cmd "Waiting for app..." wait_for_app "$max_attempts" "$step_sleep"
+run_cmd "Waiting for app" wait_for_app "$max_attempts" "$step_sleep"
 
 # Run migrations
 printf '\n'
-run_cmd "Apply migrations..." "${COMPOSE_BASE[@]}" exec -T app uv run alembic upgrade head
+run_cmd "Apply migrations" "${COMPOSE_BASE[@]}" exec -T app uv run alembic upgrade head
 
 # Success message
 printf "${GRN}Migrations applied. ✔${NC}\n"

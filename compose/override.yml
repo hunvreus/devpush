@@ -5,6 +5,7 @@ services:
       - traefik.http.routers.app.tls=true
       - traefik.http.routers.app.tls.certresolver=le
       - traefik.http.routers.app.priority=10
+
   traefik:
     ports:
       - "80:80"

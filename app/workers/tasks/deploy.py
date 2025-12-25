@@ -98,10 +98,19 @@ async def deploy_start(ctx, deployment_id: str):
                         deployment.project.github_installation_id, db
                     )
                 )
+                env_vars_dict["DEVPUSH_GITHUB_TOKEN"] = github_installation.token
                 commands.append(
                     "git init -q && "
-                    f"git fetch -q --depth 1 https://x-access-token:{github_installation.token}@github.com/{deployment.repo_full_name}.git {deployment.commit_sha} && "
-                    f"git checkout -q FETCH_HEAD"
+                    "printf '%s\n' "
+                    "'#!/bin/sh' "
+                    "'case \"$1\" in *Username*) echo \"x-access-token\";; *) echo \"$DEVPUSH_GITHUB_TOKEN\";; esac' "
+                    "> /tmp/devpush-git-askpass && "
+                    "chmod 700 /tmp/devpush-git-askpass && "
+                    "export GIT_ASKPASS=/tmp/devpush-git-askpass GIT_TERMINAL_PROMPT=0 && "
+                    f"git fetch -q --depth 1 https://github.com/{deployment.repo_full_name}.git {deployment.commit_sha} && "
+                    "git checkout -q FETCH_HEAD && "
+                    "unset GIT_ASKPASS GIT_TERMINAL_PROMPT DEVPUSH_GITHUB_TOKEN && "
+                    "rm -f /tmp/devpush-git-askpass"
                 )
 
                 # Step 2: Change root directory

@@ -67,12 +67,12 @@ fi
 
 # Stop services
 printf '\n'
-run_cmd --try "Stopping services..." bash "$SCRIPT_DIR/stop.sh" --hard
+run_cmd --try "Stopping services" bash "$SCRIPT_DIR/stop.sh" --hard
 
 # Remove Docker resources
 if ((keep_docker==0)); then
   printf '\n'
-  printf "Removing Docker resources...\n"
+  printf "Removing Docker resources\n"
 
   # Containers
   compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
@@ -80,27 +80,27 @@ if ((keep_docker==0)); then
   containers="$(printf "%s\n%s" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
   if [[ -n "$containers" ]]; then
     count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
-    run_cmd --try "${CHILD_MARK} Removing containers ($count found)..." docker rm -f $containers
+    run_cmd --try "${CHILD_MARK} Removing containers ($count found)" docker rm -f $containers
   else
-    printf "%s Removing containers (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "%s Removing containers (0 found) ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
 
   # Volumes
   volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
   if [[ -n "$volumes" ]]; then
     count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
-    run_cmd --try "${CHILD_MARK} Removing volumes ($count found)..." docker volume rm $volumes
+    run_cmd --try "${CHILD_MARK} Removing volumes ($count found)" docker volume rm $volumes
   else
-    printf "%s Removing volumes (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "%s Removing volumes (0 found) ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
 
   # Networks
   networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
   if [[ -n "$networks" ]]; then
     count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
-    run_cmd --try "${CHILD_MARK} Removing networks ($count found)..." docker network rm $networks
+    run_cmd --try "${CHILD_MARK} Removing networks ($count found)" docker network rm $networks
   else
-    printf "%s Removing networks (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "%s Removing networks (0 found) ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
 
   # Images
@@ -109,16 +109,16 @@ if ((keep_docker==0)); then
   images="$(printf "%s\n%s" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
   if [[ -n "$images" ]]; then
     count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
-    run_cmd --try "${CHILD_MARK} Removing images ($count found)..." docker rmi -f $images
+    run_cmd --try "${CHILD_MARK} Removing images ($count found)" docker rmi -f $images
   else
-    printf "%s Removing images (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "%s Removing images (0 found) ${YEL}⊘${NC}\n" "${CHILD_MARK}"
   fi
 fi
 
 # Remove data directory
 if ((keep_data==0)); then
   printf '\n'
-  run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
+  run_cmd --try "Removing data directory" rm -rf "$DATA_DIR"
 fi
 
 # Success

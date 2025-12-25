@@ -40,7 +40,7 @@ force_stop_all() {
   containers_count="${#containers[@]}"
   printf '\n'
   if (( containers_count > 0 )); then
-    if ! run_cmd --try "Stopping containers ($containers_count found)..." docker stop "${containers[@]}"; then
+    if ! run_cmd --try "Stopping containers ($containers_count found)" docker stop "${containers[@]}"; then
       if ! docker ps --filter "label=com.docker.compose.project=devpush" >/dev/null 2>&1; then
         err "Unable to verify whether containers are stopped (docker ps failed)."
         return 1
@@ -51,7 +51,7 @@ force_stop_all() {
       return 1
     fi
   else
-    printf "Stopping containers (0 found)... ${YEL}⊘${NC}\n"
+    printf "Stopping containers (0 found) ${YEL}⊘${NC}\n"
   fi
 }
 

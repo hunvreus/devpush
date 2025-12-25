@@ -124,13 +124,13 @@ run_upgrade_hooks() {
   ((count==0)) && return 0
 
   printf '\n'
-  printf "Running %s upgrade(s)...\n" "$count"
+  printf "Running %s upgrade(s)\n" "$count"
 
   # Execute hooks
   for script in "${eligible[@]}"; do
     local hook_name
     hook_name=$(basename "$script")
-    if ! run_cmd --try "${CHILD_MARK} Running $hook_name..." bash "$script"; then
+    if ! run_cmd --try "${CHILD_MARK} Running $hook_name" bash "$script"; then
       printf "${YEL}Upgrade %s failed (continuing update).${NC}\n" "$hook_name"
     fi
   done
@@ -150,15 +150,15 @@ fi
 # Full stack update helper (with downtime)
 full_update() {
   printf '\n'
-  printf "Full stack update...\n"
-  run_cmd "${CHILD_MARK} Building..." "${COMPOSE_BASE[@]}" build
-  run_cmd "${CHILD_MARK} Stopping stack..." "${COMPOSE_BASE[@]}" down --remove-orphans
-  run_cmd "${CHILD_MARK} Starting stack..." "${COMPOSE_BASE[@]}" up -d --force-recreate --remove-orphans
+  printf "Full stack update\n"
+  run_cmd "${CHILD_MARK} Building" "${COMPOSE_BASE[@]}" build
+  run_cmd "${CHILD_MARK} Stopping stack" "${COMPOSE_BASE[@]}" down --remove-orphans
+  run_cmd "${CHILD_MARK} Starting stack" "${COMPOSE_BASE[@]}" up -d --force-recreate --remove-orphans
   skip_components=1
   if ((migrate==1)); then
     printf '\n'
-    printf "Applying migrations...\n"
-    run_cmd "${CHILD_MARK} Running database migrations..." bash "$SCRIPT_DIR/db-migrate.sh"
+    printf "Applying migrations\n"
+    run_cmd "${CHILD_MARK} Running database migrations" bash "$SCRIPT_DIR/db-migrate.sh"
   fi
 }
 
@@ -223,10 +223,10 @@ blue_green_rollout() {
   cur_cnt=$(printf '%s\n' "$old_ids" | wc -w)
   local target=$((cur_cnt+1)); [[ $target -lt 1 ]] && target=1
   
-  run_cmd "${CHILD_MARK} Scaling up to $target container(s)..." "${COMPOSE_BASE[@]}" up -d --scale "$service=$target" --no-recreate
+  run_cmd "${CHILD_MARK} Scaling up to $target container(s)" "${COMPOSE_BASE[@]}" up -d --scale "$service=$target" --no-recreate
 
   local new_id=""
-  run_cmd "${CHILD_MARK} Detecting new container..." bash -c '
+  run_cmd "${CHILD_MARK} Detecting new container" bash -c '
     old_ids="'"$old_ids"'"
     for _ in $(seq 1 60); do
       cur_ids=$(docker ps --filter "name=devpush-'"$service"'" --format "{{.ID}}" | tr " " "\n" | sort)
@@ -242,7 +242,7 @@ blue_green_rollout() {
   [[ -n "$new_id" ]] || { err "Failed to detect new container for '$service'"; return 1; }
   printf "  ${DIM}${CHILD_MARK} Container ID: %s${NC}\n" "$new_id"
 
-  run_cmd "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)..." bash -c '
+  run_cmd "${CHILD_MARK} Verifying new container health (timeout: ${timeout_s}s)" bash -c '
     deadline=$(( $(date +%s) + '"$timeout_s"' ))
     while :; do
       if docker inspect '"$new_id"' --format "{{.State.Health}}" >/dev/null 2>&1; then
@@ -258,7 +258,7 @@ blue_green_rollout() {
   
   if [[ -n "$old_ids" ]]; then
     mapfile -t OLD_CONTAINERS <<<"$old_ids"
-    run_cmd --try "${CHILD_MARK} Retiring old container(s)..." bash -c '
+    run_cmd --try "${CHILD_MARK} Retiring old container(s)" bash -c '
       set -Eeuo pipefail
       for id in "$@"; do
         [[ -z "$id" ]] && continue
@@ -276,16 +276,16 @@ blue_green_rollout() {
 rollout_service(){
   local s="$1"; local mode="$2"; local timeout_s="${3:-}"
   printf '\n'
-  printf "Updating %s...\n" "$s"
+  printf "Updating %s\n" "$s"
   case "$s" in
     app|worker-arq|worker-monitor)
-      run_cmd "${CHILD_MARK} Building image..." "${COMPOSE_BASE[@]}" build "$s"
+      run_cmd "${CHILD_MARK} Building image" "${COMPOSE_BASE[@]}" build "$s"
       ;;
   esac
   if [[ "$mode" == "blue_green" ]]; then
     blue_green_rollout "$s" "$timeout_s"
   else
-    run_cmd "${CHILD_MARK} Recreating container..." "${COMPOSE_BASE[@]}" up -d --no-deps --force-recreate "$s"
+    run_cmd "${CHILD_MARK} Recreating container" "${COMPOSE_BASE[@]}" up -d --no-deps --force-recreate "$s"
   fi
 }
 
@@ -313,13 +313,13 @@ fi
 # Apply database migrations
 if ((skip_components==0)) && [[ "$comps" == *"app"* ]] && ((migrate==1)); then
   printf '\n'
-  printf "Applying migrations...\n"
-  run_cmd "${CHILD_MARK} Running database migrations..." bash "$SCRIPT_DIR/db-migrate.sh"
+  printf "Applying migrations\n"
+  run_cmd "${CHILD_MARK} Running database migrations" bash "$SCRIPT_DIR/db-migrate.sh"
 fi
 
 # Build runner images
 printf '\n'
-printf "Building runner images...\n"
+printf "Building runner images\n"
 build_runner_images
 
 # Update install metadata (version.json)
@@ -340,7 +340,7 @@ json_upsert "$VERSION_FILE" install_id "$install_id" git_ref "$ref" git_commit "
 # Send telemetry
 if ((telemetry==1)); then
 printf '\n'
-  if ! run_cmd --try "Sending telemetry..." send_telemetry update; then
+  if ! run_cmd --try "Sending telemetry" send_telemetry update; then
     printf "  ${DIM}${CHILD_MARK} Telemetry failed (non-fatal). Continuing update.${NC}\n"
   fi
 fi

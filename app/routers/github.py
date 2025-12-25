@@ -65,6 +65,7 @@ async def github_repo_select(
         ]:
             has_github_oauth_token = False
         else:
+            logger.error("Error fetching installations from GitHub", exc_info=True)
             flash(request, _("Error fetching installations from GitHub."), "error")
 
     return TemplateResponse(
@@ -140,7 +141,9 @@ async def github_repo_list(
                 name = (repo.get("name") or "").lower()
                 full_name = (repo.get("full_name") or "").lower()
                 exact = int(name != q_lower and full_name != q_lower)
-                starts = int(not name.startswith(q_lower) and not full_name.startswith(q_lower))
+                starts = int(
+                    not name.startswith(q_lower) and not full_name.startswith(q_lower)
+                )
                 return (exact, starts, len(name))
 
             repos = sorted(repos, key=sort_key)

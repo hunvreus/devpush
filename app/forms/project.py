@@ -31,26 +31,26 @@ from models import Project, Team, Domain
 from utils.color import COLORS
 
 
-def validate_image(self, field):
-    preset_image = next(
-        (
-            preset["image"]
-            for preset in self._presets
-            if preset["slug"] == self.preset.data
-        ),
-        None,
-    )
-    if not preset_image:
-        return
-    image_group = self._images.get(preset_image)
-    if not image_group:
-        return
-    if self.image.data and self.image.data not in {
-        image["slug"] for image in image_group
-    }:
-        raise ValidationError(
-            _("Invalid image for this preset. Please select an image from the list.")
+def _image_choices(images: list[dict]) -> dict[str, list[tuple[str, str]]]:
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    for img in images:
+        slug = img.get("slug")
+        name = img.get("name")
+        if not isinstance(slug, str) or not isinstance(name, str):
+            continue
+        category = (
+            img.get("category") if isinstance(img.get("category"), str) else "Other"
         )
+        grouped.setdefault(category, []).append((slug, name))
+    return grouped
+
+
+def validate_image(self, field):
+    valid_slugs = {
+        img.get("slug") for img in self._images if isinstance(img.get("slug"), str)
+    }
+    if self.image.data and self.image.data not in valid_slugs:
+        raise ValidationError(_("Invalid image. Please select an image from the list."))
 
 
 def validate_root_directory(form, field):
@@ -394,7 +394,7 @@ class ProjectVerifyDomainForm(StarletteForm):
 class ProjectBuildAndProjectDeployForm(StarletteForm):
     preset = SelectField(
         _l("Framework presets"),
-        validators=[DataRequired(), Length(min=1, max=255)],
+        validators=[Optional(), Length(max=255)],
     )
     image = SelectField(
         _l("Image"),
@@ -423,13 +423,10 @@ class ProjectBuildAndProjectDeployForm(StarletteForm):
         settings = get_settings()
         self._images = settings.images
         self._presets = settings.presets
-        self.preset.choices = [
+        self.preset.choices = [("", _l("None"))] + [
             (preset["slug"], preset["name"]) for preset in self._presets
         ]
-        self.image.choices = {
-            group: [(image["slug"], image["name"]) for image in items]
-            for group, items in self._images.items()
-        }
+        self.image.choices = _image_choices(self._images)
 
     validate_image = validate_image
 
@@ -516,7 +513,7 @@ class NewProjectForm(StarletteForm):
     preset = SelectField(
         _l("Framework presets"),
         choices=[],
-        validators=[DataRequired(), Length(min=1, max=255)],
+        validators=[Optional(), Length(max=255)],
     )
     image = SelectField(
         _l("Image"),
@@ -552,13 +549,10 @@ class NewProjectForm(StarletteForm):
         settings = get_settings()
         self._images = settings.images
         self._presets = settings.presets
-        self.preset.choices = [
+        self.preset.choices = [("", _l("None"))] + [
             (preset["slug"], preset["name"]) for preset in self._presets
         ]
-        self.image.choices = {
-            group: [(image["slug"], image["name"]) for image in items]
-            for group, items in self._images.items()
-        }
+        self.image.choices = _image_choices(self._images)
 
     def process(self, formdata=None, obj=None, data=None, **kwargs):
         if formdata is not None:

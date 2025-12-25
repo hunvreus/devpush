@@ -105,7 +105,7 @@ cleanup() {
 trap cleanup EXIT
 
 printf '\n'
-run_cmd "Unpacking archive..." tar -xzf "$archive_path" -C "$stage_dir"
+run_cmd "Unpacking archive" tar -xzf "$archive_path" -C "$stage_dir"
 
 [[ -d "$stage_dir/data" ]] || { err "Archive missing data/ directory"; exit 1; }
 [[ -f "$stage_dir/data/version.json" ]] || { err "Archive missing data/version.json"; exit 1; }
@@ -153,7 +153,7 @@ fi
 # Create a safety backup before restoring
 if (( skip_backup == 0 )); then
 printf '\n'
-  run_cmd "Creating backup before restore..." bash "$SCRIPT_DIR/backup.sh"
+  run_cmd "Creating backup before restore" bash "$SCRIPT_DIR/backup.sh"
   latest_backup="$(ls -t "$BACKUP_DIR"/devpush-*.tar.gz 2>/dev/null | head -n1 || true)"
   if [[ -n "$latest_backup" ]]; then
     printf "  ${DIM}${CHILD_MARK} Saved to: %s${NC}\n" "$latest_backup"
@@ -162,17 +162,17 @@ fi
 
 # Stop the stack
 printf '\n'
-run_cmd "Stopping stack..." bash "$SCRIPT_DIR/stop.sh"
+run_cmd "Stopping stack" bash "$SCRIPT_DIR/stop.sh"
 
 # Restore data directory
 if (( restore_data == 1 )); then
   printf '\n'
-  printf "Restoring data directory...\n"
+  printf "Restoring data directory\n"
   if [[ -d "$DATA_DIR" ]]; then
-    run_cmd "${CHILD_MARK} Removing existing data dir..." rm -rf "$DATA_DIR"
+    run_cmd "${CHILD_MARK} Removing existing data dir" rm -rf "$DATA_DIR"
   fi
   mkdir -p -m 0750 "$DATA_DIR"
-  run_cmd "${CHILD_MARK} Restoring data from backup..." cp -a "$stage_dir/data/." "$DATA_DIR/"
+  run_cmd "${CHILD_MARK} Restoring data from backup" cp -a "$stage_dir/data/." "$DATA_DIR/"
   if [[ -n "${SERVICE_USER:-}" ]]; then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" >/dev/null 2>&1 || true
   fi
@@ -182,12 +182,12 @@ fi
 # Rotate SECRET_KEY unless opted out
 if (( restore_data == 1 && rotate_secret == 1 )); then
   printf '\n'
-  printf "Rotating SECRET_KEY...\n"
+  printf "Rotating SECRET_KEY\n"
   if [[ ! -f "$ENV_FILE" ]]; then
     err "Cannot rotate SECRET_KEY: $ENV_FILE not found"
     exit 1
   fi
-  run_cmd "${CHILD_MARK} Writing new SECRET_KEY to ${ENV_FILE}..." bash -c '
+  run_cmd "${CHILD_MARK} Writing new SECRET_KEY to ${ENV_FILE}" bash -c '
     set -Eeuo pipefail
     env_file="$1"
     new_secret="$(openssl rand -hex 32)"
@@ -209,9 +209,9 @@ if (( remove_runners == 1 )); then
   runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/dev/null || true)"
   if [[ -n "$runner_containers" ]]; then
     count=$(printf '%s\n' "$runner_containers" | wc -l | tr -d ' ')
-    run_cmd --try "Removing runner containers ($count found)..." docker rm -f $runner_containers
+    run_cmd --try "Removing runner containers ($count found)" docker rm -f $runner_containers
   else
-    printf "Removing runner containers (0 found)... ${YEL}⊘${NC}\n"
+    printf "Removing runner containers (0 found) ${YEL}⊘${NC}\n"
   fi
 fi
 
@@ -226,9 +226,9 @@ if (( restore_db == 1 )); then
   [[ -n "$pg_password" ]] || { err "POSTGRES_PASSWORD missing in $ENV_FILE"; exit 1; }
 
   printf '\n'
-  printf "Restoring database...\n"
+  printf "Restoring database\n"
   set_compose_base
-  run_cmd "${CHILD_MARK} Starting pgsql..." "${COMPOSE_BASE[@]}" up -d pgsql
+  run_cmd "${CHILD_MARK} Starting pgsql" "${COMPOSE_BASE[@]}" up -d pgsql
   pg_container="$(docker ps --filter "label=com.docker.compose.project=devpush" --filter "label=com.docker.compose.service=pgsql" --format '{{.ID}}' | head -n1 || true)"
   if [[ -z "$pg_container" ]]; then
     err "pgsql container did not start. Inspect logs with: scripts/compose.sh logs pgsql"
@@ -238,28 +238,28 @@ if (( restore_db == 1 )); then
   step_sleep=5
   max_attempts=$(( (timeout + step_sleep - 1) / step_sleep ))
   (( max_attempts < 1 )) && max_attempts=1
-  run_cmd "${CHILD_MARK} Waiting for database..." wait_for_pgsql "$pg_user" "$max_attempts" "$step_sleep"
+  run_cmd "${CHILD_MARK} Waiting for database" wait_for_pgsql "$pg_user" "$max_attempts" "$step_sleep"
 
   export PG_RESET_PASS="$pg_password"
-  run_cmd "${CHILD_MARK} Resetting database schema..." bash -c '
+  run_cmd "${CHILD_MARK} Resetting database schema" bash -c '
     set -Eeuo pipefail
     env "PGPASSWORD=$PG_RESET_PASS" "$@" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
   ' reset "${COMPOSE_BASE[@]}" exec -T pgsql psql -U "$pg_user" -d "$pg_db"
 
   export PG_RESTORE_FILE="$stage_dir/db/pgdump.sql" PG_RESTORE_PASS="$pg_password"
-  run_cmd "${CHILD_MARK} Importing dump..." bash -c '
+  run_cmd "${CHILD_MARK} Importing dump" bash -c '
     set -Eeuo pipefail
     cat "$PG_RESTORE_FILE" | env "PGPASSWORD=$PG_RESTORE_PASS" "$@" >/dev/null
   ' restore "${COMPOSE_BASE[@]}" exec -T pgsql psql -v ON_ERROR_STOP=1 -U "$pg_user" -d "$pg_db"
   unset PG_RESTORE_FILE PG_RESTORE_PASS PG_RESET_PASS
-  run_cmd "${CHILD_MARK} Stopping pgsql..." "${COMPOSE_BASE[@]}" stop pgsql
+  run_cmd "${CHILD_MARK} Stopping pgsql" "${COMPOSE_BASE[@]}" stop pgsql
 fi
 
 # Restore code
 if (( restore_code == 1 )); then
   version_file="$DATA_DIR/version.json"
   printf '\n'
-  printf "Restoring code...\n"
+  printf "Restoring code\n"
   
   restore_ref="$(json_get git_ref "$stage_dir/data/version.json" "" || true)"
   restore_commit="$(json_get git_commit "$stage_dir/data/version.json" "" || true)"
@@ -277,11 +277,11 @@ if (( restore_code == 1 )); then
   else
     display_target="$restore_commit"
     [[ -n "$restore_ref" ]] && display_target="$display_target (recorded as $restore_ref)"
-    if ! run_cmd --try "${CHILD_MARK} Checking out commit ${restore_commit} locally..." "${git_cmd[@]}" checkout -f "$restore_commit"; then
+    if ! run_cmd --try "${CHILD_MARK} Checking out commit ${restore_commit} locally" "${git_cmd[@]}" checkout -f "$restore_commit"; then
       remote_name="$("${git_cmd[@]}" remote 2>/dev/null | head -n1 || true)"
       if [[ -n "$remote_name" && -n "$restore_ref" ]]; then
-        run_cmd "${CHILD_MARK} Fetching ${restore_ref} from ${remote_name}..." "${git_cmd[@]}" fetch "$remote_name" "$restore_ref"
-        if ! run_cmd --try "${CHILD_MARK} Checking out commit ${restore_commit}..." "${git_cmd[@]}" checkout -f "$restore_commit"; then
+        run_cmd "${CHILD_MARK} Fetching ${restore_ref} from ${remote_name}" "${git_cmd[@]}" fetch "$remote_name" "$restore_ref"
+        if ! run_cmd --try "${CHILD_MARK} Checking out commit ${restore_commit}" "${git_cmd[@]}" checkout -f "$restore_commit"; then
           err "Failed to checkout commit ${restore_commit} after fetching ${restore_ref}. The commit may not be on that ref, or may not exist in the remote repository."
           exit 1
         fi
@@ -300,13 +300,13 @@ fi
 if (( rebuild_images == 1 )); then
   printf '\n'
   set_compose_base
-  run_cmd "Rebuilding app/worker images..." "${COMPOSE_BASE[@]}" build app worker-arq worker-monitor
+  run_cmd "Rebuilding app/worker images" "${COMPOSE_BASE[@]}" build app worker-arq worker-monitor
 fi
 
 # Start the stack
 if (( restart_stack == 1 )); then
   printf '\n'
-  run_cmd "Starting stack..." bash "$SCRIPT_DIR/start.sh"
+  run_cmd "Starting stack" bash "$SCRIPT_DIR/start.sh"
 else
   start_cmd="scripts/start.sh"
   if [[ "$ENVIRONMENT" == "production" ]]; then

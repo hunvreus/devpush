@@ -62,7 +62,7 @@ set_compose_base
 # Stage data directory
 mkdir -p -m 0750 "$tmp_dir/data"
 printf '\n'
-run_cmd "Saving data directory..." bash -c '
+run_cmd "Saving data directory" bash -c '
   set -Eeuo pipefail
   src="$1"; dest="$2"
   tar -C "$src" -cf - . | tar -C "$dest" -xf -
@@ -85,7 +85,7 @@ db_dump_path="$tmp_dir/db/pgdump.sql"
 export PG_DUMP_FILE="$db_dump_path" PG_DUMP_PASS="$pg_password"
 
 printf '\n'
-run_cmd "Creating database dump..." bash -c '
+run_cmd "Creating database dump" bash -c '
   set -Eeuo pipefail
   env "PGPASSWORD=$PG_DUMP_PASS" "$@" >"$PG_DUMP_FILE"
 ' pgdump "${COMPOSE_BASE[@]}" exec -T pgsql pg_dump -U "$pg_user" -d "$pg_db" --no-owner --no-privileges
@@ -112,10 +112,10 @@ JSON
 
 # Create a tag.gz of the backup files (data dir, db dump, metadata)
 printf '\n'
-printf "Creating archive...\n"
-run_cmd "${CHILD_MARK} Packing files..." tar -czf "$output_path" -C "$tmp_dir" data db metadata.json
+printf "Creating archive\n"
+run_cmd "${CHILD_MARK} Packing files" tar -czf "$output_path" -C "$tmp_dir" data db metadata.json
 chmod 0640 "$output_path" >/dev/null 2>&1 || true
-run_cmd "${CHILD_MARK} Verifying archive..." bash -c '
+run_cmd "${CHILD_MARK} Verifying archive" bash -c '
   set -Eeuo pipefail
   tar -tzf "$1" >/dev/null
 ' verify "$output_path"

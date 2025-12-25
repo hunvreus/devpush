@@ -101,9 +101,9 @@ current_version=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" describe --tag
 
 # Resolve ref, fetch, then exec the updated apply script
 printf '\n'
-printf "Resolving update target...\n"
+printf "Resolving update target\n"
 if [[ -z "$ref" ]]; then
-  run_cmd "${CHILD_MARK} Fetching tags..." runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" fetch --tags --force origin
+  run_cmd "${CHILD_MARK} Fetching tags" runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" fetch --tags --force origin
   ref="$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" tag -l --sort=version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | tail -1 || true)"
   [[ -n "$ref" ]] || ref="$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" tag -l --sort=version:refname | tail -1 || true)"
   [[ -n "$ref" ]] || ref="main"
@@ -114,9 +114,9 @@ fi
 
 # Fetch update
 printf '\n'
-printf "Fetching update...\n"
+printf "Fetching update\n"
 run_cmd "${CHILD_MARK} Fetching ref: $ref" runuser -u "$SERVICE_USER" -- bash -c "cd \"$APP_DIR\" && git fetch --force --depth 1 origin \"refs/tags/$ref:refs/tags/$ref\" || git fetch --force --depth 1 origin \"$ref\""
-run_cmd "${CHILD_MARK} Checking out..." runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
+run_cmd "${CHILD_MARK} Checking out" runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
 
 # Run update-apply script (allows us to update the script itself)
 bash "$SCRIPT_DIR/update-apply.sh" --ref "$ref" "$@"

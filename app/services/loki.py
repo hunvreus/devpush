@@ -3,7 +3,7 @@ import re
 from typing import List, Dict, Any
 import logging
 
-from utils.log import epoch_nano_to_iso
+from utils.log import epoch_nano_to_iso, parse_structured_log
 
 logger = logging.getLogger(__name__)
 
@@ -13,48 +13,17 @@ class LokiService:
         self.loki_url = loki_url
         self.client = httpx.AsyncClient()
 
-    def _extract_log_level(self, log_line: str) -> str:
-        """Extract log level from log message."""
-        level_aliases = {
-            "debug": "DEBUG",
-            "info": "INFO",
-            "success": "SUCCESS",
-            "warn": "WARNING",
-            "warning": "WARNING",
-            "error": "ERROR",
-            "fatal": "CRITICAL",
-            "critical": "CRITICAL",
-        }
-
-        import re
-
-        pattern = re.compile(
-            r"""(?ix)
-            (?:^|\s|[^\w])
-            (?:level[=:\s]*)?
-            \[?
-            (?P<level>debug|info|success|warn|warning|error|fatal|critical)
-            \]?
-            (?=\s|:|\-|$|[^a-z])
-            """
-        )
-
-        match = pattern.search(log_line)
-        if match:
-            return level_aliases[match.group("level").lower()]
-
-        return "INFO"
-
     def _format_loki_log(
         self, stream: dict, ts: str, line: str, **extra_labels
     ) -> dict:
         """Format a Loki log entry consistently."""
         timestamp_iso = epoch_nano_to_iso(ts)
+        message, level = parse_structured_log(line)
         return {
             "timestamp_iso": timestamp_iso,
             "timestamp": ts,
-            "message": line,
-            "level": self._extract_log_level(line),
+            "message": message,
+            "level": level,
             "labels": {"stream": stream.get("stream", "stdout"), **extra_labels},
         }
 
@@ -105,12 +74,13 @@ class LokiService:
             for stream in data["data"]["result"]:
                 for timestamp_ns, log_line in stream["values"]:
                     timestamp_iso = epoch_nano_to_iso(timestamp_ns)
+                    message, level = parse_structured_log(log_line)
                     logs.append(
                         {
                             "timestamp_iso": timestamp_iso,
                             "timestamp": timestamp_ns,
-                            "message": log_line,
-                            "level": self._extract_log_level(log_line),
+                            "message": message,
+                            "level": level,
                             "labels": {
                                 "project_id": stream["stream"]["project_id"],
                                 "deployment_id": stream["stream"]["deployment_id"],

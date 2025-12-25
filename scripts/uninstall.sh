@@ -104,10 +104,10 @@ if (( skip_backup == 0 )); then
   if (( yes_flag == 0 )); then
     read -r -p "Create a backup before uninstalling? [Y/n] " ans
     if [[ -z "$ans" || "$ans" =~ ^[Yy]([Ee][Ss])?$ ]]; then
-      run_cmd "Creating backup..." bash "$SCRIPT_DIR/backup.sh"
+      run_cmd "Creating backup" bash "$SCRIPT_DIR/backup.sh"
     fi
   else
-    run_cmd "Creating backup..." bash "$SCRIPT_DIR/backup.sh"
+    run_cmd "Creating backup" bash "$SCRIPT_DIR/backup.sh"
   fi
 fi
 
@@ -125,15 +125,15 @@ fi
 
 # Stopping the stack
 printf '\n'
-run_cmd --try "Stopping stack..." bash "$SCRIPT_DIR/stop.sh" --hard
+run_cmd --try "Stopping stack" bash "$SCRIPT_DIR/stop.sh" --hard
 
 # Remove systemd unit
 printf '\n'
-run_cmd "Cleaning up systemd unit..." cleanup_systemd_unit
+run_cmd "Cleaning up systemd unit" cleanup_systemd_unit
 
 # Remove Docker resources
 printf '\n'
-printf "Removing Docker resources...\n"
+printf "Removing Docker resources\n"
 
 # Remove Docker containers
 compose_containers="$(docker ps -a --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)"
@@ -141,7 +141,7 @@ runner_containers="$(docker ps -a --filter "label=devpush.deployment_id" -q 2>/d
 containers="$(printf "%s\n%s\n" "$compose_containers" "$runner_containers" | grep -v '^\s*$' | sort -u || true)"
 if [[ -n "$containers" ]]; then
   container_count=$(printf '%s\n' "$containers" | wc -l | tr -d ' ')
-  run_cmd --try "${CHILD_MARK} Removing containers ($container_count found)..." docker rm -f $containers
+  run_cmd --try "${CHILD_MARK} Removing containers ($container_count found)" docker rm -f $containers
 fi
 
 # Remove Docker images
@@ -150,51 +150,51 @@ runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || t
 images="$(printf "%s\n%s\n" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
 if [[ -n "$images" ]]; then
   image_count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
-  run_cmd --try "${CHILD_MARK} Removing images ($image_count found)..." docker rmi -f $images
+  run_cmd --try "${CHILD_MARK} Removing images ($image_count found)" docker rmi -f $images
 else
-  printf "%s Removing Docker images (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+  printf "%s Removing Docker images (0 found) ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # Remove Docker networks
 networks=$(docker network ls --filter "name=devpush" -q 2>/dev/null || true)
 if [[ -n "$networks" ]]; then
   network_count=$(printf '%s\n' "$networks" | wc -l | tr -d ' ')
-  run_cmd --try "${CHILD_MARK} Removing networks ($network_count found)..." docker network rm $networks
+  run_cmd --try "${CHILD_MARK} Removing networks ($network_count found)" docker network rm $networks
 else
-  printf "%s Removing Docker networks (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+  printf "%s Removing Docker networks (0 found) ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # Remove Docker volumes
 volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
 if [[ -n "$volumes" ]]; then
   volume_count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
-  run_cmd --try "${CHILD_MARK} Removing volumes ($volume_count found)..." docker volume rm $volumes
+  run_cmd --try "${CHILD_MARK} Removing volumes ($volume_count found)" docker volume rm $volumes
 else
-  printf "%s Removing Docker volumes (0 found)... ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+  printf "%s Removing Docker volumes (0 found) ${YEL}⊘${NC}\n" "${CHILD_MARK}"
 fi
 
 # Remove data directory
 if [[ -d $DATA_DIR ]]; then
   printf '\n'
-  run_cmd --try "Removing data directory..." rm -rf "$DATA_DIR"
+  run_cmd --try "Removing data directory" rm -rf "$DATA_DIR"
 fi
 
 # Remove log directory
 if [[ -d "$LOG_DIR" ]]; then
   printf '\n'
-  run_cmd --try "Removing log directory..." rm -rf "$LOG_DIR"
+  run_cmd --try "Removing log directory" rm -rf "$LOG_DIR"
 fi
 
 # Remove app directory
 if [[ -n "$APP_DIR" && -d "$APP_DIR" ]]; then
   printf '\n'
-  run_cmd --try "Removing app directory..." rm -rf "$APP_DIR"
+  run_cmd --try "Removing app directory" rm -rf "$APP_DIR"
 fi
 
 # Remove user
 if id -u "$user" >/dev/null 2>&1; then
   printf '\n'
-  if run_cmd --try "Removing user '$user'..." userdel -r "$user"; then
+  if run_cmd --try "Removing user '$user'" userdel -r "$user"; then
     [[ -f /etc/sudoers.d/$user ]] && rm -f /etc/sudoers.d/$user
   else
     printf "${YEL}Could not remove user (may have active processes). Run 'userdel -r %s' manually after logout.${NC}\n" "$user"
@@ -204,7 +204,7 @@ fi
 # Send telemetry
 if ((telemetry==1)) && [[ -n "$telemetry_payload" ]]; then
   printf '\n'
-  if ! run_cmd --try "Sending telemetry..." send_telemetry uninstall "$telemetry_payload"; then
+  if ! run_cmd --try "Sending telemetry" send_telemetry uninstall "$telemetry_payload"; then
     printf "  ${DIM}${CHILD_MARK} Telemetry failed (non-fatal). Continuing uninstall.${NC}\n"
   fi
 fi

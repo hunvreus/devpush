@@ -4,9 +4,70 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+class ImageSetting(BaseModel):
+    slug: str
+    name: str
+    category: str | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+class PresetSetting(BaseModel):
+    slug: str
+    name: str
+    category: str | None = None
+    image: str | None = None
+    build_command: str
+    pre_deploy_command: str
+    start_command: str
+    logo: str
+    root_directory: str | None = None
+    beta: bool | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+def _load_settings_list(path: Path, adapter: TypeAdapter, label: str) -> list[dict]:
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Failed to load %s from %s: %s", label, path, exc)
+        return []
+    if not isinstance(raw, list):
+        logger.warning("Invalid %s in %s: expected a list", label, path)
+        return []
+    items: list[dict] = []
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            logger.warning(
+                "Skipping invalid %s entry %s in %s: expected an object",
+                label,
+                idx,
+                path,
+            )
+            continue
+        try:
+            item = adapter.validate_python(entry)
+        except ValidationError as exc:
+            logger.warning(
+                "Skipping invalid %s entry %s in %s: %s", label, idx, path, exc
+            )
+            continue
+        except Exception as exc:
+            logger.warning(
+                "Failed to validate %s entry %s in %s: %s", label, idx, path, exc
+            )
+            continue
+        items.append(item.model_dump())
+    return items
 
 
 class Settings(BaseSettings):
@@ -36,8 +97,8 @@ class Settings(BaseSettings):
     postgres_password: str = ""
     redis_url: str = "redis://redis:6379"
     docker_host: str = "tcp://docker-proxy:2375"
-    data_dir: str = "/var/lib/devpush"
-    app_dir: str = "/opt/devpush"
+    data_dir: str = "/data"
+    app_dir: str = "/app"
     upload_dir: str = ""
     traefik_dir: str = ""
     env_file: str = ""
@@ -142,14 +203,24 @@ def get_settings():
     if not settings.version_file:
         settings.version_file = os.path.join(settings.data_dir, "version.json")
 
-    # Load presets/images from files
-    presets_file = Path("settings/presets.json")
-    images_file = Path("settings/images.json")
-    try:
-        settings.presets = json.loads(presets_file.read_text(encoding="utf-8"))
-        settings.images = json.loads(images_file.read_text(encoding="utf-8"))
-    except Exception:
-        settings.presets = []
-        settings.images = []
+    # Load presets/images from files (data-dir overrides core)
+    core_presets_file = Path(settings.app_dir) / "settings" / "presets.json"
+    core_images_file = Path(settings.app_dir) / "settings" / "images.json"
+    override_presets_file = Path(settings.data_dir) / "presets.json"
+    override_images_file = Path(settings.data_dir) / "images.json"
+
+    presets_file = (
+        override_presets_file if override_presets_file.exists() else core_presets_file
+    )
+    images_file = (
+        override_images_file if override_images_file.exists() else core_images_file
+    )
+
+    logger.warning("Loading presets from: %s", presets_file)
+    preset_adapter = TypeAdapter(PresetSetting)
+    settings.presets = _load_settings_list(presets_file, preset_adapter, "presets")
+    logger.warning("Loading images from: %s", images_file)
+    image_adapter = TypeAdapter(ImageSetting)
+    settings.images = _load_settings_list(images_file, image_adapter, "images")
 
     return settings
