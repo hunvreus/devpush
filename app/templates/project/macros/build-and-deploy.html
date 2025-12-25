@@ -32,7 +32,10 @@
       });
     },
     setPreset(slug = null, force = false) {
-      if (!slug) return;
+      if (!slug) {
+        this.disableImageOptions(null);
+        return;
+      }
       const preset = presets.find(p => p.slug === slug);
       const applyValue = (ref, value) => {
         if (!ref) return;

@@ -18,14 +18,9 @@ RUN apt-get update && \
 
 # Default Caddy config (Laravel-style)
 RUN install -d -m 0755 /etc/caddy && \
-    install -d -m 0755 -o appuser -g appgroup /tmp/caddy && \
     cat > /etc/caddy/Caddyfile <<'EOF'
 {
   admin off
-  persist_config off
-  storage file_system {
-    root /tmp/caddy
-  }
 }
 :8000 {
   root * /app/public
@@ -35,3 +30,5 @@ RUN install -d -m 0755 /etc/caddy && \
 EOF
 
 USER appuser
+
+ENV XDG_DATA_HOME=/tmp XDG_CONFIG_HOME=/tmp
