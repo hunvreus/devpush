@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Query
+import httpx
 from fastapi.responses import Response, RedirectResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,9 +144,25 @@ async def new_project_details(
                 request.url_for("new_project", team_slug=team.slug), status_code=303
             )
 
-        installation = await github_service.get_repository_installation(
-            repo["full_name"]
-        )
+        try:
+            installation = await github_service.get_repository_installation(
+                repo["full_name"]
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                flash(
+                    request,
+                    _(
+                        "Install the GitHub app on %(repo)s to continue.",
+                        repo=repo["full_name"],
+                    ),
+                    "error",
+                )
+                return RedirectResponse(
+                    request.url_for("new_project", team_slug=team.slug), status_code=303
+                )
+            raise
+
         github_installation = (
             await github_installation_service.get_or_refresh_installation(
                 installation["id"], db
@@ -1226,20 +1243,27 @@ async def project_settings(
         request=request,
         project=project,
         data={
-            "cpus": project.config.get("cpus") or None,
-            "memory": project.config.get("memory") or None,
+            "cpus": project.config.get("cpus"),
+            "memory": project.config.get("memory"),
         },
     )
 
-    if settings.allow_custom_resources and fragment == "resources":
+    allow_custom_cpu = settings.allow_custom_cpu
+    allow_custom_memory = settings.allow_custom_memory
+    allow_custom_resources = allow_custom_cpu or allow_custom_memory
+
+    if allow_custom_resources and fragment == "resources":
         if await resources_form.validate_on_submit():
-            cpus = (
-                float(resources_form.cpus.data)
-                if resources_form.cpus.data is not None
-                else None
-            )
-            memory = resources_form.memory.data
-            project.config = {**project.config, "cpus": cpus, "memory": memory}
+            project_config: dict[str, object] = {}
+            if allow_custom_cpu:
+                project_config["cpus"] = (
+                    float(resources_form.cpus.data)
+                    if resources_form.cpus.data is not None
+                    else None
+                )
+            if allow_custom_memory:
+                project_config["memory"] = resources_form.memory.data
+            project.config = {**(project.config or {}), **project_config}
             await db.commit()
             flash(request, _("Resources updated."), "success")
 
@@ -1254,7 +1278,11 @@ async def project_settings(
                     "resources_form": resources_form,
                     "default_cpus": settings.default_cpus,
                     "default_memory": settings.default_memory_mb,
-                    "allow_custom_resources": settings.allow_custom_resources,
+                    "max_cpus": settings.max_cpus,
+                    "max_memory": settings.max_memory_mb,
+                    "allow_custom_cpu": allow_custom_cpu,
+                    "allow_custom_memory": allow_custom_memory,
+                    "allow_custom_resources": allow_custom_resources,
                 },
             )
 
@@ -1452,7 +1480,11 @@ async def project_settings(
             "resources_form": resources_form,
             "default_cpus": settings.default_cpus,
             "default_memory": settings.default_memory_mb,
-            "allow_custom_resources": settings.allow_custom_resources,
+            "max_cpus": settings.max_cpus,
+            "max_memory": settings.max_memory_mb,
+            "allow_custom_cpu": allow_custom_cpu,
+            "allow_custom_memory": allow_custom_memory,
+            "allow_custom_resources": allow_custom_resources,
             "env_vars_form": env_vars_form,
             "delete_project_form": delete_project_form,
             "domain_form": domain_form,

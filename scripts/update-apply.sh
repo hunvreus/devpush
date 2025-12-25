@@ -76,6 +76,9 @@ if [[ ! -f "$VERSION_FILE" ]]; then
   exit 1
 fi
 
+# Determine service user/group
+set_service_ids
+
 # Validate environment variables
 validate_env "$ENV_FILE"
 
@@ -186,7 +189,7 @@ elif [[ -z "$comps" ]]; then
   printf "3) worker-arq\n"
   printf "4) worker-monitor\n"
   printf "5) Full stack (with downtime)\n"
-  read -r -p "Choice [1-6]: " ch
+  read -r -p "Choice [1-5]: " ch
   ch="${ch//[^0-9]/}"
   case "$ch" in
     1) comps="app,worker-arq,worker-monitor,alloy" ;;
@@ -255,25 +258,18 @@ blue_green_rollout() {
   
   if [[ -n "$old_ids" ]]; then
     mapfile -t OLD_CONTAINERS <<<"$old_ids"
-    run_cmd --try "${CHILD_MARK} Retiring old container(s)..." bash -s -- "${OLD_CONTAINERS[@]}" <<'EOF'
-set -Eeuo pipefail
-while [[ $# -gt 0 ]]; do
-  id="$1"; shift
-  [[ -z "$id" ]] && continue
-  if ! docker stop "$id" >/dev/null 2>&1; then
-    printf "  Failed to stop container %s\n" "$id" >&2
-  fi
-  if ! docker rm "$id" >/dev/null 2>&1; then
-    printf "  Failed to remove container %s\n" "$id" >&2
-  fi
-done
-EOF
+    run_cmd --try "${CHILD_MARK} Retiring old container(s)..." bash -c '
+      set -Eeuo pipefail
+      for id in "$@"; do
+        [[ -z "$id" ]] && continue
+        docker stop "$id" >/dev/null 2>&1 || printf "  Failed to stop container %s\n" "$id" >&2
+        docker rm "$id" >/dev/null 2>&1 || printf "  Failed to remove container %s\n" "$id" >&2
+      done
+    ' retire "${OLD_CONTAINERS[@]}"
     for id in "${OLD_CONTAINERS[@]}"; do
       printf "  ${DIM}${CHILD_MARK} Container ID: %s${NC}\n" "$id"
     done
   fi
-
-  run_cmd "${CHILD_MARK} Scaling to 1..." "${COMPOSE_BASE[@]}" up -d --scale "$service=1" --no-recreate
 }
 
 # Build/pull then rollout per service
@@ -327,11 +323,11 @@ printf "Building runner images...\n"
 build_runner_images
 
 # Update install metadata (version.json)
-commit=$(git rev-parse --verify HEAD)
+commit=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" rev-parse --verify HEAD)
 if [[ -z "$ref" ]]; then
-  ref=$(git describe --tags --exact-match 2>/dev/null || true)
-  [[ -n "$ref" ]] || ref=$(git describe --tags --abbrev=0 2>/dev/null || true)
-  [[ -n "$ref" ]] || ref=$(git rev-parse --short "$commit")
+  ref=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" describe --tags --exact-match 2>/dev/null || true)
+  [[ -n "$ref" ]] || ref=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" describe --tags --abbrev=0 2>/dev/null || true)
+  [[ -n "$ref" ]] || ref=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" rev-parse --short "$commit")
 fi
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 install_id=$(json_get install_id "$VERSION_FILE" "")
@@ -349,13 +345,6 @@ printf '\n'
   fi
 fi
 
-# Get public IP for display (automatically saved to config)
-public_ip=$(get_public_ip || printf '')
-
 # Success message
 printf '\n'
 printf "${GRN}Update complete (%s → %s). ✔${NC}\n" "${old_version:-unknown}" "$ref"
-if [[ -n "$public_ip" ]]; then
-  printf '\n'
-  printf "Your instance is accessible at: http://%s\n" "$public_ip"
-fi

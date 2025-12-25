@@ -20,8 +20,11 @@ Restore a backup produced by scripts/backup.sh.
   --no-restart       Skip restarting the stack after restore
   --no-backup        Skip creating a backup before restoring
   --remove-runners   Remove runner containers before restoring
+  --no-rebuild-images
+                     Skip rebuilding app/worker images after restore (default: rebuild)
   --timeout <sec>    Max seconds to wait for pgsql to be ready (default: 60)
   --yes              Skip confirmation prompts
+  --keep-secret      Do not rotate SECRET_KEY after restore
   -v, --verbose      Enable verbose output
   -h, --help         Show this help
 USG
@@ -57,6 +60,8 @@ timeout=60
 skip_backup=0
 remove_runners=0
 yes=0
+rotate_secret=1
+rebuild_images=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --archive) archive_path="$2"; shift 2 ;;
@@ -66,8 +71,10 @@ while [[ $# -gt 0 ]]; do
     --no-restart) restart_stack=0; shift ;;
     --no-backup) skip_backup=1; shift ;;
     --remove-runners) remove_runners=1; shift ;;
+    --no-rebuild-images) rebuild_images=0; shift ;;
     --timeout) timeout="$2"; shift 2 ;;
     --yes) yes=1; shift ;;
+    --keep-secret) rotate_secret=0; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     *) err "Unknown option: $1"; usage ;;
@@ -172,6 +179,30 @@ if (( restore_data == 1 )); then
   ensure_acme_json
 fi
 
+# Rotate SECRET_KEY unless opted out
+if (( restore_data == 1 && rotate_secret == 1 )); then
+  printf '\n'
+  printf "Rotating SECRET_KEY...\n"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    err "Cannot rotate SECRET_KEY: $ENV_FILE not found"
+    exit 1
+  fi
+  run_cmd "${CHILD_MARK} Writing new SECRET_KEY to ${ENV_FILE}..." bash -c '
+    set -Eeuo pipefail
+    env_file="$1"
+    new_secret="$(openssl rand -hex 32)"
+    if grep -q "^[[:space:]]*SECRET_KEY[[:space:]]*=" "$env_file"; then
+      sed -i'' -e "s|^[[:space:]]*SECRET_KEY[[:space:]]*=.*|SECRET_KEY=\"${new_secret}\"|" "$env_file"
+    else
+      printf "\\nSECRET_KEY=\"%s\"\\n" "$new_secret" >> "$env_file"
+    fi
+    chmod 0600 "$env_file"
+  ' rotate "$ENV_FILE"
+  if [[ -n "${SERVICE_USER:-}" ]]; then
+    chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE" >/dev/null 2>&1 || true
+  fi
+fi
+
 # Remove runner containers if requested
 if (( remove_runners == 1 )); then
   printf '\n'
@@ -265,11 +296,17 @@ if (( restore_code == 1 )); then
   fi
 fi
 
+# Optionally rebuild images (app + workers) after restore
+if (( rebuild_images == 1 )); then
+  printf '\n'
+  set_compose_base
+  run_cmd "Rebuilding app/worker images..." "${COMPOSE_BASE[@]}" build app worker-arq worker-monitor
+fi
+
 # Start the stack
 if (( restart_stack == 1 )); then
   printf '\n'
   run_cmd "Starting stack..." bash "$SCRIPT_DIR/start.sh"
-  printf "${DIM}The app may take a while to be ready.${NC}\n"
 else
   start_cmd="scripts/start.sh"
   if [[ "$ENVIRONMENT" == "production" ]]; then

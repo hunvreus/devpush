@@ -107,12 +107,64 @@ class GitHubService:
 
     async def get_user_installations(self, user_access_token: str) -> list:
         """Get all installations the authenticated user has access to."""
-        response = httpx.get(
-            "https://api.github.com/user/installations",
-            headers={"Authorization": f"Bearer {user_access_token}"},
-        )
-        response.raise_for_status()
-        return response.json()["installations"]
+        installations: list[dict] = []
+        page = 1
+        per_page = 100
+        total_count = None
+
+        while True:
+            response = httpx.get(
+                "https://api.github.com/user/installations",
+                headers={"Authorization": f"Bearer {user_access_token}"},
+                params={"per_page": per_page, "page": page},
+            )
+            response.raise_for_status()
+            data = response.json()
+            batch = data.get("installations", [])
+            installations.extend(batch)
+            total_count = data.get("total_count", total_count)
+
+            if not batch:
+                break
+            if total_count is not None and page * per_page >= total_count:
+                break
+            if len(batch) < per_page:
+                break
+
+            page += 1
+
+        return installations
+
+    async def get_installation_repositories_for_user(
+        self, user_access_token: str, installation_id: int, per_page: int = 100
+    ) -> list[dict]:
+        """Get repositories for an installation (user token, handles pagination)."""
+        repositories: list[dict] = []
+        page = 1
+        total_count = None
+
+        while True:
+            response = httpx.get(
+                f"https://api.github.com/user/installations/{installation_id}/repositories",
+                headers={"Authorization": f"Bearer {user_access_token}"},
+                params={"per_page": per_page, "page": page},
+            )
+            response.raise_for_status()
+            data = response.json()
+            batch = data.get("repositories", [])
+            repositories.extend(batch)
+            total_count = data.get("total_count", total_count)
+
+            if not batch:
+                break
+            if total_count is not None and page * per_page >= total_count:
+                break
+            if len(batch) < per_page:
+                break
+
+            page += 1
+
+        return repositories
 
     async def search_user_repositories(
         self, user_access_token: str, owner: str, keywords: str = "", per_page: int = 5

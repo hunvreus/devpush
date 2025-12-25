@@ -63,6 +63,12 @@ cp .env.dev.example data/.env
 # Edit data/.env with your GitHub App credentials
 ```
 
+Build the runner images (only on first start or if you've modified the runners):
+
+```bash
+./scripts/build-runners.sh
+```
+
 Start the stack:
 
 ```bash
@@ -144,11 +150,10 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 | `DOCKER_HOST` | Docker API. Default: `tcp://docker-proxy:2375`. |
 | `DATA_DIR` | Data directory. Default: `/var/lib/devpush`. |
 | `APP_DIR` | Code directory. Default: `/opt/devpush`. |
-| `DEFAULT_CPUS` | Default CPU cores per container. Default: `0.5`. |
-| `DEFAULT_MEMORY_MB` | Default memory limit (MB). Default: `2048`. |
-| `MAX_CPUS` | Maximum CPU cores per container. Default: `4.0`. |
-| `MAX_MEMORY_MB` | Maximum memory limit (MB). Default: `8192`. |
-| `ALLOW_CUSTOM_RESOURCES` | Allow projects to override CPU/memory. Default: `false`. |
+| `DEFAULT_CPUS` | Default CPU limit per deployment. No limit if not provided. |
+| `MAX_CPUS` | Maximum allowed CPU override per project. Used only when `DEFAULT_CPUS` is set. Required to let user customize CPU. |
+| `DEFAULT_MEMORY_MB` | Default memory limit (MB) per deployment. No limit if not provided. |
+| `MAX_MEMORY_MB` | Maximum allowed memory override per project. Used only when `DEFAULT_MEMORY_MB` is set. Required to let user customize memory. |
 | `JOB_TIMEOUT` | Job timeout (seconds). Default: `320`. |
 | `DEPLOYMENT_TIMEOUT` | Deployment timeout (seconds). Default: `300`. |
 | `LOG_LEVEL` | Logging level. Default: `WARNING`. |

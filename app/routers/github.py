@@ -88,10 +88,66 @@ async def github_repo_list(
     query: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    github_oauth_token = await get_user_github_token(db, current_user)
-    repos = await github.search_user_repositories(
-        github_oauth_token or "", account or "", query or ""
-    )
+    repos: list[dict] = []
+
+    try:
+        github_oauth_token = await get_user_github_token(db, current_user)
+        if not github_oauth_token or not account:
+            return TemplateResponse(
+                request=request,
+                name="github/partials/_repo-select-list.html",
+                context={"repos": repos},
+            )
+
+        installations = await github.get_user_installations(github_oauth_token)
+        installation = next(
+            (inst for inst in installations if inst["account"]["login"] == account),
+            None,
+        )
+
+        if not installation:
+            return TemplateResponse(
+                request=request,
+                name="github/partials/_repo-select-list.html",
+                context={"repos": repos},
+            )
+
+        selection = installation.get("repository_selection")
+        if selection == "selected":
+            repos = await github.get_installation_repositories_for_user(
+                github_oauth_token, installation["id"]
+            )
+            if query:
+                q_lower = query.lower()
+                repos = [
+                    repo
+                    for repo in repos
+                    if q_lower in repo.get("name", "").lower()
+                    or q_lower in repo.get("full_name", "").lower()
+                ]
+        else:
+            repos = await github.search_user_repositories(
+                github_oauth_token, account, query or ""
+            )
+
+        repos = [
+            repo for repo in repos if repo.get("permissions", {}).get("push", False)
+        ]
+        if selection == "selected" and query:
+            q_lower = query.lower()
+
+            def sort_key(repo: dict):
+                name = (repo.get("name") or "").lower()
+                full_name = (repo.get("full_name") or "").lower()
+                exact = int(name != q_lower and full_name != q_lower)
+                starts = int(not name.startswith(q_lower) and not full_name.startswith(q_lower))
+                return (exact, starts, len(name))
+
+            repos = sorted(repos, key=sort_key)
+    except Exception:
+        logger.exception("Error fetching repositories from GitHub")
+        flash(request, _("Error fetching repositories from GitHub."), "error")
+
     return TemplateResponse(
         request=request,
         name="github/partials/_repo-select-list.html",

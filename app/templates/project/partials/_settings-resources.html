@@ -15,59 +15,70 @@
 
   <section class="space-y-6">
     {{ resources_form.csrf_token(id=False) }}
-    <div class="space-y-3">
-      {{ resources_form.cpus.label() }}
-      <div class="flex items-center gap-x-2" x-data="{ cpus: '{{ resources_form.cpus.data or '' }}' }">
-        {{ resources_form.cpus(
-          id=False,
-          class="w-full",
-          placeholder=default_cpus,
-          **{'x-model': 'cpus'}
-        ) }}
-        <button
-          type="button"
-          class="btn-icon-ghost"
-          data-tooltip="{{ _('Use default') }}"
-          :disabled="cpus == ''"
-          @click="cpus = ''; $dispatch('change')"
-        >
-          {% include "icons/x.svg" %}
-        </button>
+    {% if allow_custom_cpu %}
+      <div class="space-y-3">
+        {{ resources_form.cpus.label() }}
+        <div class="flex items-center gap-x-2" x-data="{ cpus: '{{ resources_form.cpus.data if resources_form.cpus.data is not none else '' }}' }">
+          {{ resources_form.cpus(
+            id=False,
+            class="w-full",
+            placeholder=(default_cpus if default_cpus is not none else _('Unlimited')),
+            **{'x-model': 'cpus'}
+          ) }}
+          <button
+            type="button"
+            class="btn-icon-ghost"
+            data-tooltip="{{ _('Use default') }}"
+            :disabled="cpus == ''"
+            @click="cpus = ''; $dispatch('change')"
+          >
+            {% include "icons/x.svg" %}
+          </button>
+        </div>
+        <p class="text-sm text-muted-foreground">
+          {% if max_cpus is not none %}
+            {{ _('Number of CPU cores to allocate. Empty: use default. Max: %(max)s. Supports decimals like 0.5.', max=max_cpus) }}
+          {% else %}
+            {{ _('Number of CPU cores to allocate. Empty: use default. Supports decimals like 0.5.') }}
+          {% endif %}
+        </p>
+        {% for error in resources_form.cpus.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
       </div>
-      <p class="text-sm text-muted-foreground">
-        {{ _('Number of CPU cores to allocate (empty = use defaults, 0 = no limit, supports decimals like 0.5)') }}
-      </p>
-      {% for error in resources_form.cpus.errors %}
-        <p class="text-destructive text-sm">{{ error }}</p>
-      {% endfor %}
-    </div>
-    <div class="space-y-3">
-      {{ resources_form.memory.label() }}
-      <div class="flex items-center gap-x-2" x-data="{ memory: '{{ resources_form.memory.data or '' }}' }">
-        <span x-text="useDefault"></span>
-        {{ resources_form.memory(
-          id=False,
-          class="w-full",
-          placeholder=default_memory,
-          **{'x-model': 'memory'}
-        ) }}
-        <button
-          type="button"
-          class="btn-icon-ghost"
-          data-tooltip="{{ _('Use default') }}"
-          :disabled="memory == ''"
-          @click="memory = ''; $dispatch('change')"
-        >
-          {% include "icons/x.svg" %}
-        </button>
+    {% endif %}
+    {% if allow_custom_memory %}
+      <div class="space-y-3">
+        {{ resources_form.memory.label() }}
+        <div class="flex items-center gap-x-2" x-data="{ memory: '{{ resources_form.memory.data if resources_form.memory.data is not none else '' }}' }">
+          {{ resources_form.memory(
+            id=False,
+            class="w-full",
+            placeholder=(default_memory if default_memory is not none else _('Unlimited')),
+            **{'x-model': 'memory'}
+          ) }}
+          <button
+            type="button"
+            class="btn-icon-ghost"
+            data-tooltip="{{ _('Use default') }}"
+            :disabled="memory == ''"
+            @click="memory = ''; $dispatch('change')"
+          >
+            {% include "icons/x.svg" %}
+          </button>
+        </div>
+        <p class="text-sm text-muted-foreground">
+          {% if max_memory is not none %}
+            {{ _('Memory limit in megabytes. Empty: use default. Max: %(max)s MB.', max=max_memory) }}
+          {% else %}
+            {{ _('Memory limit in megabytes. Empty: use default.') }}
+          {% endif %}
+        </p>
+        {% for error in resources_form.memory.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
       </div>
-      <p class="text-sm text-muted-foreground">
-        {{ _('Memory limit in megabytes (empty = use defaults, 0 = no limit, max 256GB)') }}
-      </p>
-      {% for error in resources_form.memory.errors %}
-        <p class="text-destructive text-sm">{{ error }}</p>
-      {% endfor %}
-    </div>
+    {% endif %}
   </section>
 
   <footer class="flex justify-end gap-x-2">

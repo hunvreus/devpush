@@ -7,6 +7,7 @@ services:
       - "--providers.docker.watch=true"
       - "--providers.file.directory=/etc/traefik/dynamic_conf"
       - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
@@ -15,4 +16,3 @@ services:
       - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
     volumes:
       - ${DATA_DIR:-/var/lib/devpush}/traefik:/etc/traefik/dynamic_conf
-
