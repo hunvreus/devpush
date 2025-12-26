@@ -118,5 +118,27 @@ printf "Fetching update\n"
 run_cmd "${CHILD_MARK} Fetching ref: $ref" runuser -u "$SERVICE_USER" -- bash -c "cd \"$APP_DIR\" && git fetch --force --depth 1 origin \"refs/tags/$ref:refs/tags/$ref\" || git fetch --force --depth 1 origin \"$ref\""
 run_cmd "${CHILD_MARK} Checking out" runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
 
+# Build args for update-apply
+apply_args=()
+if ((do_all==1)); then
+  apply_args+=(--all)
+elif [[ -n "$comps" ]]; then
+  apply_args+=(--components "$comps")
+elif ((do_full==1)); then
+  apply_args+=(--full)
+fi
+if ((migrate==0)); then
+  apply_args+=(--no-migrate)
+fi
+if ((telemetry==0)); then
+  apply_args+=(--no-telemetry)
+fi
+if ((yes==1)); then
+  apply_args+=(--yes)
+fi
+if [[ "${VERBOSE:-0}" == "1" ]]; then
+  apply_args+=(--verbose)
+fi
+
 # Run update-apply script (allows us to update the script itself)
-bash "$SCRIPT_DIR/update-apply.sh" --ref "$ref" "$@"
+bash "$SCRIPT_DIR/update-apply.sh" --ref "$ref" "${apply_args[@]}"
