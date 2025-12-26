@@ -1,4 +1,8 @@
 /*! tailwindcss v4.1.12 | MIT License | https://tailwindcss.com */
+[x-cloak] {
+  display: none !important;
+}
+
 @layer properties;
 @layer theme, base, components, utilities;
 @layer theme {

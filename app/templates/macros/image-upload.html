@@ -1,14 +1,16 @@
 {% macro image_upload(
-field,
-delete_field,
-has_image,
-current_image,
-default_image,
-max_size=3,
-extensions=None,
-class=None
+  field,
+  delete_field,
+  has_image,
+  current_image,
+  default_image,
+  max_size=3,
+  extensions=None,
+  class=None
 ) %}
-<div class="space-y-3" x-data="{
+<div
+  class="space-y-3"
+  x-data="{
     hasImage: {{ 'true' if has_image else 'false' }},
     preview: null,
     maxSize: {{ max_size }},
@@ -39,26 +41,25 @@ class=None
       this.remove = true;
       $el.closest('form').dispatchEvent(new Event('change'));
     }
-  }">
+  }"
+>
   <div class="flex items-center gap-x-2">
     <div id="image-preview-container">
-      <span x-show="hasImage && !preview && !remove">
+      <span x-show="hasImage && !preview && !remove" x-cloak>
         {{ current_image }}
       </span>
       <span x-show="(!hasImage && !preview) || remove">
         {{ default_image }}
       </span>
-      <span x-show="preview">
+      <span x-show="preview" x-cloak>
         <img :src="preview" class="size-10 object-cover rounded-lg {% if class %}{{ class }}{% endif %}">
       </span>
     </div>
     <label>
       {{ field(
-      class="hidden",
-      accept=('image/' + extensions|join(',image/') if extensions else 'image/*'),
-      **{
-      '@change': 'validateAndPreview($event)'
-      }
+        class="hidden",
+        accept=('image/' + extensions|join(',image/') if extensions else 'image/*'),
+        **{'@change': 'validateAndPreview($event)'}
       ) }}
       <div class="btn-sm-outline cursor-pointer">
         {% include "icons/arrow-up-from-line.svg" %}
@@ -69,14 +70,18 @@ class=None
     <button
       type="button"
       class="btn-sm-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20"
-      data-tooltip="{{ _('Delete image') }}" x-show="(hasImage || preview) && !remove" @click="removeImage()">
+      data-tooltip="{{ _('Delete image') }}"
+      x-show="(hasImage || preview) && !remove"
+      @click="removeImage()"
+      x-cloak
+    >
       {% include "icons/trash-2.svg" %}
     </button>
     {{ delete_field(class='hidden', **{ 'x-model': 'remove' }) }}
   </div>
-  <p x-show="error" class="text-destructive text-xs font-medium" x-text="error"></p>
+  <p x-show="error" class="text-destructive text-xs font-medium" x-text="error" x-cloak></p>
   {% for error in field.errors %}
-  <p class="text-destructive text-xs font-medium">{{ error }}</p>
+    <p class="text-destructive text-xs font-medium">{{ error }}</p>
   {% endfor %}
 </div>
 {% endmacro %}
