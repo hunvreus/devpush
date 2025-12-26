@@ -12,6 +12,10 @@
   @apply visible opacity-100;
 }
 
+[x-cloak] {
+  display: none !important;
+}
+
 @keyframes progress-bar {
   0% {
     width: 0%;

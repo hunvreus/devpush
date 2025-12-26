@@ -1,8 +1,4 @@
 /*! tailwindcss v4.1.12 | MIT License | https://tailwindcss.com */
-[x-cloak] {
-  display: none !important;
-}
-
 @layer properties;
 @layer theme, base, components, utilities;
 @layer theme {
@@ -546,29 +542,8 @@
   .h-screen {
     height: 100vh;
   }
-  .max-h-24 {
-    max-height: calc(var(--spacing) * 24);
-  }
   .max-h-36 {
     max-height: calc(var(--spacing) * 36);
-  }
-  .max-h-41 {
-    max-height: calc(var(--spacing) * 41);
-  }
-  .max-h-42 {
-    max-height: calc(var(--spacing) * 42);
-  }
-  .max-h-48 {
-    max-height: calc(var(--spacing) * 48);
-  }
-  .max-h-52 {
-    max-height: calc(var(--spacing) * 52);
-  }
-  .max-h-64 {
-    max-height: calc(var(--spacing) * 64);
-  }
-  .max-h-\[160px\] {
-    max-height: 160px;
   }
   .max-h-\[162px\] {
     max-height: 162px;
@@ -5555,6 +5530,9 @@
 .htmx-request, .htmx-request.htmx-indicator {
   visibility: visible;
   opacity: 100%;
+}
+[x-cloak] {
+  display: none !important;
 }
 @keyframes progress-bar {
   0% {
