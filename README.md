@@ -3,9 +3,9 @@
 An open-source and self-hostable alternative to Vercel, Render, Netlify and the likes. It allows you to build and deploy any app (Python, Node.js, PHP, ...) with zero-downtime updates, real-time logs, team management, customizable environments and domains, etc.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://devpu.sh/assets/images/screenshot-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://devpu.sh/assets/images/screenshot-light.png">
-  <img alt="A screenshot of a deployment in /dev/push." src="https://devpu.sh/assets/images/screenshot-dark.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://devpu.sh/media/screenshot-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://devpu.sh/media/screenshot-light.png">
+  <img alt="A screenshot of a deployment in /dev/push." src="https://devpu.sh/media/screenshot-dark.png">
 </picture>
 
 ## Key features
