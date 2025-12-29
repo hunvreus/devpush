@@ -371,6 +371,9 @@
   .right-0\.5 {
     right: calc(var(--spacing) * 0.5);
   }
+  .right-1\.5 {
+    right: calc(var(--spacing) * 1.5);
+  }
   .left-3 {
     left: calc(var(--spacing) * 3);
   }
@@ -698,6 +701,9 @@
   }
   .flex-row-reverse {
     flex-direction: row-reverse;
+  }
+  .flex-wrap {
+    flex-wrap: wrap;
   }
   .items-center {
     align-items: center;
@@ -1319,6 +1325,9 @@
   .pr-2 {
     padding-right: calc(var(--spacing) * 2);
   }
+  .pr-9 {
+    padding-right: calc(var(--spacing) * 9);
+  }
   .pb-1\.5 {
     padding-bottom: calc(var(--spacing) * 1.5);
   }
@@ -1605,6 +1614,13 @@
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-muted) 50%, transparent);
         }
+      }
+    }
+  }
+  .hover\:text-accent-foreground {
+    &:hover {
+      @media (hover: hover) {
+        color: var(--color-accent-foreground);
       }
     }
   }
