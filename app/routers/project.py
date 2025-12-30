@@ -58,6 +58,7 @@ from db import get_db
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 from services.deployment import DeploymentService
+from services.project_detection import detect_project_settings
 from services.domain import DomainService
 from utils.project import get_latest_projects, get_latest_deployments
 from utils.team import get_latest_teams
@@ -125,6 +126,27 @@ async def new_project_details(
         form.repo_id.data = int(repo_id)
         form.name.data = repo_name
         form.production_branch.data = repo_default_branch
+
+        # Auto-detect project settings from repository
+        try:
+            github_oauth_token = await get_user_github_token(db, current_user)
+            if github_oauth_token:
+                detected = await detect_project_settings(
+                    github_service,
+                    github_oauth_token,
+                    int(repo_id),
+                    ref=repo_default_branch,
+                )
+                if detected.preset:
+                    form.preset.data = detected.preset
+                if detected.image:
+                    form.image.data = detected.image
+                if detected.build_command:
+                    form.build_command.data = detected.build_command
+                if detected.start_command:
+                    form.start_command.data = detected.start_command
+        except Exception as e:
+            logger.warning(f"Failed to auto-detect project settings: {e}")
 
     if request.method == "POST" and await form.validate_on_submit():
         try:

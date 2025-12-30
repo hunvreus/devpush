@@ -298,3 +298,38 @@ class GitHubService:
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_repository_file(
+        self,
+        user_access_token: str,
+        repo_id: int,
+        path: str,
+        ref: str | None = None,
+    ) -> dict | None:
+        """Get file contents from a repository.
+
+        Args:
+            user_access_token: GitHub access token
+            repo_id: Repository ID
+            path: Path to the file (e.g., "package.json")
+            ref: Optional branch/tag/commit to fetch from
+
+        Returns:
+            File content dict with 'content' (base64 encoded) and metadata,
+            or None if file doesn't exist.
+        """
+        params = {}
+        if ref:
+            params["ref"] = ref
+
+        response = httpx.get(
+            f"https://api.github.com/repositories/{repo_id}/contents/{path}",
+            headers={"Authorization": f"Bearer {user_access_token}"},
+            params=params,
+        )
+
+        if response.status_code == 404:
+            return None
+
+        response.raise_for_status()
+        return response.json()
