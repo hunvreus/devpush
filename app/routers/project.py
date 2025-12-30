@@ -145,6 +145,8 @@ async def new_project_details(
                     form.build_command.data = detected.build_command
                 if detected.start_command:
                     form.start_command.data = detected.start_command
+                if detected.pre_deploy_command:
+                    form.pre_deploy_command.data = detected.pre_deploy_command
         except Exception as e:
             logger.warning(f"Failed to auto-detect project settings: {e}")
 
