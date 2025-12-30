@@ -78,6 +78,7 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         index=True, nullable=False, default=utc_now, onupdate=utc_now
     )
+    tokens_invalid_before: Mapped[datetime | None] = mapped_column(nullable=True)
     default_team_id: Mapped[str] = mapped_column(ForeignKey("team.id"), nullable=True)
 
     # Relationships

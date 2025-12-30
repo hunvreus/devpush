@@ -121,6 +121,7 @@ class Settings(BaseSettings):
     access_denied_webhook: str = ""
     login_header: str = ""
     toaster_header: str = ""
+    magic_link_ttl_seconds: int = 900
     server_ip: str = "127.0.0.1"
 
     model_config = SettingsConfigDict(extra="ignore")

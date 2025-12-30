@@ -10,6 +10,7 @@ from typing import Any
 from authlib.jose import jwt
 from datetime import timedelta
 import resend
+import secrets
 
 from config import Settings, get_settings
 from dependencies import (
@@ -20,6 +21,7 @@ from dependencies import (
     get_current_user,
     get_job_queue,
     RedirectResponseX,
+    get_redis_client,
 )
 from db import get_db
 from models import User, UserIdentity, Team, TeamMember, TeamInvite, utc_now
@@ -44,6 +46,7 @@ async def user_settings(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     job_queue: ArqRedis = Depends(get_job_queue),
+    redis=Depends(get_redis_client),
 ):
     # Delete
     delete_form: Any = await UserDeleteForm.from_formdata(request, user=current_user)
@@ -180,12 +183,15 @@ async def user_settings(
     if fragment == "email":
         if request.method == "POST" and await email_form.validate_on_submit():
             new_email = email_form.email.data
-            expires_at = utc_now() + timedelta(minutes=15)
+            expires_at = utc_now() + timedelta(seconds=settings.magic_link_ttl_seconds)
+            jti = secrets.token_urlsafe(32)
             token_payload = {
                 "user_id": current_user.id,
                 "new_email": new_email,
                 "exp": int(expires_at.timestamp()),
+                "iat": int(utc_now().timestamp()),
                 "type": "email_change",
+                "jti": jti,
             }
 
             change_token = jwt.encode(
@@ -206,6 +212,11 @@ async def user_settings(
             resend.api_key = settings.resend_api_key
 
             try:
+                await redis.setex(
+                    f"magic_link:email_change:{jti}",
+                    settings.magic_link_ttl_seconds,
+                    "1",
+                )
                 resend.Emails.send(
                     {
                         "from": f"{settings.email_sender_name} <{settings.email_sender_address}>",
@@ -218,6 +229,9 @@ async def user_settings(
                                 "request": request,
                                 "email": new_email,
                                 "verify_link": verify_link,
+                                "magic_link_ttl_minutes": max(
+                                    1, settings.magic_link_ttl_seconds // 60
+                                ),
                                 "email_logo": f"{settings.email_logo}"
                                 or request.url_for("assets", path="logo-email.png"),
                                 "app_name": settings.app_name,

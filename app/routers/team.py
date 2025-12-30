@@ -496,6 +496,7 @@ def _send_member_invite(
         "invite_id": invite.id,
         "team_id": team.id,
         "exp": int(expires_at.timestamp()),
+        "iat": int(utc_now().timestamp()),
         "type": "team_invite",
     }
     invite_token = jwt.encode({"alg": "HS256"}, token_payload, settings.secret_key)

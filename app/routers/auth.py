@@ -24,6 +24,8 @@ from dependencies import (
     get_github_primary_email,
     get_google_oauth_client,
     get_google_user_info,
+    decode_jwt_claims,
+    get_redis_client,
 )
 from db import get_db
 from models import User, UserIdentity, TeamInvite, TeamMember, Team, utc_now
@@ -85,7 +87,18 @@ async def _create_user_with_team(
 
 
 def _create_session_cookie(user: User, settings: Settings) -> RedirectResponse:
-    jwt_token = jwt.encode({"alg": "HS256"}, {"sub": user.id}, settings.secret_key)
+    now = utc_now()
+    expires_at = now + timedelta(days=30)
+    jwt_token = jwt.encode(
+        {"alg": "HS256"},
+        {
+            "sub": user.id,
+            "type": "auth_token",
+            "iat": int(now.timestamp()),
+            "exp": int(expires_at.timestamp()),
+        },
+        settings.secret_key,
+    )
     jwt_token_str = (
         jwt_token.decode("utf-8") if isinstance(jwt_token, bytes) else jwt_token
     )
@@ -97,6 +110,7 @@ def _create_session_cookie(user: User, settings: Settings) -> RedirectResponse:
         samesite="lax",
         secure=(settings.url_scheme == "https"),
         path="/",
+        max_age=30 * 24 * 60 * 60,
     )
     return response
 
@@ -106,6 +120,7 @@ async def auth_login(
     request: Request,
     settings: Settings = Depends(get_settings),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis_client),
 ):
     try:
         current_user = await get_current_user(request, db, settings)
@@ -131,11 +146,14 @@ async def auth_login(
                 status_code=303,
                 request=request,
             )
-        expires_at = utc_now() + timedelta(minutes=15)
+        expires_at = utc_now() + timedelta(seconds=settings.magic_link_ttl_seconds)
+        jti = secrets.token_urlsafe(32)
         token_payload = {
             "email": email,
             "exp": int(expires_at.timestamp()),
+            "iat": int(utc_now().timestamp()),
             "type": "email_login",
+            "jti": jti,
         }
         magic_token = jwt.encode({"alg": "HS256"}, token_payload, settings.secret_key)
         magic_token_str = (
@@ -153,6 +171,25 @@ async def auth_login(
         resend.api_key = settings.resend_api_key
 
         try:
+            await redis.setex(
+                f"magic_link:email_login:{jti}",
+                settings.magic_link_ttl_seconds,
+                "1",
+            )
+        except Exception as e:
+            logger.error(f"Failed to store magic link token: {str(e)}")
+            flash(
+                request,
+                _(
+                    "Uh oh, something went wrong. We couldn't generate a login link. Please try again.",
+                ),
+                "error",
+            )
+            return RedirectResponseX(
+                request.url_for("auth_login"), status_code=303, request=request
+            )
+
+        try:
             resend.Emails.send(
                 {
                     "from": f"{settings.email_sender_name} <{settings.email_sender_address}>",
@@ -163,6 +200,9 @@ async def auth_login(
                             "request": request,
                             "email": email,
                             "verify_link": verify_link,
+                            "magic_link_ttl_minutes": max(
+                                1, settings.magic_link_ttl_seconds // 60
+                            ),
                             "email_logo": settings.email_logo
                             or request.url_for("assets", path="logo-email.png"),
                             "app_name": settings.app_name,
@@ -216,7 +256,9 @@ async def auth_email_verify(
     token: str,
     settings: Settings = Depends(get_settings),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis_client),
 ):
+    token_type = None
     try:
         current_user = None
         try:
@@ -224,10 +266,25 @@ async def auth_email_verify(
         except HTTPException:
             pass
 
-        payload = jwt.decode(token, settings.secret_key)
+        payload = decode_jwt_claims(token, settings)
         token_type = payload.get("type")
 
         if token_type == "email_login":
+            jti = payload.get("jti")
+            if not jti:
+                raise HTTPException(status_code=400, detail="Invalid token")
+            key = f"magic_link:email_login:{jti}"
+            try:
+                seen = await redis.get(key)
+                if not seen:
+                    raise HTTPException(status_code=400, detail="Invalid token")
+                await redis.delete(key)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Failed to validate magic link token: {str(e)}")
+                raise HTTPException(status_code=400, detail="Invalid token")
+
             if current_user:
                 flash(
                     request,
@@ -263,6 +320,21 @@ async def auth_email_verify(
             return _create_session_cookie(user, settings)
 
         elif token_type == "email_change":
+            jti = payload.get("jti")
+            if not jti:
+                raise HTTPException(status_code=400, detail="Invalid token")
+            key = f"magic_link:email_change:{jti}"
+            try:
+                seen = await redis.get(key)
+                if not seen:
+                    raise HTTPException(status_code=400, detail="Invalid token")
+                await redis.delete(key)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Failed to validate magic link token: {str(e)}")
+                raise HTTPException(status_code=400, detail="Invalid token")
+
             user_id = payload.get("user_id")
             new_email = payload.get("new_email")
 
@@ -360,6 +432,11 @@ async def auth_email_verify(
             raise HTTPException(status_code=400, detail="Invalid token type")
 
     except Exception:
+        logger.error(
+            "Auth email verify failed",
+            extra={"token_type": token_type},
+            exc_info=True,
+        )
         flash(request, _("Invalid or expired invitation."), "error")
         return RedirectResponse("/", status_code=303)
 

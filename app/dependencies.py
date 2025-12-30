@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from authlib.jose import jwt
 from functools import lru_cache
 import humanize
-from datetime import datetime
+from datetime import datetime, timezone
 from redis.asyncio import Redis
 from arq.connections import ArqRedis
 
@@ -97,7 +97,7 @@ async def get_google_user_info(oauth_client: OAuth, token: dict) -> dict | None:
             return None
 
         response = await oauth_client.google.get(
-            "https://www.googleapis.com/oauth2/v2/userinfo", token=token
+            "https://www.googleapis.com/oauth2/v1/userinfo", token=token
         )
         return response.json()
     except Exception:
@@ -133,13 +133,13 @@ async def get_current_user(
             return None
 
     try:
-        data = jwt.decode(session, settings.secret_key)
+        data = decode_jwt_claims(session, settings, required_type="auth_token")
         user_id = data["sub"]
     except Exception:
         if redirect_on_fail:
             raise HTTPException(
                 status.HTTP_303_SEE_OTHER,
-                headers={"Location": "/auth/login"},
+                headers={"Location": "/auth/logout"},
                 detail="Authentication required",
             )
         else:
@@ -151,12 +151,44 @@ async def get_current_user(
         if redirect_on_fail:
             raise HTTPException(
                 status.HTTP_303_SEE_OTHER,
-                headers={"Location": "/auth/login"},
+                headers={"Location": "/auth/logout"},
+                detail="Authentication required",
+            )
+        else:
+            return None
+    issued_at = datetime.fromtimestamp(int(data["iat"]), tz=timezone.utc).replace(
+        tzinfo=None
+    )
+    if user.tokens_invalid_before and issued_at < user.tokens_invalid_before:
+        if redirect_on_fail:
+            raise HTTPException(
+                status.HTTP_303_SEE_OTHER,
+                headers={"Location": "/auth/logout"},
                 detail="Authentication required",
             )
         else:
             return None
     return user
+
+
+def decode_jwt_claims(
+    token: str,
+    settings: Settings,
+    required_type: str | None = None,
+    leeway_seconds: int = 60,
+):
+    claims = jwt.decode(
+        token,
+        settings.secret_key,
+        claims_options={
+            "exp": {"essential": True},
+            "iat": {"essential": True},
+        },
+    )
+    claims.validate(leeway=leeway_seconds)
+    if required_type and claims.get("type") != required_type:
+        raise ValueError("Invalid token type")
+    return claims
 
 
 def get_translation(key: str, **kwargs) -> str:

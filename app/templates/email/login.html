@@ -128,7 +128,7 @@
                                   <div style="border: 1px solid #e5e5e5; border-radius: 14px; color: #0a0a0a; padding: 24px;">
                                     <img src="{{ email_logo }}" height="24" width="24" style="display: block; margin-bottom: 16px;" />
                                     <h1 style="color: #0a0a0a; font-size: 24px; font-weight: 600; margin: 0 0 12px;">{{ _('Sign in to %(app_name)s', app_name=app_name) }}</h1>
-                                    <p style="color: #0a0a0a; margin: 0 0 16px;">{{ _('Click the button below to sign in to %(app_name)s with %(email)s. This link will expire in 15 minutes.', app_name=app_name, email=email) }}</p>
+                                    <p style="color: #0a0a0a; margin: 0 0 16px;">{{ _('Click the button below to sign in to %(app_name)s with %(email)s. This link will expire in %(minutes)s minute%(plural)s.', app_name=app_name, email=email, minutes=magic_link_ttl_minutes, plural='' if magic_link_ttl_minutes == 1 else 's') }}</p>
                                     <a href="{{ verify_link }}" style="display: inline-block; background: #0a0a0a; color: #fafafa; padding: 8px 16px; border-radius: 8px; font-weight: 500; text-decoration: none;">{{ _('Sign in to %(app_name)s', app_name=app_name) }}</a>
                                     <p style="color: #0a0a0a; margin: 24px 0 8px;">{{ _('You can also paste this URL into your browser:') }}</p>
                                     <p style="color: #0a0a0a; word-break: break-all;">{{ verify_link }}</p>
