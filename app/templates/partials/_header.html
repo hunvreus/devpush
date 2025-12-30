@@ -120,8 +120,9 @@
 
 		<nav class="flex items-center gap-x-2" aria-label="User menu">
 			{% if current_user and is_superadmin(current_user) %}
-				<a href="{{ url_for('admin_settings') }}" class="btn-sm-icon-ghost rounded-full max-sm:hidden">
+				<a href="{{ url_for('admin_settings') }}" class="btn-sm-ghost max-sm:hidden">
 					{% include "icons/settings.svg" %}
+					Admin
 				</a>
 			{% endif %}
 			
@@ -130,7 +131,7 @@
 			{% endset %}
 			{% call dropdown_menu(
 				trigger=trigger,
-				trigger_attrs={"class": "btn-sm-icon-ghost rounded-full max-sm:hidden"},
+				trigger_attrs={"class": "btn-sm-icon-ghost max-sm:hidden"},
 				popover_attrs={"data-align": "end"}
 			) %}
 				<a href="https://devpu.sh/docs" target="_blank" role="menuitem">

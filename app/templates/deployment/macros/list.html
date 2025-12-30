@@ -70,10 +70,10 @@
         </a>
 
         <a
-          class="flex items-center gap-x-2 hover:text-foreground transition-colors text-muted-foreground min-w-0 [&>svg]:opacity-50 [&>svg]:dark:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0 max-sm:hidden"
+          class="flex items-center gap-x-2 hover:text-foreground transition-colors text-muted-foreground min-w-0 [&>svg]:opacity-50 [&>svg]:dark:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0 max-sm:hidden max-w-1/2"
           href="https://github.com/{{ deployment.repo_full_name }}/commit/{{ deployment.commit_sha }}"
           target="_blank"
-          data-tooltip="{{ _('Commit ({sha})', sha=deployment.commit_sha[:7]) }}"
+          data-tooltip="{{ _('Commit (%(sha)s)', sha=deployment.commit_sha[:7]) }}"
         >
           {% include "icons/git-commit-horizontal.svg" %}
           <span class="truncate">{{ deployment.commit_meta.message }}</span>

@@ -1,14 +1,13 @@
 ## Now
 
-- [ ] **PHP support**: Add a runner with PHP-FPM and FrankenPHP.
 - [ ] **Database**: Allow users to create SQLite databases and make them available to projects/environments.
+- [ ] **Storage**: Persistent storage (volumes) per project/environment. Support 3rd party storage (S3, R2, Cloudinary).
+- [ ] **Monitoring**: Add Prometheus to track I/O, network, memory, CPU, etc. Add dashboard.
 
 ## Next
 
 - [ ] **Cancel and skip**: Allow users to cancel ongoing deployments, skip deployments on rapid commits.
 - [ ] **Dependency caching**: Add caching for dependencies (i.e. volumes for .venv, node_modules, etc) per project.
-- [ ] **Storage**: Persistent storage (volumes) per project/environment. Support 3rd party storage (S3, R2, Cloudinary).
-- [ ] **Monitoring**: Add Prometheus to track I/O, network, memory, CPU, etc. Add dashboard.
 - [ ] **Better error logging**: improve error logging for deployments (e.g., when errors aren't captured by Loki, like a worker-arq crash).
 - [ ] **Remote nodes**: Ability to add multiple remote nodes to deploy apps.
 - [ ] **Deployment settings**: Provide more granular rules for deployments (triggers, # concurrent events, commit author, etc).
