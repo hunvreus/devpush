@@ -1,0 +1,126 @@
+{% set webhook_event_labels = {
+  "started": _("Deployment started"),
+  "succeeded": _("Deployment succeeded"),
+  "failed": _("Deployment failed"),
+  "canceled": _("Deployment canceled"),
+} %}
+
+<form method="post"
+  action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='webhooks') }}"
+  hx-post="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='webhooks') }}"
+  hx-swap="outerHTML" x-data="{ changed: false }"
+  hx-on::before-request="document.activeElement && document.activeElement.blur()"
+  @input="changed = true"
+  @change="changed = true"
+  hx-indicator="next .htmx-indicator" class="card">
+  {{ webhooks_form.csrf_token(id=False) }}
+  <header class="border-b">
+    <h2>{{ _('Webhooks') }}</h2>
+    <p>{{ _('Receive HTTP notifications when deployment events occur.') }}</p>
+  </header>
+
+  <section class="space-y-6">
+    <div class="space-y-2">
+      <label for="webhook_url" class="label">{{ _('Webhook URL') }}</label>
+      <input
+        type="url"
+        name="webhook_url"
+        id="webhook_url"
+        value="{{ webhooks_form.webhook_url.data or '' }}"
+        placeholder="https://example.com/webhooks/devpush"
+        class="w-full"
+        {% if webhooks_form.webhook_url.errors %}aria-invalid="true"{% endif %}
+      />
+      {% for error in webhooks_form.webhook_url.errors %}
+        <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+      <p class="text-muted-foreground text-sm">{{ _('We\'ll send a POST request to this URL when selected events occur.') }}</p>
+    </div>
+
+    <div class="space-y-2">
+      <label for="webhook_secret" class="label">{{ _('Secret (optional)') }}</label>
+      <input
+        type="text"
+        name="webhook_secret"
+        id="webhook_secret"
+        value="{{ webhooks_form.webhook_secret.data or '' }}"
+        placeholder="{{ _('Enter a secret to sign webhook payloads') }}"
+        class="w-full font-mono"
+        {% if webhooks_form.webhook_secret.errors %}aria-invalid="true"{% endif %}
+      />
+      {% for error in webhooks_form.webhook_secret.errors %}
+        <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+      <p class="text-muted-foreground text-sm">{{ _('If provided, we\'ll sign payloads with HMAC-SHA256. Verify using the X-DevPush-Signature header.') }}</p>
+    </div>
+
+    <div class="space-y-2">
+      <span class="label">{{ _('Events') }}</span>
+      <p class="text-muted-foreground text-sm mb-3">{{ _('Select which events should trigger the webhook.') }}</p>
+      <div class="space-y-2">
+        {% for event_id, event_label in webhook_event_labels.items() %}
+          <label class="flex items-center gap-x-2 cursor-pointer">
+            <input
+              type="checkbox"
+              name="webhook_events"
+              value="{{ event_id }}"
+              {% if event_id in webhook_events %}checked{% endif %}
+            />
+            <span>{{ event_label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if webhooks_form.webhook_url.data %}
+      <div class="space-y-2">
+        <span class="label">{{ _('Payload format') }}</span>
+        <div class="bg-muted rounded-lg p-4 overflow-x-auto">
+          <pre class="text-sm font-mono text-muted-foreground"><code>{
+  "event": "deployment.succeeded",
+  "timestamp": "2025-01-01T12:00:00Z",
+  "project": {
+    "id": "{{ project.id }}",
+    "name": "{{ project.name }}",
+    "slug": "{{ project.slug }}",
+    "repo_full_name": "{{ project.repo_full_name }}"
+  },
+  "deployment": {
+    "id": "abc123...",
+    "status": "completed",
+    "conclusion": "succeeded",
+    "branch": "main",
+    "commit_sha": "abc123...",
+    "commit_message": "...",
+    "commit_author": "...",
+    "environment": {
+      "id": "prod",
+      "name": "Production",
+      "slug": "production"
+    },
+    "trigger": "webhook",
+    "url": "https://...",
+    "created_at": "...",
+    "concluded_at": "..."
+  }
+}</code></pre>
+        </div>
+        <p class="text-muted-foreground text-sm">{{ _('Headers: X-DevPush-Event, X-DevPush-Delivery, X-DevPush-Signature (if secret is set).') }}</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <footer class="flex justify-end gap-x-2">
+    <button type="button" class="btn-sm-ghost"
+      hx-get="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='webhooks') }}"
+      hx-target="closest form" hx-swap="outerHTML" :disabled="!changed">{{ _('Cancel') }}</button>
+    <button class="btn-sm" :disabled="!changed">{{ _('Save') }}</button>
+  </footer>
+</form>
+
+<div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
+  <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+    {% include "icons/loader.svg" %}
+    {{ _('Saving') }}
+  </div>
+</div>

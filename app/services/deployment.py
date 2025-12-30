@@ -10,7 +10,8 @@ from arq.jobs import Job
 
 from models import Deployment, Alias, Project, User, Domain
 from utils.environment import get_environment_for_branch
-from config import Settings
+from config import Settings, get_settings
+from services.webhook import send_deployment_webhook
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +258,22 @@ class DeploymentService:
                 fields,
             )
             await redis_client.xadd(f"stream:project:{project.id}:updates", fields)
+
+            # Send webhook notification for deployment canceled
+            try:
+                settings = get_settings()
+                await send_deployment_webhook(
+                    project=project,
+                    deployment=deployment,
+                    event="canceled",
+                    url_scheme=settings.url_scheme,
+                    deploy_domain=settings.deploy_domain,
+                    db=db,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Webhook delivery failed for deployment {deployment.id}: {e}"
+                )
         else:
             logger.error(f"Error aborting deployment {deployment.id}.")
             raise Exception("Error aborting deployment.")
