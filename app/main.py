@@ -54,13 +54,37 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     lifespan=lifespan,
     middleware=[
-        Middleware(SessionMiddleware, secret_key=settings.secret_key),
+        Middleware(
+            SessionMiddleware,
+            secret_key=settings.secret_key,
+            https_only=(settings.url_scheme == "https"),
+            same_site="lax",
+            max_age=settings.auth_token_ttl_days * 24 * 60 * 60,
+        ),
         Middleware(CSRFProtectMiddleware, csrf_secret=settings.secret_key),
     ],
 )
 app.mount("/assets", CachedStaticFiles(directory="assets"), name="assets")
 os.makedirs(settings.upload_dir, exist_ok=True)
 app.mount("/upload", StaticFiles(directory=settings.upload_dir), name="upload")
+
+
+@app.middleware("http")
+async def refresh_auth_cookie(request: Request, call_next):
+    """Sets auth cookie if dependency flagged refresh."""
+    response = await call_next(request)
+    refresh = getattr(request.state, "auth_cookie_refresh", None)
+    if refresh:
+        response.set_cookie(
+            "auth_token",
+            refresh["value"],
+            httponly=True,
+            samesite="lax",
+            secure=(settings.url_scheme == "https"),
+            path="/",
+            max_age=refresh["max_age"],
+        )
+    return response
 
 
 @app.get("/health")

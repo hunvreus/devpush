@@ -13,13 +13,13 @@ from sqlalchemy.orm import selectinload
 from authlib.jose import jwt
 from functools import lru_cache
 import humanize
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from redis.asyncio import Redis
 from arq.connections import ArqRedis
 
 from config import get_settings, Settings
 from db import get_db
-from models import User, Project, Deployment, Team, TeamMember
+from models import User, Project, Deployment, Team, TeamMember, utc_now
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 
@@ -126,7 +126,10 @@ async def get_current_user(
         if redirect_on_fail:
             raise HTTPException(
                 status.HTTP_303_SEE_OTHER,
-                headers={"Location": "/auth/login"},
+                headers={
+                    "Location": "/auth/login",
+                    "Set-Cookie": _clear_auth_cookie_header(settings),
+                },
                 detail="Authentication required",
             )
         else:
@@ -139,7 +142,10 @@ async def get_current_user(
         if redirect_on_fail:
             raise HTTPException(
                 status.HTTP_303_SEE_OTHER,
-                headers={"Location": "/auth/logout"},
+                headers={
+                    "Location": "/auth/login",
+                    "Set-Cookie": _clear_auth_cookie_header(settings),
+                },
                 detail="Authentication required",
             )
         else:
@@ -151,7 +157,10 @@ async def get_current_user(
         if redirect_on_fail:
             raise HTTPException(
                 status.HTTP_303_SEE_OTHER,
-                headers={"Location": "/auth/logout"},
+                headers={
+                    "Location": "/auth/login",
+                    "Set-Cookie": _clear_auth_cookie_header(settings),
+                },
                 detail="Authentication required",
             )
         else:
@@ -159,15 +168,22 @@ async def get_current_user(
     issued_at = datetime.fromtimestamp(int(data["iat"]), tz=timezone.utc).replace(
         tzinfo=None
     )
+    expires_at = datetime.fromtimestamp(int(data["exp"]), tz=timezone.utc).replace(
+        tzinfo=None
+    )
     if user.tokens_invalid_before and issued_at < user.tokens_invalid_before:
         if redirect_on_fail:
             raise HTTPException(
                 status.HTTP_303_SEE_OTHER,
-                headers={"Location": "/auth/logout"},
+                headers={
+                    "Location": "/auth/login",
+                    "Set-Cookie": _clear_auth_cookie_header(settings),
+                },
                 detail="Authentication required",
             )
         else:
             return None
+    _refresh_auth_token(request, settings, user_id, expires_at)
     return user
 
 
@@ -177,18 +193,69 @@ def decode_jwt_claims(
     required_type: str | None = None,
     leeway_seconds: int = 60,
 ):
+    claims_options = {
+        "exp": {"essential": True},
+        "iat": {"essential": True},
+    }
+    if required_type == "auth_token":
+        claims_options.update(
+            {
+                "iss": {"essential": True, "value": settings.auth_token_issuer},
+                "aud": {"essential": True, "value": settings.auth_token_audience},
+            }
+        )
     claims = jwt.decode(
         token,
         settings.secret_key,
-        claims_options={
-            "exp": {"essential": True},
-            "iat": {"essential": True},
-        },
+        claims_options=claims_options,
     )
     claims.validate(leeway=leeway_seconds)
     if required_type and claims.get("type") != required_type:
         raise ValueError("Invalid token type")
     return claims
+
+
+def _clear_auth_cookie_header(settings: Settings) -> str:
+    secure = "Secure; " if settings.url_scheme == "https" else ""
+    return (
+        "auth_token=; "
+        "Path=/; "
+        "Max-Age=0; "
+        "HttpOnly; "
+        "SameSite=Lax; "
+        f"{secure}"
+    )
+
+
+def _refresh_auth_token(
+    request: Request,
+    settings: Settings,
+    user_id: int,
+    expires_at: datetime,
+):
+    if settings.auth_token_refresh_threshold_days <= 0:
+        return
+    refresh_threshold = timedelta(days=settings.auth_token_refresh_threshold_days)
+    if expires_at - utc_now() > refresh_threshold:
+        return
+    now = utc_now()
+    new_exp = now + timedelta(days=settings.auth_token_ttl_days)
+    new_token = jwt.encode(
+        {"alg": "HS256"},
+        {
+            "sub": user_id,
+            "type": "auth_token",
+            "iat": int(now.timestamp()),
+            "exp": int(new_exp.timestamp()),
+            "iss": settings.auth_token_issuer,
+            "aud": settings.auth_token_audience,
+        },
+        settings.secret_key,
+    )
+    request.state.auth_cookie_refresh = {
+        "value": new_token,
+        "max_age": settings.auth_token_ttl_days * 24 * 60 * 60,
+    }
 
 
 def get_translation(key: str, **kwargs) -> str:

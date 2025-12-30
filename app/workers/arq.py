@@ -29,5 +29,6 @@ class WorkerSettings:
     max_jobs = 8
     job_timeout = settings.job_timeout
     job_completion_wait = settings.job_completion_wait
+    max_tries = settings.job_max_tries
     health_check_interval = 65  # Greater than 60s to avoid health check timeout
     allow_abort_jobs = True

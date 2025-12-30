@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     login_header: str = ""
     toaster_header: str = ""
     magic_link_ttl_seconds: int = 900
+    auth_token_ttl_days: int = 30
+    auth_token_refresh_threshold_days: int = 1
+    auth_token_issuer: str = "devpush-app"
+    auth_token_audience: str = "devpush-web"
+    job_max_tries: int = 3
     server_ip: str = "127.0.0.1"
 
     model_config = SettingsConfigDict(extra="ignore")

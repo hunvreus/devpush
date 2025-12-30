@@ -147,8 +147,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | `DEFAULT_MEMORY_MB` | Default memory limit (MB) per deployment. No limit if not provided. |
 | `MAX_MEMORY_MB` | Maximum allowed memory override per project. Used only when `DEFAULT_MEMORY_MB` is set. Required to let user customize memory. |
 | `JOB_TIMEOUT` | Job timeout (seconds). Default: `320`. |
+| `JOB_MAX_TRIES` | Max retries per background job. Default: `3`. |
 | `DEPLOYMENT_TIMEOUT` | Deployment timeout (seconds). Default: `300`. |
 | `LOG_LEVEL` | Logging level. Default: `WARNING`. |
+| `MAGIC_LINK_TTL_SECONDS` | Magic link validity (seconds). Default: `900`. |
+| `AUTH_TOKEN_TTL_DAYS` | Auth cookie/JWT lifetime (days). Default: `30`. |
+| `AUTH_TOKEN_REFRESH_THRESHOLD_DAYS` | Refresh auth token when expiring within N days. Default: `1`. |
+| `AUTH_TOKEN_ISSUER` | JWT issuer for auth_token. Default: `devpush-app`. |
+| `AUTH_TOKEN_AUDIENCE` | JWT audience for auth_token. Default: `devpush-web`. |
 
 ## Support the project 
 

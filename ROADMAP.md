@@ -12,6 +12,7 @@
 - [ ] **Better error logging**: improve error logging for deployments (e.g., when errors aren't captured by Loki, like a worker-arq crash).
 - [ ] **Remote nodes**: Ability to add multiple remote nodes to deploy apps.
 - [ ] **Deployment settings**: Provide more granular rules for deployments (triggers, # concurrent events, commit author, etc).
+- [ ] **Rate limiting**: Add Traefik protections for auth + sensitive endpoints (env-flagged).
 
 ## Later
 

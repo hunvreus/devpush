@@ -88,7 +88,7 @@ async def _create_user_with_team(
 
 def _create_session_cookie(user: User, settings: Settings) -> RedirectResponse:
     now = utc_now()
-    expires_at = now + timedelta(days=30)
+    expires_at = now + timedelta(days=settings.auth_token_ttl_days)
     jwt_token = jwt.encode(
         {"alg": "HS256"},
         {
@@ -96,6 +96,8 @@ def _create_session_cookie(user: User, settings: Settings) -> RedirectResponse:
             "type": "auth_token",
             "iat": int(now.timestamp()),
             "exp": int(expires_at.timestamp()),
+            "iss": settings.auth_token_issuer,
+            "aud": settings.auth_token_audience,
         },
         settings.secret_key,
     )
@@ -110,7 +112,7 @@ def _create_session_cookie(user: User, settings: Settings) -> RedirectResponse:
         samesite="lax",
         secure=(settings.url_scheme == "https"),
         path="/",
-        max_age=30 * 24 * 60 * 60,
+        max_age=settings.auth_token_ttl_days * 24 * 60 * 60,
     )
     return response
 
