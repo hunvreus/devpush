@@ -83,7 +83,7 @@ class DeploymentService:
             "DEVPUSH_PROJECT_ID": project.id,
             "DEVPUSH_ENVIRONMENT": environment.get("slug") or deployment.environment_id,
             "DEVPUSH_DEPLOYMENT_ID": deployment.id,
-            "DEVPUSH_DEPLOYMENT_CREATED_AT": deployment.created_at.isoformat(),
+            "DEVPUSH_DEPLOYMENT_CREATED_AT": deployment.created_at.isoformat() + "Z",
             "DEVPUSH_GIT_PROVIDER": "github",
             "DEVPUSH_GIT_REPO": deployment.repo_full_name,
             "DEVPUSH_GIT_REF": deployment.branch,
