@@ -135,14 +135,15 @@ endset %}
                 href="{{ url_for('admin_settings') }}"
                 class="btn-sm-icon-ghost max-sm:hidden"
                 data-tooltip="{{ _('Admin settings') }}"
+                data-side="bottom"
             >
                 {% include "icons/settings.svg" %}
             </a>
             {% endif %} {% set trigger %} {% include
             "icons/circle-question-mark.svg" %} {% endset %} {% call
             dropdown_menu( trigger=trigger, trigger_attrs={"class":
-            "btn-sm-icon-ghost max-sm:hidden"}, popover_attrs={"data-align":
-            "end"} ) %}
+            "btn-sm-icon-ghost max-sm:hidden", "data-tooltip": _('Help'),
+            "data-side": "bottom"}, popover_attrs={"data-align": "end"} ) %}
             <a href="https://devpu.sh/docs" target="_blank" role="menuitem">
                 {{ _('Documentation') }}
                 <span class="ml-auto text-muted-foreground [&>svg]:size-3">
@@ -175,7 +176,8 @@ endset %}
             current_user.username, class="!rounded-full", fallback=fallback) }}
             {% endset %} {% call dropdown_menu( trigger=trigger,
             trigger_attrs={"class": "btn-icon-sm-ghost rounded-full shrink-0 p-0
-            border-0"}, popover_attrs={"data-align": "end"} ) %}
+            border-0", "data-tooltip": _('Account'), "data-side": "bottom"},
+            popover_attrs={"data-align": "end"} ) %}
             <header class="px-2.5 py-1.5">
                 <div class="font-medium">
                     {{ current_user.name if current_user.name else
