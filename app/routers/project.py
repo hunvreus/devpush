@@ -1,69 +1,73 @@
-from fastapi import APIRouter, Depends, Request, Query
+import logging
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
 import httpx
-from fastapi.responses import Response, RedirectResponse
+from arq.connections import ArqRedis
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import RedirectResponse, Response
+from redis.asyncio import Redis
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from datetime import datetime, timedelta, timezone
-from redis.asyncio import Redis
-from arq.connections import ArqRedis
-from urllib.parse import urlparse, parse_qs
-import logging
-import os
-from typing import Any
 
+from config import Settings, get_settings
+from db import get_db
 from dependencies import (
-    get_current_user,
-    get_project_by_name,
-    get_deployment_by_id,
-    get_team_by_slug,
-    get_github_service,
-    get_redis_client,
-    get_job_queue,
-    flash,
-    get_translation as _,
-    TemplateResponse,
     RedirectResponseX,
-    get_role,
+    TemplateResponse,
+    flash,
     get_access,
+    get_current_user,
+    get_deployment_by_id,
     get_github_installation_service,
+    get_github_service,
+    get_job_queue,
+    get_project_by_name,
+    get_redis_client,
+    get_role,
+    get_team_by_slug,
 )
-from models import (
-    Project,
-    Deployment,
-    Domain,
-    User,
-    Team,
-    TeamMember,
-    utc_now,
+from dependencies import (
+    get_translation as _,
 )
 from forms.project import (
     NewProjectForm,
-    ProjectDeployForm,
-    ProjectDeleteForm,
-    ProjectGeneralForm,
-    ProjectEnvVarsForm,
-    ProjectEnvironmentForm,
-    ProjectDeleteEnvironmentForm,
     ProjectBuildAndProjectDeployForm,
     ProjectCancelDeploymentForm,
-    ProjectRollbackDeploymentForm,
+    ProjectDeleteEnvironmentForm,
+    ProjectDeleteForm,
+    ProjectDeployForm,
     ProjectDomainForm,
+    ProjectEnvironmentForm,
+    ProjectEnvVarsForm,
+    ProjectGeneralForm,
     ProjectRemoveDomainForm,
-    ProjectVerifyDomainForm,
     ProjectResourcesForm,
+    ProjectRollbackDeploymentForm,
+    ProjectVerifyDomainForm,
 )
-from config import get_settings, Settings
-from db import get_db
-from services.github import GitHubService
-from services.github_installation import GitHubInstallationService
+from models import (
+    Deployment,
+    Domain,
+    Project,
+    Team,
+    TeamMember,
+    User,
+    utc_now,
+)
 from services.deployment import DeploymentService
 from services.domain import DomainService
-from utils.project import get_latest_projects, get_latest_deployments
-from utils.team import get_latest_teams
-from utils.pagination import paginate
-from utils.environment import group_branches_by_environment, get_environment_for_branch
+from services.github import GitHubService
+from services.github_installation import GitHubInstallationService
+from services.project_detection import detect_project_settings
 from utils.color import COLORS
+from utils.environment import get_environment_for_branch, group_branches_by_environment
+from utils.pagination import paginate
+from utils.project import get_latest_deployments, get_latest_projects
+from utils.team import get_latest_teams
 from utils.user import get_user_github_token
 
 logger = logging.getLogger(__name__)
@@ -125,6 +129,28 @@ async def new_project_details(
         form.repo_id.data = int(repo_id)
         form.name.data = repo_name
         form.production_branch.data = repo_default_branch
+
+        try:
+            github_oauth_token = await get_user_github_token(db, current_user)
+            if github_oauth_token:
+                detected = await detect_project_settings(
+                    github_service,
+                    github_oauth_token,
+                    int(repo_id),
+                    repo_default_branch,
+                )
+                if detected.preset:
+                    form.preset.data = detected.preset
+                if detected.image:
+                    form.image.data = detected.image
+                if detected.build_command:
+                    form.build_command.data = detected.build_command
+                if detected.start_command:
+                    form.start_command.data = detected.start_command
+                if detected.pre_deploy_command:
+                    form.pre_deploy_command.data = detected.pre_deploy_command
+        except Exception:
+            logger.warning("Failed to detect project settings", exc_info=True)
 
     if request.method == "POST" and await form.validate_on_submit():
         try:
