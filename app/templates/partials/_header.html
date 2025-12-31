@@ -1,229 +1,256 @@
-{% from "macros/dropdown-menu.html" import dropdown_menu %}
-{% from "macros/avatar.html" import avatar with context %}
-{% from "macros/dialog.html" import dialog %}
-{% call dialog(
-	title=_("New team"),
-	description=_("Create a new team to manage your projects."),
-	id="dialog-new-team",
-	trigger_attrs={"role": "menuitem"},
-	dialog_attrs={"class": "w-full max-w-xl"},
-	body_attrs={"class": "space-y-4"}
-) %}
-	<div hx-get="{{ url_for('new_team') }}" hx-trigger="toggle from:closest dialog once"
-		class="min-h-[114px] relative">
-		<div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80">
-			<div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
-				{% include "icons/loader.svg" %}
-				{{ _('Saving') }}
-			</div>
-		</div>
-	</div>
-{% endcall %}
-{% set trigger %}{% include "icons/chevrons-up-down.svg" %}{% endset %}
-<header class="sticky top-0 bg-background z-20 border-b px-8 flex flex-col gap-y-2">
-	<div class="flex items-center justify-between gap-x-4 h-16">
-		<nav class="flex items-center gap-x-1.5 sm:gap-x-2.5">
-			<a
-				href="/"
-				class="w-6 h-8 shrink-0 flex items-center justify-center [&>svg]:size-6"
-				aria-label="{{ app_name }}" 
-				x-boost="true"
-			>
-				<svg width="120" height="120" viewBox="0 0 120 120" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-					<path d="M39.9265 17L16.5652 103.791H0L23.3612 17H39.9265Z" />
-					<path
-						d="M81.7018 98.5804L71.6494 88.5988L92.6037 67.6445H47.1555V52.9198H92.6037L71.6494 31.9655L81.7018 21.9839L120 60.2822L81.7018 98.5804Z" />
-				</svg>
-			</a>
+{% from "macros/dropdown-menu.html" import dropdown_menu %} {% from
+"macros/avatar.html" import avatar with context %} {% from "macros/dialog.html"
+import dialog %} {% call dialog( title=_("New team"), description=_("Create a
+new team to manage your projects."), id="dialog-new-team",
+trigger_attrs={"role": "menuitem"}, dialog_attrs={"class": "w-full max-w-xl"},
+body_attrs={"class": "space-y-4"} ) %}
+<div
+    hx-get="{{ url_for('new_team') }}"
+    hx-trigger="toggle from:closest dialog once"
+    class="min-h-[114px] relative"
+>
+    <div
+        class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80"
+    >
+        <div
+            class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin"
+        >
+            {% include "icons/loader.svg" %} {{ _('Saving') }}
+        </div>
+    </div>
+</div>
+{% endcall %} {% set trigger %}{% include "icons/chevrons-up-down.svg" %}{%
+endset %}
+<header
+    class="sticky top-0 bg-background z-20 border-b px-8 flex flex-col gap-y-2"
+>
+    <div class="flex items-center justify-between gap-x-4 h-16">
+        <nav class="flex items-center gap-x-1.5 sm:gap-x-2.5">
+            <a
+                href="/"
+                class="w-6 h-8 shrink-0 flex items-center justify-center [&>svg]:size-6"
+                aria-label="{{ app_name }}"
+                x-boost="true"
+            >
+                <svg
+                    width="120"
+                    height="120"
+                    viewBox="0 0 120 120"
+                    fill="currentColor"
+                    xmlns="http://www.w3.org/2000/svg"
+                >
+                    <path
+                        d="M39.9265 17L16.5652 103.791H0L23.3612 17H39.9265Z"
+                    />
+                    <path
+                        d="M81.7018 98.5804L71.6494 88.5988L92.6037 67.6445H47.1555V52.9198H92.6037L71.6494 31.9655L81.7018 21.9839L120 60.2822L81.7018 98.5804Z"
+                    />
+                </svg>
+            </a>
 
-			{% if current_user %}
-				{% if team %}
-					<div class="text-muted-foreground/25 text-xl">/</div>
-					<div class="flex items-center">
-						<a
-							href="{{ url_for('team_index', team_slug=team.slug) }}"
-							class="btn-sm-ghost pl-2 {% if project or deployment %}pr-2{% endif %}"
-							hx-boost="true"
-						>
-							{{ avatar(item=team, prefix="team", name=team.name, size="xs") }}
-							<span {% if project or deployment %}class="max-sm:hidden"{% endif %}>{{ team.name }}</span>
-						</a>
-						{% call dropdown_menu(
-							trigger=trigger,
-							trigger_attrs={"class": "btn-sm-ghost text-muted-foreground w-6"},
-							popover_attrs={"data-align": "start"}
-						) %}
-						{% include "partials/_menu-teams.html" %}
-						{% endcall %}
-					</div>
-				{% endif %}
+            {% if current_user %} {% if team %}
+            <div class="text-muted-foreground/25 text-xl">/</div>
+            <div class="flex items-center">
+                <a
+                    href="{{ url_for('team_index', team_slug=team.slug) }}"
+                    class="btn-sm-ghost pl-2 {% if project or deployment %}pr-2{% endif %}"
+                    hx-boost="true"
+                >
+                    {{ avatar(item=team, prefix="team", name=team.name,
+                    size="xs") }}
+                    <span
+                        {%
+                        if
+                        project
+                        or
+                        deployment
+                        %}class="max-sm:hidden"
+                        {%
+                        endif
+                        %}
+                        >{{ team.name }}</span
+                    >
+                </a>
+                {% call dropdown_menu( trigger=trigger, trigger_attrs={"class":
+                "btn-sm-ghost text-muted-foreground w-6"},
+                popover_attrs={"data-align": "start"} ) %} {% include
+                "partials/_menu-teams.html" %} {% endcall %}
+            </div>
+            {% endif %} {% if project %}
+            <div class="text-muted-foreground/25 text-xl">/</div>
 
-				{% if project %}
-					<div class="text-muted-foreground/25 text-xl">/</div>
+            <div class="flex items-center">
+                <a
+                    href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}"
+                    class="btn-sm-ghost pl-2 {% if deployment %}pr-2{% endif %}"
+                    hx-boost="true"
+                >
+                    {% from "macros/avatar.html" import avatar with context %}
+                    {{ avatar(item=project, prefix="project", name=project.name,
+                    size="xs") }}
+                    <span {% if deployment %}class="max-sm:hidden" {% endif %}
+                        >{{ project.name }}</span
+                    >
+                </a>
+                {% call dropdown_menu( trigger=trigger, trigger_attrs={"class":
+                "btn-sm-ghost text-muted-foreground w-6"},
+                popover_attrs={"data-align": "start"} ) %} {% include
+                "partials/_menu-projects.html" %} {% endcall %}
+            </div>
+            {% endif %} {% if deployment %}
+            <div class="text-muted-foreground/25 text-xl">/</div>
 
-					<div class="flex items-center">
-						<a
-							href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}"
-							class="btn-sm-ghost pl-2 {% if deployment %}pr-2{% endif %}"
-							hx-boost="true"
-						>
-							{% from "macros/avatar.html" import avatar with context %}
-							{{ avatar(item=project, prefix="project", name=project.name, size="xs") }}
-							<span {% if deployment %}class="max-sm:hidden"{% endif %}>{{ project.name }}</span>
-						</a>
-						{% call dropdown_menu(
-							trigger=trigger,
-							trigger_attrs={"class": "btn-sm-ghost text-muted-foreground w-6"},
-							popover_attrs={"data-align": "start"}
-						) %}
-							{% include "partials/_menu-projects.html" %}
-						{% endcall %}
-					</div>
-				{% endif %}
+            <div class="flex items-center">
+                <a
+                    href="{{ url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+                    class="btn-sm-ghost"
+                    hx-boost="true"
+                >
+                    {% from "deployment/macros/status.html" import status %} {{
+                    status( conclusion=deployment.conclusion, compact=True,
+                    attrs={ 'data-deployment-status': deployment.id } ) }}
+                    <span class="font-mono text-[13px]"
+                        >{{ deployment.id[:7] }}</span
+                    >
+                </a>
+                {% call dropdown_menu( trigger=trigger, trigger_attrs={"class":
+                "btn-sm-ghost text-muted-foreground w-6"},
+                popover_attrs={"data-align": "start"} ) %} {% include
+                "partials/_menu-deployments.html" %} {% endcall %}
+            </div>
 
-				{% if deployment %}
-					<div class="text-muted-foreground/25 text-xl">/</div>
+            <div
+                hx-ext="sse"
+                sse-connect="{{ url_for('project_event', team_id=team.id, project_id=project.id) }}"
+                sse-close="sse:stream_closed"
+            >
+                <div sse-swap="deployment_status_update"></div>
+            </div>
+            {% endif %} {% endif %}
+        </nav>
 
-					<div class="flex items-center">
-						<a
-							href="{{ url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
-							class="btn-sm-ghost"
-							hx-boost="true"
-						>
-							{% from "deployment/macros/status.html" import status %}
-							{{ status(
-								conclusion=deployment.conclusion,
-								compact=True,
-								attrs={ 'data-deployment-status': deployment.id }
-							) }}
-							<span class="font-mono text-[13px]">{{ deployment.id[:7] }}</span>
-						</a>
-						{% call dropdown_menu(
-							trigger=trigger,
-							trigger_attrs={"class": "btn-sm-ghost text-muted-foreground w-6"},
-							popover_attrs={"data-align": "start"}
-						) %}
-							{% include "partials/_menu-deployments.html" %}
-						{% endcall %}
-					</div>
+        <nav class="flex items-center gap-x-2" aria-label="User menu">
+            {% if current_user and is_superadmin(current_user) %}
+            <a
+                href="{{ url_for('admin_settings') }}"
+                class="btn-sm-icon-ghost max-sm:hidden"
+                data-tooltip="{{ _('Admin settings') }}"
+            >
+                {% include "icons/settings.svg" %}
+            </a>
+            {% endif %} {% set trigger %} {% include
+            "icons/circle-question-mark.svg" %} {% endset %} {% call
+            dropdown_menu( trigger=trigger, trigger_attrs={"class":
+            "btn-sm-icon-ghost max-sm:hidden"}, popover_attrs={"data-align":
+            "end"} ) %}
+            <a href="https://devpu.sh/docs" target="_blank" role="menuitem">
+                {{ _('Documentation') }}
+                <span class="ml-auto text-muted-foreground [&>svg]:size-3">
+                    {% include "icons/external-link.svg" %}
+                </span>
+            </a>
+            <a href="https://devpu.sh/chat" target="_blank" role="menuitem">
+                {{ _('Chat') }}
+                <span class="ml-auto text-muted-foreground [&>svg]:size-3">
+                    {% include "icons/external-link.svg" %}
+                </span>
+            </a>
+            {% endcall %} {% if current_user %}
+            <div
+                hx-get="{{ url_for('user_notifications') }}"
+                hx-trigger="load"
+                hx-swap="outerHTML"
+            >
+                {% from "user/macros/notifications.html" import notifications
+                with context %} {{ notifications() }}
+            </div>
+            {% set trigger %} {% set fallback %}
+            <img
+                src="https://unavatar.io/{{ current_user.email }}?fallback=https://avatar.vercel.sh/{{ current_user.email }}?size=120"
+                alt="{{ current_user.email }}"
+                class="size-8 rounded-full shrink-0"
+            />
+            {% endset %} {{ avatar(item=current_user, prefix="user",
+            name=current_user.name if current_user.name else
+            current_user.username, class="!rounded-full", fallback=fallback) }}
+            {% endset %} {% call dropdown_menu( trigger=trigger,
+            trigger_attrs={"class": "btn-icon-sm-ghost rounded-full shrink-0 p-0
+            border-0"}, popover_attrs={"data-align": "end"} ) %}
+            <header class="px-2.5 py-1.5">
+                <div class="font-medium">
+                    {{ current_user.name if current_user.name else
+                    current_user.username }}
+                </div>
+                <div class="text-muted-foreground">
+                    {{ current_user.email }}
+                </div>
+            </header>
 
-					<div
-						hx-ext="sse"
-						sse-connect="{{ url_for('project_event', team_id=team.id, project_id=project.id) }}"
-						sse-close="sse:stream_closed"
-					>
-						<div sse-swap="deployment_status_update"></div>
-					</div>
-				{% endif %}
-			{% endif %}
-		</nav>
+            <hr role="separator" />
 
-		<nav class="flex items-center gap-x-2" aria-label="User menu">
-			{% if current_user and is_superadmin(current_user) %}
-				<a href="{{ url_for('admin_settings') }}" class="btn-sm-ghost max-sm:hidden">
-					{% include "icons/settings.svg" %}
-					Admin
-				</a>
-			{% endif %}
-			
-			{% set trigger %}
-				{% include "icons/circle-question-mark.svg" %}
-			{% endset %}
-			{% call dropdown_menu(
-				trigger=trigger,
-				trigger_attrs={"class": "btn-sm-icon-ghost max-sm:hidden"},
-				popover_attrs={"data-align": "end"}
-			) %}
-				<a href="https://devpu.sh/docs" target="_blank" role="menuitem">
-					{{ _('Documentation') }}
-					<span class="ml-auto text-muted-foreground [&>svg]:size-3">
-						{% include "icons/external-link.svg" %}
-					</span>
-				</a>
-				<a href="https://devpu.sh/chat" target="_blank" role="menuitem">
-					{{ _('Chat') }}
-					<span class="ml-auto text-muted-foreground [&>svg]:size-3">
-						{% include "icons/external-link.svg" %}
-					</span>
-				</a>
-			{% endcall %}
-			
-			{% if current_user %}
-				<div
-					hx-get="{{ url_for('user_notifications') }}"
-					hx-trigger="load"
-					hx-swap="outerHTML"
-				>
-					{% from "user/macros/notifications.html" import notifications with context %}
-					{{ notifications() }}
-				</div>
-				{% set trigger %}
-					{% set fallback %}
-						<img
-							src="https://unavatar.io/{{ current_user.email }}?fallback=https://avatar.vercel.sh/{{ current_user.email }}?size=120"
-							alt="{{ current_user.email }}"
-							class="size-8 rounded-full shrink-0"
-						>
-					{% endset %}
-					{{ avatar(item=current_user, prefix="user", name=current_user.name if current_user.name else current_user.username, class="!rounded-full", fallback=fallback) }}
-				{% endset %}
-				{% call dropdown_menu(
-					trigger=trigger,
-					trigger_attrs={"class": "btn-icon-sm-ghost rounded-full shrink-0 p-0 border-0"},
-					popover_attrs={"data-align": "end"}
-				) %}
-					<header class="px-2.5 py-1.5">
-						<div class="font-medium">{{ current_user.name if current_user.name else current_user.username }}</div>
-						<div class="text-muted-foreground">{{ current_user.email }}</div>
-					</header>
-					
-					<hr role="separator" />
-					
-					<a href="{{ url_for('user_settings') }}" role="menuitem" hx-boost="true">{{ _('Account settings') }}</a>
-					<a href="/" role="menuitem" hx-boost="true">{{ _('Default team') }}</a>
-					
-					<hr role="separator" />
+            <a
+                href="{{ url_for('user_settings') }}"
+                role="menuitem"
+                hx-boost="true"
+                >{{ _('Account settings') }}</a
+            >
+            <a href="/" role="menuitem" hx-boost="true"
+                >{{ _('Default team') }}</a
+            >
 
-					<button
-						type="button"
-						role="menuitem"
-						onclick="document.dispatchEvent(new CustomEvent('basecoat:theme'))"
-					>
-						<span class="hidden dark:block">{{ _('Theme: Light') }}</span>
-						<span class="block dark:hidden">{{ _('Theme: Dark') }}</span>
-						<span class="hidden dark:block ml-auto text-muted-foreground">{% include "icons/sun.svg" %}</span>
-						<span class="block dark:hidden ml-auto text-muted-foreground">{% include "icons/moon.svg" %}</span>
-					</button>
+            <hr role="separator" />
 
-					<hr role="separator" class="sm:hidden" />
+            <button
+                type="button"
+                role="menuitem"
+                onclick="document.dispatchEvent(new CustomEvent('basecoat:theme'))"
+            >
+                <span class="hidden dark:block">{{ _('Theme: Light') }}</span>
+                <span class="block dark:hidden">{{ _('Theme: Dark') }}</span>
+                <span class="hidden dark:block ml-auto text-muted-foreground"
+                    >{% include "icons/sun.svg" %}</span
+                >
+                <span class="block dark:hidden ml-auto text-muted-foreground"
+                    >{% include "icons/moon.svg" %}</span
+                >
+            </button>
 
-					<a href="https://devpu.sh/docs" target="_blank" role="menuitem" class="sm:hidden">
-						{{ _('Documentation') }}
-						<span class="ml-auto text-muted-foreground [&>svg]:size-3">
-							{% include "icons/external-link.svg" %}
-						</span>
-					</a>
-					<a href="https://devpu.sh/chat" target="_blank" role="menuitem" class="sm:hidden">
-						{{ _('Chat') }}
-						<span class="ml-auto text-muted-foreground [&>svg]:size-3">
-							{% include "icons/external-link.svg" %}
-						</span>
-					</a>
+            <hr role="separator" class="sm:hidden" />
 
-					<hr role="separator" />
-					
-					<a href="{{ url_for('auth_logout') }}" role="menuitem">
-						{{ _('Sign out') }}
-					</a>
-				{% endcall %}
-			{% endif %}
-		</nav>
-	</div>
+            <a
+                href="https://devpu.sh/docs"
+                target="_blank"
+                role="menuitem"
+                class="sm:hidden"
+            >
+                {{ _('Documentation') }}
+                <span class="ml-auto text-muted-foreground [&>svg]:size-3">
+                    {% include "icons/external-link.svg" %}
+                </span>
+            </a>
+            <a
+                href="https://devpu.sh/chat"
+                target="_blank"
+                role="menuitem"
+                class="sm:hidden"
+            >
+                {{ _('Chat') }}
+                <span class="ml-auto text-muted-foreground [&>svg]:size-3">
+                    {% include "icons/external-link.svg" %}
+                </span>
+            </a>
 
-	{% if request.scope["route"].name.startswith("project_") %}
-		{% include "partials/_tabs-project.html" %}
-	{% endif %}
-	{% if request.scope["route"].name.startswith("team_") %}
-		{% include "partials/_tabs-team.html" %}
-	{% endif %}
+            <hr role="separator" />
+
+            <a href="{{ url_for('auth_logout') }}" role="menuitem">
+                {{ _('Sign out') }}
+            </a>
+            {% endcall %} {% endif %}
+        </nav>
+    </div>
+
+    {% if request.scope["route"].name.startswith("project_") %} {% include
+    "partials/_tabs-project.html" %} {% endif %} {% if
+    request.scope["route"].name.startswith("team_") %} {% include
+    "partials/_tabs-team.html" %} {% endif %}
 </header>
