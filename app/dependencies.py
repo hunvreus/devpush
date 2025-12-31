@@ -1,25 +1,28 @@
-from fastapi import Request, Depends, HTTPException, status
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+
+import humanize
+from arq.connections import ArqRedis
+from authlib.integrations.starlette_client import OAuth
+from authlib.jose import jwt
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.responses import (
     RedirectResponse as FastAPIRedirect,
+)
+from fastapi.responses import (
     Response as FastAPIResponse,
 )
-from starlette.background import BackgroundTask
-from authlib.integrations.starlette_client import OAuth
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from authlib.jose import jwt
-from functools import lru_cache
-import humanize
-from datetime import datetime, timezone, timedelta
-from redis.asyncio import Redis
-from arq.connections import ArqRedis
+from starlette.background import BackgroundTask
 
-from config import get_settings, Settings
+from config import Settings, get_settings
 from db import get_db
-from models import User, Project, Deployment, Team, TeamMember, utc_now
+from models import Deployment, Project, Team, TeamMember, User, utc_now
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 
@@ -184,6 +187,7 @@ async def get_current_user(
         else:
             return None
     _refresh_auth_token(request, settings, user_id, expires_at)
+
     return user
 
 
@@ -217,14 +221,7 @@ def decode_jwt_claims(
 
 def _clear_auth_cookie_header(settings: Settings) -> str:
     secure = "Secure; " if settings.url_scheme == "https" else ""
-    return (
-        "auth_token=; "
-        "Path=/; "
-        "Max-Age=0; "
-        "HttpOnly; "
-        "SameSite=Lax; "
-        f"{secure}"
-    )
+    return f"auth_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; {secure}"
 
 
 def _refresh_auth_token(
@@ -532,15 +529,12 @@ def TemplateResponse(
     media_type: str | None = None,
     background: BackgroundTask | None = None,
 ):
-    if request.headers.get("HX-Request"):
-        """Render template wrapped in fragment layout for HTMX"""
-        context = context or {}
+    context = context or {}
 
-        # Render the fragment template first
+    if request.headers.get("HX-Request"):
         template = templates.get_template(name)
         content = template.render(request=request, is_fragment=True, **context)
 
-        # Return wrapped in fragment layout
         return templates.TemplateResponse(
             request=request,
             name="layouts/fragment.html",
@@ -551,11 +545,10 @@ def TemplateResponse(
             background=background,
         )
     else:
-        """Regular template response"""
         return templates.TemplateResponse(
             request=request,
             name=name,
-            context=context or {},
+            context=context,
             status_code=status_code,
             headers=headers,
             media_type=media_type,

@@ -1,30 +1,34 @@
 from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from secrets import token_hex
+from typing import override
+
+from cryptography.fernet import Fernet
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
-    Enum as SQLAEnum,
-    JSON,
+    ForeignKey,
     String,
     Text,
-    ForeignKey,
     UniqueConstraint,
     event,
+    func,
     select,
     update,
-    func,
+)
+from sqlalchemy import (
+    Enum as SQLAEnum,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime, timezone, timedelta
-import json
-from secrets import token_hex
-from cryptography.fernet import Fernet
-from functools import lru_cache
-import re
-from typing import override
 
-from db import Base
 from config import get_settings
+from db import Base
 from utils.color import get_color
 from utils.log import parse_log
 

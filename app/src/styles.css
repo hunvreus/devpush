@@ -9,4 +9,5 @@
 @source inline("bg-muted");
 
 @import "basecoat-css";
-@import "./custom.css"
+@import "./themes/default.css";
+@import "./custom.css";
