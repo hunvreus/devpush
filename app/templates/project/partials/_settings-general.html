@@ -70,17 +70,6 @@
 
   <section class="space-y-6">
     <div class="space-y-3">
-      {{ general_form.name.label() }}
-      {{ general_form.name(
-        id=False,
-        class="input w-full"
-      ) }}
-      {% for error in general_form.name.errors %}
-        <p class="text-destructive text-sm">{{ error }}</p>
-      {% endfor %}
-    </div>
-
-    <div class="space-y-3">
       <label for="name">{{ _('Avatar') }}</label>
       {% from "macros/image-upload.html" import image_upload %}
       {% from "macros/avatar.html" import avatar with context %}
@@ -101,13 +90,24 @@
     </div>
 
     <div class="space-y-3">
+      {{ general_form.name.label() }}
+      {{ general_form.name(
+        id=False,
+        class="input w-full"
+      ) }}
+      {% for error in general_form.name.errors %}
+        <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+    </div>
+
+    <div class="space-y-3">
       <label for="name">{{ _("Git repository") }}</label>
       {{ general_form.repo_id(
         id=False,
         class_="hidden",
         **{":value": "repoId"}
       ) }}
-      <div class="flex items-center gap-x-2">
+      <div role="group" class="button-group">
         <button
           type="button"
           class="btn-outline font-normal px-3"
@@ -126,7 +126,7 @@
         <a
           :href="`https://github.com/${repoFullName}`"
           target="_blank"
-          class="btn-icon-ghost text-muted-foreground hover:text-foreground"
+          class="btn-icon-outline text-muted-foreground hover:text-foreground"
           data-tooltip="{{ _('View on GitHub') }}"
           aria-label="{{ _('View on GitHub') }}"
         >
@@ -136,6 +136,41 @@
       {% for error in general_form.repo_id.errors %}
         <p class="text-destructive text-sm">{{ error }}</p>
       {% endfor %}
+    </div>
+
+    <div class="space-y-3">
+      <label class="label">{{ _("Project ID") }}</label>
+      <div class="relative">
+        <input
+          type="text"
+          class="input w-full font-mono text-[13px] text-foreground/50 pr-9"
+          value="{{ project.id }}"
+          readonly
+        />
+        <button
+          type="button"
+          class="group absolute right-1.5 top-1/2 -translate-y-1/2 btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-6 btn-sm-ghost"
+          data-tooltip="{{ _('Copy') }}"
+          data-side="left"
+          onclick="
+            const button = this;
+            navigator.clipboard.writeText('{{ project.id }}').then(() => {
+              button.dataset.tooltip = '{{ _('Copied') }}';
+              button.dataset.copied = 'true';
+              setTimeout(() => {
+                button.dataset.tooltip = '{{ _('Copy') }}';
+                delete button.dataset.copied;
+              }, 2000);
+            }).catch(err => {
+              console.error('Failed to copy text: ', err);
+            });
+          "
+        >
+          <span class="block group-data-copied:hidden">{% include "icons/copy.svg" %}</span>
+          <span class="hidden group-data-copied:block">{% include "icons/check.svg" %}</span>
+        </button>
+      </div>
+      <p class="text-muted-foreground text-sm">{{ _("A unique identifier used in API, environment variables, etc.") }}</p>
     </div>
   </section>
 

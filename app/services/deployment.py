@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import logging
 from datetime import datetime, timezone
@@ -18,6 +19,157 @@ logger = logging.getLogger(__name__)
 class DeploymentService:
     def __init__(self):
         pass
+
+    def get_alias_domains(
+        self, deployment: Deployment, settings: Settings
+    ) -> dict[str, str]:
+        project = deployment.project
+        values: dict[str, str] = {}
+
+        if deployment.branch:
+            sanitized_branch = re.sub(r"[^a-zA-Z0-9-]", "-", deployment.branch).lower()
+            if sanitized_branch:
+                branch_subdomain = f"{project.slug}-branch-{sanitized_branch}"
+                values["branch_subdomain"] = branch_subdomain
+                values["branch_domain"] = f"{branch_subdomain}.{settings.deploy_domain}"
+                values["branch_url"] = (
+                    f"{settings.url_scheme}://{values['branch_domain']}"
+                )
+
+        env_subdomain = None
+        if deployment.environment_id == "prod":
+            env_subdomain = project.slug
+        else:
+            environment = project.get_environment_by_id(deployment.environment_id)
+            if environment:
+                env_subdomain = f"{project.slug}-env-{environment.get('slug')}"
+            else:
+                logger.warning(
+                    "Environment %s not found for deployment %s",
+                    deployment.environment_id,
+                    deployment.id,
+                )
+
+        env_id_subdomain = f"{project.slug}-env-id-{deployment.environment_id}"
+
+        values["environment_id_subdomain"] = env_id_subdomain
+        values["environment_id_domain"] = f"{env_id_subdomain}.{settings.deploy_domain}"
+        values["environment_id_url"] = (
+            f"{settings.url_scheme}://{values['environment_id_domain']}"
+        )
+
+        if env_subdomain:
+            values["environment_subdomain"] = env_subdomain
+            values["environment_domain"] = f"{env_subdomain}.{settings.deploy_domain}"
+            values["environment_url"] = (
+                f"{settings.url_scheme}://{values['environment_domain']}"
+            )
+
+        return values
+
+    def build_runtime_env_vars(
+        self, deployment: Deployment, settings: Settings
+    ) -> dict[str, str]:
+        """Build runner environment variables for a deployment."""
+        env_vars = {var["key"]: var["value"] for var in (deployment.env_vars or [])}
+        project = deployment.project
+        environment = deployment.environment or {}
+
+        runtime_vars: dict[str, str] = {
+            "DEVPUSH": "true",
+            "DEVPUSH_URL": deployment.url,
+            "DEVPUSH_DOMAIN": deployment.hostname,
+            "DEVPUSH_TEAM_ID": project.team_id,
+            "DEVPUSH_PROJECT_ID": project.id,
+            "DEVPUSH_ENVIRONMENT": environment.get("slug") or deployment.environment_id,
+            "DEVPUSH_DEPLOYMENT_ID": deployment.id,
+            "DEVPUSH_DEPLOYMENT_CREATED_AT": deployment.created_at.isoformat(),
+            "DEVPUSH_GIT_PROVIDER": "github",
+            "DEVPUSH_GIT_REPO": deployment.repo_full_name,
+            "DEVPUSH_GIT_REF": deployment.branch,
+            "DEVPUSH_GIT_COMMIT_SHA": deployment.commit_sha,
+        }
+
+        if settings.server_ip:
+            runtime_vars["DEVPUSH_IP"] = settings.server_ip
+
+        alias_domains = self.get_alias_domains(deployment, settings)
+
+        if alias_domains.get("environment_domain"):
+            runtime_vars["DEVPUSH_DOMAIN_ENVIRONMENT"] = alias_domains[
+                "environment_domain"
+            ]
+        if alias_domains.get("environment_url"):
+            runtime_vars["DEVPUSH_URL_ENVIRONMENT"] = alias_domains["environment_url"]
+        if alias_domains.get("branch_domain"):
+            runtime_vars["DEVPUSH_DOMAIN_BRANCH"] = alias_domains["branch_domain"]
+        if alias_domains.get("branch_url"):
+            runtime_vars["DEVPUSH_URL_BRANCH"] = alias_domains["branch_url"]
+
+        if deployment.commit_meta:
+            author = deployment.commit_meta.get("author")
+            message = deployment.commit_meta.get("message")
+            if author:
+                runtime_vars["DEVPUSH_GIT_COMMIT_AUTHOR"] = author
+            if message:
+                runtime_vars["DEVPUSH_GIT_COMMIT_MESSAGE"] = message
+
+        if deployment.repo_full_name and "/" in deployment.repo_full_name:
+            owner, repo = deployment.repo_full_name.split("/", 1)
+            runtime_vars["DEVPUSH_GIT_REPO_OWNER"] = owner
+            runtime_vars["DEVPUSH_GIT_REPO_NAME"] = repo
+
+        for key, value in runtime_vars.items():
+            if value is not None and value != "":
+                env_vars.setdefault(key, str(value))
+
+        return env_vars
+
+    async def setup_aliases(
+        self, deployment: Deployment, db: AsyncSession, settings: Settings
+    ) -> None:
+        alias_domains = self.get_alias_domains(deployment, settings)
+        branch_subdomain = alias_domains.get("branch_subdomain")
+        env_subdomain = alias_domains.get("environment_subdomain")
+        env_id_subdomain = alias_domains.get("environment_id_subdomain")
+
+        if branch_subdomain:
+            try:
+                await Alias.update_or_create(
+                    db,
+                    subdomain=branch_subdomain,
+                    deployment_id=deployment.id,
+                    type="branch",
+                    value=deployment.branch,
+                )
+            except Exception as exc:
+                logger.warning("Failed to setup branch alias: %s", exc)
+
+        if env_subdomain:
+            try:
+                await Alias.update_or_create(
+                    db,
+                    subdomain=env_subdomain,
+                    deployment_id=deployment.id,
+                    type="environment",
+                    value=deployment.environment_id,
+                    environment_id=deployment.environment_id,
+                )
+            except Exception as exc:
+                logger.error("Failed to setup environment alias: %s", exc)
+
+        if env_id_subdomain:
+            try:
+                await Alias.update_or_create(
+                    db,
+                    subdomain=env_id_subdomain,
+                    deployment_id=deployment.id,
+                    type="environment_id",
+                    value=deployment.environment_id,
+                    environment_id=deployment.environment_id,
+                )
+            except Exception as exc:
+                logger.error("Failed to setup environment id alias: %s", exc)
 
     async def update_traefik_config(
         self,

@@ -20,22 +20,6 @@
 
   <section class="space-y-6">
     <div class="space-y-3">
-      {{ general_form.name.label(class="label") }}
-      {{ general_form.name(class="input w-full") }}
-      {% for error in general_form.name.errors %}
-      <p class="text-destructive text-sm">{{ error }}</p>
-      {% endfor %}
-    </div>
-
-    <div class="space-y-3">
-      {{ general_form.username.label(class="label") }}
-      {{ general_form.username(class="input w-full") }}
-      {% for error in general_form.username.errors %}
-      <p class="text-destructive text-sm">{{ error }}</p>
-      {% endfor %}
-    </div>
-
-    <div class="space-y-3">
       <label for="avatar" class="label">{{ _('Avatar') }}</label>
       {% from "macros/image-upload.html" import image_upload %}
 
@@ -67,6 +51,23 @@
         class="!rounded-full"
       ) }}
     </div>
+
+    <div class="space-y-3">
+      {{ general_form.name.label(class="label") }}
+      {{ general_form.name(class="input w-full") }}
+      {% for error in general_form.name.errors %}
+      <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+    </div>
+
+    <div class="space-y-3">
+      {{ general_form.username.label(class="label") }}
+      {{ general_form.username(class="input w-full") }}
+      {% for error in general_form.username.errors %}
+      <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+    </div>
+
   </section>
 
   <footer class="flex justify-end gap-x-2">

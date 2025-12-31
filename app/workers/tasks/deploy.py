@@ -1,4 +1,3 @@
-import re
 import asyncio
 from datetime import datetime, timezone
 import aiodocker
@@ -8,7 +7,7 @@ from sqlalchemy.orm import joinedload
 from typing import Any
 import shlex
 
-from models import Deployment, Alias
+from models import Deployment, Project
 from db import AsyncSessionLocal
 from dependencies import (
     get_redis_client,
@@ -47,7 +46,9 @@ async def deploy_start(ctx, deployment_id: str):
             deployment = (
                 await db.execute(
                     select(Deployment)
-                    .options(joinedload(Deployment.project))
+                    .options(
+                        joinedload(Deployment.project).joinedload(Project.team)
+                    )
                     .where(Deployment.id == deployment_id)
                 )
             ).scalar_one()
@@ -82,9 +83,9 @@ async def deploy_start(ctx, deployment_id: str):
                 )
 
                 # Prepare environment variables
-                env_vars_dict = {
-                    var["key"]: var["value"] for var in (deployment.env_vars or [])
-                }
+                env_vars_dict = DeploymentService().build_runtime_env_vars(
+                    deployment, settings
+                )
 
                 # Prepare commands
                 commands = []
@@ -103,7 +104,7 @@ async def deploy_start(ctx, deployment_id: str):
                     "git init -q && "
                     "printf '%s\n' "
                     "'#!/bin/sh' "
-                    "'case \"$1\" in *Username*) echo \"x-access-token\";; *) echo \"$DEVPUSH_GITHUB_TOKEN\";; esac' "
+                    '\'case "$1" in *Username*) echo "x-access-token";; *) echo "$DEVPUSH_GITHUB_TOKEN";; esac\' '
                     "> /tmp/devpush-git-askpass && "
                     "chmod 700 /tmp/devpush-git-askpass && "
                     "export GIT_ASKPASS=/tmp/devpush-git-askpass GIT_TERMINAL_PROMPT=0 && "
@@ -311,57 +312,7 @@ async def deploy_finalize(ctx, deployment_id: str):
                     f"Success: Deployment is available at {deployment.url}",
                 )
 
-            # Setup branch domains
-            # (won't prevent collisions, but good enough)
-            sanitized_branch = re.sub(r"[^a-zA-Z0-9-]", "-", deployment.branch).lower()
-            branch_subdomain = f"{deployment.project.slug}-branch-{sanitized_branch}"
-
-            try:
-                await Alias.update_or_create(
-                    db,
-                    subdomain=branch_subdomain,
-                    deployment_id=deployment.id,
-                    type="branch",
-                    value=deployment.branch,
-                )
-            except Exception as e:
-                logger.warning(f"{log_prefix} Failed to setup branch alias: {e}")
-
-            # Environment aliases
-            if deployment.environment_id == "prod":
-                env_subdomain = deployment.project.slug
-            else:
-                environment = deployment.project.get_environment_by_id(
-                    deployment.environment_id
-                )
-                env_subdomain = (
-                    f"{deployment.project.slug}-env-{environment.get('slug')}"
-                )
-            env_id_subdomain = (
-                f"{deployment.project.slug}-env-id-{deployment.environment_id}"
-            )
-
-            try:
-                await Alias.update_or_create(
-                    db,
-                    subdomain=env_subdomain,
-                    deployment_id=deployment.id,
-                    type="environment",
-                    value=deployment.environment_id,
-                    environment_id=deployment.environment_id,
-                )
-                await Alias.update_or_create(
-                    db,
-                    subdomain=env_id_subdomain,
-                    deployment_id=deployment.id,
-                    type="environment_id",
-                    value=deployment.environment_id,
-                    environment_id=deployment.environment_id,
-                )
-
-            except Exception as e:
-                logger.error(f"{log_prefix} Failed to setup environment alias: {e}")
-
+            await DeploymentService().setup_aliases(deployment, db, settings)
             await db.commit()
 
             # Update Traefik dynamic config
