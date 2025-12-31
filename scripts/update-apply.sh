@@ -151,7 +151,7 @@ fi
 full_update() {
   printf '\n'
   printf "Full stack update\n"
-  run_cmd "${CHILD_MARK} Building" "${COMPOSE_BASE[@]}" build
+  run_cmd "${CHILD_MARK} Building Docker images" "${COMPOSE_BASE[@]}" build
   run_cmd "${CHILD_MARK} Stopping stack" "${COMPOSE_BASE[@]}" down --remove-orphans
   run_cmd "${CHILD_MARK} Starting stack" "${COMPOSE_BASE[@]}" up -d --force-recreate --remove-orphans
   skip_components=1

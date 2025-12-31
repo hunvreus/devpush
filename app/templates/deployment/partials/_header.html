@@ -182,7 +182,7 @@
         class="flex items-center gap-x-2 text-muted-foreground hover:text-foreground transition-colors [&>svg]:opacity-50 [&>svg]:dark:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0"
         href="https://github.com/{{ deployment.repo_full_name }}/commit/{{ deployment.commit_sha }}"
         target="_blank"
-        data-tooltip="{{ _('Commit ({sha})', sha=deployment.commit_sha[:7]) }}"
+        data-tooltip="{{ _('Commit (%(sha)s)', sha=deployment.commit_sha[:7]) }}"
       >
         {% include "icons/git-commit-horizontal.svg" %}
         <span class="truncate">{{ deployment.commit_meta.message }}</span>
