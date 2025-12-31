@@ -1,4 +1,4 @@
-"""Add tokens invalid before
+"""Add tokens invalid before column to user table
 
 Revision ID: 31fe53421216
 Revises: 87a893d57c86

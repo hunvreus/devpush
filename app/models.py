@@ -189,6 +189,7 @@ class Team(Base):
 
     # Relationships
     projects: Mapped[list["Project"]] = relationship(back_populates="team")
+    databases: Mapped[list["Database"]] = relationship(back_populates="team")
     created_by_user: Mapped[User | None] = relationship(
         foreign_keys=[created_by_user_id]
     )
@@ -360,6 +361,9 @@ class Project(Base):
         foreign_keys=[created_by_user_id]
     )
     domains: Mapped[list["Domain"]] = relationship(back_populates="project")
+    database_associations: Mapped[list["ProjectDatabase"]] = relationship(
+        back_populates="project"
+    )
 
     __table_args__ = (UniqueConstraint("team_id", "name", name="uq_project_team_name"),)
 
@@ -604,6 +608,71 @@ def set_project_slug(mapper, connection, project):
             update(Project).where(Project.id == project.id).values(slug=new_slug)
         )
         project.slug = new_slug
+
+
+class Database(Base):
+    __tablename__: str = "database"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    status: Mapped[str] = mapped_column(
+        SQLAEnum("active", "deleted", name="database_status"),
+        nullable=False,
+        default="active",
+    )
+    size_limit_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user.id", use_alter=True, ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now, onupdate=utc_now
+    )
+    team_id: Mapped[str] = mapped_column(ForeignKey("team.id"), index=True)
+
+    # Relationships
+    team: Mapped["Team"] = relationship(back_populates="databases")
+    created_by_user: Mapped[User | None] = relationship(
+        foreign_keys=[created_by_user_id]
+    )
+    project_associations: Mapped[list["ProjectDatabase"]] = relationship(
+        back_populates="database"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("team_id", "name", name="uq_database_team_name"),
+    )
+
+    @override
+    def __repr__(self):
+        return f"<Database {self.name}>"
+
+
+class ProjectDatabase(Base):
+    __tablename__: str = "project_database"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("project.id"), index=True)
+    database_id: Mapped[int] = mapped_column(ForeignKey("database.id"), index=True)
+    environment_id: Mapped[str | None] = mapped_column(
+        String(8), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    # Relationships
+    project: Mapped["Project"] = relationship(back_populates="database_associations")
+    database: Mapped[Database] = relationship(back_populates="project_associations")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "environment_id",
+            "database_id",
+            name="uq_project_database_environment",
+        ),
+    )
 
 
 class Deployment(Base):
