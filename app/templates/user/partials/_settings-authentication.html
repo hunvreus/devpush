@@ -1,4 +1,5 @@
 {% from "macros/dropdown-menu.html" import dropdown_menu %}
+{% from "macros/dialog.html" import dialog %}
 
 <div class="card">
   <header class="border-b">
@@ -36,21 +37,27 @@
                 {% include "icons/external-link.svg" %}
               </span>
             </a>
-            <form
-              method="post"
-              action="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
-              hx-post="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
-              hx-target="closest .card"
-              hx-swap="outerHTML"
-              hx-indicator="next .htmx-indicator"
-              hx-confirm="{{ _('Are you sure you want to disconnect your GitHub account?') }}"
-            >
-              {{ revoke_oauth_access_form.csrf_token }}
-              <input type="hidden" name="provider" value="github">
-              <button role="menuitem" class="text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 focus:bg-destructive/10 dark:focus:bg-destructive/20 focus:text-destructive">
-                {{ _('Disconnect') }}
-              </button>
-            </form>
+            {% set trigger %}
+              {{ _('Disconnect') }}
+            {% endset %}
+            {% call dialog(
+              trigger=trigger,
+              title=_('Disconnect GitHub?'),
+              description=_('Are you sure you want to disconnect your GitHub account? You will need to reconnect it to sign in with GitHub.'),
+              trigger_attrs={"role": "menuitem", "class": "text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 focus:bg-destructive/10 dark:focus:bg-destructive/20 focus:text-destructive"},
+              dialog_attrs={"class": "max-w-md"},
+              cancel_label=_('Cancel'),
+              confirm_label=_('Disconnect'),
+              confirm_attrs={
+                "hx-post": url_for('user_settings').include_query_params(fragment='revoke_oauth_access'),
+                "hx-target": "closest .card",
+                "hx-swap": "outerHTML",
+                "hx-indicator": "next .htmx-indicator",
+                "hx-vals": '{"csrf_token": "' + revoke_oauth_access_form.csrf_token._value() + '", "provider": "github"}',
+                "@click": "$el.closest('dialog').close()"
+              }
+            ) %}
+            {% endcall %}
           {% endcall %}
         {% else %}
           <a class="btn-sm-outline ml-auto" href="{{ url_for('github_authorize').include_query_params(next='/settings#authentication') }}">
@@ -80,21 +87,27 @@
                 {% include "icons/external-link.svg" %}
               </span>
             </a>
-            <form
-              method="post"
-              action="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
-              hx-post="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
-              hx-target="closest .card"
-              hx-swap="outerHTML"
-              hx-indicator="next .htmx-indicator"
-              hx-confirm="{{ _('Are you sure you want to disconnect your Google account?') }}"
-            >
-              {{ revoke_oauth_access_form.csrf_token }}
-              <input type="hidden" name="provider" value="google">
-              <button role="menuitem" class="text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 focus:bg-destructive/10 dark:focus:bg-destructive/20 focus:text-destructive">
-                {{ _('Disconnect') }}
-              </button>
-            </form>
+            {% set trigger %}
+              {{ _('Disconnect') }}
+            {% endset %}
+            {% call dialog(
+              trigger=trigger,
+              title=_('Disconnect Google?'),
+              description=_('Are you sure you want to disconnect your Google account? You will need to reconnect it to sign in with Google.'),
+              trigger_attrs={"role": "menuitem", "class": "text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 focus:bg-destructive/10 dark:focus:bg-destructive/20 focus:text-destructive"},
+              dialog_attrs={"class": "max-w-md"},
+              cancel_label=_('Cancel'),
+              confirm_label=_('Disconnect'),
+              confirm_attrs={
+                "hx-post": url_for('user_settings').include_query_params(fragment='revoke_oauth_access'),
+                "hx-target": "closest .card",
+                "hx-swap": "outerHTML",
+                "hx-indicator": "next .htmx-indicator",
+                "hx-vals": '{"csrf_token": "' + revoke_oauth_access_form.csrf_token._value() + '", "provider": "google"}',
+                "@click": "$el.closest('dialog').close()"
+              }
+            ) %}
+            {% endcall %}
           {% endcall %}
         {% else %}
           <a class="btn-sm-outline ml-auto" href="{{ url_for('google_authorize').include_query_params(next='/settings#authentication') }}">

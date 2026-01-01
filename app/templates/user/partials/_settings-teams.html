@@ -1,76 +1,92 @@
-{% from "macros/avatar.html" import avatar with context %}
-{% set roles = {
-  "owner": _("Owner"),
-  "admin": _("Admin"),
-  "member": _("Member"),
-} %}
+{% from "macros/avatar.html" import avatar with context %} {% from
+"macros/dialog.html" import dialog %} {% set roles = { "owner": _("Owner"),
+"admin": _("Admin"), "member": _("Member"), } %}
 
 <div class="card">
-  <header class="border-b">
-    <h2>{{ _('Teams') }}</h2>
-    <p>{{ _('Manage the teams you are a member of.') }}</p>
-  </header>
+    <header class="border-b">
+        <h2>{{ _('Teams') }}</h2>
+        <p>{{ _('Manage the teams you are a member of.') }}</p>
+    </header>
 
-  <section class="space-y-6">
-    <div class="rounded-xl border relative overflow-x-auto">
-      <table class="table">
-        <thead>
-          <tr>
-            <th class="w-12"></th>
-            <th>{{ _('Name') }}</th>
-            <th class="max-sm:hidden">{{ _('Role') }}</th>
-            <th class="w-12"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for (team, role) in teams_and_roles %}
-            <tr>
-              <td class="pl-4">
-                {{ avatar(item=team, prefix="team", name=team.name, size="sm") }}
-              </td>
-              <td>
-                  <a href="{{ url_for('team_index', team_slug=team.slug) }}" class="font-medium">
-                    {{ team.name }}
-                  </a>
-                  {% if team.id == current_user.default_team_id %}
-                    <span class="badge-secondary ml-2">{{ _('Default') }}</span>
-                  {% endif %}
-              </td>
-              <td class="max-sm:hidden text-muted-foreground">{{ roles[role] }}</td>
-              <td class="w-full text-right">
-                {% if team.id != current_user.default_team_id %}
-                  <form
-                      method="post"
-                      action="{{ url_for('user_settings').include_query_params(fragment='teams') }}"
-                      hx-post="{{ url_for('user_settings').include_query_params(fragment='teams') }}"
-                      hx-swap="outerHTML"
-                      hx-target="closest .card"
-                      hx-indicator="next .htmx-indicator"
-                      hx-confirm="{{ _('Are you sure you want to leave the "%(team)s" team?', team=team.name) }}"
-                  >
-                      {{ leave_team_form.csrf_token }}
-                      {{ leave_team_form.team_id(value=team.id) }}
-                      <button type="submit" class="btn-sm-icon-ghost" aria-label="{{ _('Leave team') }}" data-tooltip="{{ _('Leave team') }}" data-align="end">
-                        {% include "icons/log-out.svg" %}
-                      </button>
-                  </form>
-                {% else %}
-                  <button type="button" class="btn-sm-icon-ghost" aria-label="{{ _('Leave team') }}" disabled>
-                    {% include "icons/log-out.svg" %}
-                  </button>
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
+    <section class="space-y-6">
+        <div class="rounded-xl border relative overflow-x-auto">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th class="w-12"></th>
+                        <th>{{ _('Name') }}</th>
+                        <th class="max-sm:hidden">{{ _('Role') }}</th>
+                        <th class="w-12"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for (team, role) in teams_and_roles %}
+                    <tr>
+                        <td class="pl-4">
+                            {{ avatar(item=team, prefix="team", name=team.name,
+                            size="sm") }}
+                        </td>
+                        <td>
+                            <a
+                                href="{{ url_for('team_index', team_slug=team.slug) }}"
+                                class="font-medium"
+                            >
+                                {{ team.name }}
+                            </a>
+                            {% if team.id == current_user.default_team_id %}
+                            <span class="badge-secondary ml-2"
+                                >{{ _('Default') }}</span
+                            >
+                            {% endif %}
+                        </td>
+                        <td class="max-sm:hidden text-muted-foreground">
+                            {{ roles[role] }}
+                        </td>
+                        <td class="w-full text-right">
+                            {% if team.id != current_user.default_team_id %} {%
+                            set trigger %} {% include "icons/log-out.svg" %} {%
+                            endset %} {% call dialog( trigger=trigger,
+                            title=_('Leave "%(team)s"?', team=team.name),
+                            description=_('Are you sure you want to leave this
+                            team? You will lose access to all projects within
+                            this team.'), trigger_attrs={ "class":
+                            "btn-sm-icon-ghost", "aria-label": _('Leave team'),
+                            "data-tooltip": _('Leave team'), "data-align": "end"
+                            }, dialog_attrs={"class": "max-w-md"},
+                            cancel_label=_('Cancel'), confirm_label=_('Leave
+                            Team'), confirm_attrs={ "hx-post":
+                            url_for('user_settings').include_query_params(fragment='teams'),
+                            "hx-target": "closest .card", "hx-swap":
+                            "outerHTML", "hx-indicator": "next .htmx-indicator",
+                            "hx-vals": '{"csrf_token": "' +
+                            leave_team_form.csrf_token._value() + '", "team_id":
+                            "' + team.id|string + '"}', "@click":
+                            "$el.closest('dialog').close()" } ) %} {% endcall %}
+                            {% else %}
+                            <button
+                                type="button"
+                                class="btn-sm-icon-ghost"
+                                aria-label="{{ _('Leave team') }}"
+                                disabled
+                            >
+                                {% include "icons/log-out.svg" %}
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 </div>
 
-<div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
-  <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
-    {% include "icons/loader.svg" %}
-    {{ _('Saving') }}
-  </div>
+<div
+    class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl"
+>
+    <div
+        class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin"
+    >
+        {% include "icons/loader.svg" %} {{ _('Saving') }}
+    </div>
 </div>
