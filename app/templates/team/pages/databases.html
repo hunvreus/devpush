@@ -1,0 +1,99 @@
+{% extends "layouts/app.html" %}
+
+{% block app_content %}
+{% from "macros/avatar.html" import avatar with context %}
+
+{% include "team/partials/_dialog-new-database.html" %}
+
+<div class="container max-w-screen-xl mx-auto p-8 space-y-6">
+  <header class="flex justify-between items-center">
+    <h1 class="h1 flex items-center gap-x-3">
+      <a href="{{ url_for('team_index', team_slug=team.slug) }}">
+        {% from "macros/avatar.html" import avatar with context %}
+        {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
+      {{ _("Databases") }}
+    </h1>
+
+    {% if databases %}
+      <button
+        type="button"
+        class="btn"
+        onclick="document.getElementById('dialog-new-database').showModal()"
+      >
+        {% include "icons/plus.svg" %}
+        {{ _("New database") }}
+      </button>
+    {% endif %}
+  </header>
+  
+  {% if databases %}
+  
+    <section class="space-y-4">
+      <ul>
+        {% for database in databases %}
+          <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
+            <a
+              href="{{ url_for('team_database', team_slug=team.slug, database_name=database.name) }}"
+              class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+              data-tooltip="{{ _('Name') }}"
+              hx-boost="true"
+            >
+              {% include "icons/database.svg" %}
+              <span class="truncate max-w-3xs">{{ database.name }}</span>
+            </a>
+
+            {% if database.projects %}
+              {% for project in database.projects %}
+                <a
+                  href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}"
+                  class="flex items-center gap-x-2 text-muted-foreground hover:text-foreground transition-colors min-w-0"
+                  data-tooltip="{{ _('Project') }}"
+                  hx-boost="true"
+                >
+                  {{ avatar(item=project, prefix="project", name=project.name, size="xs") }}
+                  <span class="truncate max-sm:hidden">{{ project.name }}</span>
+                </a>
+              {% endfor %}
+            {% else %}
+              <div class="flex items-center gap-x-2 text-muted-foreground whitespace-nowrap max-sm:hidden">
+                {{ _('No projects connected') }}
+              </div>
+            {% endif %}
+
+            <div class="flex items-center ml-auto">
+              <a
+                {# href="{{ url_for('database_settings', team_slug=team.slug, database_name=database.name) }}" #}
+                class="btn-sm-icon-ghost"
+                data-tooltip="{{ _('Settings') }}"
+              >
+                {% include "icons/settings.svg" %}
+              </a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% else %}
+    <section
+      class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
+      <div class="max-w-sm">
+        <div class="text-center">
+          <h2 class="h4">{{ _('No databases yet.') }}</h2>
+          <p class="text-muted-foreground mt-1">{{ _('Create a new SQLite database and connect it to projects.') }}
+          </p>
+          <button
+            type="button"
+            class="btn-sm mt-4"
+            onclick="document.getElementById('dialog-new-database').showModal()"
+          >
+            {% include "icons/plus.svg" %}
+            {{ _('New database') }}
+          </button>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

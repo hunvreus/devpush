@@ -1,0 +1,34 @@
+<form
+  method="post"
+  action="{{ url_for('team_new_database', team_slug=team.slug) }}"
+  hx-post="{{ url_for('team_new_database', team_slug=team.slug) }}"
+  hx-swap="outerHTML"
+  hx-indicator="find .htmx-indicator"
+  hx-disabled-elt="find button[type='submit']"
+  class="space-y-4"
+  x-data="{ name: '{{ form.name.data or "" }}' }"
+>
+  {{ form.csrf_token() }}
+  <div class="space-y-3">
+    {{ form.name.label(class="label") }}
+    {{ form.name(class="input w-full", **{"x-model": "name", "autofocus": "true"}) }}
+    {% for error in form.name.errors %}
+    <p class="text-destructive text-sm">{{ error }}</p>
+    {% endfor %}
+  </div>
+  <footer class="flex justify-end gap-x-2">
+    <button
+      type="button"
+      class="btn-ghost"
+      onclick="document.getElementById('dialog-new-database').close()"
+    >{{ _("Cancel") }}</button>
+    <button
+     type="submit"
+     class="btn group"
+     :disabled="!name.trim()"
+    >
+      {{ _('Create database') }}
+      <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
+    </button>
+  </footer>
+</form>

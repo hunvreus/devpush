@@ -86,7 +86,7 @@ if ((keep_docker==0)); then
   fi
 
   # Volumes
-  volumes=$(docker volume ls --filter "name=devpush" -q 2>/dev/null || true)
+  volumes=$(docker volume ls --filter "label=com.docker.compose.project=devpush" -q 2>/dev/null || true)
   if [[ -n "$volumes" ]]; then
     count=$(printf '%s\n' "$volumes" | wc -l | tr -d ' ')
     run_cmd --try "${CHILD_MARK} Removing volumes ($count found)" docker volume rm $volumes

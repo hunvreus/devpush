@@ -361,7 +361,7 @@ class Project(Base):
         foreign_keys=[created_by_user_id]
     )
     domains: Mapped[list["Domain"]] = relationship(back_populates="project")
-    database_associations: Mapped[list["ProjectDatabase"]] = relationship(
+    database_links: Mapped[list["ProjectDatabase"]] = relationship(
         back_populates="project"
     )
 
@@ -524,6 +524,10 @@ class Project(Base):
         environments = self.active_environments if active_only else self.environments
         return next((env for env in environments if env["slug"] == slug), None)
 
+    @property
+    def databases(self) -> list["Database"]:
+        return [link.database for link in self.database_links if link.database]
+
     async def get_domain_by_id(self, db: AsyncSession, domain_id: int) -> dict | None:
         """Get domain by ID"""
         result = await db.execute(
@@ -613,7 +617,9 @@ def set_project_slug(mapper, connection, project):
 class Database(Base):
     __tablename__: str = "database"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: token_hex(16)
+    )
     name: Mapped[str] = mapped_column(String(100), index=True)
     status: Mapped[str] = mapped_column(
         SQLAEnum("active", "deleted", name="database_status"),
@@ -637,7 +643,7 @@ class Database(Base):
     created_by_user: Mapped[User | None] = relationship(
         foreign_keys=[created_by_user_id]
     )
-    project_associations: Mapped[list["ProjectDatabase"]] = relationship(
+    project_links: Mapped[list["ProjectDatabase"]] = relationship(
         back_populates="database"
     )
 
@@ -649,21 +655,25 @@ class Database(Base):
     def __repr__(self):
         return f"<Database {self.name}>"
 
+    @property
+    def projects(self) -> list["Project"]:
+        return [link.project for link in self.project_links if link.project]
+
 
 class ProjectDatabase(Base):
     __tablename__: str = "project_database"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("project.id"), index=True)
-    database_id: Mapped[int] = mapped_column(ForeignKey("database.id"), index=True)
+    database_id: Mapped[str] = mapped_column(ForeignKey("database.id"), index=True)
     environment_id: Mapped[str | None] = mapped_column(
         String(8), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
     # Relationships
-    project: Mapped["Project"] = relationship(back_populates="database_associations")
-    database: Mapped[Database] = relationship(back_populates="project_associations")
+    project: Mapped["Project"] = relationship(back_populates="database_links")
+    database: Mapped["Database"] = relationship(back_populates="project_links")
 
     __table_args__ = (
         UniqueConstraint(

@@ -1,0 +1,44 @@
+{% extends "layouts/app.html" %}
+
+{% block app_content %}
+{% from "macros/avatar.html" import avatar with context %}
+
+<div class="container max-w-screen-xl mx-auto p-8 space-y-6">
+  <header class="flex justify-between items-center">
+    <h1 class="h1 flex items-center gap-x-3">
+      <a href="{{ url_for('team_databases', team_slug=team.slug) }}" class="shrink-0">
+        {% from "macros/avatar.html" import avatar with context %}
+        {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
+      <a href="{{ url_for('team_databases', team_slug=team.slug) }}">
+        {{ _('Databases') }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
+      {{ database.name }}
+    </h1>
+  </header>
+
+  <div class="flex flex-row-reverse gap-x-6">
+    <nav class="sticky top-[122px] min-w-64 h-full flex flex-col gap-y-1 max-lg:hidden">
+      <a href="#general" class="btn-sm-ghost justify-start">{{ _('General') }}</a>
+      <a href="#projects" class="btn-sm-ghost justify-start">{{ _('Projects') }}</a>
+      <a href="#danger" class="btn-sm-ghost justify-start text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20">{{ _('Danger') }}</a>
+    </nav>
+
+    <div class="space-y-6 w-full form">
+      <section class="relative rounded-xl scroll-mt-[101px]" id="general">
+        {% include "team/partials/_database-general.html" %}
+      </section>
+
+      <section class="relative rounded-xl scroll-mt-[101px]" id="projects">
+        {% include "team/partials/_database-associations.html" %}
+      </section>
+
+      <section class="relative rounded-xl scroll-mt-[101px]" id="danger">
+        {% include "team/partials/_database-danger.html" %}
+      </section>
+    </div>
+  </div>
+</div> 
+{% endblock %}

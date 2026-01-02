@@ -7,7 +7,7 @@ from starlette.background import BackgroundTask
 from authlib.integrations.starlette_client import OAuth
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from authlib.jose import jwt
@@ -19,7 +19,7 @@ from arq.connections import ArqRedis
 
 from config import get_settings, Settings
 from db import get_db
-from models import User, Project, Deployment, Team, TeamMember, utc_now
+from models import User, Project, Deployment, Team, TeamMember, Database, utc_now
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 
@@ -217,14 +217,7 @@ def decode_jwt_claims(
 
 def _clear_auth_cookie_header(settings: Settings) -> str:
     secure = "Secure; " if settings.url_scheme == "https" else ""
-    return (
-        "auth_token=; "
-        "Path=/; "
-        "Max-Age=0; "
-        "HttpOnly; "
-        "SameSite=Lax; "
-        f"{secure}"
-    )
+    return f"auth_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; {secure}"
 
 
 def _refresh_auth_token(
@@ -382,7 +375,7 @@ async def get_project_by_name(
     result = await db.execute(
         select(Project)
         .where(
-            Project.name == project_name,
+            func.lower(Project.name) == project_name.lower(),
             Project.team_id == team.id,
             Project.status != "deleted",
         )
@@ -435,6 +428,26 @@ async def get_deployment_by_id(
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
     return deployment
+
+
+async def get_database_by_name(
+    database_name: str,
+    db: AsyncSession = Depends(get_db),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+) -> Database:
+    team, membership = team_and_membership
+
+    result = await db.execute(
+        select(Database).where(
+            func.lower(Database.name) == database_name.lower(),
+            Database.team_id == team.id,
+            Database.status != "deleted",
+        )
+    )
+    database = result.scalar_one_or_none()
+    if not database:
+        raise HTTPException(status_code=404, detail="Database not found")
+    return database
 
 
 def is_superadmin(user: User) -> bool:
@@ -513,6 +526,8 @@ settings = get_settings()
 templates = Jinja2Templates(
     directory="templates", auto_reload=settings.env == "development"
 )
+if settings.env == "development":
+    templates.env.cache = {}
 templates.env.globals["_"] = get_translation
 templates.env.globals["app_name"] = settings.app_name
 templates.env.globals["app_description"] = settings.app_description

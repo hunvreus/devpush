@@ -11,7 +11,17 @@ from authlib.jose import jwt
 from datetime import timedelta
 import resend
 
-from models import Project, Deployment, User, Team, TeamMember, utc_now, TeamInvite
+from models import (
+    Project,
+    Deployment,
+    User,
+    Team,
+    TeamMember,
+    TeamInvite,
+    Database,
+    ProjectDatabase,
+    utc_now,
+)
 from dependencies import (
     get_current_user,
     get_team_by_slug,
@@ -22,6 +32,7 @@ from dependencies import (
     templates,
     get_role,
     get_access,
+    get_database_by_name,
 )
 from config import get_settings, Settings
 from db import get_db
@@ -34,6 +45,12 @@ from forms.team import (
     TeamAddMemberForm,
     TeamDeleteMemberForm,
     TeamMemberRoleForm,
+)
+from forms.database import (
+    DatabaseCreateForm,
+    DatabaseDeleteForm,
+    ProjectDatabaseCreateForm,
+    ProjectDatabaseDeleteForm,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,7 +81,7 @@ async def new_team(
 
     return TemplateResponse(
         request=request,
-        name="team/partials/_dialog-new-team.html",
+        name="team/partials/_dialog-new-team-form.html",
         context={"form": form},
     )
 
@@ -126,6 +143,10 @@ async def team_projects(
 ):
     team, membership = team_and_membership
 
+    latest_teams = await get_latest_teams(
+        db=db, current_user=current_user, current_team=team
+    )
+
     per_page = 25
 
     query = (
@@ -136,10 +157,6 @@ async def team_projects(
 
     pagination = await paginate(db, query, page, per_page)
 
-    latest_teams = await get_latest_teams(
-        db=db, current_user=current_user, current_team=team
-    )
-
     return TemplateResponse(
         request=request,
         name="team/pages/projects.html",
@@ -147,8 +164,343 @@ async def team_projects(
             "current_user": current_user,
             "team": team,
             "role": role,
+            "latest_teams": latest_teams,
             "projects": pagination.get("items"),
             "pagination": pagination,
+        },
+    )
+
+
+@router.get("/{team_slug}/databases", name="team_databases")
+async def team_databases(
+    request: Request,
+    page: int = Query(1, ge=1),
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+
+    latest_teams = await get_latest_teams(
+        db=db, current_user=current_user, current_team=team
+    )
+
+    per_page = 25
+
+    query = (
+        select(Database)
+        .where(Database.team_id == team.id, Database.status != "deleted")
+        .options(
+            selectinload(Database.project_links).selectinload(ProjectDatabase.project)
+        )
+        .order_by(Database.updated_at.desc())
+    )
+
+    pagination = await paginate(db, query, page, per_page)
+
+    projects = await db.execute(
+        select(Project)
+        .where(Project.team_id == team.id, Project.status != "deleted")
+        .order_by(Project.name.asc())
+    )
+    projects = projects.scalars().all()
+
+    return TemplateResponse(
+        request=request,
+        name="team/pages/databases.html",
+        context={
+            "current_user": current_user,
+            "team": team,
+            "role": role,
+            "latest_teams": latest_teams,
+            "databases": pagination.get("items"),
+            "pagination": pagination,
+            "projects": projects,
+        },
+    )
+
+
+@router.api_route(
+    "/{team_slug}/new-database", methods=["GET", "POST"], name="team_new_database"
+)
+async def team_new_database(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+
+    if not get_access(role, "admin"):
+        flash(
+            request,
+            _("You don't have permission to create databases."),
+            "warning",
+        )
+        return Response(status_code=403)
+
+    form: Any = await DatabaseCreateForm.from_formdata(request, db=db, team=team)
+
+    if request.method == "POST" and await form.validate_on_submit():
+        database = Database(
+            name=form.name.data,
+            team_id=team.id,
+            created_by_user_id=current_user.id,
+        )
+        db.add(database)
+        await db.commit()
+        flash(request, _("Database created."), "success")
+        if request.headers.get("HX-Request"):
+            return Response(
+                status_code=200,
+                headers={
+                    "HX-Redirect": str(
+                        request.url_for("team_databases", team_slug=team.slug)
+                    )
+                },
+            )
+        return RedirectResponse(
+            url=str(request.url_for("team_databases", team_slug=team.slug)),
+            status_code=303,
+        )
+
+    return TemplateResponse(
+        request=request,
+        name="team/partials/_dialog-new-database-form.html",
+        context={
+            "current_user": current_user,
+            "team": team,
+            "form": form,
+        },
+    )
+
+
+@router.api_route(
+    "/{team_slug}/databases/{database_name}",
+    methods=["GET", "POST"],
+    name="team_database",
+)
+async def team_database(
+    request: Request,
+    fragment: str | None = Query(None),
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    database: Database = Depends(get_database_by_name),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+
+    delete_form: Any = await DatabaseDeleteForm.from_formdata(request)
+
+    if request.method == "POST" and fragment == "danger":
+        if not get_access(role, "admin"):
+            flash(
+                request,
+                _("You don't have permission to delete databases."),
+                "warning",
+            )
+        elif await delete_form.validate_on_submit():
+            database.status = "deleted"
+            await db.commit()
+            flash(request, _("Database deleted."), "success")
+            return RedirectResponse(
+                url=str(request.url_for("team_databases", team_slug=team.slug)),
+                status_code=303,
+            )
+
+    projects_result = await db.execute(
+        select(Project)
+        .where(Project.team_id == team.id, Project.status != "deleted")
+        .order_by(Project.name.asc())
+    )
+    projects = projects_result.scalars().all()
+
+    associations_result = await db.execute(
+        select(ProjectDatabase)
+        .join(Project)
+        .where(
+            ProjectDatabase.database_id == database.id,
+            Project.team_id == team.id,
+            Project.status != "deleted",
+        )
+        .options(selectinload(ProjectDatabase.project))
+        .order_by(Project.name.asc())
+    )
+    associations = associations_result.scalars().all()
+
+    create_association_form: Any = await ProjectDatabaseCreateForm.from_formdata(
+        request, database=database, projects=projects, associations=associations
+    )
+    delete_association_form: Any = await ProjectDatabaseDeleteForm.from_formdata(
+        request, associations=associations
+    )
+
+    if request.method == "POST" and fragment == "association":
+        if not get_access(role, "admin"):
+            flash(
+                request,
+                _("You don't have permission to update database associations."),
+                "warning",
+            )
+        elif await create_association_form.validate_on_submit():
+            association = ProjectDatabase(
+                project_id=create_association_form.project_id.data,
+                database_id=database.id,
+                environment_id=None,
+            )
+            db.add(association)
+            flash(request, _("Project linked to database."), "success")
+            await db.commit()
+            associations_result = await db.execute(
+                select(ProjectDatabase)
+                .join(Project)
+                .where(
+                    ProjectDatabase.database_id == database.id,
+                    Project.team_id == team.id,
+                    Project.status != "deleted",
+                )
+                .options(selectinload(ProjectDatabase.project))
+                .order_by(Project.name.asc())
+            )
+            associations = associations_result.scalars().all()
+            create_association_form = ProjectDatabaseCreateForm(
+                database=database, projects=projects, associations=associations
+            )
+            delete_association_form = ProjectDatabaseDeleteForm(
+                associations=associations
+            )
+            if request.headers.get("HX-Request"):
+                return TemplateResponse(
+                    request=request,
+                    name="team/partials/_database-associations.html",
+                    context={
+                        "current_user": current_user,
+                        "team": team,
+                        "role": role,
+                        "database": database,
+                        "projects": projects,
+                        "associations": associations,
+                        "create_association_form": create_association_form,
+                        "delete_association_form": delete_association_form,
+                    },
+                )
+            return RedirectResponse(
+                url=str(
+                    request.url_for(
+                        "team_database",
+                        team_slug=team.slug,
+                        database_name=database.name,
+                    )
+                ),
+                status_code=303,
+            )
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="team/partials/_database-associations.html",
+                context={
+                    "current_user": current_user,
+                    "team": team,
+                    "role": role,
+                    "database": database,
+                    "projects": projects,
+                    "associations": associations,
+                    "create_association_form": create_association_form,
+                    "delete_association_form": delete_association_form,
+                },
+            )
+
+    if request.method == "POST" and fragment == "delete_association":
+        if not get_access(role, "admin"):
+            flash(
+                request,
+                _("You don't have permission to update database associations."),
+                "warning",
+            )
+        elif await delete_association_form.validate_on_submit():
+            association = delete_association_form.association
+            await db.delete(association)
+            await db.commit()
+            associations_result = await db.execute(
+                select(ProjectDatabase)
+                .join(Project)
+                .where(
+                    ProjectDatabase.database_id == database.id,
+                    Project.team_id == team.id,
+                    Project.status != "deleted",
+                )
+                .options(selectinload(ProjectDatabase.project))
+                .order_by(Project.name.asc())
+            )
+            associations = associations_result.scalars().all()
+            create_association_form = ProjectDatabaseCreateForm(
+                database=database, projects=projects, associations=associations
+            )
+            delete_association_form = ProjectDatabaseDeleteForm(
+                associations=associations
+            )
+            flash(request, _("Association removed."), "success")
+            if request.headers.get("HX-Request"):
+                return TemplateResponse(
+                    request=request,
+                    name="team/partials/_database-associations.html",
+                    context={
+                        "current_user": current_user,
+                        "team": team,
+                        "role": role,
+                        "database": database,
+                        "projects": projects,
+                        "associations": associations,
+                        "create_association_form": create_association_form,
+                        "delete_association_form": delete_association_form,
+                    },
+                )
+            return RedirectResponse(
+                url=str(
+                    request.url_for(
+                        "team_database",
+                        team_slug=team.slug,
+                        database_name=database.name,
+                    )
+                ),
+                status_code=303,
+            )
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="team/partials/_database-associations.html",
+                context={
+                    "current_user": current_user,
+                    "team": team,
+                    "role": role,
+                    "database": database,
+                    "projects": projects,
+                    "associations": associations,
+                    "create_association_form": create_association_form,
+                    "delete_association_form": delete_association_form,
+                },
+            )
+
+    latest_teams = await get_latest_teams(
+        db=db, current_user=current_user, current_team=team
+    )
+
+    return TemplateResponse(
+        request=request,
+        name="team/pages/database.html",
+        context={
+            "current_user": current_user,
+            "team": team,
+            "role": role,
+            "database": database,
+            "delete_form": delete_form,
+            "associations": associations,
+            "create_association_form": create_association_form,
+            "delete_association_form": delete_association_form,
+            "projects": projects,
             "latest_teams": latest_teams,
         },
     )

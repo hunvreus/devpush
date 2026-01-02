@@ -2,7 +2,7 @@
   {% from "macros/dialog.html" import dialog %}
   {% call dialog(
     id="dialog-repo-select",
-    title="Select repository",
+    title=_("Select a repository"),
     dialog_attrs={
       "class": "max-w-screen-sm w-full",
       "@repo-selected": "$el.close()",

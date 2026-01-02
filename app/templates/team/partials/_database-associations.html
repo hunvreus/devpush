@@ -1,0 +1,179 @@
+{% from "macros/avatar.html" import avatar with context %}
+{% from "project/macros/environment-label.html" import environment_label %}
+{% from "macros/select.html" import select %}
+{% from "macros/dialog.html" import dialog %}
+
+{% call dialog(
+  id="dialog-create-association",
+  title=_('Select a project to connect'),
+  description=_('By default, connected databases are made available to all environments. You can select specific environments in project settings.'),
+  trigger_attrs={ "class": "btn-sm-outline" },
+  dialog_attrs={"class": "max-w-md"},
+) %}
+  <form
+    method="post"
+    action="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='association') }}"
+    hx-post="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='association') }}"
+    hx-swap="outerHTML"
+    hx-on::before-request="document.activeElement && document.activeElement.blur()"
+    hx-target="#database-projects-card"
+    hx-push-url="false"
+    hx-indicator="next .htmx-indicator"
+    @htmx:after-request="$el.closest('dialog').close()"
+    class="space-y-4"
+  >
+    {{ create_association_form.csrf_token(id=False) }}
+    <div class="space-y-3">
+      {% set items=[] %}
+      {% for project in projects %}
+        {% set label %}
+          <div class="flex items-center gap-x-2">
+            {{ avatar(item=project, prefix="project", name=project.name, size="xs") }}
+            {{ project.name }}
+          </div>
+        {% endset %}
+        {% set items = items.append({
+          "label": label,
+          "value": project.id
+        }) %}
+      {% endfor %}
+      {{ select(
+        name="project_id",
+        selected=create_association_form.project_id.data,
+        is_combobox=true,
+        items=items,
+        main_attrs={"class": "w-full"},
+        trigger_attrs={
+          "aria-invalid": "true" if create_association_form.project_id.errors else "",
+          "class": "w-full"
+        }
+      ) }}
+      {% for error in create_association_form.project_id.errors %}
+      <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+    </div>
+    <footer class="flex justify-end gap-x-2">
+      <button
+        type="button"
+        class="btn-ghost"
+        onclick="this.closest('dialog').close()"
+      >{{ _("Cancel") }}</button>
+      <button type="submit" class="btn-primary">{{ _('Connect') }}</button>
+    </footer>
+  </form>
+{% endcall %}
+
+<div class="card" id="database-projects-card">
+  <header class="border-b">
+    <h2>{{ _('Connected projects') }}</h2>
+    <p>{{ _('Manage the projects connected to this database.') }}</p>
+  </header>
+
+  <section class="space-y-6" x-data="{createForm: false}">
+    {% if associations %}
+      <div class="space-y-2">
+        <div class="flex gap-x-2 border-b border-border/50 pb-2">
+          <div class="flex-1 label">{{ _('Project') }}</div>
+          <div class="flex-1 label">{{ _('Environment') }}</div>
+          <div class="shrink-0 w-20"></div>
+        </div>
+        {% for association in associations %}
+          <div class="border-b border-border/50 pb-2">
+            <div class="flex items-center gap-x-2">
+              <div class="flex-1 font-medium truncate">
+                <a href="{{ url_for('project_index', team_slug=team.slug, project_name=association.project.name) }}" class="truncate hover:underline">{{ association.project.name }}</a>
+              </div>
+              <div class="flex-1 text-muted-foreground flex items-center gap-x-2 [&>svg]:size-4">
+                {% if association.environment_id %}
+                  {{ environment_label(
+                    association.project.get_environment_by_id(association.environment_id),
+                    attrs={"class": "text-muted-foreground"}
+                  ) }}
+                {% else %}
+                  {{ _('All environments') }}
+                {% endif %}
+              </div>
+              <div class="flex items-center w-20">
+                <button
+                  type="button"
+                  class="btn-icon-ghost"
+                  aria-label="{{ _('Edit') }}"
+                  data-tooltip="{{ _('Edit') }}"
+                >
+                  {% include "icons/pencil.svg" %}
+                </button>                
+                {% set trigger %}
+                  {% include "icons/trash-2.svg" %}
+                {% endset %}
+                {% call dialog(
+                  trigger=trigger,
+                  title=_('Disconnect "%(project)s" from "%(database)s"?', project=association.project.name, database=database.name),
+                  trigger_attrs={
+                    "class": "btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20",
+                    "aria-label": _('Disconnect'),
+                    "data-tooltip": _('Disconnect'),
+                  },
+                  dialog_attrs={"class": "max-w-md"}
+                ) %}
+                  <div class="space-y-4" x-data="{ confirm: '' }">
+                    <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(database)s"</b> database. Any deployment for this project will no longer have access to this database.', project=association.project.name, database=database.name) | safe }}</p>
+                    <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=association.project.name) | safe }}</p>
+                    <form
+                      method="post"
+                      action="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='delete_association') }}"
+                      hx-post="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='delete_association') }}"
+                      hx-swap="outerHTML"
+                      hx-on::before-request="document.activeElement && document.activeElement.blur()"
+                      hx-target="closest .card"
+                      hx-indicator="next .htmx-indicator"
+                      @submit="confirm !== '{{ association.project.name }}' ? $event.preventDefault() : null"
+                    >
+                      {{ delete_association_form.csrf_token(id=False) }}
+                      {{ delete_association_form.association_id(
+                        id=False,
+                        value=association.id
+                      ) }}
+                      {{ delete_association_form.confirm(
+                        id=False,
+                        class_='w-full',
+                        placeholder=_('Type the project name to confirm'),
+                        **{
+                          "x-model": "confirm",
+                          "@keydown.enter": "confirm !== '"~association.project.name~"' ? $event.preventDefault() : null"
+                        }
+                      ) }}
+
+                      <footer class="flex justify-end gap-x-2 pt-4">
+                        <button
+                          class="btn-ghost"
+                          onclick="this.closest('dialog').close()"
+                        >{{ _('Cancel') }}</button>
+                        <button
+                          type="submit"
+                          class="btn-destructive"
+                          :disabled="confirm !== '{{ association.project.name }}'"
+                        >{{ _('Disconnect') }}</button>
+                      </footer>
+                    </form>
+                  </div>
+                {% endcall %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+    {% endif %}
+
+    <button type="button" class="btn-sm-outline" onclick="document.getElementById('dialog-create-association').showModal()">
+      {% include "icons/plus.svg" %}
+      {{ _('Connect a project') }}
+    </button>
+    
+  </section>
+</div>
+
+<div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
+  <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+    {% include "icons/loader.svg" %}
+    {{ _('Saving') }}
+  </div>
+</div>

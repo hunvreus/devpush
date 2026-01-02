@@ -1,0 +1,22 @@
+{% from "macros/dialog.html" import dialog %}
+
+{% call dialog(
+	id="dialog-new-database",
+	title=_("Create a new database"),
+	description=_("Create a new SQLite database and connect it to one or more projects."),
+	dialog_attrs={"class": "w-full max-w-xl"},
+	body_attrs={"class": "space-y-4"}
+) %}
+	<div
+   hx-get="{{ url_for('team_new_database', team_slug=team.slug) }}"
+   hx-trigger="toggle from:closest dialog once"
+   class="min-h-[114px] relative"
+  >
+		<div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80">
+			<div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+				{% include "icons/loader.svg" %}
+				{{ _('Loading') }}
+			</div>
+		</div>
+	</div>
+{% endcall %}

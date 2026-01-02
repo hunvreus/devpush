@@ -482,13 +482,14 @@ class ProjectGeneralForm(StarletteForm):
                     select(Project).where(
                         func.lower(Project.name) == field.data.lower(),
                         Project.team_id == self.team.id,
-                        Project.status != "deleted",
                         Project.id != self.project.id,
                     )
                 )
                 if result.scalar_one_or_none():
                     raise ValidationError(
-                        _("A project with this name already exists in this team.")
+                        _(
+                            "A project with this name already exists in this team or is reserved."
+                        )
                     )
 
 
@@ -566,12 +567,13 @@ class NewProjectForm(StarletteForm):
                 select(Project).where(
                     func.lower(Project.name) == field.data.lower(),
                     Project.team_id == self.team.id,
-                    Project.status != "deleted",
                 )
             )
             if result.scalar_one_or_none():
                 raise ValidationError(
-                    _("A project with this name already exists in this team.")
+                    _(
+                        "A project with this name already exists in this team or is reserved."
+                    )
                 )
 
     validate_image = validate_image

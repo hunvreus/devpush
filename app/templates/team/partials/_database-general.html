@@ -1,0 +1,87 @@
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _('General') }}</h2>
+    <p>{{ _('Basic details for this database.') }}</p>
+  </header>
+
+  <section class="space-y-6">
+    <div class="space-y-2">
+      <label class="label">{{ _('Name') }}</label>
+      <input
+        type="text"
+        class="input w-full"
+        value="{{ database.name }}"
+        readonly
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label class="label">{{ _('Database ID') }}</label>
+      <div class="relative">
+        <input
+          type="text"
+          class="input w-full font-mono text-[13px] text-foreground/50 pr-9"
+          value="{{ database.id }}"
+          readonly
+        />
+        <button
+          type="button"
+          class="group absolute right-1.5 top-1/2 -translate-y-1/2 btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-6 btn-sm-ghost"
+          data-tooltip="{{ _('Copy') }}"
+          data-side="left"
+          onclick="
+            const button = this;
+            navigator.clipboard.writeText('{{ database.id }}').then(() => {
+              button.dataset.tooltip = '{{ _('Copied') }}';
+              button.dataset.copied = 'true';
+              setTimeout(() => {
+                button.dataset.tooltip = '{{ _('Copy') }}';
+                delete button.dataset.copied;
+              }, 2000);
+            }).catch(err => {
+              console.error('Failed to copy text: ', err);
+            });
+          "
+        >
+          <span class="block group-data-copied:hidden">{% include "icons/copy.svg" %}</span>
+          <span class="hidden group-data-copied:block">{% include "icons/check.svg" %}</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="space-y-2">
+      <label class="label">{{ _('Container path') }}</label>
+      <div class="relative">
+        <input
+          type="text"
+          class="input w-full font-mono text-[13px] text-foreground/50 pr-9"
+          value="/data/db/{{ database.name }}/db.sqlite"
+          readonly
+        />
+        <button
+          type="button"
+          class="group absolute right-1.5 top-1/2 -translate-y-1/2 btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-6 btn-sm-ghost"
+          data-tooltip="{{ _('Copy') }}"
+          data-side="left"
+          onclick="
+            const button = this;
+            navigator.clipboard.writeText('/data/db/{{ database.name }}/db.sqlite').then(() => {
+              button.dataset.tooltip = '{{ _('Copied') }}';
+              button.dataset.copied = 'true';
+              setTimeout(() => {
+                button.dataset.tooltip = '{{ _('Copy') }}';
+                delete button.dataset.copied;
+              }, 2000);
+            }).catch(err => {
+              console.error('Failed to copy text: ', err);
+            });
+          "
+        >
+          <span class="block group-data-copied:hidden">{% include "icons/copy.svg" %}</span>
+          <span class="hidden group-data-copied:block">{% include "icons/check.svg" %}</span>
+        </button>
+      </div>
+      <p class="text-muted-foreground text-sm">{{ _('Use this path inside your containers to access the database.') }}</p>
+    </div>
+  </section>
+</div>
