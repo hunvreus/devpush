@@ -587,6 +587,25 @@ class ProjectDeleteForm(StarletteForm):
             raise ValidationError(_("Project name confirmation did not match."))
 
 
+class ProjectWebhooksForm(StarletteForm):
+    webhook_url = StringField(
+        _l("Webhook URL"),
+        validators=[
+            Optional(),
+            Length(max=2048),
+            Regexp(
+                r"^https?://",
+                message=_l("URL must start with http:// or https://"),
+            ),
+        ],
+    )
+    webhook_secret = StringField(
+        _l("Secret"),
+        validators=[Optional(), Length(max=255)],
+    )
+    webhook_events = FieldList(StringField(), min_entries=0)
+
+
 class ProjectDeployForm(StarletteForm):
     commit = HiddenField(_l("Commit"), validators=[DataRequired()])
     submit = SubmitField(_l("Deploy"))
@@ -605,3 +624,33 @@ class ProjectPromoteDeploymentForm(StarletteForm):
     environment_id = HiddenField(_l("Environment ID"), validators=[DataRequired()])
     deployment_id = HiddenField(_l("Deployment ID"), validators=[DataRequired()])
     submit = SubmitField(_l("Promote"))
+
+
+class DeployTokenForm(StarletteForm):
+    token_id = HiddenField()
+    name = StringField(
+        _l("Name"),
+        validators=[DataRequired(), Length(min=1, max=100)],
+    )
+    environment_id = SelectField(_l("Environment"), choices=[])
+
+    def __init__(self, *args, project: Project | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if project:
+            self.environment_id.choices = [("", _l("All environments"))] + [
+                (env["id"], env["name"]) for env in project.active_environments
+            ]
+
+
+class DeleteDeployTokenForm(StarletteForm):
+    token_id = HiddenField(validators=[DataRequired()])
+    confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
+    submit = SubmitField(_l("Revoke"))
+
+    def __init__(self, *args, token_name: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.token_name = token_name
+
+    def validate_confirm(self, field):
+        if self.token_name and field.data != self.token_name:
+            raise ValidationError(_("Token name confirmation did not match."))

@@ -17,7 +17,7 @@ from config import get_settings, Settings
 from db import get_db, AsyncSessionLocal
 from dependencies import get_current_user, TemplateResponse
 from models import User, Team, Deployment, Project
-from routers import auth, project, github, google, team, user, event, admin
+from routers import auth, project, github, google, team, user, event, admin, api
 from services.loki import LokiService
 
 settings = get_settings()
@@ -182,6 +182,7 @@ app.include_router(github.router)
 app.include_router(google.router)
 app.include_router(team.router)
 app.include_router(event.router)
+app.include_router(api.router)
 
 
 @app.exception_handler(404)

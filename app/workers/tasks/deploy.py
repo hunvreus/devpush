@@ -16,6 +16,7 @@ from dependencies import (
 from config import get_settings
 from arq.connections import ArqRedis
 from services.deployment import DeploymentService
+from services.webhook import send_deployment_webhook
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,19 @@ async def deploy_start(ctx, deployment_id: str):
                     f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
                     fields,
                 )
+
+                # Send webhook notification for deployment started
+                try:
+                    await send_deployment_webhook(
+                        project=deployment.project,
+                        deployment=deployment,
+                        event="started",
+                        url_scheme=settings.url_scheme,
+                        deploy_domain=settings.deploy_domain,
+                        db=db,
+                    )
+                except Exception as e:
+                    logger.warning(f"{log_prefix} Webhook delivery failed: {e}")
 
                 # Prepare environment variables
                 env_vars_dict = DeploymentService().build_runtime_env_vars(
@@ -349,6 +363,19 @@ async def deploy_finalize(ctx, deployment_id: str):
                 f"stream:project:{deployment.project_id}:updates", fields
             )
 
+            # Send webhook notification for deployment succeeded
+            try:
+                await send_deployment_webhook(
+                    project=deployment.project,
+                    deployment=deployment,
+                    event="succeeded",
+                    url_scheme=settings.url_scheme,
+                    deploy_domain=settings.deploy_domain,
+                    db=db,
+                )
+            except Exception as e:
+                logger.warning(f"{log_prefix} Webhook delivery failed: {e}")
+
         except Exception:
             logger.error(f"{log_prefix} Error finalizing deployment.", exc_info=True)
 
@@ -427,4 +454,18 @@ async def deploy_fail(ctx, deployment_id: str, reason: str = None):
         await redis_client.xadd(
             f"stream:project:{deployment.project_id}:updates", fields
         )
+
+        # Send webhook notification for deployment failed
+        try:
+            await send_deployment_webhook(
+                project=deployment.project,
+                deployment=deployment,
+                event="failed",
+                url_scheme=settings.url_scheme,
+                deploy_domain=settings.deploy_domain,
+                db=db,
+            )
+        except Exception as e:
+            logger.warning(f"{log_prefix} Webhook delivery failed: {e}")
+
         logger.error(f"{log_prefix} Deployment failed and cleaned up.")

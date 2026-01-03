@@ -11,7 +11,16 @@ from authlib.jose import jwt
 from datetime import timedelta
 import resend
 
-from models import Project, Deployment, User, Team, TeamMember, utc_now, TeamInvite
+from models import (
+    Project,
+    Deployment,
+    User,
+    Team,
+    TeamMember,
+    utc_now,
+    TeamInvite,
+    TeamWebhook,
+)
 from dependencies import (
     get_current_user,
     get_team_by_slug,
@@ -34,6 +43,8 @@ from forms.team import (
     TeamAddMemberForm,
     TeamDeleteMemberForm,
     TeamMemberRoleForm,
+    TeamWebhookForm,
+    TeamDeleteWebhookForm,
 )
 
 logger = logging.getLogger(__name__)
@@ -459,6 +470,150 @@ async def team_settings(
             },
         )
 
+    # Webhooks
+    webhook_form: Any = await TeamWebhookForm.from_formdata(request)
+    delete_webhook_form: Any = await TeamDeleteWebhookForm.from_formdata(request)
+
+    # Get team projects for webhook scoping
+    projects_result = await db.execute(
+        select(Project)
+        .where(Project.team_id == team.id, Project.status != "deleted")
+        .order_by(Project.name)
+    )
+    projects = projects_result.scalars().all()
+
+    # Get team webhooks
+    webhooks_result = await db.execute(
+        select(TeamWebhook)
+        .where(TeamWebhook.team_id == team.id)
+        .order_by(TeamWebhook.created_at.desc())
+    )
+    webhooks = webhooks_result.scalars().all()
+
+    if fragment == "add_webhook":
+        if await webhook_form.validate_on_submit():
+            # Get events from form
+            events = (
+                request._form.getlist("events") if hasattr(request, "_form") else []
+            )
+            project_ids = (
+                request._form.getlist("project_ids")
+                if hasattr(request, "_form")
+                else []
+            )
+
+            webhook = TeamWebhook(
+                team_id=team.id,
+                name=webhook_form.name.data,
+                url=webhook_form.url.data,
+                events=events if events else None,
+                project_ids=project_ids if project_ids else None,
+                created_by_user_id=current_user.id,
+            )
+            if webhook_form.secret.data:
+                webhook.secret = webhook_form.secret.data
+            db.add(webhook)
+            await db.commit()
+            flash(
+                request, _('Webhook "%(name)s" created.', name=webhook.name), "success"
+            )
+
+            # Refresh webhooks list
+            webhooks_result = await db.execute(
+                select(TeamWebhook)
+                .where(TeamWebhook.team_id == team.id)
+                .order_by(TeamWebhook.created_at.desc())
+            )
+            webhooks = webhooks_result.scalars().all()
+
+    if fragment == "edit_webhook":
+        webhook_id = (
+            request._form.get("webhook_id") if hasattr(request, "_form") else None
+        )
+        if webhook_id:
+            webhook = await db.scalar(
+                select(TeamWebhook).where(
+                    TeamWebhook.id == webhook_id, TeamWebhook.team_id == team.id
+                )
+            )
+            if webhook and await webhook_form.validate_on_submit():
+                events = (
+                    request._form.getlist("events") if hasattr(request, "_form") else []
+                )
+                project_ids = (
+                    request._form.getlist("project_ids")
+                    if hasattr(request, "_form")
+                    else []
+                )
+
+                webhook.name = webhook_form.name.data
+                webhook.url = webhook_form.url.data
+                webhook.events = events if events else None
+                webhook.project_ids = project_ids if project_ids else None
+                if webhook_form.secret.data:
+                    webhook.secret = webhook_form.secret.data
+                await db.commit()
+                flash(
+                    request,
+                    _('Webhook "%(name)s" updated.', name=webhook.name),
+                    "success",
+                )
+
+                # Refresh webhooks list
+                webhooks_result = await db.execute(
+                    select(TeamWebhook)
+                    .where(TeamWebhook.team_id == team.id)
+                    .order_by(TeamWebhook.created_at.desc())
+                )
+                webhooks = webhooks_result.scalars().all()
+
+    if fragment == "delete_webhook":
+        webhook_id = (
+            request._form.get("webhook_id") if hasattr(request, "_form") else None
+        )
+        if webhook_id:
+            webhook = await db.scalar(
+                select(TeamWebhook).where(
+                    TeamWebhook.id == webhook_id, TeamWebhook.team_id == team.id
+                )
+            )
+            if webhook:
+                delete_webhook_form.webhook_name = webhook.name
+                if await delete_webhook_form.validate_on_submit():
+                    await db.delete(webhook)
+                    await db.commit()
+                    flash(
+                        request,
+                        _('Webhook "%(name)s" deleted.', name=webhook.name),
+                        "success",
+                    )
+
+                    # Refresh webhooks list
+                    webhooks_result = await db.execute(
+                        select(TeamWebhook)
+                        .where(TeamWebhook.team_id == team.id)
+                        .order_by(TeamWebhook.created_at.desc())
+                    )
+                    webhooks = webhooks_result.scalars().all()
+
+    if fragment in (
+        "add_webhook",
+        "edit_webhook",
+        "delete_webhook",
+    ) and request.headers.get("HX-Request"):
+        return TemplateResponse(
+            request=request,
+            name="team/partials/_settings-webhooks.html",
+            context={
+                "current_user": current_user,
+                "team": team,
+                "webhooks": webhooks,
+                "projects": projects,
+                "webhook_form": webhook_form,
+                "delete_webhook_form": delete_webhook_form,
+            },
+        )
+
     latest_teams = await get_latest_teams(
         db=db, current_user=current_user, current_team=team
     )
@@ -479,6 +634,10 @@ async def team_settings(
             "member_invites": member_invites,
             "owner_count": owner_count,
             "latest_teams": latest_teams,
+            "webhooks": webhooks,
+            "projects": projects,
+            "webhook_form": webhook_form,
+            "delete_webhook_form": delete_webhook_form,
         },
     )
 

@@ -6,8 +6,17 @@ from wtforms import (
     FileField,
     HiddenField,
     SelectField,
+    SelectMultipleField,
+    FieldList,
 )
-from wtforms.validators import ValidationError, DataRequired, Length, Regexp, Email
+from wtforms.validators import (
+    ValidationError,
+    DataRequired,
+    Length,
+    Regexp,
+    Email,
+    Optional,
+)
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -226,3 +235,50 @@ class TeamLeaveForm(StarletteForm):
 class TeamInviteAcceptForm(StarletteForm):
     invite_id = HiddenField(validators=[DataRequired()])
     submit = SubmitField(_l("Accept"))
+
+
+WEBHOOK_EVENTS = [
+    ("started", _l("Deployment Started")),
+    ("succeeded", _l("Deployment Succeeded")),
+    ("failed", _l("Deployment Failed")),
+    ("canceled", _l("Deployment Canceled")),
+]
+
+
+class TeamWebhookForm(StarletteForm):
+    webhook_id = HiddenField()
+    name = StringField(
+        _l("Name"),
+        validators=[DataRequired(), Length(min=1, max=100)],
+    )
+    url = StringField(
+        _l("URL"),
+        validators=[
+            DataRequired(),
+            Length(max=2048),
+            Regexp(
+                r"^https?://",
+                message=_l("URL must start with http:// or https://"),
+            ),
+        ],
+    )
+    secret = StringField(
+        _l("Secret"),
+        validators=[Optional(), Length(max=255)],
+    )
+    events = FieldList(StringField(), min_entries=0)
+    project_ids = FieldList(StringField(), min_entries=0)
+
+
+class TeamDeleteWebhookForm(StarletteForm):
+    webhook_id = HiddenField(validators=[DataRequired()])
+    confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
+    submit = SubmitField(_l("Delete"))
+
+    def __init__(self, *args, webhook_name: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.webhook_name = webhook_name
+
+    def validate_confirm(self, field):
+        if self.webhook_name and field.data != self.webhook_name:
+            raise ValidationError(_("Webhook name confirmation did not match."))
