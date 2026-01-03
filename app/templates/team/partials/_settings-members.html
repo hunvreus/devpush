@@ -1,265 +1,345 @@
-{% from "macros/dialog.html" import dialog %}
-{% from "macros/dropdown-menu.html" import dropdown_menu with context %}
-{% from "macros/avatar.html" import avatar with context %}
-{% set roles = {
-  "owner": _("Owner"),
-  "admin": _("Admin"),
-  "member": _("Member"),
-} %}
+{% from "macros/dialog.html" import dialog %} {% from
+"macros/dropdown-menu.html" import dropdown_menu with context %} {% from
+"macros/avatar.html" import avatar with context %} {% set roles = { "owner":
+_("Owner"), "admin": _("Admin"), "member": _("Member"), } %}
 
 <div class="card">
-  <header class="border-b">
-    <h2>{{ _('Members') }}</h2>
-    <p>{{ _('Manage the members of the team.') }}</p>
-  </header>
+    <header class="border-b">
+        <h2>{{ _('Members') }}</h2>
+        <p>{{ _('Manage the members of the team.') }}</p>
+    </header>
 
-  <section class="space-y-6">
-    <div class="rounded-xl border relative overflow-x-auto scrollbar">
-      <table class="table">
-        <thead>
-          <tr>
-            <th></th>
-            <th>{{ _('Name') }}</th>
-            <th>{{ _('Email') }}</th>
-            <th>{{ _('Role') }}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for member in members %}
-            <tr>
-              <td>
-                <div class="flex items-center gap-x-2 size-8">
-                {% set fallback %}
-                  <img src="https://unavatar.io/{{ member.user.email }}?fallback=https://avatar.vercel.sh/{{ member.user.email }}?size=120" alt="{{ member.user.email }}" class=" rounded-full shrink-0" />
-                {% endset %}
-                {{ avatar(
-                  item=member.user,
-                  prefix="user",
-                  name=member.user.name if member.user.name else member.user.username,
-                  class="!rounded-full",
-                  fallback=fallback
-                ) }}
-                </div>
-              </td>
-              <td>
-                {% if member.user.name %}
-                  {{ member.user.name }}
-                  <div class="text-xs text-muted-foreground">{{ member.user.username }}</div>
-                {% else %}
-                  {{ member.user.username }}
-                {% endif %}
-              </td>
-              <td>
-                {{ member.user.email }}
-              </td>
-              <td>
-                <form
-                  method="post"
-                  action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='member_role') }}"
-                  hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='member_role') }}"
-                  hx-swap="outerHTML"
-                  hx-target="closest .card"
-                  hx-indicator="next .htmx-indicator"
-                  hx-disabled-elt="select"
-                  hx-confirm="{{ _('Are you sure you want to change the role for this member?') }}"
-                  hx-trigger="change"
-                >
-                  {{ member_role_form.csrf_token }}
-                  {{ member_role_form.user_id(value=member.user.id) }}
-                  <div class="grid gap-y-2">
-                    {% if owner_count == 1 and member.role == "owner" %}
-                      <select name="role" class="select" disabled>
-                        <option value="owner" selected>{{ _("Owner") }}</option>
-                        <option value="admin" disabled>{{ _("Admin") }}</option>
-                        <option value="member" disabled>{{ _("Member") }}</option>
-                      </select>
-                    {% else %}
-                      <select name="role" class="select">
-                        <option value="owner" {% if member.role == 'owner' %}selected{% endif %}>
-                          {{ _("Owner") }}
-                        </option>
-                        <option value="admin" {% if member.role == 'admin' %}selected{% endif %}>
-                          {{ _("Admin") }}
-                        </option>
-                        <option value="member" {% if member.role == 'member' %}selected{% endif %}>
-                          {{ _("Member") }}
-                        </option>
-                      </select>
-                    {% endif %}
-                    {% if member_role_form.role.errors and member_role_form.user_id.data | int == member.user.id %}
-                      {% for error in member_role_form.role.errors %}
-                        <p class="text-destructive">{{ error }}</p>
-                      {% endfor %}
-                    {% endif %}
-                  </div>
-                </form>
-              </td>
-              <td class="w-full text-right">
-                {% if owner_count == 1 and member.role == "owner" %}
-                  <button type="button" class="btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20" disabled>
-                    {% include "icons/trash-2.svg" %}
-                  </button>
-                {% else %}
-                  {% set trigger %}
-                    {% include "icons/trash-2.svg" %}
-                  {% endset %}
-                  {% call dialog(
-                    id="delete-member-" ~ member.user.id,
-                    trigger=trigger,
-                    title=_('Remove "%(name)s"?', name=member.user.name if member.user.name else member.user.username),
-                    trigger_attrs={
-                      "class": "btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20",
-                      "aria-label": _('Remove'),
-                      "data-tooltip": _('Remove'),
-                      "data-align": "end",
-                    },
-                    dialog_attrs={"class": "max-w-md whitespace-normal text-left"},
-                    close_button=false,
-                    close_on_overlay_click=false
-                  ) %}
-                    <div class="space-y-4">
-                      <p>{{ _("This will remove the member from the team. They will no longer have access to the team and its projects.") }}</p>
-                      <p>{{ _('To confirm, enter the member\'s email address <b>"%(email)s"</b> below.', email=member.user.email) | safe }}</p>
-                      <form
-                        method="post"
-                        action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
-                        hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
-                        hx-swap="outerHTML"
-                        hx-target="closest .card"
-                        hx-indicator="next .htmx-indicator"
-                        hx-disabled-elt="input, button"
-                        x-data="{ isValid: false }"
-                        @submit.prevent="isValid && $el.requestSubmit()"
-                        @keydown.enter.prevent="if(isValid){ $el.closest('form').requestSubmit() }"
-                      >
-                        {{ delete_member_form.csrf_token }}
-                        {{ delete_member_form.email(value=member.user.email) }}
-                        <div class="grid gap-y-2">
-                          {{ delete_member_form.confirm(
-                            class_="w-full input",
-                            placeholder=_("Type the member's email to confirm"),
-                            ** {"@input": "isValid = $event.target.value === '" ~ member.user.email ~ "'"}
-                          ) }}
-                          {% for error in delete_member_form.confirm.errors %}
-                            <p class="text-destructive">{{ error }}</p>
-                          {% endfor %}
-                        </div>
-                        <footer class="flex justify-end gap-x-2 pt-4">
-                          <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
-                          {{ delete_member_form.submit(class_="btn-destructive", **{":disabled": "!isValid"}) }}
-                        </footer>
-                      </form>
-                    </div>
-                  {% endcall %}
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    
-    <div class="space-y-4">
-      <h3 class="font-medium">{{ _('Invite members by email') }}</h3>
+    <section class="space-y-6">
+        <div class="rounded-xl border relative overflow-x-auto scrollbar">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>{{ _('Name') }}</th>
+                        <th>{{ _('Email') }}</th>
+                        <th>{{ _('Role') }}</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for member in members %}
+                    <tr>
+                        <td>
+                            <div class="flex items-center gap-x-2 size-8">
+                                {% set fallback %}
+                                <img
+                                    src="https://unavatar.io/{{ member.user.email }}?fallback=https://avatar.vercel.sh/{{ member.user.email }}?size=120"
+                                    alt="{{ member.user.email }}"
+                                    class="rounded-full shrink-0"
+                                />
+                                {% endset %} {{ avatar( item=member.user,
+                                prefix="user", name=member.user.name if
+                                member.user.name else member.user.username,
+                                class="!rounded-full", fallback=fallback ) }}
+                            </div>
+                        </td>
+                        <td>
+                            {% if member.user.name %} {{ member.user.name }}
+                            <div class="text-xs text-muted-foreground">
+                                {{ member.user.username }}
+                            </div>
+                            {% else %} {{ member.user.username }} {% endif %}
+                        </td>
+                        <td>{{ member.user.email }}</td>
+                        <td>
+                            <div
+                                x-data="{ pendingRole: '{{ member.role }}', showDialog: false, currentRole: '{{ member.role }}' }"
+                            >
+                                {% if owner_count == 1 and member.role ==
+                                "owner" %}
+                                <select name="role" class="select" disabled>
+                                    <option value="owner" selected>
+                                        {{ _("Owner") }}
+                                    </option>
+                                    <option value="admin" disabled>
+                                        {{ _("Admin") }}
+                                    </option>
+                                    <option value="member" disabled>
+                                        {{ _("Member") }}
+                                    </option>
+                                </select>
+                                {% else %}
+                                <select
+                                    name="role"
+                                    class="select"
+                                    x-model="pendingRole"
+                                    @change="if (pendingRole !== currentRole) { showDialog = true; document.getElementById('dialog-role-change-{{ member.user.id }}').showModal(); }"
+                                >
+                                    <option
+                                        value="owner"
+                                        {%
+                                        if
+                                        member.role=""
+                                        ="owner"
+                                        %}selected{%
+                                        endif
+                                        %}
+                                    >
+                                        {{ _("Owner") }}
+                                    </option>
+                                    <option
+                                        value="admin"
+                                        {%
+                                        if
+                                        member.role=""
+                                        ="admin"
+                                        %}selected{%
+                                        endif
+                                        %}
+                                    >
+                                        {{ _("Admin") }}
+                                    </option>
+                                    <option
+                                        value="member"
+                                        {%
+                                        if
+                                        member.role=""
+                                        ="member"
+                                        %}selected{%
+                                        endif
+                                        %}
+                                    >
+                                        {{ _("Member") }}
+                                    </option>
+                                </select>
 
-      <form
-        class="space-y-2"
-        method="post"
-        action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
-        hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
-        hx-swap="outerHTML"
-        hx-target="closest .card"
-        hx-indicator="next .htmx-indicator"
-        @submit.prevent="isValid && $el.requestSubmit()"
-        @keydown.enter.prevent="if(isValid){ $el.closest('form').requestSubmit() }"
-        x-data="{
+                                {% call dialog( id="dialog-role-change-" ~
+                                member.user.id, title=_('Change role?'),
+                                description=_('Are you sure you want to change
+                                the role for this member?'),
+                                dialog_attrs={"class": "max-w-md", "x-init":
+                                "$watch('open', value => { if (!value) {
+                                pendingRole = currentRole; } })" },
+                                cancel_label=_('Cancel'),
+                                confirm_label=_('Change Role'), confirm_attrs={
+                                "hx-post": url_for('team_settings',
+                                team_slug=team.slug).include_query_params(fragment='member_role'),
+                                "hx-target": "closest .card", "hx-swap":
+                                "outerHTML", "hx-indicator": "next
+                                .htmx-indicator", "hx-vals": '{"csrf_token": "'
+                                + member_role_form.csrf_token._value() + '",
+                                "user_id": "' + member.user.id|string + '",
+                                "role": ""}', "hx-on::before-request":
+                                "event.detail.parameters.role = pendingRole",
+                                "@click": "$el.closest('dialog').close()" } ) %}
+                                {% endcall %} {% endif %} {% if
+                                member_role_form.role.errors and
+                                member_role_form.user_id.data | int ==
+                                member.user.id %} {% for error in
+                                member_role_form.role.errors %}
+                                <p class="text-destructive">{{ error }}</p>
+                                {% endfor %} {% endif %}
+                            </div>
+                        </td>
+                        <td class="w-full text-right">
+                            {% if owner_count == 1 and member.role == "owner" %}
+                            <button
+                                type="button"
+                                class="btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20"
+                                disabled
+                            >
+                                {% include "icons/trash-2.svg" %}
+                            </button>
+                            {% else %} {% set trigger %} {% include
+                            "icons/trash-2.svg" %} {% endset %} {% call dialog(
+                            id="delete-member-" ~ member.user.id,
+                            trigger=trigger, title=_('Remove "%(name)s"?',
+                            name=member.user.name if member.user.name else
+                            member.user.username), trigger_attrs={ "class":
+                            "btn-icon-ghost text-destructive
+                            hover:bg-destructive/10
+                            dark:hover:bg-destructive/20", "aria-label":
+                            _('Remove'), "data-tooltip": _('Remove'),
+                            "data-align": "end", }, dialog_attrs={"class":
+                            "max-w-md whitespace-normal text-left"},
+                            close_button=false, close_on_overlay_click=false )
+                            %}
+                            <div class="space-y-4">
+                                <p>
+                                    {{ _("This will remove the member from the
+                                    team. They will no longer have access to the
+                                    team and its projects.") }}
+                                </p>
+                                <p>
+                                    {{ _('To confirm, enter the member\'s email
+                                    address <b>"%(email)s"</b> below.',
+                                    email=member.user.email) | safe }}
+                                </p>
+                                <form
+                                    method="post"
+                                    action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
+                                    hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
+                                    hx-swap="outerHTML"
+                                    hx-target="closest .card"
+                                    hx-indicator="next .htmx-indicator"
+                                    hx-disabled-elt="input, button"
+                                    x-data="{ isValid: false }"
+                                    @submit.prevent="isValid && $el.requestSubmit()"
+                                    @keydown.enter.prevent="if(isValid){ $el.closest('form').requestSubmit() }"
+                                >
+                                    {{ delete_member_form.csrf_token }} {{
+                                    delete_member_form.email(value=member.user.email)
+                                    }}
+                                    <div class="grid gap-y-2">
+                                        {{ delete_member_form.confirm(
+                                        class_="w-full input",
+                                        placeholder=_("Type the member's email
+                                        to confirm"), ** {"@input": "isValid =
+                                        $event.target.value === '" ~
+                                        member.user.email ~ "'"} ) }} {% for
+                                        error in
+                                        delete_member_form.confirm.errors %}
+                                        <p class="text-destructive">
+                                            {{ error }}
+                                        </p>
+                                        {% endfor %}
+                                    </div>
+                                    <footer
+                                        class="flex justify-end gap-x-2 pt-4"
+                                    >
+                                        <button
+                                            class="btn-ghost"
+                                            onclick="this.closest('dialog').close()"
+                                        >
+                                            {{ _('Cancel') }}
+                                        </button>
+                                        {{
+                                        delete_member_form.submit(class_="btn-destructive",
+                                        **{":disabled": "!isValid"}) }}
+                                    </footer>
+                                </form>
+                            </div>
+                            {% endcall %} {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="space-y-4">
+            <h3 class="font-medium">{{ _('Invite members by email') }}</h3>
+
+            <form
+                class="space-y-2"
+                method="post"
+                action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
+                hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
+                hx-swap="outerHTML"
+                hx-target="closest .card"
+                hx-indicator="next .htmx-indicator"
+                @submit.prevent="isValid && $el.requestSubmit()"
+                @keydown.enter.prevent="if(isValid){ $el.closest('form').requestSubmit() }"
+                x-data="{
           email: '',
-          get isValid() { 
-            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email) 
+          get isValid() {
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email)
           }
         }"
-      >
-        {{ add_member_form.csrf_token() }}
-        <div class="flex items-center gap-x-2">
-          {{ add_member_form.email.label(class="sr-only") }}
-          {{ add_member_form.email(class="flex-1 input", placeholder=_("Enter email to invite"), **{"x-model": "email"}) }}
-          {{ add_member_form.role(class="select") }}
-          <button class="btn" type="submit" :disabled="!isValid">
-            {% include "icons/send.svg" %}
-            {{ _("Send") }}
-          </button>
-        </div>
-        {% for error in add_member_form.email.errors %}
-          <p class="text-destructive">{{ error }}</p>
-        {% endfor %}
-      </form>
-    </div>
-
-    {% if member_invites %}
-      <div class="space-y-4">
-        <h3 class="font-medium">{{ _('%(count)s pending invite(s)', count=member_invites|length) }}</h3>
-        <div class="rounded-xl border relative overflow-x-auto scrollbar">
-          <table class="table">
-            <thead>
-              <tr>
-                <th></th>
-                <th>{{ _('Email') }}</th>
-                <th>{{ _('Role') }}</th>
-                <th>{{ _('Expires') }}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for invite in member_invites %}
-                <tr>
-                  <td>
-                    <div class="flex items-center gap-x-2 size-8">
-                      <img src="https://unavatar.io/{{ invite.email }}?fallback=https://avatar.vercel.sh/{{ invite.email }}?size=120" alt="{{ invite.email }}" class="rounded-full shrink-0" />
-                    </div>
-                  </td>
-                  <td class="font-medium">{{ invite.email }}</td>
-                  <td>{{ roles[invite.role] }}</td>
-                  <td>{{ invite.expires_at.strftime('%b %d, %Y') }}</td>
-                  <td class="w-full text-right">
-                    <button
-                      type="button"
-                      class="btn-icon-ghost"
-                      aria-label="{{ _('Resend') }}"
-                      data-tooltip="{{ _('Resend') }}"
-                      hx-swap="none"
-                      hx-get="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='resend_member_invite', invite_id=invite.id) }}"
-                    >
-                      {% include "icons/refresh-cw.svg" %}
+            >
+                {{ add_member_form.csrf_token() }}
+                <div class="flex items-center gap-x-2">
+                    {{ add_member_form.email.label(class="sr-only") }} {{
+                    add_member_form.email(class="flex-1 input",
+                    placeholder=_("Enter email to invite"), **{"x-model":
+                    "email"}) }} {{ add_member_form.role(class="select") }}
+                    <button class="btn" type="submit" :disabled="!isValid">
+                        {% include "icons/send.svg" %} {{ _("Send") }}
                     </button>
-                    <button
-                      type="button"
-                      class="btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20"
-                      aria-label="{{ _('Revoke') }}"
-                      data-tooltip="{{ _('Revoke') }}"
-                      data-align="end"
-                      hx-target="closest .card"
-                      hx-swap="outerHTML"
-                      hx-indicator="next .htmx-indicator"
-                      hx-get="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='revoke_member_invite', invite_id=invite.id) }}"
-                      hx-confirm="{{ _('Are you sure you want to revoke this invitation?') }}"
-                    >
-                      {% include "icons/trash-2.svg" %}
-                    </button>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                </div>
+                {% for error in add_member_form.email.errors %}
+                <p class="text-destructive">{{ error }}</p>
+                {% endfor %}
+            </form>
         </div>
-      </div>
-    {% endif %}
-  </section>
 
-  <div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
-    <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
-      {% include "icons/loader.svg" %}
-      {{ _("Saving") }}
+        {% if member_invites %}
+        <div class="space-y-4">
+            <h3 class="font-medium">
+                {{ _('%(count)s pending invite(s)', count=member_invites|length)
+                }}
+            </h3>
+            <div class="rounded-xl border relative overflow-x-auto scrollbar">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>{{ _('Email') }}</th>
+                            <th>{{ _('Role') }}</th>
+                            <th>{{ _('Expires') }}</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for invite in member_invites %}
+                        <tr>
+                            <td>
+                                <div class="flex items-center gap-x-2 size-8">
+                                    <img
+                                        src="https://unavatar.io/{{ invite.email }}?fallback=https://avatar.vercel.sh/{{ invite.email }}?size=120"
+                                        alt="{{ invite.email }}"
+                                        class="rounded-full shrink-0"
+                                    />
+                                </div>
+                            </td>
+                            <td class="font-medium">{{ invite.email }}</td>
+                            <td>{{ roles[invite.role] }}</td>
+                            <td>
+                                {{ invite.expires_at.strftime('%b %d, %Y') }}
+                            </td>
+                            <td class="w-full text-right">
+                                <button
+                                    type="button"
+                                    class="btn-icon-ghost"
+                                    aria-label="{{ _('Resend') }}"
+                                    data-tooltip="{{ _('Resend') }}"
+                                    hx-swap="none"
+                                    hx-get="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='resend_member_invite', invite_id=invite.id) }}"
+                                >
+                                    {% include "icons/refresh-cw.svg" %}
+                                </button>
+                                {% set trigger %} {% include "icons/trash-2.svg"
+                                %} {% endset %} {% call dialog( trigger=trigger,
+                                title=_('Revoke invitation?'),
+                                description=_('Are you sure you want to revoke
+                                this invitation? The recipient will no longer be
+                                able to join the team with this link.'),
+                                trigger_attrs={ "class": "btn-icon-ghost
+                                text-destructive hover:bg-destructive/10
+                                dark:hover:bg-destructive/20", "aria-label":
+                                _('Revoke'), "data-tooltip": _('Revoke'),
+                                "data-align": "end" }, dialog_attrs={"class":
+                                "max-w-md"}, cancel_label=_('Cancel'),
+                                confirm_label=_('Revoke'), confirm_attrs={
+                                "hx-get": url_for('team_settings',
+                                team_slug=team.slug).include_query_params(fragment='revoke_member_invite',
+                                invite_id=invite.id), "hx-target": "closest
+                                .card", "hx-swap": "outerHTML", "hx-indicator":
+                                "next .htmx-indicator", "@click":
+                                "$el.closest('dialog').close()" } ) %} {%
+                                endcall %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    <div
+        class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl"
+    >
+        <div
+            class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin"
+        >
+            {% include "icons/loader.svg" %} {{ _("Saving") }}
+        </div>
     </div>
-  </div>
 </div>
