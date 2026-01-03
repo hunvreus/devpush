@@ -1,8 +1,9 @@
 {
   "scripts": {
-    "build": "npm run css && npm run email && npm run alpine && npm run htmx && npm run htmx-sse && npm run basecoat",
+    "build": "npm run css && npm run themes && npm run email && npm run alpine && npm run htmx && npm run htmx-sse && npm run basecoat",
     "css:dev": "tailwindcss --silent -i ./src/styles.css -o ./assets/styles.css --watch",
     "css": "tailwindcss -i ./src/styles.css -o ./assets/styles.css --minify",
+    "themes": "tailwindcss -i ./src/themes/supabase.css -o ./assets/themes/supabase.css --minify && tailwindcss -i ./src/themes/t3chat.css -o ./assets/themes/t3chat.css --minify",
     "email": "mjml src/login.mjml -o ./templates/email/login.html && mjml src/email-change.mjml -o ./templates/email/email-change.html && mjml src/team-invite.mjml -o ./templates/email/team-invite.html",
     "alpine": "cp node_modules/alpinejs/dist/cdn.min.js ./assets/alpine.min.js",
     "htmx": "cp node_modules/htmx.org/dist/htmx.min.js ./assets/htmx.min.js",

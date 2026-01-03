@@ -1,0 +1,107 @@
+<div
+    x-data="{
+        themes: [
+            { value: 'default', label: 'Default' },
+            { value: 'supabase', label: 'Supabase' },
+            { value: 't3chat', label: 'T3 Chat' }
+        ],
+        themeStyles: {},
+        selected: localStorage.getItem('userTheme') || 'default',
+        apply(theme) {
+            this.selected = theme;
+            localStorage.setItem('userTheme', theme);
+            if (window.applyTheme) window.applyTheme(theme);
+        },
+        async loadThemeStyles() {
+            const isDark = document.documentElement.classList.contains('dark');
+            for (const theme of this.themes) {
+                try {
+                    const cssPath = theme.value === 'default'
+                        ? '/assets/styles.css'
+                        : `/assets/themes/${theme.value}.css`;
+                    const res = await fetch(cssPath);
+                    const css = await res.text();
+                    const selector = isDark ? '.dark' : ':root';
+                    const regex = isDark
+                        ? /\.dark\s*\{([^}]+)\}/
+                        : /:root\s*\{([^}]+)\}/;
+                    const match = css.match(regex);
+                    if (match) {
+                        const vars = match[1];
+                        const bg = vars.match(/--background:\s*([^;]+)/);
+                        const primary = vars.match(/--primary:\s*([^;]+)/);
+                        this.themeStyles[theme.value] = {
+                            background: bg ? bg[1].trim() : (isDark ? '#1a1a1a' : '#f5f5f5'),
+                            primary: primary ? primary[1].trim() : (isDark ? '#fff' : '#000')
+                        };
+                    } else {
+                        this.themeStyles[theme.value] = {
+                            background: isDark ? '#1a1a1a' : '#f5f5f5',
+                            primary: isDark ? '#fff' : '#000'
+                        };
+                    }
+                } catch (e) {
+                    this.themeStyles[theme.value] = {
+                        background: isDark ? '#1a1a1a' : '#f5f5f5',
+                        primary: isDark ? '#fff' : '#000'
+                    };
+                }
+            }
+        },
+        getPreviewBg(themeValue) {
+            return this.themeStyles[themeValue]?.background || 'var(--muted)';
+        },
+        getPreviewPrimary(themeValue) {
+            return this.themeStyles[themeValue]?.primary || 'var(--primary)';
+        }
+    }"
+    x-init="
+        if (window.applyTheme) window.applyTheme(selected);
+        await loadThemeStyles();
+        const observer = new MutationObserver(() => loadThemeStyles());
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    "
+    class="card"
+>
+    <header class="border-b">
+        <h2>{{ _("Appearance") }}</h2>
+        <p>{{ _("Customize the look and feel of the application.") }}</p>
+    </header>
+
+    <section class="space-y-6">
+        <div class="space-y-3">
+            <label class="label">{{ _('Theme') }}</label>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <template x-for="theme in themes" :key="theme.value">
+                    <label
+                        class="relative flex flex-col items-center gap-2 p-4 border rounded-lg cursor-pointer transition-colors hover:bg-accent/50"
+                        :class="{ 'border-primary ring-2 ring-primary/20': selected === theme.value }"
+                    >
+                        <input
+                            type="radio"
+                            name="theme"
+                            :id="'theme-' + theme.value"
+                            :value="theme.value"
+                            class="sr-only"
+                            x-model="selected"
+                            @change="apply(theme.value)"
+                        />
+                        <div
+                            class="w-full aspect-4/3 rounded border overflow-hidden"
+                            :style="{ backgroundColor: getPreviewBg(theme.value) }"
+                        >
+                            <div
+                                class="h-2"
+                                :style="{ backgroundColor: getPreviewPrimary(theme.value) }"
+                            ></div>
+                        </div>
+                        <span
+                            class="text-sm font-medium"
+                            x-text="theme.label"
+                        ></span>
+                    </label>
+                </template>
+            </div>
+        </div>
+    </section>
+</div>

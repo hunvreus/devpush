@@ -1,17 +1,19 @@
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette_wtf import StarletteForm
 from wtforms import (
-    StringField,
-    SubmitField,
     BooleanField,
     FileField,
     HiddenField,
+    RadioField,
     SelectField,
+    StringField,
+    SubmitField,
 )
-from wtforms.validators import ValidationError, DataRequired, Length, Regexp, Email
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from wtforms.validators import DataRequired, Email, Length, Regexp, ValidationError
 
-from dependencies import get_translation as _, get_lazy_translation as _l
+from dependencies import get_lazy_translation as _l
+from dependencies import get_translation as _
 from models import User
 
 

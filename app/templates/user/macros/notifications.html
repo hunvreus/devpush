@@ -1,104 +1,82 @@
-{% macro notifications(invites=[]) %}
-  {% from "macros/dropdown-menu.html" import dropdown_menu %}
-
-  {% if invites %}
-    {% from "macros/dialog.html" import dialog %}
-    {% from "macros/avatar.html" import avatar with context %}
-
-    {% set roles = {
-      "owner": _("Owner"),
-      "admin": _("Admin"),
-      "member": _("Member"),
-    } %}
-
+{% macro notifications(invites=[]) %} {% from "macros/dropdown-menu.html" import
+dropdown_menu %} {% if invites %} {% from "macros/dialog.html" import dialog %}
+{% from "macros/avatar.html" import avatar with context %} {% set roles = {
+"owner": _("Owner"), "admin": _("Admin"), "member": _("Member"), } %} {% for
+invite in invites %} {% set footer %}
+<button class="btn-ghost" onclick="this.closest('dialog').close()">
+    {{ _('Cancel') }}
+</button>
+<form
+    hx-post="{{ url_for('user_notifications').include_query_params(fragment='accept_invite') }}"
+    hx-swap="none"
+    hx-disabled-elt="button"
+    hx-indicator="find .htmx-indicator"
+    x-init
+    @htmx:after-request="$el.closest('dialog').close()"
+>
+    {{ accept_invite_form.csrf_token }} {{
+    accept_invite_form.invite_id(value=invite.id) }}
+    <button type="submit" class="btn max-sm:w-full">
+        {{ _('Accept invitation') }}
+        <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">
+            {% include "icons/loader.svg" %}
+        </div>
+    </button>
+</form>
+{% endset %} {% call dialog( id="dialog-invite-" ~ invite.id,
+title=_('Invitation to "%(team)s"', team=invite.team.name),
+dialog_attrs={"class": "max-w-md"}, footer=footer ) %}
+<div class="space-y-4" x-data="{ confirm: '' }">
+    <p>
+        {{ _( '<b>%(name)s</b> invited you to join the "<b>%(team)s</b>" team.
+        This invitation will expire on <b>%(expires_at)s</b>.',
+        name=invite.inviter.name or invite.inviter.email, team=invite.team.name,
+        expires_at=invite.expires_at.strftime('%B %d, %Y'), ) | safe }}
+    </p>
+    <div class="flex gap-x-6 items-center border px-4 h-12 rounded-lg">
+        {{ avatar(item=invite.team, prefix="team", name=invite.team.name,
+        size="xs") }} {{ invite.team.name }}
+        <span class="text-muted-foreground"> {{ roles[invite.role] }} </span>
+    </div>
+</div>
+{% endcall %} {% endfor %} {% set trigger %} {% include "icons/bell.svg" %}
+<span
+    class="size-2 rounded-full bg-destructive absolute top-0.5 right-0.5 border border-background"
+></span>
+{% endset %} {% call dropdown_menu( trigger=trigger, trigger_attrs={"class":
+"btn-sm-icon-ghost", "data-tooltip": _('Notifications'), "data-side": "bottom"},
+popover_attrs={"data-align": "end"} ) %}
+<div role="group" aria-labelledby="invitations">
+    <div role="heading" id="invitations">
+        {% if invites|length > 1 %} {{ _('%(count)s invitations',
+        count=invites|length) }} {% else %} {{ _('1 team invitation') }} {%
+        endif %}
+    </div>
+    <hr role="separator" />
     {% for invite in invites %}
-      {% set footer %}
-        <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
-        <form
-          hx-post="{{ url_for('user_notifications').include_query_params(fragment='accept_invite') }}"
-          hx-swap="none"
-          hx-disabled-elt="button"
-          hx-indicator="find .htmx-indicator"
-          x-init
-          @htmx:after-request="$el.closest('dialog').close()"
-        >
-          {{ accept_invite_form.csrf_token }}
-          {{ accept_invite_form.invite_id(value=invite.id) }}
-          <button type="submit" class="btn max-sm:w-full">
-            {{ _('Accept invitation') }}
-            <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
-          </button>
-        </form>
-      {% endset %}
-      {% call dialog(
-        id="dialog-invite-" ~ invite.id,
-        title=_('Invitation to "%(team)s"', team=invite.team.name),
-        dialog_attrs={"class": "max-w-md"},
-        footer=footer
-      ) %}
-      <div class="space-y-4" x-data="{ confirm: '' }">
-        <p>{{ _(
-          '<b>%(name)s</b> invited you to join the "<b>%(team)s</b>" team. This invitation will expire on <b>%(expires_at)s</b>.',
-          name=invite.inviter.name or invite.inviter.email,
-          team=invite.team.name,
-          expires_at=invite.expires_at.strftime('%B %d, %Y'),
-        ) | safe }}</p>
-        <div class="flex gap-x-6 items-center border px-4 h-12 rounded-lg">
-          {{ avatar(item=invite.team, prefix="team", name=invite.team.name, size="xs") }}
-          {{ invite.team.name }}
-          <span class="text-muted-foreground">
-            {{ roles[invite.role] }}
-          </span>
-        </div>
-      </div>
-      {% endcall %}
-    {% endfor %}
-
-    {% set trigger %}
-      {% include "icons/bell.svg" %}
-      <span class="size-2 rounded-full bg-destructive absolute top-0.5 right-0.5 border border-background"></span>
-    {% endset %}
-    {% call dropdown_menu(
-      trigger=trigger,
-      trigger_attrs={"class": "btn-sm-icon-ghost"},
-      popover_attrs={"data-align": "end"}
-    ) %}
-      <div role="group" aria-labelledby="invitations">
-        <div role="heading" id="invitations">
-          {% if invites|length > 1 %}
-            {{ _('%(count)s invitations', count=invites|length) }}
-          {% else %}
-            {{ _('1 team invitation') }}
-          {% endif %}
-        </div>
-        <hr role="separator" />
-        {% for invite in invites %}
-          <button role="menuitem" onclick="document.getElementById('dialog-invite-{{ invite.id }}').showModal()">
-            <ul class="flex flex-col gap-y-1 max-w-3xs text-left">
-              <li class="flex items-center gap-x-2">
-                {{ avatar(item=invite.team, prefix="team", name=invite.team.name, size="xs") }}
+    <button
+        role="menuitem"
+        onclick="document.getElementById('dialog-invite-{{ invite.id }}').showModal()"
+    >
+        <ul class="flex flex-col gap-y-1 max-w-3xs text-left">
+            <li class="flex items-center gap-x-2">
+                {{ avatar(item=invite.team, prefix="team",
+                name=invite.team.name, size="xs") }}
                 <span class="truncate">{{ invite.team.name }}</span>
-              </li>
-              <li class="text-muted-foreground pl-7 truncate">
-                {{ invite.created_at | time_ago }} {{ _('by') }} {{ invite.inviter.name or invite.inviter.username }}
-              </li>
-            </ul>
-          </button>
-        {% endfor %}
-      </div>
-    {% endcall %}
-  {% else %}
-    {% set trigger %}
-      {% include "icons/bell.svg" %}
-    {% endset %}
-    {% call dropdown_menu(
-      trigger=trigger,
-      trigger_attrs={"class": "btn-sm-icon-ghost"},
-      popover_attrs={"data-align": "end"}
-    ) %}
-      <p class="px-2 py-1.5 text-muted-foreground flex items-center justify-center">
-        {{ _('No new notifications') }}
-      </p>
-    {% endcall %}
-  {% endif %}
-{% endmacro %}
+            </li>
+            <li class="text-muted-foreground pl-7 truncate">
+                {{ invite.created_at | time_ago }} {{ _('by') }} {{
+                invite.inviter.name or invite.inviter.username }}
+            </li>
+        </ul>
+    </button>
+    {% endfor %}
+</div>
+{% endcall %} {% else %} {% set trigger %} {% include "icons/bell.svg" %} {%
+endset %} {% call dropdown_menu( trigger=trigger, trigger_attrs={"class":
+"btn-sm-icon-ghost", "data-tooltip": _('Notifications'), "data-side": "bottom"},
+popover_attrs={"data-align": "end"} ) %}
+<p class="px-2 py-1.5 text-muted-foreground flex items-center justify-center">
+    {{ _('No new notifications') }}
+</p>
+{% endcall %} {% endif %} {% endmacro %}

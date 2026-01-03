@@ -1,37 +1,40 @@
 import logging
 import os
-from fastapi import APIRouter, Request, Depends, Query
+import secrets
+from datetime import timedelta
+from typing import Any
+
+import resend
+from arq.connections import ArqRedis
+from authlib.jose import jwt
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import delete, insert, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from starlette.responses import RedirectResponse, Response
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, insert
-from arq.connections import ArqRedis
-from typing import Any
-from authlib.jose import jwt
-from datetime import timedelta
-import resend
-import secrets
 
 from config import Settings, get_settings
+from db import get_db
 from dependencies import (
-    get_translation as _,
-    flash,
+    RedirectResponseX,
     TemplateResponse,
-    templates,
+    flash,
     get_current_user,
     get_job_queue,
-    RedirectResponseX,
     get_redis_client,
+    templates,
 )
-from db import get_db
-from models import User, UserIdentity, Team, TeamMember, TeamInvite, utc_now
+from dependencies import (
+    get_translation as _,
+)
+from forms.team import TeamInviteAcceptForm, TeamLeaveForm
 from forms.user import (
     UserDeleteForm,
-    UserGeneralForm,
     UserEmailForm,
+    UserGeneralForm,
     UserRevokeOAuthAccessForm,
 )
-from forms.team import TeamLeaveForm, TeamInviteAcceptForm
+from models import Team, TeamInvite, TeamMember, User, UserIdentity, utc_now
 
 logger = logging.getLogger(__name__)
 

@@ -1,103 +1,203 @@
 <!doctype html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <meta http-equiv="Content-Language" content="en" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <head>
+        <meta charset="utf-8" />
+        <meta http-equiv="Content-Language" content="en" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  {# CSS #}
-  <link rel="stylesheet" href="{{ url_for('assets', path='/styles.css') }}">
+        {# CSS #}
+        <link
+            rel="stylesheet"
+            href="{{ url_for('assets', path='/styles.css') }}"
+        />
+        {# Theme stylesheet - dynamically loaded from localStorage #}
+        <script>
+            (() => {
+                // Apply dark/light mode
+                try {
+                    const stored = localStorage.getItem("themeMode");
+                    if (
+                        stored
+                            ? stored === "dark"
+                            : matchMedia("(prefers-color-scheme: dark)").matches
+                    ) {
+                        document.documentElement.classList.add("dark");
+                    }
+                } catch (_) {}
 
-  {# Theme switcher #}
-  <script>
-    (() => {
-      try {
-        const stored = localStorage.getItem('themeMode');
-        if (stored ? stored === 'dark'
-          : matchMedia('(prefers-color-scheme: dark)').matches) {
-          document.documentElement.classList.add('dark');
-        }
-      } catch (_) { }
+                // Apply user theme from localStorage immediately
+                try {
+                    const userTheme = localStorage.getItem("userTheme");
+                    if (userTheme && userTheme !== "default") {
+                        const link = document.createElement("link");
+                        link.id = "theme-css";
+                        link.rel = "stylesheet";
+                        link.href = `/assets/themes/${userTheme}.css`;
+                        document.head.appendChild(link);
+                    }
+                } catch (_) {}
 
-      const apply = dark => {
-        document.documentElement.classList.toggle('dark', dark);
-        try { localStorage.setItem('themeMode', dark ? 'dark' : 'light'); } catch (_) { }
-      };
+                const apply = (dark) => {
+                    document.documentElement.classList.toggle("dark", dark);
+                    try {
+                        localStorage.setItem(
+                            "themeMode",
+                            dark ? "dark" : "light",
+                        );
+                    } catch (_) {}
+                };
 
-      document.addEventListener('basecoat:theme', (event) => {
-        const mode = event.detail?.mode;
-        apply(mode === 'dark' ? true
-          : mode === 'light' ? false
-            : !document.documentElement.classList.contains('dark'));
-      });
-    })();
-  </script>
+                document.addEventListener("basecoat:theme", (event) => {
+                    const mode = event.detail?.mode;
+                    apply(
+                        mode === "dark"
+                            ? true
+                            : mode === "light"
+                              ? false
+                              : !document.documentElement.classList.contains(
+                                    "dark",
+                                ),
+                    );
+                });
 
-  {# Title & Description #}
-  <title>
-    {% block title %}
-    {% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}
-    {% endblock %}
-  </title>
-  <meta name="title" content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}">
-  <meta name="description" content="{{ description or app_description }}">
+                // Dynamic theme switching
+                window.applyTheme = (themeName) => {
+                    const existing = document.getElementById("theme-css");
+                    if (themeName === "default") {
+                        if (existing) existing.remove();
+                    } else {
+                        const href = `/assets/themes/${themeName}.css`;
+                        if (existing) {
+                            existing.href = href;
+                        } else {
+                            const link = document.createElement("link");
+                            link.id = "theme-css";
+                            link.rel = "stylesheet";
+                            link.href = href;
+                            document.head.appendChild(link);
+                        }
+                    }
+                    try {
+                        localStorage.setItem("userTheme", themeName);
+                    } catch (_) {}
+                };
 
-  {# Open Graph / Facebook #}
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="{{ request.url }}">
-  <meta property="og:title" content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}">
-  <meta property="og:description" content="{{ description or app_description }}">
-  <meta property="og:image" content="{{ url_for('assets', path='/social.png') }}">
-  <meta property="og:site_name" content="{{ app_name }}">
-  <meta property="og:locale" content="en_US">
+                // Listen for theme change event
+                document.addEventListener("devpush:theme", (event) => {
+                    if (event.detail?.theme) {
+                        window.applyTheme(event.detail.theme);
+                    }
+                });
+            })();
+        </script>
 
-  {# X/Twitter #}
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="{{ request.url }}">
-  <meta name="twitter:title" content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}">
-  <meta name="twitter:description" content="{{ description or app_description }}">
-  <meta name="twitter:image" content="{{ url_for('assets', path='/social.png') }}">
+        {# Title & Description #}
+        <title>
+            {% block title %} {% if title %}{{ title }} | {{ app_name }}{% else
+            %}{{ app_name }}{% endif %} {% endblock %}
+        </title>
+        <meta
+            name="title"
+            content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}"
+        />
+        <meta
+            name="description"
+            content="{{ description or app_description }}"
+        />
 
-  {# Favicon #}
-  <link rel="icon" type="image/svg+xml" href="{{ url_for('assets', path='/favicon.svg') }}" />
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('assets', path='/apple-touch-icon.png') }}" />
+        {# Open Graph / Facebook #}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="{{ request.url }}" />
+        <meta
+            property="og:title"
+            content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}"
+        />
+        <meta
+            property="og:description"
+            content="{{ description or app_description }}"
+        />
+        <meta
+            property="og:image"
+            content="{{ url_for('assets', path='/social.png') }}"
+        />
+        <meta property="og:site_name" content="{{ app_name }}" />
+        <meta property="og:locale" content="en_US" />
 
-  {# JS #}
-  <script src="{{ url_for('assets', path='/basecoat.min.js') }}" defer></script>
-  <script src="{{ url_for('assets', path='/alpine.min.js') }}" defer></script>
-  <script src="{{ url_for('assets', path='/htmx.min.js') }}" defer></script>
-  <script src="{{ url_for('assets', path='/htmx-sse.min.js') }}" defer></script>
-  <script>
-    document.addEventListener('htmx:historyRestore', () => {
-      if (window.basecoat) window.basecoat.initAll();
-    });
-    {# Fix for backward/forward browser navigation with HTMX + Alpine.js #}
-    document.addEventListener('htmx:beforeHistorySave', (evt) => {
-      document.querySelectorAll('[x-for]').forEach((item) => {
-        item._x_lookup && Object.values(item._x_lookup).forEach((el) => el.remove())
-      })
-      document.querySelectorAll('[x-if]').forEach((item) => {
-        item._x_currentIfEl && item._x_currentIfEl.remove()
-      })
-    })
-    {# Loading bar fro hx-boost links #}
-    document.addEventListener('DOMContentLoaded', () => {
-      document.body.addEventListener('htmx:beforeRequest', (event) => {
-        if (event.detail.boosted === true) {
-          document.body.classList.add('loading')
-        }
-      })
-      document.body.addEventListener('htmx:afterRequest', (event) => {
-        if (event.detail.boosted === true) {
-          document.body.classList.remove('loading')
-        }
-      })
-    })
-  </script>
-  {% block head %}{% endblock %}
-</head>
-<body class="relative h-full text-sm min-h-screen">
-  {% block base_content %}{% endblock %}
-  {% block scripts %}{% endblock %}
-</body>
+        {# X/Twitter #}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:url" content="{{ request.url }}" />
+        <meta
+            name="twitter:title"
+            content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}"
+        />
+        <meta
+            name="twitter:description"
+            content="{{ description or app_description }}"
+        />
+        <meta
+            name="twitter:image"
+            content="{{ url_for('assets', path='/social.png') }}"
+        />
+
+        {# Favicon #}
+        <link
+            rel="icon"
+            type="image/svg+xml"
+            href="{{ url_for('assets', path='/favicon.svg') }}"
+        />
+        <link
+            rel="apple-touch-icon"
+            sizes="180x180"
+            href="{{ url_for('assets', path='/apple-touch-icon.png') }}"
+        />
+
+        {# JS #}
+        <script
+            src="{{ url_for('assets', path='/basecoat.min.js') }}"
+            defer
+        ></script>
+        <script
+            src="{{ url_for('assets', path='/alpine.min.js') }}"
+            defer
+        ></script>
+        <script
+            src="{{ url_for('assets', path='/htmx.min.js') }}"
+            defer
+        ></script>
+        <script
+            src="{{ url_for('assets', path='/htmx-sse.min.js') }}"
+            defer
+        ></script>
+        <script>
+            document.addEventListener('htmx:historyRestore', () => {
+              if (window.basecoat) window.basecoat.initAll();
+            });
+            {# Fix for backward/forward browser navigation with HTMX + Alpine.js #}
+            document.addEventListener('htmx:beforeHistorySave', (evt) => {
+              document.querySelectorAll('[x-for]').forEach((item) => {
+                item._x_lookup && Object.values(item._x_lookup).forEach((el) => el.remove())
+              })
+              document.querySelectorAll('[x-if]').forEach((item) => {
+                item._x_currentIfEl && item._x_currentIfEl.remove()
+              })
+            })
+            {# Loading bar fro hx-boost links #}
+            document.addEventListener('DOMContentLoaded', () => {
+              document.body.addEventListener('htmx:beforeRequest', (event) => {
+                if (event.detail.boosted === true) {
+                  document.body.classList.add('loading')
+                }
+              })
+              document.body.addEventListener('htmx:afterRequest', (event) => {
+                if (event.detail.boosted === true) {
+                  document.body.classList.remove('loading')
+                }
+              })
+            })
+        </script>
+        {% block head %}{% endblock %}
+    </head>
+    <body class="relative h-full text-sm min-h-screen">
+        {% block base_content %}{% endblock %} {% block scripts %}{% endblock %}
+    </body>
 </html>
