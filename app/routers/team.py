@@ -41,16 +41,16 @@ from utils.team import get_latest_teams
 from forms.team import (
     TeamDeleteForm,
     TeamGeneralForm,
-    NewTeamForm,
-    TeamAddMemberForm,
-    TeamDeleteMemberForm,
+    TeamCreateForm,
+    TeamMemberAddForm,
+    TeamMemberRemoveForm,
     TeamMemberRoleForm,
 )
 from forms.database import (
     DatabaseCreateForm,
     DatabaseDeleteForm,
-    ProjectDatabaseCreateForm,
-    ProjectDatabaseDeleteForm,
+    ProjectDatabaseForm,
+    ProjectDatabaseRemoveForm,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ async def new_team(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    form: Any = await NewTeamForm.from_formdata(request)
+    form: Any = await TeamCreateForm.from_formdata(request)
 
     if request.method == "POST" and await form.validate_on_submit():
         team = Team(name=form.name.data, created_by_user_id=current_user.id)
@@ -330,13 +330,41 @@ async def team_database(
         .order_by(Project.name.asc())
     )
     associations = associations_result.scalars().all()
+    available_projects = [
+        project
+        for project in projects
+        if project.id not in {association.project_id for association in associations}
+    ]
+    default_project = available_projects[0] if available_projects else None
 
-    create_association_form: Any = await ProjectDatabaseCreateForm.from_formdata(
+    association_form: Any = await ProjectDatabaseForm.from_formdata(
         request, database=database, projects=projects, associations=associations
     )
-    delete_association_form: Any = await ProjectDatabaseDeleteForm.from_formdata(
+    remove_association_form: Any = await ProjectDatabaseRemoveForm.from_formdata(
         request, associations=associations
     )
+
+    if request.method == "GET" and fragment == "environment_select":
+        project_id = request.query_params.get("project_id")
+        selected_project = next(
+            (project for project in projects if project.id == project_id), None
+        )
+        association_form.project_id.data = project_id
+        association_form.database_id.data = database.id
+        return TemplateResponse(
+            request=request,
+            name="team/partials/_database-select-environments.html",
+            context={
+                "current_user": current_user,
+                "team": team,
+                "role": role,
+                "database": database,
+                "associations": associations,
+                "association_form": association_form,
+                "selected_project": selected_project,
+                "is_active": False,
+            },
+        )
 
     if request.method == "POST" and fragment == "association":
         if not get_access(role, "admin"):
@@ -345,15 +373,50 @@ async def team_database(
                 _("You don't have permission to update database associations."),
                 "warning",
             )
-        elif await create_association_form.validate_on_submit():
-            association = ProjectDatabase(
-                project_id=create_association_form.project_id.data,
-                database_id=database.id,
-                environment_id=None,
-            )
-            db.add(association)
-            flash(request, _("Project linked to database."), "success")
-            await db.commit()
+        elif await association_form.validate_on_submit():
+            association_id = association_form.association_id.data
+            association_by_id = {
+                str(association.id): association for association in associations
+            }
+            if association_id:
+                association = association_by_id.get(str(association_id))
+                if association:
+                    association.environment_ids = (
+                        association_form.environment_ids.data or []
+                    )
+                    flash(request, _("Association updated."), "success")
+                    await db.commit()
+                else:
+                    flash(request, _("Association not found."), "error")
+                    await db.rollback()
+            elif association_form.association:
+                association_form.association.environment_ids = (
+                    association_form.environment_ids.data or []
+                )
+                flash(request, _("Association updated."), "success")
+                await db.commit()
+            else:
+                existing_result = await db.execute(
+                    select(ProjectDatabase).where(
+                        ProjectDatabase.project_id == association_form.project_id.data,
+                        ProjectDatabase.database_id == database.id,
+                    )
+                )
+                existing_association = existing_result.scalar_one_or_none()
+                if existing_association:
+                    existing_association.environment_ids = (
+                        association_form.environment_ids.data or []
+                    )
+                    flash(request, _("Association updated."), "success")
+                else:
+                    association = ProjectDatabase(
+                        project_id=association_form.project_id.data,
+                        database_id=database.id,
+                        environment_ids=association_form.environment_ids.data or [],
+                    )
+                    db.add(association)
+                    flash(request, _("Project linked to database."), "success")
+                await db.commit()
             associations_result = await db.execute(
                 select(ProjectDatabase)
                 .join(Project)
@@ -366,11 +429,22 @@ async def team_database(
                 .order_by(Project.name.asc())
             )
             associations = associations_result.scalars().all()
-            create_association_form = ProjectDatabaseCreateForm(
-                database=database, projects=projects, associations=associations
+            available_projects = [
+                project
+                for project in projects
+                if project.id
+                not in {association.project_id for association in associations}
+            ]
+            default_project = available_projects[0] if available_projects else None
+            association_form = await ProjectDatabaseForm.from_formdata(
+                request,
+                database=database,
+                projects=projects,
+                associations=associations,
             )
-            delete_association_form = ProjectDatabaseDeleteForm(
-                associations=associations
+            remove_association_form = await ProjectDatabaseRemoveForm.from_formdata(
+                request,
+                associations=associations,
             )
             if request.headers.get("HX-Request"):
                 return TemplateResponse(
@@ -383,8 +457,10 @@ async def team_database(
                         "database": database,
                         "projects": projects,
                         "associations": associations,
-                        "create_association_form": create_association_form,
-                        "delete_association_form": delete_association_form,
+                        "association_form": association_form,
+                        "remove_association_form": remove_association_form,
+                        "available_projects": available_projects,
+                        "default_project": default_project,
                     },
                 )
             return RedirectResponse(
@@ -408,8 +484,10 @@ async def team_database(
                     "database": database,
                     "projects": projects,
                     "associations": associations,
-                    "create_association_form": create_association_form,
-                    "delete_association_form": delete_association_form,
+                    "association_form": association_form,
+                    "remove_association_form": remove_association_form,
+                    "available_projects": available_projects,
+                    "default_project": default_project,
                 },
             )
 
@@ -420,8 +498,8 @@ async def team_database(
                 _("You don't have permission to update database associations."),
                 "warning",
             )
-        elif await delete_association_form.validate_on_submit():
-            association = delete_association_form.association
+        elif await remove_association_form.validate_on_submit():
+            association = remove_association_form.association
             await db.delete(association)
             await db.commit()
             associations_result = await db.execute(
@@ -436,11 +514,22 @@ async def team_database(
                 .order_by(Project.name.asc())
             )
             associations = associations_result.scalars().all()
-            create_association_form = ProjectDatabaseCreateForm(
-                database=database, projects=projects, associations=associations
+            available_projects = [
+                project
+                for project in projects
+                if project.id
+                not in {association.project_id for association in associations}
+            ]
+            default_project = available_projects[0] if available_projects else None
+            association_form = await ProjectDatabaseForm.from_formdata(
+                request,
+                database=database,
+                projects=projects,
+                associations=associations,
             )
-            delete_association_form = ProjectDatabaseDeleteForm(
-                associations=associations
+            remove_association_form = await ProjectDatabaseRemoveForm.from_formdata(
+                request,
+                associations=associations,
             )
             flash(request, _("Association removed."), "success")
             if request.headers.get("HX-Request"):
@@ -454,8 +543,10 @@ async def team_database(
                         "database": database,
                         "projects": projects,
                         "associations": associations,
-                        "create_association_form": create_association_form,
-                        "delete_association_form": delete_association_form,
+                        "association_form": association_form,
+                        "remove_association_form": remove_association_form,
+                        "available_projects": available_projects,
+                        "default_project": default_project,
                     },
                 )
             return RedirectResponse(
@@ -479,8 +570,10 @@ async def team_database(
                     "database": database,
                     "projects": projects,
                     "associations": associations,
-                    "create_association_form": create_association_form,
-                    "delete_association_form": delete_association_form,
+                    "association_form": association_form,
+                    "remove_association_form": remove_association_form,
+                    "available_projects": available_projects,
+                    "default_project": default_project,
                 },
             )
 
@@ -498,9 +591,11 @@ async def team_database(
             "database": database,
             "delete_form": delete_form,
             "associations": associations,
-            "create_association_form": create_association_form,
-            "delete_association_form": delete_association_form,
+            "association_form": association_form,
+            "remove_association_form": remove_association_form,
             "projects": projects,
+            "available_projects": available_projects,
+            "default_project": default_project,
             "latest_teams": latest_teams,
         },
     )
@@ -664,7 +759,7 @@ async def team_settings(
             )
 
     # Members
-    add_member_form: Any = await TeamAddMemberForm.from_formdata(
+    add_member_form: Any = await TeamMemberAddForm.from_formdata(
         request, db=db, team=team
     )
 
@@ -680,13 +775,13 @@ async def team_settings(
             await db.commit()
             _send_member_invite(request, invite, team, current_user, settings)
 
-    delete_member_form: Any = await TeamDeleteMemberForm.from_formdata(request)
+    remove_member_form: Any = await TeamMemberRemoveForm.from_formdata(request)
 
     if fragment == "delete_member":
-        if await delete_member_form.validate_on_submit():
+        if await remove_member_form.validate_on_submit():
             try:
                 user = await db.scalar(
-                    select(User).where(User.email == delete_member_form.email.data)
+                    select(User).where(User.email == remove_member_form.email.data)
                 )
                 if not user:
                     flash(request, _("User not found."), "error")
@@ -805,7 +900,7 @@ async def team_settings(
                 "members": members,
                 "member_invites": member_invites,
                 "add_member_form": add_member_form,
-                "delete_member_form": delete_member_form,
+                "remove_member_form": remove_member_form,
                 "member_role_form": member_role_form,
                 "owner_count": owner_count,
             },
@@ -826,7 +921,7 @@ async def team_settings(
             "general_form": general_form,
             "members": members,
             "add_member_form": add_member_form,
-            "delete_member_form": delete_member_form,
+            "remove_member_form": remove_member_form,
             "member_role_form": member_role_form,
             "member_invites": member_invites,
             "owner_count": owner_count,

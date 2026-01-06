@@ -9,7 +9,7 @@
       <label class="label">{{ _('Name') }}</label>
       <input
         type="text"
-        class="input w-full"
+        class="input w-full text-muted-foreground"
         value="{{ database.name }}"
         readonly
       />
@@ -20,7 +20,7 @@
       <div class="relative">
         <input
           type="text"
-          class="input w-full font-mono text-[13px] text-foreground/50 pr-9"
+          class="input w-full font-mono text-[13px] text-muted-foreground pr-9"
           value="{{ database.id }}"
           readonly
         />
@@ -54,7 +54,7 @@
       <div class="relative">
         <input
           type="text"
-          class="input w-full font-mono text-[13px] text-foreground/50 pr-9"
+          class="input w-full font-mono text-[13px] text-muted-foreground pr-9"
           value="/data/db/{{ database.name }}/db.sqlite"
           readonly
         />

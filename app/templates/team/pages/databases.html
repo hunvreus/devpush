@@ -44,6 +44,10 @@
               <span class="truncate max-w-3xs">{{ database.name }}</span>
             </a>
 
+            <span class="badge-outline">
+              SQLite
+            </span>
+
             {% if database.projects %}
               {% for project in database.projects %}
                 <a
@@ -64,7 +68,7 @@
 
             <div class="flex items-center ml-auto">
               <a
-                {# href="{{ url_for('database_settings', team_slug=team.slug, database_name=database.name) }}" #}
+                href="{{ url_for('team_database', team_slug=team.slug, database_name=database.name) }}"
                 class="btn-sm-icon-ghost"
                 data-tooltip="{{ _('Settings') }}"
               >

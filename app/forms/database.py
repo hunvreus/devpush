@@ -1,3 +1,4 @@
+import json
 from starlette_wtf import StarletteForm
 from wtforms import HiddenField, StringField, SubmitField
 from wtforms.validators import DataRequired, Length, Regexp, ValidationError, Optional
@@ -55,10 +56,11 @@ class DatabaseDeleteForm(StarletteForm):
             raise ValidationError(_("Database name confirmation did not match."))
 
 
-class ProjectDatabaseCreateForm(StarletteForm):
+class ProjectDatabaseForm(StarletteForm):
     association_id = HiddenField()
+    database_id = HiddenField(_l("Database ID"), validators=[DataRequired()])
     project_id = StringField(_l("Project"), validators=[DataRequired()])
-    environment_id = StringField(_l("Environment"), validators=[Optional()])
+    environment_ids = StringField(_l("Environments"), validators=[Optional()])
 
     def __init__(
         self,
@@ -78,6 +80,31 @@ class ProjectDatabaseCreateForm(StarletteForm):
         }
         self._selected_project = None
         self.association = None
+        if self.environment_ids.data in (None, ""):
+            self.environment_ids.data = []
+
+    def _parse_environment_ids(self, value):
+        if value in (None, "", []):
+            return []
+        if isinstance(value, list):
+            parsed = value
+        else:
+            try:
+                parsed = json.loads(value)
+            except (TypeError, json.JSONDecodeError):
+                return None
+        if parsed is None:
+            return []
+        if not isinstance(parsed, list):
+            return None
+        environment_ids = []
+        for item in parsed:
+            if item in (None, ""):
+                continue
+            if not isinstance(item, str):
+                return None
+            environment_ids.append(item)
+        return environment_ids
 
     def validate_association_id(self, field):
         if not field.data:
@@ -89,34 +116,47 @@ class ProjectDatabaseCreateForm(StarletteForm):
             raise ValidationError(_("Association not found."))
         self.association = association
 
+    def validate_database_id(self, field):
+        if field.data != self.database.id:
+            raise ValidationError(_("Database not found."))
+        if self.association and field.data != self.association.database_id:
+            raise ValidationError(_("Database cannot be changed."))
+
     def validate_project_id(self, field):
         project = self._projects_by_id.get(field.data)
         if not project:
             raise ValidationError(_("Project not found."))
+        if self.association and field.data != self.association.project_id:
+            raise ValidationError(_("Project cannot be changed."))
         self._selected_project = project
 
-    def validate_environment_id(self, field):
+    def validate_environment_ids(self, field):
         if not self._selected_project and self.project_id.data:
             self._selected_project = self._projects_by_id.get(self.project_id.data)
         if not self._selected_project:
             return
-        if field.data and not self._selected_project.get_environment_by_id(field.data):
-            raise ValidationError(_("Environment not found."))
-        environment_id = field.data or None
+        environment_ids = self._parse_environment_ids(field.data)
+        if environment_ids is None:
+            raise ValidationError(_("Invalid environment selection."))
+        environment_ids = list(dict.fromkeys(environment_ids))
+        field.data = environment_ids
+        for environment_id in environment_ids:
+            if not self._selected_project.get_environment_by_id(environment_id):
+                raise ValidationError(_("Environment not found."))
         association_id = self.association_id.data
         for association in self.associations:
             if association.project_id != self.project_id.data:
                 continue
-            if association.environment_id != environment_id:
+            if association.database_id != self.database_id.data:
                 continue
             if association_id and str(association.id) == association_id:
                 continue
             raise ValidationError(
-                _("This project is already linked to this database.")
+                _("This project is already connected to this database.")
             )
 
 
-class ProjectDatabaseDeleteForm(StarletteForm):
+class ProjectDatabaseRemoveForm(StarletteForm):
     association_id = HiddenField(_l("Association ID"), validators=[DataRequired()])
     confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
 

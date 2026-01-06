@@ -319,7 +319,8 @@ init_script_logging() {
   CURRENT_SCRIPT_NAME="$name"
 
   install -d -m 0750 "$log_dir" >/dev/null 2>&1 || true
-  SCRIPT_ERR_LOG="$log_dir/${name}_error.log"
+  SCRIPT_ERR_LOG="$log_dir/${name}-error.log"
+  ln -sfn "$SCRIPT_ERR_LOG" "$log_dir/${name}_error.log" >/dev/null 2>&1 || true
   exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
   trap '_script_err_trap' ERR
 }

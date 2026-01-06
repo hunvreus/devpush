@@ -38,19 +38,19 @@ from models import (
     utc_now,
 )
 from forms.project import (
-    NewProjectForm,
+    ProjectCreateForm,
     ProjectDeployForm,
     ProjectDeleteForm,
     ProjectGeneralForm,
     ProjectEnvVarsForm,
     ProjectEnvironmentForm,
-    ProjectDeleteEnvironmentForm,
-    ProjectBuildAndProjectDeployForm,
-    ProjectCancelDeploymentForm,
-    ProjectRollbackDeploymentForm,
+    ProjectEnvironmentRemoveForm,
+    ProjectBuildAndDeployForm,
+    ProjectDeploymentCancelForm,
+    ProjectDeploymentRollbackForm,
     ProjectDomainForm,
-    ProjectRemoveDomainForm,
-    ProjectVerifyDomainForm,
+    ProjectDomainRemoveForm,
+    ProjectDomainVerifyForm,
     ProjectResourcesForm,
 )
 from config import get_settings, Settings
@@ -119,7 +119,7 @@ async def new_project_details(
             request.url_for("new_project", team_slug=team.slug), status_code=303
         )
 
-    form: Any = await NewProjectForm.from_formdata(request, db=db, team=team)
+    form: Any = await ProjectCreateForm.from_formdata(request, db=db, team=team)
 
     if request.method == "GET":
         form.repo_id.data = int(repo_id)
@@ -696,7 +696,7 @@ async def project_cancel(
 ):
     team, membership = team_and_membership
 
-    form: Any = await ProjectCancelDeploymentForm.from_formdata(request)
+    form: Any = await ProjectDeploymentCancelForm.from_formdata(request)
 
     if request.method == "POST" and await form.validate_on_submit():
         try:
@@ -757,7 +757,7 @@ async def project_rollback(
 ):
     team, membership = team_and_membership
 
-    form: Any = await ProjectRollbackDeploymentForm.from_formdata(request)
+    form: Any = await ProjectDeploymentRollbackForm.from_formdata(request)
 
     if request.method == "POST" and await form.validate_on_submit():
         try:
@@ -821,7 +821,7 @@ async def project_rollback(
 # ):
 #     team, membership = team_and_membership
 
-#     form: Any = await ProjectRollbackDeploymentForm.from_formdata(request)
+#     form: Any = await ProjectDeploymentRollbackForm.from_formdata(request)
 
 #     if request.method == "POST" and await form.validate_on_submit():
 #         try:
@@ -1095,7 +1095,7 @@ async def project_settings(
     environment_form: Any = await ProjectEnvironmentForm.from_formdata(
         request=request, project=project
     )
-    delete_environment_form: Any = await ProjectDeleteEnvironmentForm.from_formdata(
+    remove_environment_form: Any = await ProjectEnvironmentRemoveForm.from_formdata(
         request=request, project=project
     )
     environments_updated = False
@@ -1139,9 +1139,9 @@ async def project_settings(
                 flash(request, _("Something went wrong. Please try again."), "error")
 
     if fragment == "delete_environment":
-        if await delete_environment_form.validate_on_submit():
+        if await remove_environment_form.validate_on_submit():
             try:
-                environment_id = delete_environment_form.environment_id.data
+                environment_id = remove_environment_form.environment_id.data
                 if project.delete_environment(environment_id):
                     domains_result = await db.execute(
                         select(Domain).where(
@@ -1185,14 +1185,14 @@ async def project_settings(
                 "team": team,
                 "project": project,
                 "environment_form": environment_form,
-                "delete_environment_form": delete_environment_form,
+                "remove_environment_form": remove_environment_form,
                 "colors": COLORS,
                 "updated": environments_updated,
             },
         )
 
     # Build and deploy
-    build_and_deploy_form: Any = await ProjectBuildAndProjectDeployForm.from_formdata(
+    build_and_deploy_form: Any = await ProjectBuildAndDeployForm.from_formdata(
         request,
         data={
             "preset": project.config.get("preset"),
@@ -1288,10 +1288,10 @@ async def project_settings(
     domain_form: Any = await ProjectDomainForm.from_formdata(
         request=request, project=project, domains=domains, db=db
     )
-    remove_domain_form: Any = await ProjectRemoveDomainForm.from_formdata(
+    remove_domain_form: Any = await ProjectDomainRemoveForm.from_formdata(
         request=request, project=project, domains=domains
     )
-    verify_domain_form: Any = await ProjectVerifyDomainForm.from_formdata(
+    verify_domain_form: Any = await ProjectDomainVerifyForm.from_formdata(
         request=request, domains=domains
     )
 
@@ -1469,7 +1469,7 @@ async def project_settings(
             "project": project,
             "general_form": general_form,
             "environment_form": environment_form,
-            "delete_environment_form": delete_environment_form,
+            "remove_environment_form": remove_environment_form,
             "build_and_deploy_form": build_and_deploy_form,
             "resources_form": resources_form,
             "default_cpus": settings.default_cpus,
@@ -1516,7 +1516,7 @@ async def project_deployment(
 
     cancel_form = None
     if not deployment.conclusion:
-        cancel_form: Any = await ProjectCancelDeploymentForm.from_formdata(request)
+        cancel_form: Any = await ProjectDeploymentCancelForm.from_formdata(request)
 
     env_aliases = await project.get_environment_aliases(db=db)
 

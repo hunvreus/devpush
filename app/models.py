@@ -13,6 +13,7 @@ from sqlalchemy import (
     update,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone, timedelta
@@ -666,8 +667,8 @@ class ProjectDatabase(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("project.id"), index=True)
     database_id: Mapped[str] = mapped_column(ForeignKey("database.id"), index=True)
-    environment_id: Mapped[str | None] = mapped_column(
-        String(8), nullable=True, index=True
+    environment_ids: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list
     )
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
@@ -678,9 +679,8 @@ class ProjectDatabase(Base):
     __table_args__ = (
         UniqueConstraint(
             "project_id",
-            "environment_id",
             "database_id",
-            name="uq_project_database_environment",
+            name="uq_project_database",
         ),
     )
 

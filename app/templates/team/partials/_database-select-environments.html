@@ -1,0 +1,35 @@
+{% from "macros/avatar.html" import avatar with context %}
+{% from "macros/select.html" import select %}
+
+{% set items=[] %}
+{% if selected_project %}
+  {% for environment in selected_project.active_environments %}
+    {% set label %}
+      {{ environment_label(environment) }}
+    {% endset %}
+    {% set items = items.append({
+      "label": label,
+      "value": environment.id
+    }) %}
+  {% endfor %}
+{% endif %}
+
+{{ select(
+  id="database-environment-select",
+  name="environment_ids",
+  selected=selected_environment_ids,
+  is_combobox=true,
+  multiple=true,
+  placeholder=_("All environments"),
+  items=items,
+  main_attrs={"class": "w-full"},
+  trigger_attrs={
+    "aria-invalid": "true" if association_form.environment_ids.errors else "",
+    "class": "w-full truncate"
+  }
+) }}
+{% if is_active %}
+  {% for error in association_form.environment_ids.errors %}
+    <p class="text-destructive text-sm">{{ error }}</p>
+  {% endfor %}
+{% endif %}

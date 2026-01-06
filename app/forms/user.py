@@ -94,7 +94,7 @@ class UserDeleteForm(StarletteForm):
             raise ValidationError(_("Email confirmation did not match."))
 
 
-class UserRevokeOAuthAccessForm(StarletteForm):
+class UserOAuthAccessRevokeForm(StarletteForm):
     provider = SelectField(
         _l("Provider"),
         default="",

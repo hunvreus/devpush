@@ -187,12 +187,12 @@
                     @htmx:after-request="window.dispatchEvent(new Event('environments:updated'));"
                     @submit.prevent="!confirm"
                   >
-                    {{ delete_environment_form.csrf_token(id=False) }}
-                    {{ delete_environment_form.environment_id(
+                    {{ remove_environment_form.csrf_token(id=False) }}
+                    {{ remove_environment_form.environment_id(
                       id=False,
                       value=environment.id
                     ) }}
-                    {{ delete_environment_form.confirm(
+                    {{ remove_environment_form.confirm(
                       id=False,
                       class_='w-full',
                       placeholder=_('Type the environment identifier to confirm'),
@@ -200,7 +200,7 @@
                     ) }}
                     <footer class="flex justify-end gap-x-2 pt-4">
                       <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
-                      {{ delete_environment_form.submit(
+                      {{ remove_environment_form.submit(
                         id=False,
                         class_="btn-destructive",
                         **{':disabled': "confirm !== '" + environment.slug + "'"}
