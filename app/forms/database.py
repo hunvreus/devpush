@@ -1,4 +1,5 @@
 import json
+from starlette.requests import Request
 from starlette_wtf import StarletteForm
 from wtforms import HiddenField, StringField, SubmitField
 from wtforms.validators import DataRequired, Length, Regexp, ValidationError, Optional
@@ -7,6 +8,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dependencies import get_translation as _, get_lazy_translation as _l
 from models import Database, Project, ProjectDatabase, Team
+
+
+def _parse_environment_ids(value):
+    if value in (None, "", []):
+        return []
+    if isinstance(value, list):
+        parsed = value
+    else:
+        try:
+            parsed = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return None
+    if parsed is None:
+        return []
+    if not isinstance(parsed, list):
+        return None
+    environment_ids = []
+    for item in parsed:
+        if item in (None, ""):
+            continue
+        if not isinstance(item, str):
+            return None
+        environment_ids.append(item)
+    return list(dict.fromkeys(environment_ids))
 
 
 class DatabaseCreateForm(StarletteForm):
@@ -24,11 +49,21 @@ class DatabaseCreateForm(StarletteForm):
         ],
     )
     submit = SubmitField(_l("Create database"))
+    environment_ids = StringField(_l("Environments"), validators=[Optional()])
 
-    def __init__(self, *args, db: AsyncSession, team: Team, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        request: Request,
+        *args,
+        db: AsyncSession,
+        team: Team,
+        project: Project | None = None,
+        **kwargs,
+    ):
+        super().__init__(request, *args, **kwargs)
         self.db = db
         self.team = team
+        self.project = project
 
     async def async_validate_name(self, field):
         if self.db and self.team:
@@ -45,6 +80,17 @@ class DatabaseCreateForm(StarletteForm):
                     )
                 )
 
+    def validate_environment_ids(self, field):
+        if not self.project:
+            return
+        environment_ids = _parse_environment_ids(field.data)
+        if environment_ids is None:
+            raise ValidationError(_("Invalid environment selection."))
+        field.data = environment_ids
+        for environment_id in environment_ids:
+            if not self.project.get_environment_by_id(environment_id):
+                raise ValidationError(_("Environment not found."))
+
 
 class DatabaseDeleteForm(StarletteForm):
     name = HiddenField(_l("Database name"), validators=[DataRequired()])
@@ -58,53 +104,38 @@ class DatabaseDeleteForm(StarletteForm):
 
 class ProjectDatabaseForm(StarletteForm):
     association_id = HiddenField()
-    database_id = HiddenField(_l("Database ID"), validators=[DataRequired()])
+    database_id = HiddenField(_l("Database"), validators=[DataRequired()])
     project_id = StringField(_l("Project"), validators=[DataRequired()])
     environment_ids = StringField(_l("Environments"), validators=[Optional()])
 
     def __init__(
         self,
+        request: Request,
         *args,
-        database: Database,
+        database: Database | None = None,
+        databases: list[Database] | None = None,
         projects: list[Project],
         associations: list["ProjectDatabase"],
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(request, *args, **kwargs)
         self.database = database
+        self.databases = databases or []
         self.projects = projects
         self.associations = associations
         self._projects_by_id = {project.id: project for project in projects}
+        self._databases_by_id = {db.id: db for db in self.databases}
         self._associations_by_id = {
             str(association.id): association for association in associations
         }
         self._selected_project = None
+        self._selected_database = None
         self.association = None
         if self.environment_ids.data in (None, ""):
             self.environment_ids.data = []
 
     def _parse_environment_ids(self, value):
-        if value in (None, "", []):
-            return []
-        if isinstance(value, list):
-            parsed = value
-        else:
-            try:
-                parsed = json.loads(value)
-            except (TypeError, json.JSONDecodeError):
-                return None
-        if parsed is None:
-            return []
-        if not isinstance(parsed, list):
-            return None
-        environment_ids = []
-        for item in parsed:
-            if item in (None, ""):
-                continue
-            if not isinstance(item, str):
-                return None
-            environment_ids.append(item)
-        return environment_ids
+        return _parse_environment_ids(value)
 
     def validate_association_id(self, field):
         if not field.data:
@@ -112,12 +143,20 @@ class ProjectDatabaseForm(StarletteForm):
         association = self._associations_by_id.get(field.data)
         if not association:
             raise ValidationError(_("Association not found."))
-        if association.database_id != self.database.id:
+        if self.database and association.database_id != self.database.id:
             raise ValidationError(_("Association not found."))
         self.association = association
 
     def validate_database_id(self, field):
-        if field.data != self.database.id:
+        if self.database:
+            if field.data != self.database.id:
+                raise ValidationError(_("Database not found."))
+        elif self._databases_by_id:
+            database = self._databases_by_id.get(field.data)
+            if not database:
+                raise ValidationError(_("Database not found."))
+            self._selected_database = database
+        else:
             raise ValidationError(_("Database not found."))
         if self.association and field.data != self.association.database_id:
             raise ValidationError(_("Database cannot be changed."))
@@ -160,8 +199,10 @@ class ProjectDatabaseRemoveForm(StarletteForm):
     association_id = HiddenField(_l("Association ID"), validators=[DataRequired()])
     confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
 
-    def __init__(self, *args, associations: list["ProjectDatabase"], **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self, request: Request, *args, associations: list["ProjectDatabase"], **kwargs
+    ):
+        super().__init__(request, *args, **kwargs)
         self.associations = associations
         self._associations_by_id = {
             str(association.id): association for association in associations

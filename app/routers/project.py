@@ -35,6 +35,8 @@ from models import (
     User,
     Team,
     TeamMember,
+    Database,
+    ProjectDatabase,
     utc_now,
 )
 from forms.project import (
@@ -53,6 +55,7 @@ from forms.project import (
     ProjectDomainVerifyForm,
     ProjectResourcesForm,
 )
+from forms.database import DatabaseCreateForm, ProjectDatabaseForm
 from config import get_settings, Settings
 from db import get_db
 from services.github import GitHubService
@@ -430,6 +433,208 @@ async def project_deployments(
             "pagination": pagination,
             "branches": branches,
             "env_aliases": env_aliases,
+            "latest_projects": latest_projects,
+            "latest_teams": latest_teams,
+        },
+    )
+
+
+@router.api_route(
+    "/{team_slug}/projects/{project_name}/databases",
+    methods=["GET", "POST"],
+    name="project_databases",
+)
+async def project_databases(
+    request: Request,
+    fragment: str | None = Query(None),
+    project: Project = Depends(get_project_by_name),
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+    project_name = project.name
+
+    associations_result = await db.execute(
+        select(ProjectDatabase)
+        .join(Database)
+        .where(
+            ProjectDatabase.project_id == project.id,
+            Database.status != "deleted",
+        )
+        .options(selectinload(ProjectDatabase.database))
+        .order_by(Database.name.asc())
+    )
+    associations = associations_result.scalars().all()
+
+    databases_result = await db.execute(
+        select(Database)
+        .where(Database.team_id == team.id, Database.status != "deleted")
+        .order_by(Database.name.asc())
+    )
+    databases = databases_result.scalars().all()
+    available_databases = [
+        database
+        for database in databases
+        if database.id not in {association.database_id for association in associations}
+    ]
+
+    create_database_form: Any = await DatabaseCreateForm.from_formdata(
+        request, db=db, team=team, project=project
+    )
+    if create_database_form.environment_ids.data in (None, ""):
+        create_database_form.environment_ids.data = []
+
+    connect_database_form: Any = await ProjectDatabaseForm.from_formdata(
+        request,
+        databases=available_databases,
+        projects=[project],
+        associations=associations,
+    )
+    if connect_database_form.environment_ids.data in (None, ""):
+        connect_database_form.environment_ids.data = []
+
+    if request.method == "POST" and fragment == "create_database":
+        if not get_access(role, "admin"):
+            flash(
+                request,
+                _("You don't have permission to create databases."),
+                "warning",
+            )
+        elif await create_database_form.validate_on_submit():
+            try:
+                database = Database(
+                    name=create_database_form.name.data,
+                    team_id=team.id,
+                    created_by_user_id=current_user.id,
+                    status="creating",
+                )
+                db.add(database)
+                await db.flush()
+                association = ProjectDatabase(
+                    project_id=project.id,
+                    database_id=database.id,
+                    environment_ids=create_database_form.environment_ids.data or [],
+                )
+                db.add(association)
+                await db.commit()
+                flash(request, _("Database created and connected."), "success")
+                return RedirectResponseX(
+                    url=str(
+                        request.url_for(
+                            "project_databases",
+                            team_slug=team.slug,
+                            project_name=project.name,
+                        )
+                    ),
+                    request=request,
+                )
+            except Exception as e:
+                await db.rollback()
+                logger.error(
+                    f"Error creating database for project {project_name}: {str(e)}"
+                )
+                flash(request, _("Error creating database."), "error")
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_dialog-project-database-form.html",
+                context={
+                    "current_user": current_user,
+                    "role": role,
+                    "team": team,
+                    "project": project,
+                    "form": create_database_form,
+                    "databases": None,
+                    "fragment": "create_database",
+                },
+            )
+
+    if request.method == "POST" and fragment == "connect_database":
+        if not get_access(role, "admin"):
+            flash(
+                request,
+                _("You don't have permission to update database connections."),
+                "warning",
+            )
+        elif await connect_database_form.validate_on_submit():
+            try:
+                existing_result = await db.execute(
+                    select(ProjectDatabase).where(
+                        ProjectDatabase.project_id == project.id,
+                        ProjectDatabase.database_id
+                        == connect_database_form.database_id.data,
+                    )
+                )
+                existing_association = existing_result.scalar_one_or_none()
+                if existing_association:
+                    existing_association.environment_ids = (
+                        connect_database_form.environment_ids.data or []
+                    )
+                    flash(request, _("Database connection updated."), "success")
+                else:
+                    association = ProjectDatabase(
+                        project_id=project.id,
+                        database_id=connect_database_form.database_id.data,
+                        environment_ids=connect_database_form.environment_ids.data
+                        or [],
+                    )
+                    db.add(association)
+                    flash(request, _("Database connected."), "success")
+                await db.commit()
+                return RedirectResponseX(
+                    url=str(
+                        request.url_for(
+                            "project_databases",
+                            team_slug=team.slug,
+                            project_name=project.name,
+                        )
+                    ),
+                    request=request,
+                )
+            except Exception as e:
+                await db.rollback()
+                logger.error(
+                    f"Error connecting database for project {project_name}: {str(e)}"
+                )
+                flash(request, _("Error connecting database."), "error")
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_dialog-project-database-form.html",
+                context={
+                    "current_user": current_user,
+                    "role": role,
+                    "team": team,
+                    "project": project,
+                    "form": connect_database_form,
+                    "databases": available_databases,
+                    "fragment": "connect_database",
+                },
+            )
+
+    latest_teams = await get_latest_teams(
+        db=db, current_user=current_user, current_team=team
+    )
+    latest_projects = await get_latest_projects(
+        db=db, team=team, current_project=project
+    )
+
+    return TemplateResponse(
+        request=request,
+        name="project/pages/databases.html",
+        context={
+            "current_user": current_user,
+            "role": role,
+            "team": team,
+            "project": project,
+            "associations": associations,
+            "databases": databases,
+            "available_databases": available_databases,
+            "create_database_form": create_database_form,
+            "connect_database_form": connect_database_form,
             "latest_projects": latest_projects,
             "latest_teams": latest_teams,
         },

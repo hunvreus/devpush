@@ -2,6 +2,7 @@
 
 {% block app_content %}
 {% from "macros/avatar.html" import avatar with context %}
+{% from "macros/label.html" import label with context %}
 
 {% include "team/partials/_dialog-new-database.html" %}
 
@@ -29,40 +30,46 @@
   </header>
   
   {% if databases %}
-  
     <section class="space-y-4">
       <ul>
         {% for database in databases %}
           <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
+            
+            {% if database.status != "active" %}
+              <span class="badge-secondary text-muted-foreground">
+                {{ _(database.status|capitalize) }}
+              </span>
+            {% else %}
+              <span class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1">
+                {% include "icons/loader.svg" %}
+                {{ _('Creating') }}
+              </span>
+            {% endif %}
             <a
               href="{{ url_for('team_database', team_slug=team.slug, database_name=database.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
               data-tooltip="{{ _('Name') }}"
               hx-boost="true"
             >
-              {% include "icons/database.svg" %}
+              {# {{ label(color="emerald", text="SQLite") }} #}
+              {{ label(color="pink", text="ValKey") }}
               <span class="truncate max-w-3xs">{{ database.name }}</span>
             </a>
 
-            <span class="badge-outline">
-              SQLite
-            </span>
-
             {% if database.projects %}
+              <div class="text-muted-foreground">
               {% for project in database.projects %}
                 <a
                   href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}"
-                  class="flex items-center gap-x-2 text-muted-foreground hover:text-foreground transition-colors min-w-0"
+                  class="text-muted-foreground hover:text-foreground transition-colors"
                   data-tooltip="{{ _('Project') }}"
                   hx-boost="true"
-                >
-                  {{ avatar(item=project, prefix="project", name=project.name, size="xs") }}
-                  <span class="truncate max-sm:hidden">{{ project.name }}</span>
-                </a>
+                >{{ project.name }}</a>{% if not loop.last %}, {% endif %}
               {% endfor %}
+              </div>
             {% else %}
-              <div class="flex items-center gap-x-2 text-muted-foreground whitespace-nowrap max-sm:hidden">
-                {{ _('No projects connected') }}
+              <div class="flex items-center gap-x-2 text-muted-foreground whitespace-nowrap max-sm:hidden italic">
+                <span class="truncate"></span>{{ _('No projects connected') }}</span>
               </div>
             {% endif %}
 

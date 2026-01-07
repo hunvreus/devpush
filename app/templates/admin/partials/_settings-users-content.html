@@ -38,7 +38,10 @@
             <td>{{ user.created_at | time_ago }}</td>
             <td>
               {% if user.status == "deleted" %}
-                <span class="badge-destructive">{{ _('Deleted') }}</span>
+                <span class="badge-destructive [&>svg]:animate-spin [&>svg]:-ml-1">
+                  {% include "icons/loader.svg" %}
+                  {{ _('Deleting') }}
+                </span>
               {% else %}
                 <span class="badge-outline">{{ _('Active') }}</span>
               {% endif %}

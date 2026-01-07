@@ -623,7 +623,7 @@ class Database(Base):
     )
     name: Mapped[str] = mapped_column(String(100), index=True)
     status: Mapped[str] = mapped_column(
-        SQLAEnum("active", "deleted", name="database_status"),
+        SQLAEnum("creating", "active", "deleted", name="database_status"),
         nullable=False,
         default="active",
     )

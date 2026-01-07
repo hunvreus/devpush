@@ -1,0 +1,88 @@
+{% from "macros/select.html" import select %}
+{% from "project/macros/environment-label.html" import environment_label %}
+
+<form
+  method="post"
+  action="{{ url_for('project_databases', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
+  hx-post="{{ url_for('project_databases', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
+  hx-swap="outerHTML"
+  class="space-y-6"
+>
+  {{ form.csrf_token }}
+  <div class="space-y-3 flex-1">
+    {% if fragment == 'create_database' %}
+      {{ form.name.label(class_="label") }}
+      {{ form.name(class_="input", placeholder=_("Database name")) }}
+      {% for error in form.name.errors %}
+        <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+    {% else %}
+      {{ form.database_id.label(class_="label") }}
+      <input type="hidden" name="project_id" value="{{ project.id }}">
+      {{ form.association_id }}
+      {% if databases %}
+        {% set items=[] %}
+        {% for database in databases %}
+          {% set items = items.append({
+            "label": database.name,
+            "value": database.id
+          }) %}
+        {% endfor %}
+        {{ select(
+          name="database_id",
+          selected=form.database_id.data,
+          is_combobox=true,
+          items=items,
+          main_attrs={"class": "w-full"},
+          trigger_attrs={
+            "aria-invalid": "true" if form.database_id.errors else "",
+            "class": "w-full truncate"
+          }
+        ) }}
+        {% for error in form.database_id.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted-foreground text-sm">{{ _('No available databases.') }}</p>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="space-y-3">
+    {{ form.environment_ids.label(class_="label") }}
+    {% set items=[] %}
+    
+    {% for environment in project.active_environments %}
+      {% set label %}
+        {{ environment_label(environment) }}
+      {% endset %}
+      {% set items = items.append({
+        "label": label,
+        "value": environment.id
+      }) %}
+    {% endfor %}
+    {{ select(
+      name="environment_ids",
+      selected=form.environment_ids.data,
+      is_combobox=true,
+      multiple=true,
+      placeholder=_("All environments"),
+      items=items,
+      main_attrs={"class": "w-full"},
+      trigger_attrs={
+        "aria-invalid": "true" if form.environment_ids.errors else "",
+        "class": "w-full truncate"
+      }
+    ) }}
+    {% for error in form.environment_ids.errors %}
+      <p class="text-destructive text-sm">{{ error }}</p>
+    {% endfor %}
+  </div>
+
+  <footer class="flex justify-end gap-x-2">
+    <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+    <button type="submit" class="btn">
+      {{ _('Create and connect') if fragment == 'create_database' else _('Connect') }}
+    </button>
+  </footer>
+</form>

@@ -10,12 +10,6 @@
   "307": _("307 - Temporary Redirect"),
 } %}
 
-{% set domain_statuses = {
-  "pending": _("Pending"),
-  "failed": _("Failed"),
-  "disabled": _("Disabled"),
-} %}
-
 {% macro render_domain_form(domain={}, index=0, update=False) %}
   {% if domain %}
     {% set is_active = domain_form.errors  and domain_form.domain_id.data|int == domain.id %}

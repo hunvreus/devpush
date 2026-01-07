@@ -1,0 +1,103 @@
+{% extends "layouts/app.html" %}
+
+{% block app_content %}
+{% from "macros/avatar.html" import avatar with context %}
+{% from "project/macros/environment-label.html" import environment_label %}
+{% from "macros/tabs.html" import tabs %}
+
+{% include "project/partials/_dialog-project-database.html" %}
+
+<div class="container max-w-screen-xl mx-auto p-8 space-y-6">
+  <header class="flex justify-between items-center">
+    <h1 class="h1 flex items-center gap-x-3">
+      <a href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
+        {{ avatar(item=project, prefix="project", name=project.name, size="md") }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
+      {{ _("Databases") }}
+    </h1>
+
+    <button
+      type="button"
+      class="btn"
+      onclick="document.getElementById('dialog-project-database').showModal()"
+    >
+      {% include "icons/plus.svg" %}
+      {{ _("Add database") }}
+    </button>
+  </header>
+
+  {% if associations %}
+    <section class="space-y-4">
+      <ul>
+        {% for association in associations %}
+          <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
+            <span class="badge-outline text-purple-500">
+              SQLite
+            </span>
+            {% if association.database.status != "active" %}
+              <span class="badge-secondary text-muted-foreground">
+                {{ _(association.database.status|capitalize) }}
+              </span>
+            {% endif %}
+            <a
+              href="{{ url_for('team_database', team_slug=team.slug, database_name=association.database.name) }}"
+              class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+              data-tooltip="{{ _('Database') }}"
+              hx-boost="true"
+            >
+              <span class="truncate max-w-3xs">{{ association.database.name }}</span>
+            </a>
+            <div class="text-muted-foreground flex flex-wrap items-center gap-2 [&>svg]:size-4">
+              {% if association.environment_ids %}
+                {% set envs = [] %}
+                {% for env_id in association.environment_ids %}
+                  {% set env = project.get_environment_by_id(env_id) %}
+                  {% if env %}
+                    {% set envs = envs + [env] %}
+                  {% endif %}
+                {% endfor %}
+                {% if envs %}
+                  {% for env in envs %}
+                    {{ environment_label(env, attrs={"class": "text-muted-foreground"}) }}
+                  {% endfor %}
+                {% else %}
+                  {{ _('All environments') }}
+                {% endif %}
+              {% else %}
+                {{ _('All environments') }}
+              {% endif %}
+            </div>
+            <div class="flex items-center ml-auto">
+              <a
+                href="{{ url_for('team_database', team_slug=team.slug, database_name=association.database.name) }}"
+                class="btn-sm-icon-ghost"
+                data-tooltip="{{ _('Settings') }}"
+              >
+                {% include "icons/settings.svg" %}
+              </a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% else %}
+    <section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
+      <div class="max-w-sm">
+        <div class="text-center">
+          <h2 class="h4">{{ _('No databases connected.') }}</h2>
+          <p class="text-muted-foreground mt-1">{{ _('Create or connect a SQLite database for this project.') }}</p>
+          <button
+            type="button"
+            class="btn-sm mt-4"
+            onclick="document.getElementById('dialog-project-database').showModal()"
+          >
+            {% include "icons/plus.svg" %}
+            {{ _('Connect database') }}
+          </button>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}
