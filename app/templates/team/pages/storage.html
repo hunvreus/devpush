@@ -4,7 +4,7 @@
 {% from "macros/avatar.html" import avatar with context %}
 {% from "macros/label.html" import label with context %}
 
-{% include "team/partials/_dialog-new-database.html" %}
+{% include "team/partials/_dialog-new-storage.html" %}
 
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
@@ -14,30 +14,30 @@
         {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
-      {{ _("Resources") }}
+      {{ _("Storage") }}
     </h1>
 
-    {% if databases %}
+    {% if storages %}
       <button
         type="button"
         class="btn"
-        onclick="document.getElementById('dialog-new-database').showModal()"
+        onclick="document.getElementById('dialog-new-storage').showModal()"
       >
         {% include "icons/plus.svg" %}
-        {{ _("New resource") }}
+        {{ _("New storage") }}
       </button>
     {% endif %}
   </header>
   
-  {% if databases %}
+  {% if storages %}
     <section class="space-y-4">
       <ul>
-        {% for database in databases %}
+        {% for storage in storages %}
           <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
             
-            {% if database.status != "active" %}
+            {% if storage.status != "active" %}
               <span class="badge-secondary text-muted-foreground">
-                {{ _(database.status|capitalize) }}
+                {{ _(storage.status|capitalize) }}
               </span>
             {% else %}
               <span class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1">
@@ -46,19 +46,19 @@
               </span>
             {% endif %}
             <a
-              href="{{ url_for('team_database', team_slug=team.slug, database_name=database.name) }}"
+              href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
               data-tooltip="{{ _('Name') }}"
               hx-boost="true"
             >
-              {# {{ label(color="emerald", text="SQLite") }} #}
+              {# {{ label(color="emerald", text="Database") }} #}
               {{ label(color="pink", text="ValKey") }}
-              <span class="truncate max-w-3xs">{{ database.name }}</span>
+              <span class="truncate max-w-3xs">{{ storage.name }}</span>
             </a>
 
-            {% if database.projects %}
+            {% if storage.projects %}
               <div class="text-muted-foreground">
-              {% for project in database.projects %}
+              {% for project in storage.projects %}
                 <a
                   href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}"
                   class="text-muted-foreground hover:text-foreground transition-colors"
@@ -75,7 +75,7 @@
 
             <div class="flex items-center ml-auto">
               <a
-                href="{{ url_for('team_database', team_slug=team.slug, database_name=database.name) }}"
+                href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
                 class="btn-sm-icon-ghost"
                 data-tooltip="{{ _('Settings') }}"
               >
@@ -91,16 +91,16 @@
       class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
       <div class="max-w-sm">
         <div class="text-center">
-          <h2 class="h4">{{ _('No resources yet.') }}</h2>
-          <p class="text-muted-foreground mt-1">{{ _('Create a new SQLite database and connect it to projects.') }}
+          <h2 class="h4">{{ _('No storage yet.') }}</h2>
+          <p class="text-muted-foreground mt-1">{{ _('Create a new database and connect it to projects.') }}
           </p>
           <button
             type="button"
             class="btn-sm mt-4"
-            onclick="document.getElementById('dialog-new-database').showModal()"
+            onclick="document.getElementById('dialog-new-storage').showModal()"
           >
             {% include "icons/plus.svg" %}
-            {{ _('New resource') }}
+            {{ _('New storage') }}
           </button>
         </div>
       </div>

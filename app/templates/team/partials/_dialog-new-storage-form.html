@@ -1,7 +1,7 @@
 <form
   method="post"
-  action="{{ url_for('team_new_database', team_slug=team.slug) }}"
-  hx-post="{{ url_for('team_new_database', team_slug=team.slug) }}"
+  action="{{ url_for('team_new_storage', team_slug=team.slug) }}"
+  hx-post="{{ url_for('team_new_storage', team_slug=team.slug) }}"
   hx-swap="outerHTML"
   hx-indicator="find .htmx-indicator"
   hx-disabled-elt="find button[type='submit']"
@@ -20,14 +20,14 @@
     <button
       type="button"
       class="btn-ghost"
-      onclick="document.getElementById('dialog-new-database').close()"
+      onclick="document.getElementById('dialog-new-storage').close()"
     >{{ _("Cancel") }}</button>
     <button
      type="submit"
      class="btn group"
      :disabled="!name.trim()"
     >
-      {{ _('Create database') }}
+      {{ _('Create storage') }}
       <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
     </button>
   </footer>

@@ -3,47 +3,47 @@
 
 <form
   method="post"
-  action="{{ url_for('project_databases', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
-  hx-post="{{ url_for('project_databases', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
+  action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
+  hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
   hx-swap="outerHTML"
   class="space-y-6"
 >
   {{ form.csrf_token }}
   <div class="space-y-3 flex-1">
-    {% if fragment == 'create_database' %}
+    {% if fragment == 'create_storage' %}
       {{ form.name.label(class_="label") }}
-      {{ form.name(class_="input", placeholder=_("Database name")) }}
+      {{ form.name(class_="input", placeholder=_("Storage name")) }}
       {% for error in form.name.errors %}
         <p class="text-destructive text-sm">{{ error }}</p>
       {% endfor %}
     {% else %}
-      {{ form.database_id.label(class_="label") }}
+      {{ form.storage_id.label(class_="label") }}
       <input type="hidden" name="project_id" value="{{ project.id }}">
       {{ form.association_id }}
-      {% if databases %}
+      {% if storages %}
         {% set items=[] %}
-        {% for database in databases %}
+        {% for storage in storages %}
           {% set items = items.append({
-            "label": database.name,
-            "value": database.id
+            "label": storage.name,
+            "value": storage.id
           }) %}
         {% endfor %}
         {{ select(
-          name="database_id",
-          selected=form.database_id.data,
+          name="storage_id",
+          selected=form.storage_id.data,
           is_combobox=true,
           items=items,
           main_attrs={"class": "w-full"},
           trigger_attrs={
-            "aria-invalid": "true" if form.database_id.errors else "",
+            "aria-invalid": "true" if form.storage_id.errors else "",
             "class": "w-full truncate"
           }
         ) }}
-        {% for error in form.database_id.errors %}
+        {% for error in form.storage_id.errors %}
           <p class="text-destructive text-sm">{{ error }}</p>
         {% endfor %}
       {% else %}
-        <p class="text-muted-foreground text-sm">{{ _('No available databases.') }}</p>
+        <p class="text-muted-foreground text-sm">{{ _('No available storage.') }}</p>
       {% endif %}
     {% endif %}
   </div>
@@ -82,7 +82,7 @@
   <footer class="flex justify-end gap-x-2">
     <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
     <button type="submit" class="btn">
-      {{ _('Create and connect') if fragment == 'create_database' else _('Connect') }}
+      {{ _('Create and connect') if fragment == 'create_storage' else _('Connect') }}
     </button>
   </footer>
 </form>

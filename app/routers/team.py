@@ -18,8 +18,8 @@ from models import (
     Team,
     TeamMember,
     TeamInvite,
-    Resource,
-    ResourceProject,
+    Storage,
+    StorageProject,
     utc_now,
 )
 from dependencies import (
@@ -32,7 +32,7 @@ from dependencies import (
     templates,
     get_role,
     get_access,
-    get_database_by_name,
+    get_storage_by_name,
 )
 from config import get_settings, Settings
 from db import get_db
@@ -46,11 +46,11 @@ from forms.team import (
     TeamMemberRemoveForm,
     TeamMemberRoleForm,
 )
-from forms.database import (
-    DatabaseCreateForm,
-    DatabaseDeleteForm,
-    ProjectDatabaseForm,
-    ProjectDatabaseRemoveForm,
+from forms.storage import (
+    StorageCreateForm,
+    StorageDeleteForm,
+    StorageProjectForm,
+    StorageProjectRemoveForm,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,8 +171,8 @@ async def team_projects(
     )
 
 
-@router.get("/{team_slug}/databases", name="team_databases")
-async def team_databases(
+@router.get("/{team_slug}/storage", name="team_storage")
+async def team_storage(
     request: Request,
     page: int = Query(1, ge=1),
     current_user: User = Depends(get_current_user),
@@ -189,16 +189,16 @@ async def team_databases(
     per_page = 25
 
     query = (
-        select(Resource)
+        select(Storage)
         .where(
-            Resource.team_id == team.id,
-            Resource.type == "sqlite",
-            Resource.status != "deleted",
+            Storage.team_id == team.id,
+            Storage.type == "database",
+            Storage.status != "deleted",
         )
         .options(
-            selectinload(Resource.project_links).selectinload(ResourceProject.project)
+            selectinload(Storage.project_links).selectinload(StorageProject.project)
         )
-        .order_by(Resource.updated_at.desc())
+        .order_by(Storage.updated_at.desc())
     )
 
     pagination = await paginate(db, query, page, per_page)
@@ -212,13 +212,13 @@ async def team_databases(
 
     return TemplateResponse(
         request=request,
-        name="team/pages/resources.html",
+        name="team/pages/storage.html",
         context={
             "current_user": current_user,
             "team": team,
             "role": role,
             "latest_teams": latest_teams,
-            "databases": pagination.get("items"),
+            "storages": pagination.get("items"),
             "pagination": pagination,
             "projects": projects,
         },
@@ -226,9 +226,9 @@ async def team_databases(
 
 
 @router.api_route(
-    "/{team_slug}/new-database", methods=["GET", "POST"], name="team_new_database"
+    "/{team_slug}/new-storage", methods=["GET", "POST"], name="team_new_storage"
 )
-async def team_new_database(
+async def team_new_storage(
     request: Request,
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
@@ -240,41 +240,41 @@ async def team_new_database(
     if not get_access(role, "admin"):
         flash(
             request,
-            _("You don't have permission to create databases."),
+            _("You don't have permission to create storage."),
             "warning",
         )
         return Response(status_code=403)
 
-    form: Any = await DatabaseCreateForm.from_formdata(request, db=db, team=team)
+    form: Any = await StorageCreateForm.from_formdata(request, db=db, team=team)
 
     if request.method == "POST" and await form.validate_on_submit():
-        database = Resource(
+        storage = Storage(
             name=form.name.data,
-            type="sqlite",
+            type="database",
             status="active",
             team_id=team.id,
             created_by_user_id=current_user.id,
         )
-        db.add(database)
+        db.add(storage)
         await db.commit()
-        flash(request, _("Database created."), "success")
+        flash(request, _("Storage created."), "success")
         if request.headers.get("HX-Request"):
             return Response(
                 status_code=200,
                 headers={
                     "HX-Redirect": str(
-                        request.url_for("team_databases", team_slug=team.slug)
+                        request.url_for("team_storage", team_slug=team.slug)
                     )
                 },
             )
         return RedirectResponse(
-            url=str(request.url_for("team_databases", team_slug=team.slug)),
+            url=str(request.url_for("team_storage", team_slug=team.slug)),
             status_code=303,
         )
 
     return TemplateResponse(
         request=request,
-        name="team/partials/_dialog-new-database-form.html",
+        name="team/partials/_dialog-new-storage-form.html",
         context={
             "current_user": current_user,
             "team": team,
@@ -284,36 +284,36 @@ async def team_new_database(
 
 
 @router.api_route(
-    "/{team_slug}/databases/{database_name}",
+    "/{team_slug}/storage/{storage_name}",
     methods=["GET", "POST"],
-    name="team_database",
+    name="team_storage_item",
 )
-async def team_database(
+async def team_storage_item(
     request: Request,
     fragment: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-    database: Resource = Depends(get_database_by_name),
+    storage: Storage = Depends(get_storage_by_name),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
 
-    delete_form: Any = await DatabaseDeleteForm.from_formdata(request)
+    delete_form: Any = await StorageDeleteForm.from_formdata(request)
 
     if request.method == "POST" and fragment == "danger":
         if not get_access(role, "admin"):
             flash(
                 request,
-                _("You don't have permission to delete databases."),
+                _("You don't have permission to delete storage."),
                 "warning",
             )
         elif await delete_form.validate_on_submit():
-            database.status = "deleted"
+            storage.status = "deleted"
             await db.commit()
-            flash(request, _("Database deleted."), "success")
+            flash(request, _("Storage deleted."), "success")
             return RedirectResponse(
-                url=str(request.url_for("team_databases", team_slug=team.slug)),
+                url=str(request.url_for("team_storage", team_slug=team.slug)),
                 status_code=303,
             )
 
@@ -325,14 +325,14 @@ async def team_database(
     projects = projects_result.scalars().all()
 
     associations_result = await db.execute(
-        select(ResourceProject)
+        select(StorageProject)
         .join(Project)
         .where(
-            ResourceProject.resource_id == database.id,
+            StorageProject.storage_id == storage.id,
             Project.team_id == team.id,
             Project.status != "deleted",
         )
-        .options(selectinload(ResourceProject.project))
+        .options(selectinload(StorageProject.project))
         .order_by(Project.name.asc())
     )
     associations = associations_result.scalars().all()
@@ -343,10 +343,10 @@ async def team_database(
     ]
     default_project = available_projects[0] if available_projects else None
 
-    association_form: Any = await ProjectDatabaseForm.from_formdata(
-        request, database=database, projects=projects, associations=associations
+    association_form: Any = await StorageProjectForm.from_formdata(
+        request, storage=storage, projects=projects, associations=associations
     )
-    remove_association_form: Any = await ProjectDatabaseRemoveForm.from_formdata(
+    remove_association_form: Any = await StorageProjectRemoveForm.from_formdata(
         request, associations=associations
     )
 
@@ -356,15 +356,15 @@ async def team_database(
             (project for project in projects if project.id == project_id), None
         )
         association_form.project_id.data = project_id
-        association_form.database_id.data = database.id
+        association_form.storage_id.data = storage.id
         return TemplateResponse(
             request=request,
-            name="team/partials/_database-select-environments.html",
+            name="team/partials/_storage-select-environments.html",
             context={
                 "current_user": current_user,
                 "team": team,
                 "role": role,
-                "database": database,
+                "storage": storage,
                 "associations": associations,
                 "association_form": association_form,
                 "selected_project": selected_project,
@@ -376,7 +376,7 @@ async def team_database(
         if not get_access(role, "admin"):
             flash(
                 request,
-                _("You don't have permission to update database associations."),
+                _("You don't have permission to update storage associations."),
                 "warning",
             )
         elif await association_form.validate_on_submit():
@@ -403,9 +403,9 @@ async def team_database(
                 await db.commit()
             else:
                 existing_result = await db.execute(
-                    select(ResourceProject).where(
-                        ResourceProject.project_id == association_form.project_id.data,
-                        ResourceProject.resource_id == database.id,
+                    select(StorageProject).where(
+                        StorageProject.project_id == association_form.project_id.data,
+                        StorageProject.storage_id == storage.id,
                     )
                 )
                 existing_association = existing_result.scalar_one_or_none()
@@ -415,23 +415,23 @@ async def team_database(
                     )
                     flash(request, _("Association updated."), "success")
                 else:
-                    association = ResourceProject(
+                    association = StorageProject(
                         project_id=association_form.project_id.data,
-                        resource_id=database.id,
+                        storage_id=storage.id,
                         environment_ids=association_form.environment_ids.data or [],
                     )
                     db.add(association)
-                    flash(request, _("Project linked to database."), "success")
+                    flash(request, _("Project linked to storage."), "success")
                 await db.commit()
             associations_result = await db.execute(
-                select(ResourceProject)
+                select(StorageProject)
                 .join(Project)
                 .where(
-                    ResourceProject.resource_id == database.id,
+                    StorageProject.storage_id == storage.id,
                     Project.team_id == team.id,
                     Project.status != "deleted",
                 )
-                .options(selectinload(ResourceProject.project))
+                .options(selectinload(StorageProject.project))
                 .order_by(Project.name.asc())
             )
             associations = associations_result.scalars().all()
@@ -442,25 +442,25 @@ async def team_database(
                 not in {association.project_id for association in associations}
             ]
             default_project = available_projects[0] if available_projects else None
-            association_form = await ProjectDatabaseForm.from_formdata(
+            association_form = await StorageProjectForm.from_formdata(
                 request,
-                database=database,
+                storage=storage,
                 projects=projects,
                 associations=associations,
             )
-            remove_association_form = await ProjectDatabaseRemoveForm.from_formdata(
+            remove_association_form = await StorageProjectRemoveForm.from_formdata(
                 request,
                 associations=associations,
             )
             if request.headers.get("HX-Request"):
                 return TemplateResponse(
                     request=request,
-                    name="team/partials/_database-associations.html",
+                    name="team/partials/_storage-associations.html",
                     context={
                         "current_user": current_user,
                         "team": team,
                         "role": role,
-                        "database": database,
+                        "storage": storage,
                         "projects": projects,
                         "associations": associations,
                         "association_form": association_form,
@@ -472,9 +472,9 @@ async def team_database(
             return RedirectResponse(
                 url=str(
                     request.url_for(
-                        "team_database",
+                        "team_storage_item",
                         team_slug=team.slug,
-                        database_name=database.name,
+                        storage_name=storage.name,
                     )
                 ),
                 status_code=303,
@@ -482,12 +482,12 @@ async def team_database(
         if request.headers.get("HX-Request"):
             return TemplateResponse(
                 request=request,
-                name="team/partials/_database-associations.html",
+                name="team/partials/_storage-associations.html",
                 context={
                     "current_user": current_user,
                     "team": team,
                     "role": role,
-                    "database": database,
+                    "storage": storage,
                     "projects": projects,
                     "associations": associations,
                     "association_form": association_form,
@@ -501,7 +501,7 @@ async def team_database(
         if not get_access(role, "admin"):
             flash(
                 request,
-                _("You don't have permission to update database associations."),
+                _("You don't have permission to update storage associations."),
                 "warning",
             )
         elif await remove_association_form.validate_on_submit():
@@ -509,14 +509,14 @@ async def team_database(
             await db.delete(association)
             await db.commit()
             associations_result = await db.execute(
-                select(ResourceProject)
+                select(StorageProject)
                 .join(Project)
                 .where(
-                    ResourceProject.resource_id == database.id,
+                    StorageProject.storage_id == storage.id,
                     Project.team_id == team.id,
                     Project.status != "deleted",
                 )
-                .options(selectinload(ResourceProject.project))
+                .options(selectinload(StorageProject.project))
                 .order_by(Project.name.asc())
             )
             associations = associations_result.scalars().all()
@@ -527,13 +527,13 @@ async def team_database(
                 not in {association.project_id for association in associations}
             ]
             default_project = available_projects[0] if available_projects else None
-            association_form = await ProjectDatabaseForm.from_formdata(
+            association_form = await StorageProjectForm.from_formdata(
                 request,
-                database=database,
+                storage=storage,
                 projects=projects,
                 associations=associations,
             )
-            remove_association_form = await ProjectDatabaseRemoveForm.from_formdata(
+            remove_association_form = await StorageProjectRemoveForm.from_formdata(
                 request,
                 associations=associations,
             )
@@ -541,12 +541,12 @@ async def team_database(
             if request.headers.get("HX-Request"):
                 return TemplateResponse(
                     request=request,
-                    name="team/partials/_database-associations.html",
+                    name="team/partials/_storage-associations.html",
                     context={
                         "current_user": current_user,
                         "team": team,
                         "role": role,
-                        "database": database,
+                        "storage": storage,
                         "projects": projects,
                         "associations": associations,
                         "association_form": association_form,
@@ -558,9 +558,9 @@ async def team_database(
             return RedirectResponse(
                 url=str(
                     request.url_for(
-                        "team_database",
+                        "team_storage_item",
                         team_slug=team.slug,
-                        database_name=database.name,
+                        storage_name=storage.name,
                     )
                 ),
                 status_code=303,
@@ -568,12 +568,12 @@ async def team_database(
         if request.headers.get("HX-Request"):
             return TemplateResponse(
                 request=request,
-                name="team/partials/_database-associations.html",
+                name="team/partials/_storage-associations.html",
                 context={
                     "current_user": current_user,
                     "team": team,
                     "role": role,
-                    "database": database,
+                    "storage": storage,
                     "projects": projects,
                     "associations": associations,
                     "association_form": association_form,
@@ -589,12 +589,12 @@ async def team_database(
 
     return TemplateResponse(
         request=request,
-        name="team/pages/database.html",
+        name="team/pages/storage-item.html",
         context={
             "current_user": current_user,
             "team": team,
             "role": role,
-            "database": database,
+            "storage": storage,
             "delete_form": delete_form,
             "associations": associations,
             "association_form": association_form,

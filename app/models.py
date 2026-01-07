@@ -190,7 +190,7 @@ class Team(Base):
 
     # Relationships
     projects: Mapped[list["Project"]] = relationship(back_populates="team")
-    resources: Mapped[list["Resource"]] = relationship(back_populates="team")
+    storages: Mapped[list["Storage"]] = relationship(back_populates="team")
     created_by_user: Mapped[User | None] = relationship(
         foreign_keys=[created_by_user_id]
     )
@@ -362,7 +362,7 @@ class Project(Base):
         foreign_keys=[created_by_user_id]
     )
     domains: Mapped[list["Domain"]] = relationship(back_populates="project")
-    resource_links: Mapped[list["ResourceProject"]] = relationship(
+    storage_links: Mapped[list["StorageProject"]] = relationship(
         back_populates="project"
     )
 
@@ -526,11 +526,11 @@ class Project(Base):
         return next((env for env in environments if env["slug"] == slug), None)
 
     @property
-    def databases(self) -> list["Resource"]:
+    def storages(self) -> list["Storage"]:
         return [
-            link.resource
-            for link in self.resource_links
-            if link.resource and link.resource.type == "sqlite"
+            link.storage
+            for link in self.storage_links
+            if link.storage and link.storage.type == "database"
         ]
 
     async def get_domain_by_id(self, db: AsyncSession, domain_id: int) -> dict | None:
@@ -619,19 +619,19 @@ def set_project_slug(mapper, connection, project):
         project.slug = new_slug
 
 
-class Resource(Base):
-    __tablename__: str = "resource"
+class Storage(Base):
+    __tablename__: str = "storage"
 
     id: Mapped[str] = mapped_column(
         String(32), primary_key=True, default=lambda: token_hex(16)
     )
     name: Mapped[str] = mapped_column(String(63), index=True)
     type: Mapped[str] = mapped_column(
-        SQLAEnum("sqlite", "file", "kv", "queue", name="resource_type"),
+        SQLAEnum("database", "volume", "kv", "queue", name="storage_type"),
         nullable=False,
     )
     status: Mapped[str] = mapped_column(
-        SQLAEnum("pending", "active", "deleted", name="resource_status"),
+        SQLAEnum("pending", "active", "deleted", name="storage_status"),
         nullable=False,
         default="pending",
     )
@@ -651,34 +651,34 @@ class Resource(Base):
     team_id: Mapped[str] = mapped_column(ForeignKey("team.id"), index=True)
 
     # Relationships
-    team: Mapped["Team"] = relationship(back_populates="resources")
+    team: Mapped["Team"] = relationship(back_populates="storages")
     created_by_user: Mapped[User | None] = relationship(
         foreign_keys=[created_by_user_id]
     )
-    project_links: Mapped[list["ResourceProject"]] = relationship(
-        back_populates="resource"
+    project_links: Mapped[list["StorageProject"]] = relationship(
+        back_populates="storage"
     )
 
     __table_args__ = (
-        UniqueConstraint("team_id", "name", name="uq_resource_team_name"),
+        UniqueConstraint("team_id", "name", name="uq_storage_team_name"),
     )
 
     @override
     def __repr__(self):
-        return f"<Resource {self.name} ({self.type})>"
+        return f"<Storage {self.name} ({self.type})>"
 
     @property
     def projects(self) -> list["Project"]:
         return [link.project for link in self.project_links if link.project]
 
 
-class ResourceProject(Base):
-    __tablename__: str = "resource_project"
+class StorageProject(Base):
+    __tablename__: str = "storage_project"
 
     id: Mapped[str] = mapped_column(
         String(32), primary_key=True, default=lambda: token_hex(16)
     )
-    resource_id: Mapped[str] = mapped_column(ForeignKey("resource.id"), index=True)
+    storage_id: Mapped[str] = mapped_column(ForeignKey("storage.id"), index=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("project.id"), index=True)
     environment_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     secrets: Mapped[dict[str, object]] = mapped_column(
@@ -690,14 +690,14 @@ class ResourceProject(Base):
     )
 
     # Relationships
-    project: Mapped["Project"] = relationship(back_populates="resource_links")
-    resource: Mapped["Resource"] = relationship(back_populates="project_links")
+    project: Mapped["Project"] = relationship(back_populates="storage_links")
+    storage: Mapped["Storage"] = relationship(back_populates="project_links")
 
     __table_args__ = (
         UniqueConstraint(
-            "resource_id",
+            "storage_id",
             "project_id",
-            name="uq_resource_project",
+            name="uq_storage_project",
         ),
     )
 

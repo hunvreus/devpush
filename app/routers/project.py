@@ -35,8 +35,8 @@ from models import (
     User,
     Team,
     TeamMember,
-    Resource,
-    ResourceProject,
+    Storage,
+    StorageProject,
     utc_now,
 )
 from forms.project import (
@@ -55,7 +55,7 @@ from forms.project import (
     ProjectDomainVerifyForm,
     ProjectResourcesForm,
 )
-from forms.database import DatabaseCreateForm, ProjectDatabaseForm
+from forms.storage import StorageCreateForm, StorageProjectForm
 from config import get_settings, Settings
 from db import get_db
 from services.github import GitHubService
@@ -440,11 +440,11 @@ async def project_deployments(
 
 
 @router.api_route(
-    "/{team_slug}/projects/{project_name}/databases",
+    "/{team_slug}/projects/{project_name}/storage",
     methods=["GET", "POST"],
-    name="project_databases",
+    name="project_storage",
 )
-async def project_databases(
+async def project_storage(
     request: Request,
     fragment: str | None = Query(None),
     project: Project = Depends(get_project_by_name),
@@ -457,79 +457,79 @@ async def project_databases(
     project_name = project.name
 
     associations_result = await db.execute(
-        select(ResourceProject)
-        .join(Resource)
+        select(StorageProject)
+        .join(Storage)
         .where(
-            ResourceProject.project_id == project.id,
-            Resource.type == "sqlite",
-            Resource.status != "deleted",
+            StorageProject.project_id == project.id,
+            Storage.type == "database",
+            Storage.status != "deleted",
         )
-        .options(selectinload(ResourceProject.resource))
-        .order_by(Resource.name.asc())
+        .options(selectinload(StorageProject.storage))
+        .order_by(Storage.name.asc())
     )
     associations = associations_result.scalars().all()
 
-    databases_result = await db.execute(
-        select(Resource)
+    storages_result = await db.execute(
+        select(Storage)
         .where(
-            Resource.team_id == team.id,
-            Resource.type == "sqlite",
-            Resource.status != "deleted",
+            Storage.team_id == team.id,
+            Storage.type == "database",
+            Storage.status != "deleted",
         )
-        .order_by(Resource.name.asc())
+        .order_by(Storage.name.asc())
     )
-    databases = databases_result.scalars().all()
-    available_databases = [
-        database
-        for database in databases
-        if database.id not in {association.resource_id for association in associations}
+    storages = storages_result.scalars().all()
+    available_storages = [
+        storage
+        for storage in storages
+        if storage.id not in {association.storage_id for association in associations}
     ]
 
-    create_database_form: Any = await DatabaseCreateForm.from_formdata(
+    create_storage_form: Any = await StorageCreateForm.from_formdata(
         request, db=db, team=team, project=project
     )
-    if create_database_form.environment_ids.data in (None, ""):
-        create_database_form.environment_ids.data = []
+    if create_storage_form.environment_ids.data in (None, ""):
+        create_storage_form.environment_ids.data = []
 
-    connect_database_form: Any = await ProjectDatabaseForm.from_formdata(
+    connect_storage_form: Any = await StorageProjectForm.from_formdata(
         request,
-        databases=available_databases,
+        storages=available_storages,
         projects=[project],
         associations=associations,
     )
-    if connect_database_form.environment_ids.data in (None, ""):
-        connect_database_form.environment_ids.data = []
+    if connect_storage_form.environment_ids.data in (None, ""):
+        connect_storage_form.environment_ids.data = []
 
-    if request.method == "POST" and fragment == "create_database":
+    if request.method == "POST" and fragment == "create_storage":
         if not get_access(role, "admin"):
             flash(
                 request,
-                _("You don't have permission to create databases."),
+                _("You don't have permission to create storage."),
                 "warning",
             )
-        elif await create_database_form.validate_on_submit():
+        elif await create_storage_form.validate_on_submit():
             try:
-                database = Resource(
-                    name=create_database_form.name.data,
-                    type="sqlite",
+                storage = Storage(
+                    name=create_storage_form.name.data,
+                    type="database",
                     status="active",
                     team_id=team.id,
                     created_by_user_id=current_user.id,
                 )
-                db.add(database)
+                db.add(storage)
                 await db.flush()
-                association = ResourceProject(
+                association = StorageProject(
                     project_id=project.id,
-                    resource_id=database.id,
-                    environment_ids=create_database_form.environment_ids.data or [],
+                    storage_id=storage.id,
+                    environment_ids=create_storage_form.environment_ids.data or [],
                 )
                 db.add(association)
                 await db.commit()
-                flash(request, _("Database created and connected."), "success")
+                flash(request, _("Storage created and connected."), "success")
                 return RedirectResponseX(
                     url=str(
                         request.url_for(
-                            "project_databases",
+                            "project_storage",
                             team_slug=team.slug,
                             project_name=project.name,
                         )
@@ -539,61 +539,61 @@ async def project_databases(
             except Exception as e:
                 await db.rollback()
                 logger.error(
-                    f"Error creating database for project {project_name}: {str(e)}"
+                    f"Error creating storage for project {project_name}: {str(e)}"
                 )
-                flash(request, _("Error creating database."), "error")
+                flash(request, _("Error creating storage."), "error")
 
         if request.headers.get("HX-Request"):
             return TemplateResponse(
                 request=request,
-                name="project/partials/_dialog-project-database-form.html",
+                name="project/partials/_dialog-project-storage-form.html",
                 context={
                     "current_user": current_user,
                     "role": role,
                     "team": team,
                     "project": project,
-                    "form": create_database_form,
-                    "databases": None,
-                    "fragment": "create_database",
+                    "form": create_storage_form,
+                    "storages": None,
+                    "fragment": "create_storage",
                 },
             )
 
-    if request.method == "POST" and fragment == "connect_database":
+    if request.method == "POST" and fragment == "connect_storage":
         if not get_access(role, "admin"):
             flash(
                 request,
-                _("You don't have permission to update database connections."),
+                _("You don't have permission to update storage connections."),
                 "warning",
             )
-        elif await connect_database_form.validate_on_submit():
+        elif await connect_storage_form.validate_on_submit():
             try:
                 existing_result = await db.execute(
-                    select(ResourceProject).where(
-                        ResourceProject.project_id == project.id,
-                        ResourceProject.resource_id
-                        == connect_database_form.database_id.data,
+                    select(StorageProject).where(
+                        StorageProject.project_id == project.id,
+                        StorageProject.storage_id
+                        == connect_storage_form.storage_id.data,
                     )
                 )
                 existing_association = existing_result.scalar_one_or_none()
                 if existing_association:
                     existing_association.environment_ids = (
-                        connect_database_form.environment_ids.data or []
+                        connect_storage_form.environment_ids.data or []
                     )
-                    flash(request, _("Database connection updated."), "success")
+                    flash(request, _("Storage connection updated."), "success")
                 else:
-                    association = ResourceProject(
+                    association = StorageProject(
                         project_id=project.id,
-                        resource_id=connect_database_form.database_id.data,
-                        environment_ids=connect_database_form.environment_ids.data
+                        storage_id=connect_storage_form.storage_id.data,
+                        environment_ids=connect_storage_form.environment_ids.data
                         or [],
                     )
                     db.add(association)
-                    flash(request, _("Database connected."), "success")
+                    flash(request, _("Storage connected."), "success")
                 await db.commit()
                 return RedirectResponseX(
                     url=str(
                         request.url_for(
-                            "project_databases",
+                            "project_storage",
                             team_slug=team.slug,
                             project_name=project.name,
                         )
@@ -603,21 +603,21 @@ async def project_databases(
             except Exception as e:
                 await db.rollback()
                 logger.error(
-                    f"Error connecting database for project {project_name}: {str(e)}"
+                    f"Error connecting storage for project {project_name}: {str(e)}"
                 )
-                flash(request, _("Error connecting database."), "error")
+                flash(request, _("Error connecting storage."), "error")
         if request.headers.get("HX-Request"):
             return TemplateResponse(
                 request=request,
-                name="project/partials/_dialog-project-database-form.html",
+                name="project/partials/_dialog-project-storage-form.html",
                 context={
                     "current_user": current_user,
                     "role": role,
                     "team": team,
                     "project": project,
-                    "form": connect_database_form,
-                    "databases": available_databases,
-                    "fragment": "connect_database",
+                    "form": connect_storage_form,
+                    "storages": available_storages,
+                    "fragment": "connect_storage",
                 },
             )
 
@@ -630,17 +630,17 @@ async def project_databases(
 
     return TemplateResponse(
         request=request,
-        name="project/pages/resources.html",
+        name="project/pages/storage.html",
         context={
             "current_user": current_user,
             "role": role,
             "team": team,
             "project": project,
             "associations": associations,
-            "databases": databases,
-            "available_databases": available_databases,
-            "create_database_form": create_database_form,
-            "connect_database_form": connect_database_form,
+            "storages": storages,
+            "available_storages": available_storages,
+            "create_storage_form": create_storage_form,
+            "connect_storage_form": connect_storage_form,
             "latest_projects": latest_projects,
             "latest_teams": latest_teams,
         },

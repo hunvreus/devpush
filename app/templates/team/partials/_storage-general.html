@@ -1,7 +1,7 @@
 <div class="card">
   <header class="border-b">
     <h2>{{ _('General') }}</h2>
-    <p>{{ _('Basic details for this database.') }}</p>
+    <p>{{ _('Basic details for this storage.') }}</p>
   </header>
 
   <section class="space-y-6">
@@ -10,18 +10,18 @@
       <input
         type="text"
         class="input w-full text-muted-foreground"
-        value="{{ database.name }}"
+        value="{{ storage.name }}"
         readonly
       />
     </div>
 
     <div class="space-y-2">
-      <label class="label">{{ _('Database ID') }}</label>
+      <label class="label">{{ _('Storage ID') }}</label>
       <div class="relative">
         <input
           type="text"
           class="input w-full font-mono text-[13px] text-muted-foreground pr-9"
-          value="{{ database.id }}"
+          value="{{ storage.id }}"
           readonly
         />
         <button
@@ -31,7 +31,7 @@
           data-side="left"
           onclick="
             const button = this;
-            navigator.clipboard.writeText('{{ database.id }}').then(() => {
+            navigator.clipboard.writeText('{{ storage.id }}').then(() => {
               button.dataset.tooltip = '{{ _('Copied') }}';
               button.dataset.copied = 'true';
               setTimeout(() => {
@@ -55,7 +55,7 @@
         <input
           type="text"
           class="input w-full font-mono text-[13px] text-muted-foreground pr-9"
-          value="/data/db/{{ database.name }}/db.sqlite"
+          value="/data/database/{{ storage.name }}/db.sqlite"
           readonly
         />
         <button
@@ -65,7 +65,7 @@
           data-side="left"
           onclick="
             const button = this;
-            navigator.clipboard.writeText('/data/db/{{ database.name }}/db.sqlite').then(() => {
+            navigator.clipboard.writeText('/data/database/{{ storage.name }}/db.sqlite').then(() => {
               button.dataset.tooltip = '{{ _('Copied') }}';
               button.dataset.copied = 'true';
               setTimeout(() => {
@@ -81,7 +81,7 @@
           <span class="hidden group-data-copied:block">{% include "icons/check.svg" %}</span>
         </button>
       </div>
-      <p class="text-muted-foreground text-sm">{{ _('Use this path inside your containers to access the database.') }}</p>
+      <p class="text-muted-foreground text-sm">{{ _('Use this path inside your containers to access the storage.') }}</p>
     </div>
   </section>
 </div>

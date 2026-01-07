@@ -1,14 +1,14 @@
 {% from "macros/dialog.html" import dialog %}
 
 {% call dialog(
-	id="dialog-new-database",
-	title=_("Create a new database"),
-	description=_("Create a new SQLite database and connect it to one or more projects."),
+	id="dialog-new-storage",
+	title=_("Create new storage"),
+	description=_("Create a new database and connect it to one or more projects."),
 	dialog_attrs={"class": "w-full max-w-xl"},
 	body_attrs={"class": "space-y-4"}
 ) %}
 	<div
-   hx-get="{{ url_for('team_new_database', team_slug=team.slug) }}"
+   hx-get="{{ url_for('team_new_storage', team_slug=team.slug) }}"
    hx-trigger="toggle from:closest dialog once"
    class="min-h-[114px] relative"
   >

@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dependencies import get_translation as _, get_lazy_translation as _l
-from models import Project, Resource, ResourceProject, Team
+from models import Project, Storage, StorageProject, Team
 
 
 def _parse_environment_ids(value):
@@ -34,21 +34,21 @@ def _parse_environment_ids(value):
     return list(dict.fromkeys(environment_ids))
 
 
-class DatabaseCreateForm(StarletteForm):
+class StorageCreateForm(StarletteForm):
     name = StringField(
-        _l("Database name"),
+        _l("Storage name"),
         validators=[
             DataRequired(),
             Length(min=1, max=100),
             Regexp(
                 r"^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$",
                 message=_l(
-                    "Database names can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen."
+                    "Storage names can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen."
                 ),
             ),
         ],
     )
-    submit = SubmitField(_l("Create database"))
+    submit = SubmitField(_l("Create storage"))
     environment_ids = StringField(_l("Environments"), validators=[Optional()])
 
     def __init__(
@@ -68,15 +68,15 @@ class DatabaseCreateForm(StarletteForm):
     async def async_validate_name(self, field):
         if self.db and self.team:
             result = await self.db.execute(
-                select(Resource).where(
-                    func.lower(Resource.name) == field.data.lower(),
-                    Resource.team_id == self.team.id,
+                select(Storage).where(
+                    func.lower(Storage.name) == field.data.lower(),
+                    Storage.team_id == self.team.id,
                 )
             )
             if result.scalar_one_or_none():
                 raise ValidationError(
                     _(
-                        "A database with this name already exists in this team or is reserved."
+                        "A storage with this name already exists in this team or is reserved."
                     )
                 )
 
@@ -92,19 +92,19 @@ class DatabaseCreateForm(StarletteForm):
                 raise ValidationError(_("Environment not found."))
 
 
-class DatabaseDeleteForm(StarletteForm):
-    name = HiddenField(_l("Database name"), validators=[DataRequired()])
+class StorageDeleteForm(StarletteForm):
+    name = HiddenField(_l("Storage name"), validators=[DataRequired()])
     confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
-    submit = SubmitField(_l("Delete"), name="delete_database")
+    submit = SubmitField(_l("Delete"), name="delete_storage")
 
     def validate_confirm(self, field):
         if field.data != self.name.data:  # type: ignore
-            raise ValidationError(_("Database name confirmation did not match."))
+            raise ValidationError(_("Storage name confirmation did not match."))
 
 
-class ProjectDatabaseForm(StarletteForm):
+class StorageProjectForm(StarletteForm):
     association_id = HiddenField()
-    database_id = HiddenField(_l("Database"), validators=[DataRequired()])
+    storage_id = HiddenField(_l("Storage"), validators=[DataRequired()])
     project_id = StringField(_l("Project"), validators=[DataRequired()])
     environment_ids = StringField(_l("Environments"), validators=[Optional()])
 
@@ -112,24 +112,24 @@ class ProjectDatabaseForm(StarletteForm):
         self,
         request: Request,
         *args,
-        database: Resource | None = None,
-        databases: list[Resource] | None = None,
+        storage: Storage | None = None,
+        storages: list[Storage] | None = None,
         projects: list[Project],
-        associations: list["ResourceProject"],
+        associations: list["StorageProject"],
         **kwargs,
     ):
         super().__init__(request, *args, **kwargs)
-        self.database = database
-        self.databases = databases or []
+        self.storage = storage
+        self.storages = storages or []
         self.projects = projects
         self.associations = associations
         self._projects_by_id = {project.id: project for project in projects}
-        self._databases_by_id = {db.id: db for db in self.databases}
+        self._storages_by_id = {storage.id: storage for storage in self.storages}
         self._associations_by_id = {
             str(association.id): association for association in associations
         }
         self._selected_project = None
-        self._selected_database = None
+        self._selected_storage = None
         self.association = None
         if self.environment_ids.data in (None, ""):
             self.environment_ids.data = []
@@ -143,23 +143,23 @@ class ProjectDatabaseForm(StarletteForm):
         association = self._associations_by_id.get(field.data)
         if not association:
             raise ValidationError(_("Association not found."))
-        if self.database and association.resource_id != self.database.id:
+        if self.storage and association.storage_id != self.storage.id:
             raise ValidationError(_("Association not found."))
         self.association = association
 
-    def validate_database_id(self, field):
-        if self.database:
-            if field.data != self.database.id:
-                raise ValidationError(_("Database not found."))
-        elif self._databases_by_id:
-            database = self._databases_by_id.get(field.data)
-            if not database:
-                raise ValidationError(_("Database not found."))
-            self._selected_database = database
+    def validate_storage_id(self, field):
+        if self.storage:
+            if field.data != self.storage.id:
+                raise ValidationError(_("Storage not found."))
+        elif self._storages_by_id:
+            storage = self._storages_by_id.get(field.data)
+            if not storage:
+                raise ValidationError(_("Storage not found."))
+            self._selected_storage = storage
         else:
-            raise ValidationError(_("Database not found."))
-        if self.association and field.data != self.association.resource_id:
-            raise ValidationError(_("Database cannot be changed."))
+            raise ValidationError(_("Storage not found."))
+        if self.association and field.data != self.association.storage_id:
+            raise ValidationError(_("Storage cannot be changed."))
 
     def validate_project_id(self, field):
         project = self._projects_by_id.get(field.data)
@@ -186,21 +186,21 @@ class ProjectDatabaseForm(StarletteForm):
         for association in self.associations:
             if association.project_id != self.project_id.data:
                 continue
-            if association.resource_id != self.database_id.data:
+            if association.storage_id != self.storage_id.data:
                 continue
             if association_id and str(association.id) == association_id:
                 continue
             raise ValidationError(
-                _("This project is already connected to this database.")
+                _("This project is already connected to this storage.")
             )
 
 
-class ProjectDatabaseRemoveForm(StarletteForm):
+class StorageProjectRemoveForm(StarletteForm):
     association_id = HiddenField(_l("Association ID"), validators=[DataRequired()])
     confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
 
     def __init__(
-        self, request: Request, *args, associations: list["ResourceProject"], **kwargs
+        self, request: Request, *args, associations: list["StorageProject"], **kwargs
     ):
         super().__init__(request, *args, **kwargs)
         self.associations = associations

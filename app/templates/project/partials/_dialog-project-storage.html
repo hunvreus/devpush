@@ -1,0 +1,48 @@
+{% from "macros/dialog.html" import dialog %}
+{% from "macros/tabs.html" import tabs %}
+
+{% call dialog(
+  id="dialog-project-storage",
+  title=_("Connect storage"),
+  description=_("Create a new database or connect existing storage to this project."),
+  dialog_attrs={"class": "w-full max-w-xl"},
+  body_attrs={"class": "space-y-4"}
+) %}
+
+{% if available_storages | length > 0%}
+  {% set create_storage_panel %}
+    {% with form=create_storage_form, storages=None, fragment="create_storage" %}
+      {% include "project/partials/_dialog-project-storage-form.html" with context %}
+    {% endwith %}
+  {% endset %}
+
+  {% set connect_storage_panel %}
+    {% with form=connect_storage_form, storages=available_storages, fragment="connect_storage" %}
+      {% include "project/partials/_dialog-project-storage-form.html" with context %}
+    {% endwith %}
+  {% endset %}
+
+  {{ tabs(
+    tabsets=[
+      {
+        "id": "create-storage",
+        "tab": _("Create new"),
+        "panel": create_storage_panel,
+        "panel_attrs": {"class": "pt-4"}
+      },
+      {
+        "id": "connect-storage",
+        "tab": _("Connect existing"),
+        "panel": connect_storage_panel,
+        "panel_attrs": {"class": "pt-4"}
+      }
+    ],
+    main_attrs={"class": "w-full"},
+    tablist_attrs={"class": "w-full"}
+  ) }}
+{% else %}
+  {% with form=create_storage_form, storages=None, fragment="create_storage" %}
+    {% include "project/partials/_dialog-project-storage-form.html" with context %}
+  {% endwith %}
+{% endif %}
+{% endcall %}

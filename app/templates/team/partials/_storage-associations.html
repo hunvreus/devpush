@@ -32,8 +32,8 @@
   
   <form
     method="post"
-    action="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='association') }}"
-    hx-post="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='association') }}"
+    action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
+    hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
     hx-target="closest .card"
     hx-swap="outerHTML"
     hx-on::before-request="document.activeElement && document.activeElement.blur()"
@@ -44,11 +44,11 @@
   >
     {{ association_form.csrf_token(id=False) }}
     {{ association_form.association_id(id=False, value=association.id if association else "") }}
-    {{ association_form.database_id(id=False, value=database.id) }}
+    {{ association_form.storage_id(id=False, value=storage.id) }}
     <div
       class="flex-1 space-y-2 min-w-0"
       {% if not association %}
-      hx-get="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='environment_select') }}"
+      hx-get="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='environment_select') }}"
       hx-trigger="change"
       hx-target="next [data-environments]"
       hx-swap="innerHTML"
@@ -95,7 +95,7 @@
         items=items,
         main_attrs={"class": "w-full"},
         trigger_attrs=project_trigger_attrs,
-        input_attrs={"id": "database-project-id"}
+        input_attrs={"id": "storage-project-id"}
       ) }}
       {% if is_active %}
         {% for error in association_form.project_id.errors %}
@@ -104,7 +104,7 @@
       {% endif %}
     </div>
     <div class="flex-1 space-y-2 min-w-0" data-environments>
-      {% include "team/partials/_database-select-environments.html" with context %}
+      {% include "team/partials/_storage-select-environments.html" with context %}
     </div>
     
     <div class="w-20 shrink-0 flex items-center justify-center">
@@ -121,14 +121,14 @@
 
 <div
   class="card"
-  hx-get="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='association') }}"
+  hx-get="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
   hx-trigger="environments:updated from:window"
   hx-swap="outerHTML"
   hx-indicator="next .htmx-indicator"
 >
   <header class="border-b">
     <h2>{{ _('Connected projects') }}</h2>
-    <p>{{ _('Manage the projects connected to this database.') }}</p>
+    <p>{{ _('Manage the projects connected to this storage.') }}</p>
   </header>
 
   <section class="space-y-6" x-data="{activeForm: null}">
@@ -177,7 +177,7 @@
               {% endset %}
               {% call dialog(
                 trigger=trigger,
-                title=_('Disconnect "%(project)s" from "%(database)s"?', project=association.project.name, database=database.name),
+                title=_('Disconnect "%(project)s" from "%(storage)s"?', project=association.project.name, storage=storage.name),
                 trigger_attrs={
                   "class": "btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20",
                   "aria-label": _('Disconnect'),
@@ -186,12 +186,12 @@
                 dialog_attrs={"class": "max-w-md"}
               ) %}
                 <div class="space-y-4" x-data="{ confirm: '' }">
-                  <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(database)s"</b> database. Any deployment for this project will no longer have access to this database.', project=association.project.name, database=database.name) | safe }}</p>
+                  <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(storage)s"</b> storage. Any deployment for this project will no longer have access to this storage.', project=association.project.name, storage=storage.name) | safe }}</p>
                   <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=association.project.name) | safe }}</p>
                   <form
                     method="post"
-                    action="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='delete_association') }}"
-                    hx-post="{{ url_for('team_database', team_slug=team.slug, database_name=database.name).include_query_params(fragment='delete_association') }}"
+                    action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
+                    hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
                     hx-swap="outerHTML"
                     hx-on::before-request="document.activeElement && document.activeElement.blur()"
                     hx-target="closest .card"

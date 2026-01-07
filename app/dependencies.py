@@ -19,7 +19,7 @@ from arq.connections import ArqRedis
 
 from config import get_settings, Settings
 from db import get_db
-from models import User, Project, Deployment, Team, TeamMember, Resource, utc_now
+from models import User, Project, Deployment, Team, TeamMember, Storage, utc_now
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 
@@ -430,25 +430,25 @@ async def get_deployment_by_id(
     return deployment
 
 
-async def get_database_by_name(
-    database_name: str,
+async def get_storage_by_name(
+    storage_name: str,
     db: AsyncSession = Depends(get_db),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-) -> Resource:
+) -> Storage:
     team, membership = team_and_membership
 
     result = await db.execute(
-        select(Resource).where(
-            func.lower(Resource.name) == database_name.lower(),
-            Resource.team_id == team.id,
-            Resource.type == "sqlite",
-            Resource.status != "deleted",
+        select(Storage).where(
+            func.lower(Storage.name) == storage_name.lower(),
+            Storage.team_id == team.id,
+            Storage.type == "database",
+            Storage.status != "deleted",
         )
     )
-    database = result.scalar_one_or_none()
-    if not database:
-        raise HTTPException(status_code=404, detail="Database not found")
-    return database
+    storage = result.scalar_one_or_none()
+    if not storage:
+        raise HTTPException(status_code=404, detail="Storage not found")
+    return storage
 
 
 def is_superadmin(user: User) -> bool:

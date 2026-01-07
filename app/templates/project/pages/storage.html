@@ -5,7 +5,7 @@
 {% from "project/macros/environment-label.html" import environment_label %}
 {% from "macros/tabs.html" import tabs %}
 
-{% include "project/partials/_dialog-project-database.html" %}
+{% include "project/partials/_dialog-project-storage.html" %}
 
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
@@ -14,16 +14,16 @@
         {{ avatar(item=project, prefix="project", name=project.name, size="md") }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
-      {{ _("Resources") }}
+      {{ _("Storage") }}
     </h1>
 
     <button
       type="button"
       class="btn"
-      onclick="document.getElementById('dialog-project-database').showModal()"
+      onclick="document.getElementById('dialog-project-storage').showModal()"
     >
       {% include "icons/plus.svg" %}
-      {{ _("Add resource") }}
+      {{ _("Add storage") }}
     </button>
   </header>
 
@@ -33,20 +33,20 @@
         {% for association in associations %}
           <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
             <span class="badge-outline text-purple-500">
-              SQLite
+              Database
             </span>
-            {% if association.resource.status != "active" %}
+            {% if association.storage.status != "active" %}
               <span class="badge-secondary text-muted-foreground">
-                {{ _(association.resource.status|capitalize) }}
+                {{ _(association.storage.status|capitalize) }}
               </span>
             {% endif %}
             <a
-              href="{{ url_for('team_database', team_slug=team.slug, database_name=association.resource.name) }}"
+              href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-              data-tooltip="{{ _('Database') }}"
+              data-tooltip="{{ _('Storage') }}"
               hx-boost="true"
             >
-              <span class="truncate max-w-3xs">{{ association.resource.name }}</span>
+              <span class="truncate max-w-3xs">{{ association.storage.name }}</span>
             </a>
             <div class="text-muted-foreground flex flex-wrap items-center gap-2 [&>svg]:size-4">
               {% if association.environment_ids %}
@@ -70,7 +70,7 @@
             </div>
             <div class="flex items-center ml-auto">
               <a
-                href="{{ url_for('team_database', team_slug=team.slug, database_name=association.resource.name) }}"
+                href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name) }}"
                 class="btn-sm-icon-ghost"
                 data-tooltip="{{ _('Settings') }}"
               >
@@ -85,15 +85,15 @@
     <section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
       <div class="max-w-sm">
         <div class="text-center">
-    <h2 class="h4">{{ _('No resources connected.') }}</h2>
-    <p class="text-muted-foreground mt-1">{{ _('Create or connect a SQLite database for this project.') }}</p>
+    <h2 class="h4">{{ _('No storage connected.') }}</h2>
+    <p class="text-muted-foreground mt-1">{{ _('Create or connect a database for this project.') }}</p>
           <button
             type="button"
             class="btn-sm mt-4"
-            onclick="document.getElementById('dialog-project-database').showModal()"
+            onclick="document.getElementById('dialog-project-storage').showModal()"
           >
             {% include "icons/plus.svg" %}
-            {{ _('Connect resource') }}
+            {{ _('Connect storage') }}
           </button>
         </div>
       </div>
