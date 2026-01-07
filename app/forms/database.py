@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dependencies import get_translation as _, get_lazy_translation as _l
-from models import Database, Project, ProjectDatabase, Team
+from models import Project, Resource, ResourceProject, Team
 
 
 def _parse_environment_ids(value):
@@ -68,9 +68,9 @@ class DatabaseCreateForm(StarletteForm):
     async def async_validate_name(self, field):
         if self.db and self.team:
             result = await self.db.execute(
-                select(Database).where(
-                    func.lower(Database.name) == field.data.lower(),
-                    Database.team_id == self.team.id,
+                select(Resource).where(
+                    func.lower(Resource.name) == field.data.lower(),
+                    Resource.team_id == self.team.id,
                 )
             )
             if result.scalar_one_or_none():
@@ -112,10 +112,10 @@ class ProjectDatabaseForm(StarletteForm):
         self,
         request: Request,
         *args,
-        database: Database | None = None,
-        databases: list[Database] | None = None,
+        database: Resource | None = None,
+        databases: list[Resource] | None = None,
         projects: list[Project],
-        associations: list["ProjectDatabase"],
+        associations: list["ResourceProject"],
         **kwargs,
     ):
         super().__init__(request, *args, **kwargs)
@@ -143,7 +143,7 @@ class ProjectDatabaseForm(StarletteForm):
         association = self._associations_by_id.get(field.data)
         if not association:
             raise ValidationError(_("Association not found."))
-        if self.database and association.database_id != self.database.id:
+        if self.database and association.resource_id != self.database.id:
             raise ValidationError(_("Association not found."))
         self.association = association
 
@@ -158,7 +158,7 @@ class ProjectDatabaseForm(StarletteForm):
             self._selected_database = database
         else:
             raise ValidationError(_("Database not found."))
-        if self.association and field.data != self.association.database_id:
+        if self.association and field.data != self.association.resource_id:
             raise ValidationError(_("Database cannot be changed."))
 
     def validate_project_id(self, field):
@@ -186,7 +186,7 @@ class ProjectDatabaseForm(StarletteForm):
         for association in self.associations:
             if association.project_id != self.project_id.data:
                 continue
-            if association.database_id != self.database_id.data:
+            if association.resource_id != self.database_id.data:
                 continue
             if association_id and str(association.id) == association_id:
                 continue
@@ -200,7 +200,7 @@ class ProjectDatabaseRemoveForm(StarletteForm):
     confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
 
     def __init__(
-        self, request: Request, *args, associations: list["ProjectDatabase"], **kwargs
+        self, request: Request, *args, associations: list["ResourceProject"], **kwargs
     ):
         super().__init__(request, *args, **kwargs)
         self.associations = associations

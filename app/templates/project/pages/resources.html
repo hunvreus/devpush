@@ -14,7 +14,7 @@
         {{ avatar(item=project, prefix="project", name=project.name, size="md") }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
-      {{ _("Databases") }}
+      {{ _("Resources") }}
     </h1>
 
     <button
@@ -23,7 +23,7 @@
       onclick="document.getElementById('dialog-project-database').showModal()"
     >
       {% include "icons/plus.svg" %}
-      {{ _("Add database") }}
+      {{ _("Add resource") }}
     </button>
   </header>
 
@@ -35,18 +35,18 @@
             <span class="badge-outline text-purple-500">
               SQLite
             </span>
-            {% if association.database.status != "active" %}
+            {% if association.resource.status != "active" %}
               <span class="badge-secondary text-muted-foreground">
-                {{ _(association.database.status|capitalize) }}
+                {{ _(association.resource.status|capitalize) }}
               </span>
             {% endif %}
             <a
-              href="{{ url_for('team_database', team_slug=team.slug, database_name=association.database.name) }}"
+              href="{{ url_for('team_database', team_slug=team.slug, database_name=association.resource.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
               data-tooltip="{{ _('Database') }}"
               hx-boost="true"
             >
-              <span class="truncate max-w-3xs">{{ association.database.name }}</span>
+              <span class="truncate max-w-3xs">{{ association.resource.name }}</span>
             </a>
             <div class="text-muted-foreground flex flex-wrap items-center gap-2 [&>svg]:size-4">
               {% if association.environment_ids %}
@@ -70,7 +70,7 @@
             </div>
             <div class="flex items-center ml-auto">
               <a
-                href="{{ url_for('team_database', team_slug=team.slug, database_name=association.database.name) }}"
+                href="{{ url_for('team_database', team_slug=team.slug, database_name=association.resource.name) }}"
                 class="btn-sm-icon-ghost"
                 data-tooltip="{{ _('Settings') }}"
               >
@@ -85,15 +85,15 @@
     <section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
       <div class="max-w-sm">
         <div class="text-center">
-          <h2 class="h4">{{ _('No databases connected.') }}</h2>
-          <p class="text-muted-foreground mt-1">{{ _('Create or connect a SQLite database for this project.') }}</p>
+    <h2 class="h4">{{ _('No resources connected.') }}</h2>
+    <p class="text-muted-foreground mt-1">{{ _('Create or connect a SQLite database for this project.') }}</p>
           <button
             type="button"
             class="btn-sm mt-4"
             onclick="document.getElementById('dialog-project-database').showModal()"
           >
             {% include "icons/plus.svg" %}
-            {{ _('Connect database') }}
+            {{ _('Connect resource') }}
           </button>
         </div>
       </div>

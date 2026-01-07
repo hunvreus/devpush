@@ -37,7 +37,7 @@
         aria-selected="{{ 'true' if request.path.startswith(url_for('team_databases', team_slug=team.slug).path) else 'false' }}"
         class="btn-sm-ghost text-muted-foreground hover:text-foreground [&[aria-selected=true]]:text-foreground"
         hx-boost="true"
-      >{{ _('Databases') }}</a>
+      >{{ _('Resources') }}</a>
     </li>
   
     {% if get_access(role, "admin") %}

@@ -14,7 +14,7 @@
         {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
-      {{ _("Databases") }}
+      {{ _("Resources") }}
     </h1>
 
     {% if databases %}
@@ -24,7 +24,7 @@
         onclick="document.getElementById('dialog-new-database').showModal()"
       >
         {% include "icons/plus.svg" %}
-        {{ _("New database") }}
+        {{ _("New resource") }}
       </button>
     {% endif %}
   </header>
@@ -91,7 +91,7 @@
       class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
       <div class="max-w-sm">
         <div class="text-center">
-          <h2 class="h4">{{ _('No databases yet.') }}</h2>
+          <h2 class="h4">{{ _('No resources yet.') }}</h2>
           <p class="text-muted-foreground mt-1">{{ _('Create a new SQLite database and connect it to projects.') }}
           </p>
           <button
@@ -100,7 +100,7 @@
             onclick="document.getElementById('dialog-new-database').showModal()"
           >
             {% include "icons/plus.svg" %}
-            {{ _('New database') }}
+            {{ _('New resource') }}
           </button>
         </div>
       </div>

@@ -42,7 +42,7 @@
         role="tab"
         aria-selected="{{ 'true' if request.path.startswith(url_for('project_databases', team_slug=team.slug, project_name=project.name).path|string) else 'false' }}"
         class="btn-sm-ghost text-muted-foreground hover:text-foreground [&[aria-selected=true]]:text-foreground"
-      >{{ _('Databases') }}</a>
+      >{{ _('Resources') }}</a>
     </li>
     {% if get_access(role, "creator") %}
       <li

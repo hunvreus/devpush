@@ -25,7 +25,7 @@
   {% endif %}
 
   {% if association %}
-    {% set is_active = association_form.errors and association_form.association_id.data|int == association.id %}
+    {% set is_active = association_form.errors and association_form.association_id.data == association.id %}
   {% else %}
     {% set is_active = association_form.errors and not association_form.association_id.data %}
   {% endif %}

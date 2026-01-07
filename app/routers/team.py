@@ -18,8 +18,8 @@ from models import (
     Team,
     TeamMember,
     TeamInvite,
-    Database,
-    ProjectDatabase,
+    Resource,
+    ResourceProject,
     utc_now,
 )
 from dependencies import (
@@ -189,12 +189,16 @@ async def team_databases(
     per_page = 25
 
     query = (
-        select(Database)
-        .where(Database.team_id == team.id, Database.status != "deleted")
-        .options(
-            selectinload(Database.project_links).selectinload(ProjectDatabase.project)
+        select(Resource)
+        .where(
+            Resource.team_id == team.id,
+            Resource.type == "sqlite",
+            Resource.status != "deleted",
         )
-        .order_by(Database.updated_at.desc())
+        .options(
+            selectinload(Resource.project_links).selectinload(ResourceProject.project)
+        )
+        .order_by(Resource.updated_at.desc())
     )
 
     pagination = await paginate(db, query, page, per_page)
@@ -208,7 +212,7 @@ async def team_databases(
 
     return TemplateResponse(
         request=request,
-        name="team/pages/databases.html",
+        name="team/pages/resources.html",
         context={
             "current_user": current_user,
             "team": team,
@@ -244,8 +248,10 @@ async def team_new_database(
     form: Any = await DatabaseCreateForm.from_formdata(request, db=db, team=team)
 
     if request.method == "POST" and await form.validate_on_submit():
-        database = Database(
+        database = Resource(
             name=form.name.data,
+            type="sqlite",
+            status="active",
             team_id=team.id,
             created_by_user_id=current_user.id,
         )
@@ -288,7 +294,7 @@ async def team_database(
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-    database: Database = Depends(get_database_by_name),
+    database: Resource = Depends(get_database_by_name),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
@@ -319,14 +325,14 @@ async def team_database(
     projects = projects_result.scalars().all()
 
     associations_result = await db.execute(
-        select(ProjectDatabase)
+        select(ResourceProject)
         .join(Project)
         .where(
-            ProjectDatabase.database_id == database.id,
+            ResourceProject.resource_id == database.id,
             Project.team_id == team.id,
             Project.status != "deleted",
         )
-        .options(selectinload(ProjectDatabase.project))
+        .options(selectinload(ResourceProject.project))
         .order_by(Project.name.asc())
     )
     associations = associations_result.scalars().all()
@@ -397,9 +403,9 @@ async def team_database(
                 await db.commit()
             else:
                 existing_result = await db.execute(
-                    select(ProjectDatabase).where(
-                        ProjectDatabase.project_id == association_form.project_id.data,
-                        ProjectDatabase.database_id == database.id,
+                    select(ResourceProject).where(
+                        ResourceProject.project_id == association_form.project_id.data,
+                        ResourceProject.resource_id == database.id,
                     )
                 )
                 existing_association = existing_result.scalar_one_or_none()
@@ -409,23 +415,23 @@ async def team_database(
                     )
                     flash(request, _("Association updated."), "success")
                 else:
-                    association = ProjectDatabase(
+                    association = ResourceProject(
                         project_id=association_form.project_id.data,
-                        database_id=database.id,
+                        resource_id=database.id,
                         environment_ids=association_form.environment_ids.data or [],
                     )
                     db.add(association)
                     flash(request, _("Project linked to database."), "success")
                 await db.commit()
             associations_result = await db.execute(
-                select(ProjectDatabase)
+                select(ResourceProject)
                 .join(Project)
                 .where(
-                    ProjectDatabase.database_id == database.id,
+                    ResourceProject.resource_id == database.id,
                     Project.team_id == team.id,
                     Project.status != "deleted",
                 )
-                .options(selectinload(ProjectDatabase.project))
+                .options(selectinload(ResourceProject.project))
                 .order_by(Project.name.asc())
             )
             associations = associations_result.scalars().all()
@@ -503,14 +509,14 @@ async def team_database(
             await db.delete(association)
             await db.commit()
             associations_result = await db.execute(
-                select(ProjectDatabase)
+                select(ResourceProject)
                 .join(Project)
                 .where(
-                    ProjectDatabase.database_id == database.id,
+                    ResourceProject.resource_id == database.id,
                     Project.team_id == team.id,
                     Project.status != "deleted",
                 )
-                .options(selectinload(ProjectDatabase.project))
+                .options(selectinload(ResourceProject.project))
                 .order_by(Project.name.asc())
             )
             associations = associations_result.scalars().all()

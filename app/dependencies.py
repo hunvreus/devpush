@@ -19,7 +19,7 @@ from arq.connections import ArqRedis
 
 from config import get_settings, Settings
 from db import get_db
-from models import User, Project, Deployment, Team, TeamMember, Database, utc_now
+from models import User, Project, Deployment, Team, TeamMember, Resource, utc_now
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 
@@ -434,14 +434,15 @@ async def get_database_by_name(
     database_name: str,
     db: AsyncSession = Depends(get_db),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-) -> Database:
+) -> Resource:
     team, membership = team_and_membership
 
     result = await db.execute(
-        select(Database).where(
-            func.lower(Database.name) == database_name.lower(),
-            Database.team_id == team.id,
-            Database.status != "deleted",
+        select(Resource).where(
+            func.lower(Resource.name) == database_name.lower(),
+            Resource.team_id == team.id,
+            Resource.type == "sqlite",
+            Resource.status != "deleted",
         )
     )
     database = result.scalar_one_or_none()

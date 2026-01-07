@@ -35,8 +35,8 @@ from models import (
     User,
     Team,
     TeamMember,
-    Database,
-    ProjectDatabase,
+    Resource,
+    ResourceProject,
     utc_now,
 )
 from forms.project import (
@@ -457,27 +457,32 @@ async def project_databases(
     project_name = project.name
 
     associations_result = await db.execute(
-        select(ProjectDatabase)
-        .join(Database)
+        select(ResourceProject)
+        .join(Resource)
         .where(
-            ProjectDatabase.project_id == project.id,
-            Database.status != "deleted",
+            ResourceProject.project_id == project.id,
+            Resource.type == "sqlite",
+            Resource.status != "deleted",
         )
-        .options(selectinload(ProjectDatabase.database))
-        .order_by(Database.name.asc())
+        .options(selectinload(ResourceProject.resource))
+        .order_by(Resource.name.asc())
     )
     associations = associations_result.scalars().all()
 
     databases_result = await db.execute(
-        select(Database)
-        .where(Database.team_id == team.id, Database.status != "deleted")
-        .order_by(Database.name.asc())
+        select(Resource)
+        .where(
+            Resource.team_id == team.id,
+            Resource.type == "sqlite",
+            Resource.status != "deleted",
+        )
+        .order_by(Resource.name.asc())
     )
     databases = databases_result.scalars().all()
     available_databases = [
         database
         for database in databases
-        if database.id not in {association.database_id for association in associations}
+        if database.id not in {association.resource_id for association in associations}
     ]
 
     create_database_form: Any = await DatabaseCreateForm.from_formdata(
@@ -504,17 +509,18 @@ async def project_databases(
             )
         elif await create_database_form.validate_on_submit():
             try:
-                database = Database(
+                database = Resource(
                     name=create_database_form.name.data,
+                    type="sqlite",
+                    status="active",
                     team_id=team.id,
                     created_by_user_id=current_user.id,
-                    status="creating",
                 )
                 db.add(database)
                 await db.flush()
-                association = ProjectDatabase(
+                association = ResourceProject(
                     project_id=project.id,
-                    database_id=database.id,
+                    resource_id=database.id,
                     environment_ids=create_database_form.environment_ids.data or [],
                 )
                 db.add(association)
@@ -562,9 +568,9 @@ async def project_databases(
         elif await connect_database_form.validate_on_submit():
             try:
                 existing_result = await db.execute(
-                    select(ProjectDatabase).where(
-                        ProjectDatabase.project_id == project.id,
-                        ProjectDatabase.database_id
+                    select(ResourceProject).where(
+                        ResourceProject.project_id == project.id,
+                        ResourceProject.resource_id
                         == connect_database_form.database_id.data,
                     )
                 )
@@ -575,9 +581,9 @@ async def project_databases(
                     )
                     flash(request, _("Database connection updated."), "success")
                 else:
-                    association = ProjectDatabase(
+                    association = ResourceProject(
                         project_id=project.id,
-                        database_id=connect_database_form.database_id.data,
+                        resource_id=connect_database_form.database_id.data,
                         environment_ids=connect_database_form.environment_ids.data
                         or [],
                     )
@@ -624,7 +630,7 @@ async def project_databases(
 
     return TemplateResponse(
         request=request,
-        name="project/pages/databases.html",
+        name="project/pages/resources.html",
         context={
             "current_user": current_user,
             "role": role,
