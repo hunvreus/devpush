@@ -6,6 +6,7 @@
   hx-disabled-elt="input, select, button"
   class="form flex flex-col gap-y-6"
   hx-indicator="find .htmx-indicator"
+  hx-disinherit="*"
 >
   {{ form.csrf_token(id=False) }}
   {{ form.repo_id(id=False, class_="hidden") }}
@@ -46,16 +47,30 @@
       {% endfor %}
     </div>
 
-    <details open class="w-full rounded-lg border group">
+    <details
+      id="build-and-deploy-section"
+      open
+      class="w-full rounded-lg border group relative"
+      hx-get="{{ request.url.include_query_params(fragment='build_and_deploy') }}"
+      hx-trigger="load once"
+      hx-target="find section"
+      hx-swap="innerHTML"
+      hx-disabled-elt="find select, find button, find [name='root_directory'], find [name='build_command'], find [name='pre_deploy_command'], find [name='start_command']"
+      hx-indicator="find .htmx-indicator"
+    >
       <summary
-        class="px-4 py-3 w-full flex items-center gap-x-2 group-open:[&>svg]:rotate-90 [&>svg]:transition-transform hover:bg-muted/50 rounded-lg transition-colors group-open:rounded-b-none [&>svg]:size-4">
+        class="px-4 py-3 w-full flex items-center gap-x-2 group-open:[&>svg]:rotate-90 [&>svg]:transition-transform hover:bg-muted/50 rounded-lg transition-colors group-open:rounded-b-none [&>svg]:size-4 h-11">
         {% include "icons/chevron-right.svg" %}
         {{ _('Build & Deploy') }}
+
+        <span class="htmx-indicator badge-secondary ml-auto text-muted-foreground [&>svg]:animate-spin">
+          {% include "icons/loader.svg" %}
+          {{ _('Detecting framework...') }}
+        </span>
       </summary>
-      <div class="p-4 border-t">
-        {% from "project/macros/build-and-deploy.html" import render_build_and_deploy %}
-        {{ render_build_and_deploy(form, presets, images) }}
-      </div>
+      <section class="p-4 border-t relative">
+        {% include "project/partials/_form-build-and-deploy.html" %}
+      </section>
     </details>
 
     <details {% if form.env_vars.errors or form.env_vars.data %} open {% endif %}
@@ -65,10 +80,10 @@
         {% include "icons/chevron-right.svg" %}
         {{ _('Environment variables') }}
       </summary>
-      <div class="p-4 border-t">
+      <section class="p-4 border-t">
         {% from "project/macros/env-vars.html" import render_env_vars %}
         {{ render_env_vars(form, environments) }}
-      </div>
+      </section>
     </details>
   </div>
 

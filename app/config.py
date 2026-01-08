@@ -18,6 +18,17 @@ class ImageSetting(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+class DetectionSetting(BaseModel):
+    priority: int = 0
+    any_files: list[str] = []
+    all_files: list[str] = []
+    any_paths: list[str] = []
+    none_files: list[str] = []
+    package_check: str | None = None
+
+    model_config = {"extra": "ignore"}
+
+
 class PresetSetting(BaseModel):
     slug: str
     name: str
@@ -29,6 +40,7 @@ class PresetSetting(BaseModel):
     logo: str
     root_directory: str | None = None
     beta: bool | None = None
+    detection: DetectionSetting | None = None
 
     model_config = {"extra": "ignore"}
 

@@ -10,6 +10,7 @@ from arq.connections import ArqRedis
 from urllib.parse import urlparse, parse_qs
 import logging
 import os
+import asyncio
 from typing import Any
 
 from dependencies import (
@@ -62,6 +63,7 @@ from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 from services.deployment import DeploymentService
 from services.domain import DomainService
+from services.framework_detector import FrameworkDetector
 from utils.project import get_latest_projects, get_latest_deployments
 from utils.team import get_latest_teams
 from utils.pagination import paginate
@@ -105,6 +107,7 @@ async def new_project_details(
     repo_owner: str = Query(None),
     repo_name: str = Query(None),
     repo_default_branch: str = Query(None),
+    fragment: str = Query(None),
     current_user: User = Depends(get_current_user),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     settings: Settings = Depends(get_settings),
@@ -128,6 +131,79 @@ async def new_project_details(
         form.repo_id.data = int(repo_id)
         form.name.data = repo_name
         form.production_branch.data = repo_default_branch
+
+        # Handle build_and_deploy fragment with framework detection
+        if fragment == "build_and_deploy":
+            try:
+                github_oauth_token = await get_user_github_token(db, current_user)
+                if github_oauth_token:
+                    detector = FrameworkDetector(settings.presets)
+
+                    # Run detection with 5 second timeout
+                    detection = await asyncio.wait_for(
+                        detector.detect_with_commands(
+                            github_service,
+                            github_oauth_token,
+                            int(repo_id),
+                            repo_default_branch,
+                        ),
+                        timeout=5.0,
+                    )
+
+                    # If preset detected, get preset config and set all form fields
+                    if detection["preset"]:
+                        # Find preset in settings
+                        preset_config = next(
+                            (
+                                p
+                                for p in settings.presets
+                                if p["slug"] == detection["preset"]
+                            ),
+                            None,
+                        )
+
+                        if preset_config:
+                            # Set preset
+                            form.preset.data = detection["preset"]
+
+                            # Set image from preset
+                            form.image.data = preset_config.get("image")
+
+                            # Set root_directory from preset (if defined)
+                            if preset_config.get("root_directory"):
+                                form.root_directory.data = preset_config.get(
+                                    "root_directory"
+                                )
+
+                            # Set commands - prefer package.json, fallback to preset
+                            form.build_command.data = detection.get(
+                                "build_command"
+                            ) or preset_config.get("build_command")
+                            form.start_command.data = detection.get(
+                                "start_command"
+                            ) or preset_config.get("start_command")
+                            form.pre_deploy_command.data = preset_config.get(
+                                "pre_deploy_command"
+                            )
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Framework detection timed out for repo {repo_id}")
+            except Exception as e:
+                logger.warning(f"Framework detection failed for repo {repo_id}: {e}")
+
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_form-build-and-deploy.html",
+                context={
+                    "current_user": current_user,
+                    "team": team,
+                    "form": form,
+                    "repo_full_name": f"{repo_owner or ''}/{repo_name or ''}",
+                    "presets": settings.presets,
+                    "images": settings.images,
+                    "detecting": False,
+                },
+            )
 
     if request.method == "POST" and await form.validate_on_submit():
         try:
@@ -584,8 +660,7 @@ async def project_storage(
                     association = StorageProject(
                         project_id=project.id,
                         storage_id=connect_storage_form.storage_id.data,
-                        environment_ids=connect_storage_form.environment_ids.data
-                        or [],
+                        environment_ids=connect_storage_form.environment_ids.data or [],
                     )
                     db.add(association)
                     flash(request, _("Storage connected."), "success")

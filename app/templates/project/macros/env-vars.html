@@ -211,4 +211,53 @@
     </button>
   </div>
 </div>
+
+{% from "macros/dialog.html" import dialog %}
+{% set footer %}
+  <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+  <button
+    type="button"
+    class="btn"
+    :disabled="!envFile"
+    @click="
+      document.dispatchEvent(new CustomEvent('env-vars:insert', { detail: parseEnvFile(envFile) }));
+      envFile = '';
+      $el.closest('dialog').close();
+    "
+  >
+    {{ _('Insert') }}
+  </button>
+{% endset %}
+{% call dialog(
+  id="dialog-env-paste",
+  title=_("Paste .env file"),
+  description=_("Paste the contents of your .env file here to add the variables to your environment variables list."),
+  footer=footer,
+  dialog_attrs={
+    "class": "max-w-md",
+    "x-data": "{ envFile: '' }"
+  }
+) %}
+  <textarea
+    class="textarea w-full font-mono min-h-24 py-[7px] break-all max-h-36 overflow-y-auto text-[13px]"
+    x-model="envFile"
+  ></textarea>
+{% endcall %}
+<script>
+function parseEnvFile(content) {
+  return content
+    .split('\n')
+    .filter(line => line.trim() && !line.startsWith('#'))
+    .map(line => {
+      const match = line.match(/^([^=]+)=(.*)$/);
+      if (!match) return null;
+      
+      return {
+        key: match[1].trim(),
+        value: match[2].trim().replace(/^["']|["']$/g, '')
+      };
+    })
+    .filter(Boolean);
+}
+</script>
 {% endmacro %}

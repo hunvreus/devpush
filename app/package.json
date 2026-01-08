@@ -13,8 +13,8 @@
     "@tailwindcss/cli": "^4.1.11",
     "alpinejs": "^3.14.9",
     "basecoat-css": "^0.3.10-beta.2",
-    "htmx-ext-sse": "^2.2.3",
-    "htmx.org": "^2.0.6",
+    "htmx-ext-sse": "^2.2.4",
+    "htmx.org": "^2.0.8",
     "mjml": "^4.15.3",
     "tailwindcss": "^4.1.11"
   }

@@ -16,7 +16,7 @@
 <div
   class="space-y-6"
   x-data="{
-    selectedPreset: '{{ form.preset.data }}',
+    selectedPreset: '{{ form.preset.data or "" }}',
     initValues: {{ 'true' if init_values else 'false' }},
     getPreset() {
       if (!this.selectedPreset) return null;
@@ -65,37 +65,41 @@
     <label for="preset">{{ _('Framework preset') }}</label>
     <div class="flex flex-wrap items-center gap-2">
       {% from "macros/select.html" import select %}
-      {% call select(
+      {% set default_option %}
+        <span class="flex items-center gap-x-2 [&>svg]:text-muted-foreground">
+          {% include "icons/circle-off.svg" %}
+          {{ _('None') }}
+        </span>
+      {% endset %}
+      {% set preset_options = namespace(items=[{"label": default_option, "value": ""}]) %}
+      {% for preset in presets %}
+        {% set label %}
+          <span class="flex items-center gap-x-2">
+            {{ preset.logo | safe }}
+            {{ preset.name }}
+            {% if preset.beta %}
+              <span class="badge-outline">Beta</span>
+            {% endif %}
+          </span>
+        {% endset %}
+        {% set preset_options.items = preset_options.items + [{"label": label, "value": preset.slug}] %}
+      {% endfor %}
+      {{ select(
         name="preset",
+        items=preset_options.items,
         selected=form.preset.data,
         main_attrs={'@change': 'setPreset(event.detail.value, true)'},
         is_combobox=True,
         listbox_attrs={'class': 'max-h-[162px] overflow-y-auto scrollbar'}
-      ) %}
-        <div role="option" data-value="">
-          <span class="flex items-center gap-x-2 [&>svg]:text-muted-foreground">
-            {% include "icons/circle-off.svg" %}
-            {{ _('None') }}
-          </span>
-        </div>
-        {% for preset in presets %}
-          <div role="option" data-value="{{ preset.slug }}">
-            <span class="flex items-center gap-x-2">
-              {{ preset.logo | safe }}
-              {{ preset.name | safe }}
-              {% if preset.beta %}
-                <span class="badge-outline">Beta</span>
-              {% endif %}
-            </span>
-          </div>
-        {% endfor %}
-      {% endcall %}
+      ) }}
+        
       <button
         type="button"
         class="btn-sm-icon-outline text-muted-foreground hover:text-accent-foreground"
         data-tooltip="{{ _('Reset') }}"
         aria-label="{{ _('Reset') }}"
         x-show="selectedPreset"
+        x-cloak
         @click="if (window.confirm('{{ _('Reset all fields to the preset defaults (root directory, image, commands)?') }}')) { setPreset(selectedPreset, true); $dispatch('input'); }"
       >
         {% include "icons/rotate-ccw.svg" %}
@@ -140,9 +144,9 @@
     {{ form.build_command.label() }}
     <div class="relative">
       {{ form.build_command(
-        id=False,
+        
         class="w-full font-mono text-[13px]",
-        **{'x-ref': 'buildCommandInput'}
+        
       ) }}
     </div>
     {% for error in form.build_command.errors %}
