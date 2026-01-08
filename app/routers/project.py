@@ -63,7 +63,7 @@ from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 from services.deployment import DeploymentService
 from services.domain import DomainService
-from services.framework_detector import FrameworkDetector
+from services.preset_detector import PresetDetector
 from utils.project import get_latest_projects, get_latest_deployments
 from utils.team import get_latest_teams
 from utils.pagination import paginate
@@ -137,7 +137,7 @@ async def new_project_details(
             try:
                 github_oauth_token = await get_user_github_token(db, current_user)
                 if github_oauth_token:
-                    detector = FrameworkDetector(settings.presets)
+                    detector = PresetDetector(settings.presets)
 
                     # Run detection with 5 second timeout
                     detection = await asyncio.wait_for(

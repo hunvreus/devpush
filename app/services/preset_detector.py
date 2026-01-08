@@ -1,4 +1,4 @@
-"""Framework detection service for automatically identifying project types."""
+"""Preset detection service for automatically identifying project types."""
 
 import fnmatch
 import json
@@ -10,8 +10,8 @@ from services.github import GitHubService
 logger = logging.getLogger(__name__)
 
 
-class FrameworkDetector:
-    """Detect framework/preset from repository files.
+class PresetDetector:
+    """Detect preset from repository files.
 
     Uses GitHub's git trees API for fast detection (<3 seconds).
     Patterns are loaded from presets configuration.
@@ -46,7 +46,7 @@ class FrameworkDetector:
         repo_id: int,
         default_branch: str,
     ) -> Optional[str]:
-        """Detect framework preset from repository.
+        """Detect preset from repository.
 
         Args:
             github_service: GitHubService instance
@@ -62,13 +62,11 @@ class FrameworkDetector:
             return None
 
         try:
-            # Get entire file tree
             logger.info(f"Fetching git tree for repo {repo_id}")
             tree = await github_service.get_git_tree(
                 user_access_token, repo_id, sha=default_branch, recursive=True
             )
 
-            # Extract file paths as a set for fast lookups
             paths = {
                 item["path"] for item in tree.get("tree", []) if item["type"] == "blob"
             }
@@ -78,7 +76,6 @@ class FrameworkDetector:
                 logger.warning("No files found in repository")
                 return None
 
-            # Match patterns
             matches = []
             for pattern in self.patterns:
                 if await self._matches_pattern(
@@ -96,7 +93,6 @@ class FrameworkDetector:
                 logger.info("No preset patterns matched")
                 return None
 
-            # Sort by priority (highest first)
             matches.sort(key=lambda p: p["priority"], reverse=True)
             best_match = matches[0]
 
@@ -104,7 +100,7 @@ class FrameworkDetector:
             return best_match["preset"]
 
         except Exception as e:
-            logger.exception(f"Framework detection failed: {e}")
+            logger.exception(f"Preset detection failed: {e}")
             return None
 
     async def _matches_pattern(
@@ -117,32 +113,26 @@ class FrameworkDetector:
         default_branch: str,
     ) -> bool:
         """Check if paths match a detection pattern."""
-        # Check 'any_files' - at least one must exist
         if pattern.get("any_files"):
             if not any(self._path_matches(paths, p) for p in pattern["any_files"]):
                 return False
 
-        # Check 'all_files' - all must exist
         if pattern.get("all_files"):
             if not all(self._path_matches(paths, p) for p in pattern["all_files"]):
                 return False
 
-        # Check 'any_paths' - at least one glob pattern must match
         if pattern.get("any_paths"):
             if not any(self._path_matches(paths, p) for p in pattern["any_paths"]):
                 return False
 
-        # Check 'none_files' - none should exist
         if pattern.get("none_files"):
             if any(self._path_matches(paths, p) for p in pattern["none_files"]):
                 return False
 
-        # Check 'package_check' - verify dependency exists
         pkg_check = pattern.get("package_check")
         if pkg_check:
             found = False
 
-            # Check Python deps (requirements.txt, pyproject.toml)
             py_files = [
                 p for p in paths if p.endswith(("requirements.txt", "pyproject.toml"))
             ]
@@ -157,7 +147,6 @@ class FrameworkDetector:
                 except Exception as e:
                     logger.debug(f"Failed to check {py_file}: {e}")
 
-            # Check JS deps (package.json)
             if not found and "package.json" in paths:
                 try:
                     content = await github_service.get_file_content(
@@ -186,7 +175,7 @@ class FrameworkDetector:
         repo_id: int,
         default_branch: str,
     ) -> dict:
-        """Detect framework and extract build/start commands from package.json.
+        """Detect preset and extract build/start commands from package.json.
 
         Returns:
             Dictionary with preset, build_command, start_command
@@ -197,7 +186,6 @@ class FrameworkDetector:
             "start_command": None,
         }
 
-        # Detect preset
         preset = await self.detect(
             github_service, user_access_token, repo_id, default_branch
         )
@@ -206,10 +194,8 @@ class FrameworkDetector:
         if not preset:
             return result
 
-        # Extract commands for JS/Node.js projects
         if preset in ("nodejs", "bun"):
             try:
-                # Fetch package.json
                 content = await github_service.get_file_content(
                     user_access_token, repo_id, "package.json", ref=default_branch
                 )
@@ -218,22 +204,20 @@ class FrameworkDetector:
                     data = json.loads(content)
                     scripts = data.get("scripts", {})
 
-                    # Try common build script names
                     for build_key in ("build", "compile", "bundle"):
                         if build_key in scripts:
                             result["build_command"] = f"npm run {build_key}"
                             break
 
-                    # Try common start script names
                     if "start" in scripts:
                         result["start_command"] = "npm start"
                     elif "serve" in scripts:
                         result["start_command"] = "npm run serve"
                     elif "dev" in scripts and not result["start_command"]:
-                        # Use dev script as fallback if no start
                         result["start_command"] = "npm run dev"
 
             except Exception as e:
                 logger.debug(f"Failed to extract commands from package.json: {e}")
 
         return result
+
