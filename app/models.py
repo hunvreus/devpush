@@ -8,6 +8,7 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     UniqueConstraint,
+    Index,
     event,
     select,
     update,
@@ -366,7 +367,15 @@ class Project(Base):
         back_populates="project"
     )
 
-    __table_args__ = (UniqueConstraint("team_id", "name", name="uq_project_team_name"),)
+    __table_args__ = (
+        UniqueConstraint("team_id", "name", name="uq_project_team_name"),
+        Index(
+            "ix_project_team_name_lower",
+            "team_id",
+            func.lower(name),
+            unique=True,
+        ),
+    )
 
     @property
     def env_vars(self) -> list[dict[str, str]]:
@@ -625,7 +634,7 @@ class Storage(Base):
     id: Mapped[str] = mapped_column(
         String(32), primary_key=True, default=lambda: token_hex(16)
     )
-    name: Mapped[str] = mapped_column(String(63), index=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
     type: Mapped[str] = mapped_column(
         SQLAEnum("database", "volume", "kv", "queue", name="storage_type"),
         nullable=False,
@@ -661,6 +670,12 @@ class Storage(Base):
 
     __table_args__ = (
         UniqueConstraint("team_id", "name", name="uq_storage_team_name"),
+        Index(
+            "ix_storage_team_name_lower",
+            "team_id",
+            func.lower(name),
+            unique=True,
+        ),
     )
 
     @override
@@ -670,6 +685,18 @@ class Storage(Base):
     @property
     def projects(self) -> list["Project"]:
         return [link.project for link in self.project_links if link.project]
+
+    @property
+    def color(self) -> str:
+        match self.type:
+            case "database":
+                return "sky"
+            case "volume":
+                return "amber"
+            case "kv":
+                return "rose"
+            case "queue":
+                return "green"
 
 
 class StorageProject(Base):

@@ -1,0 +1,10 @@
+{% macro icon_avatar(color, icon, attrs={}) %}
+  <div
+    class="flex items-center justify-center bg-gradient-to-tl border shrink-0 size-5 rounded text-xs font-semibold from-{{ color }}-100 to-{{ color }}-100/50 border-{{ color }}-200 dark:from-{{ color }}-950/50 dark:to-{{ color }}-950 dark:border-{{ color }}-900 text-{{ color }}-500 [&>svg]:size-3 [&>svg]:shrink-0 [&>svg]:!text-{{ color }}-500 {% if attrs.class %}{{ attrs.class }}{% endif %}"
+    {% for key, value in attrs.items() %}
+      {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
+    {% endfor %}
+  >
+    {% include "icons/" + icon + ".svg" %}
+  </div>
+{% endmacro %}

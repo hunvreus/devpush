@@ -1,5 +1,6 @@
 {% from "macros/select.html" import select %}
 {% from "project/macros/environment-label.html" import environment_label %}
+{% from "macros/icon-avatar.html" import icon_avatar with context %}
 
 <form
   method="post"
@@ -9,6 +10,19 @@
   class="space-y-6"
 >
   {{ form.csrf_token }}
+  <div class="space-y-3 flex-1">
+    {{ form.type.label(class_="label") }}
+    {{ select(
+      name="type",
+      selected=form.type.data,
+      items=[
+        {"label": icon_avatar(color="emerald", icon="database") + " " + _("Database (SQLite)"), "value": "database"},
+        {"label": icon_avatar(color="amber", icon="hard-drive") + " " + _("Volume"), "value": "volume"},
+        {"label": icon_avatar(color="fuchsia", icon="layers") + " " + _("KV (Redis/ValKey)"), "value": "kv"},
+        {"label": icon_avatar(color="indigo", icon="square-stack") + " " + _("Queue (Redis/ValKey)"), "value": "queue"},
+      ],
+    ) }}
+  </div>
   <div class="space-y-3 flex-1">
     {% if fragment == 'create_storage' %}
       {{ form.name.label(class_="label") }}

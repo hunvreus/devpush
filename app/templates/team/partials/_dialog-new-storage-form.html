@@ -1,7 +1,36 @@
+{% from "macros/icon-avatar.html" import icon_avatar with context %}
+{% from "macros/select.html" import select %}
+
+{% set database_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="sky", icon="database") }}
+    {{ _("Database (SQLite)") }}
+  </div>
+{% endset %}
+{% set volume_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="amber", icon="hard-drive") }}
+    {{ icon_avatar(color="orange", icon="hard-drive") }}
+    {{ _("Volume") }}
+  </div>
+{% endset %}
+{% set kv_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="rose", icon="layers") }}
+    {{ _("KV (Redis/ValKey)") }}
+  </div>
+{% endset %}
+{% set queue_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="green", icon="square-stack") }}
+    {{ _("Queue (Redis/ValKey)") }}
+  </div>
+{% endset %}
+
 <form
   method="post"
-  action="{{ url_for('team_new_storage', team_slug=team.slug) }}"
-  hx-post="{{ url_for('team_new_storage', team_slug=team.slug) }}"
+  action="{{ url_for('team_storage', team_slug=team.slug) }}"
+  hx-post="{{ url_for('team_storage', team_slug=team.slug) }}"
   hx-swap="outerHTML"
   hx-indicator="find .htmx-indicator"
   hx-disabled-elt="find button[type='submit']"
@@ -9,6 +38,19 @@
   x-data="{ name: '{{ form.name.data or "" }}' }"
 >
   {{ form.csrf_token() }}
+  <div class="space-y-3 flex-1">
+    {{ form.type.label(class_="label") }}
+    {{ select(
+      name="type",
+      selected=form.type.data,
+      items=[
+        {"label": database_label, "value": "database"},
+        {"label": volume_label, "value": "volume"},
+        {"label": kv_label, "value": "kv"},
+        {"label": queue_label, "value": "queue"},
+      ],
+    ) }}
+  </div>
   <div class="space-y-3">
     {{ form.name.label(class="label") }}
     {{ form.name(class="input w-full", **{"x-model": "name", "autofocus": "true"}) }}

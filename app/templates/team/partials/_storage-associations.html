@@ -132,122 +132,128 @@
   </header>
 
   <section class="space-y-6" x-data="{activeForm: null}">
-    <div class="space-y-2">
-      <div class="flex gap-x-2 border-b border-border/50 pb-2" x-show="activeForm !== null || {{ associations | length }} > 0">
-        <div class="flex-1 label">{{ _('Project') }}</div>
-        <div class="flex-1 label">{{ _('Environments') }}</div>
-        <div class="shrink-0 w-20"></div>
-      </div>
-      {% for association in associations %}
-        <div class="border-b border-border/50 pb-2">
-          <div
-            x-show="activeForm !== {{ loop.index }}"
-            class="flex items-center gap-x-2"
-          >
-            <div class="flex-1 font-medium min-w-0">
-              <a href="{{ url_for('project_index', team_slug=team.slug, project_name=association.project.name) }}" class="flex items-center gap-x-2">
-                {{ avatar(item=association.project, prefix="project", name=association.project.name, size="xs") }}
-                <span class="truncate">{{ association.project.name }}</span>
-              </a>
-            </div>
-            <div class="flex-1 text-muted-foreground flex flex-wrap items-center gap-2 [&>svg]:size-4 min-w-0">
-              <span class="truncate">
-                {% if association.environment_ids | length > 0 %}
-                  {% for environment_id in association.environment_ids %}
-                    {{ association.project.get_environment_by_id(environment_id).name }}{% if not loop.last %}, {% endif %}
-                  {% endfor %}
-                {% else %}
-                  {{ _('All environments') }}
-                {% endif %}
-              </span>
-            </div>
-            <div class="flex items-center w-20">
-              <button
-                type="button"
-                class="btn-icon-ghost"
-                aria-label="{{ _('Edit') }}"
-                data-tooltip="{{ _('Edit') }}"
-                @click="activeForm = {{ loop.index }}"
-                :disabled="activeForm"
-              >
-                {% include "icons/pencil.svg" %}
-              </button>                
-              {% set trigger %}
-                {% include "icons/trash-2.svg" %}
-              {% endset %}
-              {% call dialog(
-                trigger=trigger,
-                title=_('Disconnect "%(project)s" from "%(storage)s"?', project=association.project.name, storage=storage.name),
-                trigger_attrs={
-                  "class": "btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20",
-                  "aria-label": _('Disconnect'),
-                  "data-tooltip": _('Disconnect'),
-                },
-                dialog_attrs={"class": "max-w-md"}
-              ) %}
-                <div class="space-y-4" x-data="{ confirm: '' }">
-                  <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(storage)s"</b> storage. Any deployment for this project will no longer have access to this storage.', project=association.project.name, storage=storage.name) | safe }}</p>
-                  <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=association.project.name) | safe }}</p>
-                  <form
-                    method="post"
-                    action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
-                    hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
-                    hx-swap="outerHTML"
-                    hx-on::before-request="document.activeElement && document.activeElement.blur()"
-                    hx-target="closest .card"
-                    hx-indicator="next .htmx-indicator"
-                    @submit="confirm !== '{{ association.project.name }}' ? $event.preventDefault() : null"
-                  >
-                    {{ remove_association_form.csrf_token(id=False) }}
-                    {{ remove_association_form.association_id(
-                      id=False,
-                      value=association.id
-                    ) }}
-                    {{ remove_association_form.confirm(
-                      id=False,
-                      class_='w-full',
-                      placeholder=_('Type the project name to confirm'),
-                      **{
-                        "x-model": "confirm",
-                        "@keydown.enter": "confirm !== '"~association.project.name~"' ? $event.preventDefault() : null"
-                      }
-                    ) }}
-
-                    <footer class="flex justify-end gap-x-2 pt-4">
-                      <button
-                        class="btn-ghost"
-                        onclick="this.closest('dialog').close()"
-                      >{{ _('Cancel') }}</button>
-                      <button
-                        type="submit"
-                        class="btn-destructive"
-                        :disabled="confirm !== '{{ association.project.name }}'"
-                      >{{ _('Disconnect') }}</button>
-                    </footer>
-                  </form>
-                </div>
-              {% endcall %}
-            </div>
-          </div>
-          {{ render_association_form(association=association, index=loop.index) }}
+    {% if projects %}
+      <div class="space-y-2">
+        <div class="flex gap-x-2 border-b border-border/50 pb-2" x-show="activeForm !== null || {{ associations | length }} > 0">
+          <div class="flex-1 label">{{ _('Project') }}</div>
+          <div class="flex-1 label">{{ _('Environments') }}</div>
+          <div class="shrink-0 w-20"></div>
         </div>
-      {% endfor %}
+        {% for association in associations %}
+          <div class="border-b border-border/50 pb-2">
+            <div
+              x-show="activeForm !== {{ loop.index }}"
+              class="flex items-center gap-x-2"
+            >
+              <div class="flex-1 font-medium min-w-0">
+                <a href="{{ url_for('project_index', team_slug=team.slug, project_name=association.project.name) }}" class="flex items-center gap-x-2">
+                  {{ avatar(item=association.project, prefix="project", name=association.project.name, size="xs") }}
+                  <span class="truncate">{{ association.project.name }}</span>
+                </a>
+              </div>
+              <div class="flex-1 text-muted-foreground flex flex-wrap items-center gap-2 [&>svg]:size-4 min-w-0">
+                <span class="truncate">
+                  {% if association.environment_ids | length > 0 %}
+                    {% for environment_id in association.environment_ids %}
+                      {{ association.project.get_environment_by_id(environment_id).name }}{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                  {% else %}
+                    {{ _('All environments') }}
+                  {% endif %}
+                </span>
+              </div>
+              <div class="flex items-center w-20">
+                <button
+                  type="button"
+                  class="btn-icon-ghost"
+                  aria-label="{{ _('Edit') }}"
+                  data-tooltip="{{ _('Edit') }}"
+                  @click="activeForm = {{ loop.index }}"
+                  :disabled="activeForm"
+                >
+                  {% include "icons/pencil.svg" %}
+                </button>                
+                {% set trigger %}
+                  {% include "icons/trash-2.svg" %}
+                {% endset %}
+                {% call dialog(
+                  trigger=trigger,
+                  title=_('Disconnect "%(project)s" from "%(storage)s"?', project=association.project.name, storage=storage.name),
+                  trigger_attrs={
+                    "class": "btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20",
+                    "aria-label": _('Disconnect'),
+                    "data-tooltip": _('Disconnect'),
+                  },
+                  dialog_attrs={"class": "max-w-md"}
+                ) %}
+                  <div class="space-y-4" x-data="{ confirm: '' }">
+                    <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(storage)s"</b> storage. Any deployment for this project will no longer have access to this storage.', project=association.project.name, storage=storage.name) | safe }}</p>
+                    <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=association.project.name) | safe }}</p>
+                    <form
+                      method="post"
+                      action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
+                      hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
+                      hx-swap="outerHTML"
+                      hx-on::before-request="document.activeElement && document.activeElement.blur()"
+                      hx-target="closest .card"
+                      hx-indicator="next .htmx-indicator"
+                      @submit="confirm !== '{{ association.project.name }}' ? $event.preventDefault() : null"
+                    >
+                      {{ remove_association_form.csrf_token(id=False) }}
+                      {{ remove_association_form.association_id(
+                        id=False,
+                        value=association.id
+                      ) }}
+                      {{ remove_association_form.confirm(
+                        id=False,
+                        class_='w-full',
+                        placeholder=_('Type the project name to confirm'),
+                        **{
+                          "x-model": "confirm",
+                          "@keydown.enter": "confirm !== '"~association.project.name~"' ? $event.preventDefault() : null"
+                        }
+                      ) }}
 
-      {{ render_association_form(index=0) }}
+                      <footer class="flex justify-end gap-x-2 pt-4">
+                        <button
+                          class="btn-ghost"
+                          onclick="this.closest('dialog').close()"
+                        >{{ _('Cancel') }}</button>
+                        <button
+                          type="submit"
+                          class="btn-destructive"
+                          :disabled="confirm !== '{{ association.project.name }}'"
+                        >{{ _('Disconnect') }}</button>
+                      </footer>
+                    </form>
+                  </div>
+                {% endcall %}
+              </div>
+            </div>
+            {{ render_association_form(association=association, index=loop.index) }}
+          </div>
+        {% endfor %}
 
-      {% if available_projects %}
-        <button
-          class="btn-sm-outline"
-          type="button"
-          @click="activeForm = 0"
-          x-show="activeForm !== 0"
-          :disabled="activeForm"
-        >
-          {% include "icons/plus.svg" %}
-          {{ _('Connect a project') }}
-        </button>
-      {% endif %}
-    </div>
+        {{ render_association_form(index=0) }}
+
+        {% if available_projects %}
+          <button
+            class="btn-sm-outline"
+            type="button"
+            @click="activeForm = 0"
+            x-show="activeForm !== 0"
+            :disabled="activeForm"
+          >
+            {% include "icons/plus.svg" %}
+            {{ _('Connect a project') }}
+          </button>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="text-center py-8 text-muted-foreground">
+        <p>{{ _('No projects in this team yet.') }}</p>
+      </div>
+    {% endif %}
   </section>
 </div>
 

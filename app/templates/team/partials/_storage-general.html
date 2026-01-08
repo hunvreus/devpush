@@ -1,3 +1,5 @@
+{% from "macros/icon-avatar.html" import icon_avatar with context %}
+
 <div class="card">
   <header class="border-b">
     <h2>{{ _('General') }}</h2>
@@ -6,10 +8,19 @@
 
   <section class="space-y-6">
     <div class="space-y-2">
+      <label class="label">{{ _('Type') }}</label>
+      <div class="items-center gap-x-2 selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]" tabindex="0">
+
+        {{ icon_avatar(color=storage.color, icon=storage.type) }}
+        {{ _(storage.type|capitalize) }}
+      </div>
+    </div>
+
+    <div class="space-y-2">
       <label class="label">{{ _('Name') }}</label>
       <input
         type="text"
-        class="input w-full text-muted-foreground"
+        class="input w-full"
         value="{{ storage.name }}"
         readonly
       />
@@ -20,7 +31,7 @@
       <div class="relative">
         <input
           type="text"
-          class="input w-full font-mono text-[13px] text-muted-foreground pr-9"
+          class="input w-full font-mono text-[13px] pr-9"
           value="{{ storage.id }}"
           readonly
         />
@@ -54,7 +65,7 @@
       <div class="relative">
         <input
           type="text"
-          class="input w-full font-mono text-[13px] text-muted-foreground pr-9"
+          class="input w-full font-mono text-[13px] pr-9"
           value="/data/database/{{ storage.name }}/db.sqlite"
           readonly
         />

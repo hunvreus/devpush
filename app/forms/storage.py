@@ -1,7 +1,7 @@
 import json
 from starlette.requests import Request
 from starlette_wtf import StarletteForm
-from wtforms import HiddenField, StringField, SubmitField
+from wtforms import HiddenField, StringField, SubmitField, SelectField
 from wtforms.validators import DataRequired, Length, Regexp, ValidationError, Optional
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +35,9 @@ def _parse_environment_ids(value):
 
 
 class StorageCreateForm(StarletteForm):
+    type = SelectField(
+        _l("Type"), choices=[("database", _("Database")), ("volume", _("Volume"))]
+    )
     name = StringField(
         _l("Storage name"),
         validators=[
@@ -104,6 +107,9 @@ class StorageDeleteForm(StarletteForm):
 
 class StorageProjectForm(StarletteForm):
     association_id = HiddenField()
+    type = SelectField(
+        _l("Type"), choices=[("database", _("Database")), ("volume", _("Volume"))]
+    )
     storage_id = HiddenField(_l("Storage"), validators=[DataRequired()])
     project_id = StringField(_l("Project"), validators=[DataRequired()])
     environment_ids = StringField(_l("Environments"), validators=[Optional()])

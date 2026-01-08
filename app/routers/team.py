@@ -33,6 +33,7 @@ from dependencies import (
     get_role,
     get_access,
     get_storage_by_name,
+    RedirectResponseX,
 )
 from config import get_settings, Settings
 from db import get_db
@@ -171,7 +172,7 @@ async def team_projects(
     )
 
 
-@router.get("/{team_slug}/storage", name="team_storage")
+@router.api_route("/{team_slug}/storage", methods=["GET", "POST"], name="team_storage")
 async def team_storage(
     request: Request,
     page: int = Query(1, ge=1),
@@ -181,6 +182,36 @@ async def team_storage(
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
+
+    form: Any = await StorageCreateForm.from_formdata(request, db=db, team=team)
+
+    if request.method == "POST":
+        if await form.validate_on_submit():
+            storage = Storage(
+                name=form.name.data,
+                type="database",
+                status="active",
+                team_id=team.id,
+                created_by_user_id=current_user.id,
+            )
+            db.add(storage)
+            await db.commit()
+            flash(request, _("Storage created."), "success")
+
+            return RedirectResponseX(
+                request.url_for("team_storage", team_slug=team.slug),
+                status_code=200,
+                request=request,
+            )
+
+        return TemplateResponse(
+            request=request,
+            name="team/partials/_dialog-new-storage-form.html",
+            context={
+                "team": team,
+                "form": form,
+            },
+        )
 
     latest_teams = await get_latest_teams(
         db=db, current_user=current_user, current_team=team
@@ -221,66 +252,40 @@ async def team_storage(
             "storages": pagination.get("items"),
             "pagination": pagination,
             "projects": projects,
-        },
-    )
-
-
-@router.api_route(
-    "/{team_slug}/new-storage", methods=["GET", "POST"], name="team_new_storage"
-)
-async def team_new_storage(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-    role: str = Depends(get_role),
-    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-    db: AsyncSession = Depends(get_db),
-):
-    team, membership = team_and_membership
-
-    if not get_access(role, "admin"):
-        flash(
-            request,
-            _("You don't have permission to create storage."),
-            "warning",
-        )
-        return Response(status_code=403)
-
-    form: Any = await StorageCreateForm.from_formdata(request, db=db, team=team)
-
-    if request.method == "POST" and await form.validate_on_submit():
-        storage = Storage(
-            name=form.name.data,
-            type="database",
-            status="active",
-            team_id=team.id,
-            created_by_user_id=current_user.id,
-        )
-        db.add(storage)
-        await db.commit()
-        flash(request, _("Storage created."), "success")
-        if request.headers.get("HX-Request"):
-            return Response(
-                status_code=200,
-                headers={
-                    "HX-Redirect": str(
-                        request.url_for("team_storage", team_slug=team.slug)
-                    )
-                },
-            )
-        return RedirectResponse(
-            url=str(request.url_for("team_storage", team_slug=team.slug)),
-            status_code=303,
-        )
-
-    return TemplateResponse(
-        request=request,
-        name="team/partials/_dialog-new-storage-form.html",
-        context={
-            "current_user": current_user,
-            "team": team,
             "form": form,
         },
     )
+
+
+# @router.api_route(
+#     "/{team_slug}/new-storage", methods=["GET", "POST"], name="team_new_storage"
+# )
+# async def team_new_storage(
+#     request: Request,
+#     current_user: User = Depends(get_current_user),
+#     role: str = Depends(get_role),
+#     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     team, membership = team_and_membership
+
+#     if not get_access(role, "admin"):
+#         flash(
+#             request,
+#             _("You don't have permission to create storage."),
+#             "warning",
+#         )
+#         return Response(status_code=403)
+
+#     return TemplateResponse(
+#         request=request,
+#         name="team/partials/_dialog-new-storage-form.html",
+#         context={
+#             "current_user": current_user,
+#             "team": team,
+#             "form": form,
+#         },
+#     )
 
 
 @router.api_route(
@@ -465,6 +470,7 @@ async def team_storage_item(
                         "associations": associations,
                         "association_form": association_form,
                         "remove_association_form": remove_association_form,
+                        "projects": projects,
                         "available_projects": available_projects,
                         "default_project": default_project,
                     },
