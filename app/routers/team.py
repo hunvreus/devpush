@@ -257,37 +257,6 @@ async def team_storage(
     )
 
 
-# @router.api_route(
-#     "/{team_slug}/new-storage", methods=["GET", "POST"], name="team_new_storage"
-# )
-# async def team_new_storage(
-#     request: Request,
-#     current_user: User = Depends(get_current_user),
-#     role: str = Depends(get_role),
-#     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-#     db: AsyncSession = Depends(get_db),
-# ):
-#     team, membership = team_and_membership
-
-#     if not get_access(role, "admin"):
-#         flash(
-#             request,
-#             _("You don't have permission to create storage."),
-#             "warning",
-#         )
-#         return Response(status_code=403)
-
-#     return TemplateResponse(
-#         request=request,
-#         name="team/partials/_dialog-new-storage-form.html",
-#         context={
-#             "current_user": current_user,
-#             "team": team,
-#             "form": form,
-#         },
-#     )
-
-
 @router.api_route(
     "/{team_slug}/storage/{storage_name}",
     methods=["GET", "POST"],

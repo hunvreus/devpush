@@ -56,7 +56,7 @@ from forms.project import (
     ProjectDomainVerifyForm,
     ProjectResourcesForm,
 )
-from forms.storage import StorageCreateForm, StorageProjectForm
+from forms.storage import StorageCreateForm, StorageProjectForm, StorageProjectRemoveForm
 from config import get_settings, Settings
 from db import get_db
 from services.github import GitHubService
@@ -152,7 +152,6 @@ async def new_project_details(
 
                     # If preset detected, get preset config and set all form fields
                     if detection["preset"]:
-                        # Find preset in settings
                         preset_config = next(
                             (
                                 p
@@ -163,19 +162,12 @@ async def new_project_details(
                         )
 
                         if preset_config:
-                            # Set preset
                             form.preset.data = detection["preset"]
-
-                            # Set image from preset
                             form.image.data = preset_config.get("image")
-
-                            # Set root_directory from preset (if defined)
                             if preset_config.get("root_directory"):
                                 form.root_directory.data = preset_config.get(
                                     "root_directory"
                                 )
-
-                            # Set commands - prefer package.json, fallback to preset
                             form.build_command.data = detection.get(
                                 "build_command"
                             ) or preset_config.get("build_command")
@@ -188,8 +180,10 @@ async def new_project_details(
 
             except asyncio.TimeoutError:
                 logger.warning(f"Framework detection timed out for repo {repo_id}")
+                flash(request, _("Framework detection timed out."), "error")
             except Exception as e:
                 logger.warning(f"Framework detection failed for repo {repo_id}: {e}")
+                flash(request, _("Framework detection failed."), "error")
 
             return TemplateResponse(
                 request=request,
@@ -540,7 +534,10 @@ async def project_storage(
             Storage.type == "database",
             Storage.status != "deleted",
         )
-        .options(selectinload(StorageProject.storage))
+        .options(
+            selectinload(StorageProject.storage),
+            selectinload(StorageProject.project),
+        )
         .order_by(Storage.name.asc())
     )
     associations = associations_result.scalars().all()
@@ -575,6 +572,20 @@ async def project_storage(
     )
     if connect_storage_form.environment_ids.data in (None, ""):
         connect_storage_form.environment_ids.data = []
+
+    edit_storage_form: Any = await StorageProjectForm.from_formdata(
+        request,
+        storages=storages,
+        projects=[project],
+        associations=associations,
+    )
+    if edit_storage_form.environment_ids.data in (None, ""):
+        edit_storage_form.environment_ids.data = []
+
+    remove_storage_form: Any = await StorageProjectRemoveForm.from_formdata(
+        request,
+        associations=associations,
+    )
 
     if request.method == "POST" and fragment == "create_storage":
         if not get_access(role, "admin"):
@@ -696,6 +707,99 @@ async def project_storage(
                 },
             )
 
+    if request.method == "POST" and fragment == "update_storage_env":
+        if not get_access(role, "admin"):
+            flash(
+                request,
+                _("You don't have permission to update storage connections."),
+                "warning",
+            )
+        elif await edit_storage_form.validate_on_submit():
+            association_id = edit_storage_form.association_id.data
+            association_by_id = {
+                str(association.id): association for association in associations
+            }
+            association = association_by_id.get(str(association_id)) if association_id else None
+            if not association:
+                flash(request, _("Association not found."), "error")
+            else:
+                association.environment_ids = edit_storage_form.environment_ids.data or []
+                await db.commit()
+                flash(request, _("Storage connection updated."), "success")
+                return RedirectResponseX(
+                    url=str(
+                        request.url_for(
+                            "project_storage",
+                            team_slug=team.slug,
+                            project_name=project.name,
+                        )
+                    ),
+                    request=request,
+                )
+        if request.headers.get("HX-Request"):
+            association = None
+            association_id = edit_storage_form.association_id.data
+            if association_id:
+                association = next(
+                    (
+                        item
+                        for item in associations
+                        if str(item.id) == str(association_id)
+                    ),
+                    None,
+                )
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_dialog-project-storage-environments-form.html",
+                context={
+                    "team": team,
+                    "project": project,
+                    "association": association,
+                    "edit_storage_form": edit_storage_form,
+                },
+            )
+
+    if request.method == "POST" and fragment == "disconnect_storage":
+        if not get_access(role, "admin"):
+            flash(
+                request,
+                _("You don't have permission to update storage connections."),
+                "warning",
+            )
+        elif await remove_storage_form.validate_on_submit():
+            association = remove_storage_form.association
+            await db.delete(association)
+            await db.commit()
+            flash(request, _("Storage disconnected."), "success")
+            return RedirectResponseX(
+                url=str(
+                    request.url_for(
+                        "project_storage",
+                        team_slug=team.slug,
+                        project_name=project.name,
+                    )
+                ),
+                request=request,
+            )
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/pages/storage.html",
+                context={
+                    "current_user": current_user,
+                    "role": role,
+                    "team": team,
+                    "project": project,
+                    "associations": associations,
+                    "storages": storages,
+                    "available_storages": available_storages,
+                    "create_storage_form": create_storage_form,
+                    "connect_storage_form": connect_storage_form,
+                    "edit_storage_form": edit_storage_form,
+                    "remove_storage_form": remove_storage_form,
+                },
+            )
+
     latest_teams = await get_latest_teams(
         db=db, current_user=current_user, current_team=team
     )
@@ -716,6 +820,8 @@ async def project_storage(
             "available_storages": available_storages,
             "create_storage_form": create_storage_form,
             "connect_storage_form": connect_storage_form,
+            "edit_storage_form": edit_storage_form,
+            "remove_storage_form": remove_storage_form,
             "latest_projects": latest_projects,
             "latest_teams": latest_teams,
         },

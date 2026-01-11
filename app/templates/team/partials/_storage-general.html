@@ -1,4 +1,4 @@
-{% from "macros/icon-avatar.html" import icon_avatar with context %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
 
 <div class="card">
   <header class="border-b">
@@ -9,9 +9,8 @@
   <section class="space-y-6">
     <div class="space-y-2">
       <label class="label">{{ _('Type') }}</label>
-      <div class="items-center gap-x-2 selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]" tabindex="0">
-
-        {{ icon_avatar(color=storage.color, icon=storage.type) }}
+      <div class="items-center gap-x-2 selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm text-muted-foreground">
+        {{ icon_avatar(color=storage.color, icon=storage.type, size="xs") }}
         {{ _(storage.type|capitalize) }}
       </div>
     </div>
@@ -20,7 +19,7 @@
       <label class="label">{{ _('Name') }}</label>
       <input
         type="text"
-        class="input w-full"
+        class="input w-full text-muted-foreground"
         value="{{ storage.name }}"
         readonly
       />
@@ -31,7 +30,7 @@
       <div class="relative">
         <input
           type="text"
-          class="input w-full font-mono text-[13px] pr-9"
+          class="input w-full font-mono text-[13px] pr-9 text-muted-foreground"
           value="{{ storage.id }}"
           readonly
         />
@@ -65,7 +64,7 @@
       <div class="relative">
         <input
           type="text"
-          class="input w-full font-mono text-[13px] pr-9"
+          class="input w-full font-mono text-[13px] pr-9 text-muted-foreground"
           value="/data/database/{{ storage.name }}/db.sqlite"
           readonly
         />

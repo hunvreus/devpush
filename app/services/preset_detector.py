@@ -220,4 +220,3 @@ class PresetDetector:
                 logger.debug(f"Failed to extract commands from package.json: {e}")
 
         return result
-

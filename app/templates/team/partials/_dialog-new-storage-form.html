@@ -1,28 +1,27 @@
-{% from "macros/icon-avatar.html" import icon_avatar with context %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
 {% from "macros/select.html" import select %}
 
 {% set database_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="sky", icon="database") }}
+    {{ icon_avatar(type="database", size="xs") }}
     {{ _("Database (SQLite)") }}
   </div>
 {% endset %}
 {% set volume_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="amber", icon="hard-drive") }}
-    {{ icon_avatar(color="orange", icon="hard-drive") }}
+    {{ icon_avatar(type="volume", size="xs") }}
     {{ _("Volume") }}
   </div>
 {% endset %}
 {% set kv_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="rose", icon="layers") }}
+    {{ icon_avatar(type="kv", size="xs") }}
     {{ _("KV (Redis/ValKey)") }}
   </div>
 {% endset %}
 {% set queue_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="green", icon="square-stack") }}
+    {{ icon_avatar(type="queue", size="xs") }}
     {{ _("Queue (Redis/ValKey)") }}
   </div>
 {% endset %}
@@ -45,15 +44,20 @@
       selected=form.type.data,
       items=[
         {"label": database_label, "value": "database"},
-        {"label": volume_label, "value": "volume"},
-        {"label": kv_label, "value": "kv"},
-        {"label": queue_label, "value": "queue"},
+        {"label": volume_label, "value": "volume", "attrs": {"aria-disabled": "true"}},
+        {"label": kv_label, "value": "kv", "attrs": {"aria-disabled": "true"}},
+        {"label": queue_label, "value": "queue", "attrs": {"aria-disabled": "true"}},
       ],
     ) }}
   </div>
   <div class="space-y-3">
     {{ form.name.label(class="label") }}
-    {{ form.name(class="input w-full", **{"x-model": "name", "autofocus": "true"}) }}
+    {{ form.name(
+      class="input w-full",
+      placeholder=_("e.g., my-app-db-prod"),
+      **{"x-model": "name", "autofocus": "true", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$"}
+    ) }}
+    <p class="text-muted-foreground text-sm">{{ _('Can only contain letters, numbers, hyphens, underscores and dots.') }}</p>
     {% for error in form.name.errors %}
     <p class="text-destructive text-sm">{{ error }}</p>
     {% endfor %}

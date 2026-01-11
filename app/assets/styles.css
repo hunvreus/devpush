@@ -134,6 +134,7 @@
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
     --tracking-tight: -0.025em;
+    --tracking-wide: 0.025em;
     --tracking-widest: 0.1em;
     --leading-tight: 1.25;
     --leading-snug: 1.375;
@@ -442,6 +443,9 @@
   .mb-8 {
     margin-bottom: calc(var(--spacing) * 8);
   }
+  .ml-1 {
+    margin-left: calc(var(--spacing) * 1);
+  }
   .ml-2 {
     margin-left: calc(var(--spacing) * 2);
   }
@@ -655,6 +659,9 @@
   .max-w-full {
     max-width: 100%;
   }
+  .max-w-lg {
+    max-width: var(--container-lg);
+  }
   .max-w-md {
     max-width: var(--container-md);
   }
@@ -725,6 +732,12 @@
   }
   .grid-cols-1 {
     grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+  .grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .grid-cols-6 {
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -983,6 +996,9 @@
   .border-lime-500 {
     border-color: var(--color-lime-500);
   }
+  .border-muted {
+    border-color: var(--color-muted);
+  }
   .border-neutral-200 {
     border-color: var(--color-neutral-200);
   }
@@ -1060,6 +1076,12 @@
   }
   .bg-background {
     background-color: var(--color-background);
+  }
+  .bg-background\/50 {
+    background-color: var(--color-background);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-background) 50%, transparent);
+    }
   }
   .bg-background\/80 {
     background-color: var(--color-background);
@@ -1398,6 +1420,12 @@
   .mask-repeat {
     mask-repeat: repeat;
   }
+  .stroke-\[0\.5\] {
+    stroke-width: 0.5;
+  }
+  .stroke-\[0\.25\] {
+    stroke-width: 0.25;
+  }
   .object-cover {
     object-fit: cover;
   }
@@ -1452,6 +1480,9 @@
   .py-1\.5 {
     padding-block: calc(var(--spacing) * 1.5);
   }
+  .py-2 {
+    padding-block: calc(var(--spacing) * 2);
+  }
   .py-3 {
     padding-block: calc(var(--spacing) * 3);
   }
@@ -1460,6 +1491,9 @@
   }
   .py-\[7px\] {
     padding-block: 7px;
+  }
+  .pt-2 {
+    padding-top: calc(var(--spacing) * 2);
   }
   .pt-4 {
     padding-top: calc(var(--spacing) * 4);
@@ -1544,6 +1578,10 @@
   .font-semibold {
     --tw-font-weight: var(--font-weight-semibold);
     font-weight: var(--font-weight-semibold);
+  }
+  .tracking-wide {
+    --tw-tracking: var(--tracking-wide);
+    letter-spacing: var(--tracking-wide);
   }
   .tracking-widest {
     --tw-tracking: var(--tracking-widest);
@@ -1752,6 +1790,11 @@
   .group-\[\.copied\]\:hidden {
     &:is(:where(.group):is(.copied) *) {
       display: none;
+    }
+  }
+  .peer-checked\:border-primary {
+    &:is(:where(.peer):checked ~ *) {
+      border-color: var(--color-primary);
     }
   }
   .selection\:bg-primary {
@@ -2475,10 +2518,34 @@
       height: calc(var(--spacing) * 4);
     }
   }
+  .\[\&\>svg\]\:size-5 {
+    &>svg {
+      width: calc(var(--spacing) * 5);
+      height: calc(var(--spacing) * 5);
+    }
+  }
   .\[\&\>svg\]\:size-6 {
     &>svg {
       width: calc(var(--spacing) * 6);
       height: calc(var(--spacing) * 6);
+    }
+  }
+  .\[\&\>svg\]\:size-7 {
+    &>svg {
+      width: calc(var(--spacing) * 7);
+      height: calc(var(--spacing) * 7);
+    }
+  }
+  .\[\&\>svg\]\:size-8 {
+    &>svg {
+      width: calc(var(--spacing) * 8);
+      height: calc(var(--spacing) * 8);
+    }
+  }
+  .\[\&\>svg\]\:size-9 {
+    &>svg {
+      width: calc(var(--spacing) * 9);
+      height: calc(var(--spacing) * 9);
     }
   }
   .\[\&\>svg\]\:shrink-0 {
@@ -2495,6 +2562,41 @@
   .\[\&\>svg\]\:animate-spin {
     &>svg {
       animation: var(--animate-spin);
+    }
+  }
+  .\[\&\>svg\]\:stroke-\[0\.5\] {
+    &>svg {
+      stroke-width: 0.5;
+    }
+  }
+  .\[\&\>svg\]\:stroke-\[0\.25\] {
+    &>svg {
+      stroke-width: 0.25;
+    }
+  }
+  .\[\&\>svg\]\:stroke-\[0\.75\] {
+    &>svg {
+      stroke-width: 0.75;
+    }
+  }
+  .\[\&\>svg\]\:stroke-\[1\.5\] {
+    &>svg {
+      stroke-width: 1.5;
+    }
+  }
+  .\[\&\>svg\]\:stroke-\[1\.25\] {
+    &>svg {
+      stroke-width: 1.25;
+    }
+  }
+  .\[\&\>svg\]\:stroke-\[1\] {
+    &>svg {
+      stroke-width: 1;
+    }
+  }
+  .\[\&\>svg\]\:stroke-\[2\] {
+    &>svg {
+      stroke-width: 2;
     }
   }
   .\[\&\>svg\]\:\!text-amber-500 {

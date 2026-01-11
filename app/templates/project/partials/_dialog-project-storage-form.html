@@ -1,32 +1,67 @@
 {% from "macros/select.html" import select %}
 {% from "project/macros/environment-label.html" import environment_label %}
-{% from "macros/icon-avatar.html" import icon_avatar with context %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
+
+{% set database_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="sky", icon="database", size="xs") }}
+    {{ _("Database (SQLite)") }}
+  </div>
+{% endset %}
+{% set volume_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="amber", icon="hard-drive", size="xs") }}
+    {{ _("Volume") }}
+  </div>
+{% endset %}
+{% set kv_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="rose", icon="layers", size="xs") }}
+    {{ _("KV (Redis/ValKey)") }}
+  </div>
+{% endset %}
+{% set queue_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(color="green", icon="square-stack", size="xs") }}
+    {{ _("Queue (Redis/ValKey)") }}
+  </div>
+{% endset %}
+
+{% set type_icons = {
+  "database": {"color": "sky", "icon": "database"},
+  "volume": {"color": "amber", "icon": "hard-drive"},
+  "kv": {"color": "rose", "icon": "layers"},
+  "queue": {"color": "green", "icon": "square-stack"}
+} %}
 
 <form
   method="post"
   action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
   hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
   hx-swap="outerHTML"
-  class="space-y-6"
+  class="space-y-4"
 >
   {{ form.csrf_token }}
-  <div class="space-y-3 flex-1">
-    {{ form.type.label(class_="label") }}
-    {{ select(
-      name="type",
-      selected=form.type.data,
-      items=[
-        {"label": icon_avatar(color="emerald", icon="database") + " " + _("Database (SQLite)"), "value": "database"},
-        {"label": icon_avatar(color="amber", icon="hard-drive") + " " + _("Volume"), "value": "volume"},
-        {"label": icon_avatar(color="fuchsia", icon="layers") + " " + _("KV (Redis/ValKey)"), "value": "kv"},
-        {"label": icon_avatar(color="indigo", icon="square-stack") + " " + _("Queue (Redis/ValKey)"), "value": "queue"},
-      ],
-    ) }}
-  </div>
+  {% if fragment == 'create_storage' %}
+    <div class="space-y-3 flex-1">
+      {{ form.type.label(class_="label") }}
+      {{ select(
+        name="type",
+        selected=form.type.data,
+        items=[
+          {"label": database_label, "value": "database"},
+          {"label": volume_label, "value": "volume", "attrs": {"aria-disabled": "true"}},
+          {"label": kv_label, "value": "kv", "attrs": {"aria-disabled": "true"}},
+          {"label": queue_label, "value": "queue", "attrs": {"aria-disabled": "true"}},
+        ],
+      ) }}
+    </div>
+  {% endif %}
   <div class="space-y-3 flex-1">
     {% if fragment == 'create_storage' %}
       {{ form.name.label(class_="label") }}
       {{ form.name(class_="input", placeholder=_("Storage name")) }}
+      <p class="text-muted-foreground text-sm">{{ _('Can only contain letters, numbers, hyphens, underscores and dots.') }}</p>
       {% for error in form.name.errors %}
         <p class="text-destructive text-sm">{{ error }}</p>
       {% endfor %}
@@ -35,12 +70,16 @@
       <input type="hidden" name="project_id" value="{{ project.id }}">
       {{ form.association_id }}
       {% if storages %}
-        {% set items=[] %}
+        {% set items = [] %}
         {% for storage in storages %}
-          {% set items = items.append({
-            "label": storage.name,
-            "value": storage.id
-          }) %}
+          {% set ti = type_icons.get(storage.type, {"color": "sky", "icon": "database"}) %}
+          {% set label %}
+            <div class="flex items-center gap-x-2">
+              {{ icon_avatar(color=ti["color"], icon=ti["icon"], size="xs") }}
+              {{ storage.name }}
+            </div>
+          {% endset %}
+          {% set _ = items.append({"label": label, "value": storage.id}) %}
         {% endfor %}
         {{ select(
           name="storage_id",
@@ -64,16 +103,10 @@
 
   <div class="space-y-3">
     {{ form.environment_ids.label(class_="label") }}
-    {% set items=[] %}
-    
+    {% set items = [] %}
     {% for environment in project.active_environments %}
-      {% set label %}
-        {{ environment_label(environment) }}
-      {% endset %}
-      {% set items = items.append({
-        "label": label,
-        "value": environment.id
-      }) %}
+      {% set label %}{{ environment_label(environment) }}{% endset %}
+      {% set _ = items.append({"label": label, "value": environment.id}) %}
     {% endfor %}
     {{ select(
       name="environment_ids",

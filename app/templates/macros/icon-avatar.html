@@ -1,6 +1,31 @@
-{% macro icon_avatar(color, icon, attrs={}) %}
+{% macro icon_avatar(color=None, icon=None, type=None, size=None, class=None, attrs={}) %}
+{% set storage_types = {
+  "database": {"color": "sky", "icon": "database"},
+  "volume": {"color": "amber", "icon": "hard-drive"},
+  "kv": {"color": "rose", "icon": "layers"},
+  "queue": {"color": "green", "icon": "square-stack"}
+} %}
+{% if type and type in storage_types %}
+  {% set color = color or storage_types[type].color %}
+  {% set icon = icon or storage_types[type].icon %}
+{% endif %}
   <div
-    class="flex items-center justify-center bg-gradient-to-tl border shrink-0 size-5 rounded text-xs font-semibold from-{{ color }}-100 to-{{ color }}-100/50 border-{{ color }}-200 dark:from-{{ color }}-950/50 dark:to-{{ color }}-950 dark:border-{{ color }}-900 text-{{ color }}-500 [&>svg]:size-3 [&>svg]:shrink-0 [&>svg]:!text-{{ color }}-500 {% if attrs.class %}{{ attrs.class }}{% endif %}"
+    class="
+      flex items-center justify-center bg-gradient-to-tl border shrink-0 [&>svg]:shrink-0 
+      {% if size == 'xs' %}size-5 rounded text-xs font-semibold [&>svg]:size-3
+      {% elif size == 'sm' %}size-6 rounded-md text-sm font-semibold [&>svg]:size-4
+      {% elif size == 'md' %}size-10 rounded-lg text-xl font-medium [&>svg]:size-6
+      {% elif size == 'lg' %}size-14 rounded-xl text-4xl font-medium [&>svg]:size-9 [&>svg]:stroke-[1.25]
+      {% else %}size-8 rounded-lg text-lg font-semibold [&>svg]:size-5
+      {% endif %}
+      from-{{ color }}-100 to-{{ color }}-100/50 
+      border-{{ color }}-200 
+      dark:from-{{ color }}-950/50 dark:to-{{ color }}-950
+      dark:border-{{ color }}-900
+      text-{{ color }}-500
+      [&>svg]:!text-{{ color }}-500
+      {% if class %}{{ class }}{% endif %}
+    "
     {% for key, value in attrs.items() %}
       {% if key != 'class' %}{{ key }}="{{ value }}"{% endif %}
     {% endfor %}

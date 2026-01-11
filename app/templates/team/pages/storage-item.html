@@ -2,12 +2,12 @@
 
 {% block app_content %}
 {% from "macros/avatar.html" import avatar with context %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
 
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
     <h1 class="h1 flex items-center gap-x-3">
       <a href="{{ url_for('team_storage', team_slug=team.slug) }}" class="shrink-0">
-        {% from "macros/avatar.html" import avatar with context %}
         {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>

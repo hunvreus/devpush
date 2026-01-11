@@ -5,7 +5,7 @@
   hx-swap="outerHTML"
   hx-disabled-elt="input, select, button"
   class="form flex flex-col gap-y-6"
-  hx-indicator="find .htmx-indicator"
+  hx-indicator="find div.htmx-indicator"
   hx-disinherit="*"
 >
   {{ form.csrf_token(id=False) }}
@@ -39,7 +39,7 @@
         size=100,
         class="w-full",
         required=True,
-        placeholder="e.g. my-project",
+        placeholder="e.g., my-project",
         **({'aria-invalid': 'true'} if form.name.errors else {})
       ) }}
       {% for error in form.name.errors %}
@@ -56,7 +56,7 @@
       hx-target="find section"
       hx-swap="innerHTML"
       hx-disabled-elt="find select, find button, find [name='root_directory'], find [name='build_command'], find [name='pre_deploy_command'], find [name='start_command']"
-      hx-indicator="find .htmx-indicator"
+      hx-indicator="find span.htmx-indicator"
     >
       <summary
         class="px-4 py-3 w-full flex items-center gap-x-2 group-open:[&>svg]:rotate-90 [&>svg]:transition-transform hover:bg-muted/50 rounded-lg transition-colors group-open:rounded-b-none [&>svg]:size-4 h-11">

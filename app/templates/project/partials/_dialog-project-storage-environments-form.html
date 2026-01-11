@@ -1,0 +1,61 @@
+<form
+  method="post"
+  action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='update_storage_env') }}"
+  hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='update_storage_env') }}"
+  hx-swap="outerHTML"
+  hx-indicator="find .htmx-indicator"
+  hx-disabled-elt="find button[type='submit']"
+  hx-on::before-request="document.activeElement && document.activeElement.blur()"
+  class="space-y-4"
+>
+  {{ edit_storage_form.csrf_token(id=False) }}
+  {{ edit_storage_form.association_id(id=False, value=association.id) }}
+  {{ edit_storage_form.storage_id(id=False, value=association.storage_id) }}
+  <input type="hidden" name="project_id" value="{{ project.id }}">
+
+  <div class="space-y-3">
+    <label class="label">{{ _('Project') }}</label>
+    <div class="items-center gap-x-2 selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm text-muted-foreground">
+      {{ avatar(item=project, prefix="project", name=project.name, size="xs") }}
+      <span class="truncate">{{ project.name }}</span>
+    </div>
+  </div>
+
+  <div class="space-y-3">
+    <label class="label">{{ _('Storage') }}</label>
+    <div class="items-center gap-x-2 selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm text-muted-foreground">
+      {{ icon_avatar(type=association.storage.type, size="xs") }}
+      <span class="truncate">{{ association.storage.name }}</span>
+    </div>
+  </div>
+
+  <div class="space-y-3">
+    {{ edit_storage_form.environment_ids.label(class_="label") }}
+    {% set items = [] %}
+    {% for environment in project.active_environments %}
+      {% set label %}{{ environment_label(environment) }}{% endset %}
+      {% set _ = items.append({"label": label, "value": environment.id}) %}
+    {% endfor %}
+    {{ select(
+      name="environment_ids",
+      selected=association.environment_ids or [],
+      is_combobox=true,
+      multiple=true,
+      placeholder=_("All environments"),
+      items=items,
+      main_attrs={"class": "w-full"},
+      trigger_attrs={"class": "w-full truncate"}
+    ) }}
+    {% for error in edit_storage_form.environment_ids.errors %}
+      <p class="text-destructive text-sm">{{ error }}</p>
+    {% endfor %}
+  </div>
+
+  <footer class="flex justify-end gap-x-2">
+    <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+    <button type="submit" class="btn group">
+      {{ _('Save') }}
+      <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
+    </button>
+  </footer>
+</form>

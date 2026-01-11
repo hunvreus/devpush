@@ -2,7 +2,7 @@
 
 {% block app_content %}
 {% from "macros/avatar.html" import avatar with context %}
-{% from "macros/icon-avatar.html" import icon_avatar with context %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
 
 {% include "team/partials/_dialog-new-storage.html" %}
 
@@ -51,26 +51,35 @@
         <div role="group" class="button-group">
           <button class="btn-sm-outline" aria-pressed="true">
             {{ _("All") }}
+            <span class="ml-1 text-muted-foreground">{{ storages|length }}</span>
           </button>
           <button class="btn-sm-outline">
-            {{ icon_avatar(color="sky", icon="database") }}
+            {{ icon_avatar(type="database", size="xs") }}
             {{ _("Databases") }}
-            <span class="badge-secondary text-muted-foreground">2</span>
+            <span class="ml-1 text-muted-foreground">
+              {{ storages|selectattr("type", "equalto", "database")|list|length }}
+            </span>
           </button>
           <button class="btn-sm-outline">
-            {{ icon_avatar(color="amber", icon="hard-drive") }}
+            {{ icon_avatar(type="volume", size="xs") }}
             {{ _("Volumes") }}
-            <span class="badge-secondary text-muted-foreground">0</span>
+            <span class="ml-1 text-muted-foreground">
+              {{ storages|selectattr("type", "equalto", "volume")|list|length }}
+            </span>
           </button>
           <button class="btn-sm-outline">
-            {{ icon_avatar(color="rose", icon="layers") }}
+            {{ icon_avatar(type="kv", size="xs") }}
             {{ _("KV") }}
-            <span class="badge-secondary text-muted-foreground">0</span>
+            <span class="ml-1 text-muted-foreground">
+              {{ storages|selectattr("type", "equalto", "kv")|list|length }}
+            </span>
           </button>
           <button class="btn-sm-outline">
-            {{ icon_avatar(color="green", icon="square-stack") }}
+            {{ icon_avatar(type="queue", size="xs") }}
             {{ _("Queues") }}
-            <span class="badge-secondary text-muted-foreground">0</span>
+            <span class="ml-1 text-muted-foreground">
+              {{ storages|selectattr("type", "equalto", "queue")|list|length }}
+            </span>
           </button>
         </div>
       </header>
@@ -83,24 +92,26 @@
               hx-boost="true"
               data-tooltip="{{ _('%(type)s name', type=storage.type|capitalize) }}"
             >
-              {{ icon_avatar(color=storage.color, icon=storage.type) }}
+              {{ icon_avatar(type=storage.type, size="xs") }}
               <span class="truncate max-w-3xs" data-tooltip="{{ _('Name') }}">{{ storage.name }}</span>
             </a>
 
             {% if storage.status == "active" %}
-              <span class="badge-secondary text-muted-foreground">
+              <span class="text-muted-foreground">
                 {% if storage.projects %}
-                  {{ _('Connected to {count} projects', count=storage.projects|length) }}
+                  {{ _('%(count)s project%(plural)s connected', count=storage.projects|length, plural='s' if storage.projects|length > 1 else '') }}
                 {% else %}
                   {{ _('No projects connected') }}
                 {% endif %}
               </span>
-            {% elif storage.status == "pending" %}
+            {% endif %}
+            
+            {% if storage.status == "pending" %}
               <span class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1">
                 {% include "icons/loader.svg" %}
                 {{ _('Provisioning') }}
               </span>
-            {% else %}
+            {% elif storage.status != "active" %}
               <span class="badge-secondary text-muted-foreground">
                 {{ _(storage.status) }}
               </span>

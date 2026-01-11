@@ -10,7 +10,8 @@
 {% if item.has_avatar and not use_fallback %}
   <img
     src="{{ url_for('upload', path='avatars/' + prefix + '_' + item.id|string + '.webp') }}?v={{ item.updated_at.timestamp()|string }}"
-    alt="{{ item.name }}" class="
+    alt="{{ item.name }}"
+    class="
       object-cover shrink-0
       {% if size == 'xs' %}size-5 rounded
       {% elif size == 'sm' %}size-6 rounded-md

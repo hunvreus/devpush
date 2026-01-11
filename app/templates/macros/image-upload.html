@@ -16,6 +16,7 @@
     maxSize: {{ max_size }},
     error: null,
     remove: false,
+    loading: false,
     validateAndPreview(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -28,10 +29,12 @@
       }
       
       this.error = null;
+      this.loading = true;
       const reader = new FileReader();
       reader.onload = (e) => {
         this.preview = e.target.result;
         this.remove = false;
+        this.loading = false;
         $el.closest('form').dispatchEvent(new Event('change'));
       };
       reader.readAsDataURL(file);
@@ -44,7 +47,7 @@
   }"
 >
   <div class="flex items-center gap-x-2">
-    <div id="image-preview-container">
+    <div id="image-preview-container" class="relative">
       <span x-show="hasImage && !preview && !remove" x-cloak>
         {{ current_image }}
       </span>
@@ -54,12 +57,22 @@
       <span x-show="preview" x-cloak>
         <img :src="preview" class="size-10 object-cover rounded-lg {% if class %}{{ class }}{% endif %}">
       </span>
+      <span
+        x-show="loading"
+        x-cloak
+        class="absolute inset-0 flex items-center justify-center bg-background/50 rounded-lg [&>svg]:size-4 [&>svg]:animate-spin text-muted-foreground"
+      >
+        {% include "icons/loader.svg" %}
+      </span>
     </div>
-    <label>
+    <label :class="{ 'opacity-50 pointer-events-none': loading }">
       {{ field(
         class="hidden",
         accept=('image/' + extensions|join(',image/') if extensions else 'image/*'),
-        **{'@change': 'validateAndPreview($event)'}
+        **{
+          '@change': 'validateAndPreview($event)',
+          ':disabled': 'loading'
+        }
       ) }}
       <div class="btn-sm-outline cursor-pointer">
         {% include "icons/upload.svg" %}

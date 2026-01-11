@@ -35,11 +35,9 @@ def _parse_environment_ids(value):
 
 
 class StorageCreateForm(StarletteForm):
-    type = SelectField(
-        _l("Type"), choices=[("database", _("Database")), ("volume", _("Volume"))]
-    )
+    type = SelectField(_l("Type"), choices=[("database", _("Database"))])
     name = StringField(
-        _l("Storage name"),
+        _l("Name"),
         validators=[
             DataRequired(),
             Length(min=1, max=100),
@@ -107,9 +105,6 @@ class StorageDeleteForm(StarletteForm):
 
 class StorageProjectForm(StarletteForm):
     association_id = HiddenField()
-    type = SelectField(
-        _l("Type"), choices=[("database", _("Database")), ("volume", _("Volume"))]
-    )
     storage_id = HiddenField(_l("Storage"), validators=[DataRequired()])
     project_id = StringField(_l("Project"), validators=[DataRequired()])
     environment_ids = StringField(_l("Environments"), validators=[Optional()])
