@@ -2,9 +2,9 @@
 {% from "macros/avatar.html" import avatar with context %}
 {% from "macros/dialog.html" import dialog %}
 {% call dialog(
-	title=_("New team"),
-	description=_("Create a new team to manage your projects."),
 	id="dialog-new-team",
+	title=_("Create a new team"),
+	description=_("Create a new team to manage your projects, storage, deployments and collaborators."),
 	trigger_attrs={"role": "menuitem"},
 	dialog_attrs={"class": "w-full max-w-xl"},
 	body_attrs={"class": "space-y-4"}
@@ -42,7 +42,7 @@
 					<div class="flex items-center">
 						<a
 							href="{{ url_for('team_index', team_slug=team.slug) }}"
-							class="btn-sm-ghost pl-2 {% if project or deployment %}pr-2{% endif %}"
+							class="btn-sm-ghost pl-2"
 							hx-boost="true"
 						>
 							{{ avatar(item=team, prefix="team", name=team.name, size="xs") }}
@@ -64,7 +64,7 @@
 					<div class="flex items-center">
 						<a
 							href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}"
-							class="btn-sm-ghost pl-2 {% if deployment %}pr-2{% endif %}"
+							class="btn-sm-ghost pl-2"
 							hx-boost="true"
 						>
 							{% from "macros/avatar.html" import avatar with context %}

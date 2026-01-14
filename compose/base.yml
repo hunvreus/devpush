@@ -16,6 +16,8 @@ services:
       - internal
     env_file:
       - ${DATA_DIR:-../data}/.env
+    environment:
+      HOST_DATA_DIR: ${DATA_DIR:-../data}
     volumes:
       - ${DATA_DIR:-../data}:/data
     labels:
@@ -26,10 +28,10 @@ services:
       - "traefik.docker.network=devpush_default"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 60s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 10s
 
   worker-arq:
     build:
@@ -50,14 +52,16 @@ services:
       - runner
     env_file:
       - ${DATA_DIR:-../data}/.env
+    environment:
+      HOST_DATA_DIR: ${DATA_DIR:-../data}
     volumes:
-      - ${DATA_DIR:-../data}/traefik:/data/traefik
+      - ${DATA_DIR:-../data}:/data
     healthcheck:
       test: ["CMD", "uv", "run", "arq", "--check", "workers.arq.WorkerSettings"]
-      interval: 60s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 10s
 
   worker-monitor:
     build:
@@ -77,6 +81,8 @@ services:
       - runner
     env_file:
       - ${DATA_DIR:-../data}/.env
+    environment:
+      HOST_DATA_DIR: ${DATA_DIR:-../data}
 
   redis:
     image: redis:alpine

@@ -8,11 +8,13 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     UniqueConstraint,
+    Index,
     event,
     select,
     update,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone, timedelta
@@ -189,6 +191,7 @@ class Team(Base):
 
     # Relationships
     projects: Mapped[list["Project"]] = relationship(back_populates="team")
+    storages: Mapped[list["Storage"]] = relationship(back_populates="team")
     created_by_user: Mapped[User | None] = relationship(
         foreign_keys=[created_by_user_id]
     )
@@ -360,8 +363,19 @@ class Project(Base):
         foreign_keys=[created_by_user_id]
     )
     domains: Mapped[list["Domain"]] = relationship(back_populates="project")
+    storage_links: Mapped[list["StorageProject"]] = relationship(
+        back_populates="project"
+    )
 
-    __table_args__ = (UniqueConstraint("team_id", "name", name="uq_project_team_name"),)
+    __table_args__ = (
+        UniqueConstraint("team_id", "name", name="uq_project_team_name"),
+        Index(
+            "ix_project_team_name_lower",
+            "team_id",
+            func.lower(name),
+            unique=True,
+        ),
+    )
 
     @property
     def env_vars(self) -> list[dict[str, str]]:
@@ -520,6 +534,14 @@ class Project(Base):
         environments = self.active_environments if active_only else self.environments
         return next((env for env in environments if env["slug"] == slug), None)
 
+    @property
+    def storages(self) -> list["Storage"]:
+        return [
+            link.storage
+            for link in self.storage_links
+            if link.storage and link.storage.type == "database"
+        ]
+
     async def get_domain_by_id(self, db: AsyncSession, domain_id: int) -> dict | None:
         """Get domain by ID"""
         result = await db.execute(
@@ -604,6 +626,107 @@ def set_project_slug(mapper, connection, project):
             update(Project).where(Project.id == project.id).values(slug=new_slug)
         )
         project.slug = new_slug
+
+
+class Storage(Base):
+    __tablename__: str = "storage"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: token_hex(16)
+    )
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    type: Mapped[str] = mapped_column(
+        SQLAEnum("database", "volume", "kv", "queue", name="storage_type"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        SQLAEnum("pending", "active", "deleted", name="storage_status"),
+        nullable=False,
+        default="pending",
+    )
+    config: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    error: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user.id", use_alter=True, ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now, onupdate=utc_now
+    )
+    team_id: Mapped[str] = mapped_column(ForeignKey("team.id"), index=True)
+
+    # Relationships
+    team: Mapped["Team"] = relationship(back_populates="storages")
+    created_by_user: Mapped[User | None] = relationship(
+        foreign_keys=[created_by_user_id]
+    )
+    project_links: Mapped[list["StorageProject"]] = relationship(
+        back_populates="storage"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("team_id", "name", name="uq_storage_team_name"),
+        Index(
+            "ix_storage_team_name_lower",
+            "team_id",
+            func.lower(name),
+            unique=True,
+        ),
+    )
+
+    @override
+    def __repr__(self):
+        return f"<Storage {self.name} ({self.type})>"
+
+    @property
+    def projects(self) -> list["Project"]:
+        return [link.project for link in self.project_links if link.project]
+
+    @property
+    def color(self) -> str:
+        match self.type:
+            case "database":
+                return "sky"
+            case "volume":
+                return "amber"
+            case "kv":
+                return "rose"
+            case "queue":
+                return "green"
+
+
+class StorageProject(Base):
+    __tablename__: str = "storage_project"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: token_hex(16)
+    )
+    storage_id: Mapped[str] = mapped_column(ForeignKey("storage.id"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("project.id"), index=True)
+    environment_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    secrets: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    # Relationships
+    project: Mapped["Project"] = relationship(back_populates="storage_links")
+    storage: Mapped["Storage"] = relationship(back_populates="project_links")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "storage_id",
+            "project_id",
+            name="uq_storage_project",
+        ),
+    )
 
 
 class Deployment(Base):

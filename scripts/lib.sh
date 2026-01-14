@@ -319,7 +319,8 @@ init_script_logging() {
   CURRENT_SCRIPT_NAME="$name"
 
   install -d -m 0750 "$log_dir" >/dev/null 2>&1 || true
-  SCRIPT_ERR_LOG="$log_dir/${name}_error.log"
+  SCRIPT_ERR_LOG="$log_dir/${name}-error.log"
+  ln -sfn "$SCRIPT_ERR_LOG" "$log_dir/${name}_error.log" >/dev/null 2>&1 || true
   exec 2> >(tee "$SCRIPT_ERR_LOG" >&2)
   trap '_script_err_trap' ERR
 }
@@ -393,6 +394,12 @@ build_runner_images() {
     built=1
     local build_cmd=(docker build -f "$dockerfile" -t "runner-$slug")
     ((no_cache==1)) && build_cmd+=(--no-cache)
+    if [[ -n "${SERVICE_UID:-}" ]]; then
+      build_cmd+=(--build-arg "APP_UID=$SERVICE_UID")
+    fi
+    if [[ -n "${SERVICE_GID:-}" ]]; then
+      build_cmd+=(--build-arg "APP_GID=$SERVICE_GID")
+    fi
     build_cmd+=("$dockerfile_dir")
     if ! run_cmd --try "${CHILD_MARK} ${label}" "${build_cmd[@]}"; then
       ((failed+=1))

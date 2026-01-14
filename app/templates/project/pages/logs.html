@@ -103,9 +103,9 @@
         });
       "
     >
-      <div class="relative [&>svg]:absolute [&>svg]:left-2 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:text-muted-foreground [&>svg]:opacity-50 [&>svg]:size-4 [&>svg]:pointer-events-none">
+      <div class="relative [&>svg]:absolute [&>svg]:left-3 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:pointer-events-none [&>svg]:text-muted-foreground [&>svg]:size-4">
         <input
-          class="input h-8 w-48 pl-7"
+          class="input h-8 rounded-full w-48 pl-9"
           type="text"
           name="keyword" 
           placeholder="{{ _('Find in logs') }}"
@@ -114,162 +114,164 @@
         {% include "icons/search.svg" %}
       </div>
       
-      {% set items = [{
-        "label": _("All deployments"),
-        "value": ""
-      }] %}
-      {% for deployment in deployments %}
-        {% set items = items.append({
-          "label": deployment.id[:7],
-          "value": deployment.id
-        }) %}
-      {% endfor %}
-      {{ select(
-        id="filter-deployment",
-        name="deployment_id",
-        selected=request.query_params.get("deployment_id"),
-        items=items,
-        trigger_attrs={"class": "gap-1.5 h-8 px-3"}
-      ) }}
+      <div class="button-group">
+        {% set items = [{
+          "label": _("All deployments"),
+          "value": ""
+        }] %}
+        {% for deployment in deployments %}
+          {% set items = items.append({
+            "label": deployment.id[:7],
+            "value": deployment.id
+          }) %}
+        {% endfor %}
+        {{ select(
+          id="filter-deployment",
+          name="deployment_id",
+          selected=request.query_params.get("deployment_id"),
+          items=items,
+          trigger_attrs={"class": "gap-1.5 h-8 px-3"}
+        ) }}
 
-      {% set items = [{
-        "label": _("All environments"),
-        "value": ""
-      }] %}
-      {% from "project/macros/environment-label.html" import environment_label %}
-      {% for environment in project.active_environments %}
-        {% set items = items.append({
-          "label": environment_label(environment),
-          "value": environment['id']
-        }) %}
-      {% endfor %}
-      {{ select(
-        id="filter-environment",
-        name="environment_id",
-        selected=request.query_params.get("environment_id"),
-        items=items,
-        trigger_attrs={"class": "gap-1.5 h-8 px-3"}
-      ) }}
+        {% set items = [{
+          "label": _("All environments"),
+          "value": ""
+        }] %}
+        {% from "project/macros/environment-label.html" import environment_label %}
+        {% for environment in project.active_environments %}
+          {% set items = items.append({
+            "label": environment_label(environment),
+            "value": environment['id']
+          }) %}
+        {% endfor %}
+        {{ select(
+          id="filter-environment",
+          name="environment_id",
+          selected=request.query_params.get("environment_id"),
+          items=items,
+          trigger_attrs={"class": "gap-1.5 h-8 px-3"}
+        ) }}
 
-      {% from "macros/popover.html" import popover %}
-      {% set date_range_trigger %}
-        <span class="truncate">
-          <span x-show="dateFrom" x-cloak>
-            {{ _('From') }}
-            <span x-text="dateFrom ? new Date(dateFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+        {% from "macros/popover.html" import popover %}
+        {% set date_range_trigger %}
+          <span class="truncate">
+            <span x-show="dateFrom" x-cloak>
+              {{ _('From') }}
+              <span x-text="dateFrom ? new Date(dateFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+            </span>
+            <span x-show="dateTo" x-cloak>
+              <span x-text="dateFrom ? '{{ _('to') }}' : '{{ _('Until') }}'"></span>
+              <span x-text="dateTo ? new Date(dateTo).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+            </span>
+            <span x-show="!dateFrom && !dateTo">
+              {{ _('All dates') }}
+            </span>
           </span>
-          <span x-show="dateTo" x-cloak>
-            <span x-text="dateFrom ? '{{ _('to') }}' : '{{ _('Until') }}'"></span>
-            <span x-text="dateTo ? new Date(dateTo).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+          <span class="text-muted-foreground opacity-50 ml-auto">
+            {% include "icons/chevron-down.svg" %}
           </span>
-          <span x-show="!dateFrom && !dateTo">
-            {{ _('All dates') }}
-          </span>
-        </span>
-        <span class="text-muted-foreground opacity-50 ml-auto">
-          {% include "icons/chevron-down.svg" %}
-        </span>
-      {% endset %}
-      {% call popover(
-        trigger=date_range_trigger,
-        trigger_attrs={"class": "btn-outline font-normal gap-1.5 h-8 px-3"},
-        popover_attrs={
-          "class": "form p-4 space-y-4 min-w-auto",
-          "data-align": "start"
-        }
-      ) %}
-      <div class="space-y-3">
-        <label>From</label>
-        <div class="flex items-center gap-x-2">
-          <input 
-            class="h-8 flex-1"
-            type="date"
-            name="date_from" 
-            x-model="dateFrom"
-            max="9999-12-31"
-            :max="dateTo || '9999-12-31'"
-          />
-          <input 
-            class="h-8 w-auto" 
-            type="time" 
-            name="time_from" 
-            x-model="timeFrom"
-            :max="dateFrom === dateTo ? timeTo : undefined"
-          />
-          <button
-            type="button"
-            @click="dateFrom = null; timeFrom = null; $dispatch('change');"
-            class="btn-sm-icon-ghost"
-            data-tooltip="Clear"
-            :disabled="!dateFrom && !timeFrom"
-          >
-            {% include "icons/circle-x.svg" %}
-          </button>
+        {% endset %}
+        {% call popover(
+          trigger=date_range_trigger,
+          trigger_attrs={"class": "btn-outline font-normal gap-1.5 h-8 px-3"},
+          popover_attrs={
+            "class": "form p-4 space-y-4 min-w-auto",
+            "data-align": "start"
+          }
+        ) %}
+        <div class="space-y-3">
+          <label>From</label>
+          <div class="flex items-center gap-x-2">
+            <input 
+              class="h-8 flex-1"
+              type="date"
+              name="date_from" 
+              x-model="dateFrom"
+              max="9999-12-31"
+              :max="dateTo || '9999-12-31'"
+            />
+            <input 
+              class="h-8 w-auto" 
+              type="time" 
+              name="time_from" 
+              x-model="timeFrom"
+              :max="dateFrom === dateTo ? timeTo : undefined"
+            />
+            <button
+              type="button"
+              @click="dateFrom = null; timeFrom = null; $dispatch('change');"
+              class="btn-sm-icon-ghost"
+              data-tooltip="Clear"
+              :disabled="!dateFrom && !timeFrom"
+            >
+              {% include "icons/circle-x.svg" %}
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="space-y-3">
-        <label>To</label>
-        <div class="flex items-center gap-x-2">
-          <input 
-            class="h-8 flex-1" 
-            type="date"
-            name="date_to" 
-            x-model="dateTo"
-            :min="dateFrom || undefined"
-            max="9999-12-31"
-            @input="validateDateRange()"
-          />
-          <input 
-            class="h-8 w-auto" 
-            type="time"
-            name="time_to" 
-            x-model="timeTo"
-            :min="dateFrom === dateTo ? timeFrom : undefined"
-            @input="validateDateRange()"
-          />
-          <button
-            type="button"
-            @click="dateTo = null; timeTo = null; $dispatch('change');"
-            class="btn-sm-icon-ghost"
-            data-tooltip="Clear"
-            :disabled="!dateTo && !timeTo"
-          >
-            {% include "icons/circle-x.svg" %}
-          </button>
+        <div class="space-y-3">
+          <label>To</label>
+          <div class="flex items-center gap-x-2">
+            <input 
+              class="h-8 flex-1" 
+              type="date"
+              name="date_to" 
+              x-model="dateTo"
+              :min="dateFrom || undefined"
+              max="9999-12-31"
+              @input="validateDateRange()"
+            />
+            <input 
+              class="h-8 w-auto" 
+              type="time"
+              name="time_to" 
+              x-model="timeTo"
+              :min="dateFrom === dateTo ? timeFrom : undefined"
+              @input="validateDateRange()"
+            />
+            <button
+              type="button"
+              @click="dateTo = null; timeTo = null; $dispatch('change');"
+              class="btn-sm-icon-ghost"
+              data-tooltip="Clear"
+              :disabled="!dateTo && !timeTo"
+            >
+              {% include "icons/circle-x.svg" %}
+            </button>
+          </div>
         </div>
-      </div>
-      {% endcall %}
+        {% endcall %}
 
-      <input type="hidden" name="timezone_offset" x-model="timezone_offset" />
+        <input type="hidden" name="timezone_offset" x-model="timezone_offset" />
 
-      {% set items = [{
-        "label": _('All branches'),
-        "value": ""
-      }] %}
-      {% for branch in branches %}
-        {% set items = items.append({
-          "label": branch['name'],
-          "value": branch['name']
-        }) %}
-      {% endfor %}
-      {{ select(
-        id="filter-branch",
-        name="branch",
-        selected=request.query_params.get("branch"),
-        items=items,
-        trigger_attrs={'class': 'gap-1.5 h-8 px-3'}
-      ) }}
-
-      <button
-        type="button"
-        class="btn-sm-icon-ghost"
-        :disabled="!isDirty"
-        @click="resetFilters()"
-        data-tooltip="{{ _('Reset') }}"
-        aria-label="{{ _('Reset') }}"
-      >
-        {% include "icons/circle-x.svg" %}
-      </button>
+        {% set items = [{
+          "label": _('All branches'),
+          "value": ""
+        }] %}
+        {% for branch in branches %}
+          {% set items = items.append({
+            "label": branch['name'],
+            "value": branch['name']
+          }) %}
+        {% endfor %}
+        {{ select(
+          id="filter-branch",
+          name="branch",
+          selected=request.query_params.get("branch"),
+          items=items,
+          trigger_attrs={'class': 'gap-1.5 h-8 px-3'}
+        ) }}
+</div>
+        <button
+          type="button"
+          class="btn-sm-icon-ghost"
+          :disabled="!isDirty"
+          @click="resetFilters()"
+          data-tooltip="{{ _('Reset') }}"
+          aria-label="{{ _('Reset') }}"
+        >
+          {% include "icons/circle-x.svg" %}
+        </button>
+        
     </form>
 
     <div class="relative">

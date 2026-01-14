@@ -133,21 +133,21 @@
                         @submit.prevent="isValid && $el.requestSubmit()"
                         @keydown.enter.prevent="if(isValid){ $el.closest('form').requestSubmit() }"
                       >
-                        {{ delete_member_form.csrf_token }}
-                        {{ delete_member_form.email(value=member.user.email) }}
+                        {{ remove_member_form.csrf_token }}
+                        {{ remove_member_form.email(value=member.user.email) }}
                         <div class="grid gap-y-2">
-                          {{ delete_member_form.confirm(
+                          {{ remove_member_form.confirm(
                             class_="w-full input",
                             placeholder=_("Type the member's email to confirm"),
                             ** {"@input": "isValid = $event.target.value === '" ~ member.user.email ~ "'"}
                           ) }}
-                          {% for error in delete_member_form.confirm.errors %}
+                          {% for error in remove_member_form.confirm.errors %}
                             <p class="text-destructive">{{ error }}</p>
                           {% endfor %}
                         </div>
                         <footer class="flex justify-end gap-x-2 pt-4">
                           <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
-                          {{ delete_member_form.submit(class_="btn-destructive", **{":disabled": "!isValid"}) }}
+                          {{ remove_member_form.submit(class_="btn-destructive", **{":disabled": "!isValid"}) }}
                         </footer>
                       </form>
                     </div>

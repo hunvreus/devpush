@@ -9,7 +9,7 @@ from redis.asyncio import Redis
 from arq.connections import ArqRedis
 from arq.jobs import Job
 
-from models import Deployment, Alias, Project, User, Domain
+from models import Deployment, Alias, Project, User, Domain, Storage, StorageProject
 from utils.environment import get_environment_for_branch
 from config import Settings
 
@@ -67,7 +67,7 @@ class DeploymentService:
 
         return values
 
-    def build_runtime_env_vars(
+    def get_runtime_env_vars(
         self, deployment: Deployment, settings: Settings
     ) -> dict[str, str]:
         """Build runner environment variables for a deployment."""
@@ -124,6 +124,32 @@ class DeploymentService:
                 env_vars.setdefault(key, str(value))
 
         return env_vars
+
+    async def get_runtime_mounts(
+        self, deployment: Deployment, db: AsyncSession, settings: Settings
+    ) -> list[str]:
+        """Build container bind mounts for storage resources."""
+        result = await db.execute(
+            select(StorageProject, Storage)
+            .join(Storage, StorageProject.storage_id == Storage.id)
+            .where(
+                StorageProject.project_id == deployment.project_id,
+                Storage.status == "active",
+                Storage.type.in_(["database", "volume"]),
+            )
+        )
+        mounts: list[str] = []
+        for association, storage in result.all():
+            env_ids = association.environment_ids or []
+            if env_ids and deployment.environment_id not in env_ids:
+                continue
+            host_base = settings.host_data_dir or settings.data_dir
+            host_path = os.path.join(
+                host_base, "storage", storage.team_id, storage.type, storage.name
+            )
+            container_path = f"/data/{storage.type}/{storage.name}"
+            mounts.append(f"{host_path}:{container_path}")
+        return mounts
 
     async def setup_aliases(
         self, deployment: Deployment, db: AsyncSession, settings: Settings
@@ -340,7 +366,7 @@ class DeploymentService:
         if not queue:
             raise ValueError("No job queue provided for deployment creation.")
 
-        job = await queue.enqueue_job("deploy_start", deployment.id)
+        job = await queue.enqueue_job("start_deployment", deployment.id)
         deployment.job_id = job.job_id
         await db.commit()
 

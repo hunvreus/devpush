@@ -1,0 +1,110 @@
+{% extends "layouts/app.html" %}
+
+{% block app_content %}
+{% from "macros/avatar.html" import avatar with context %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
+
+{% include "team/partials/_dialog-new-storage.html" %}
+
+<div class="container max-w-screen-xl mx-auto p-8 space-y-6">
+  <header class="flex justify-between items-center">
+    <h1 class="h1 flex items-center gap-x-3">
+      <a href="{{ url_for('team_index', team_slug=team.slug) }}">
+        {% from "macros/avatar.html" import avatar with context %}
+        {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
+      {{ _("Storage") }}
+    </h1>
+
+    {% if storage_count %}
+      <button
+        type="button"
+        class="btn"
+        onclick="document.getElementById('dialog-new-storage').showModal()"
+      >
+        {% include "icons/plus.svg" %}
+        {{ _("New storage") }}
+      </button>
+    {% endif %}
+  </header>
+  
+  <section class="space-y-4">
+    {% if storage_count %}
+      <form
+        class="flex items-center gap-x-2"
+        hx-get="{{ url_for('team_storage', team_slug=team.slug).include_query_params(fragment='storage-content') }}"
+        hx-target="#storage-list"
+        hx-trigger="input changed delay:500ms from:input[type='text'], change from:input[type='radio']"
+        hx-push-url="true"
+        hx-indicator="next .htmx-indicator"
+      >
+        <div class="relative [&>svg]:absolute [&>svg]:left-3 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:pointer-events-none [&>svg]:text-muted-foreground [&>svg]:size-4">
+          <input
+            type="text"
+            class="input pl-9 rounded-full h-8"
+            placeholder="{{ _('Search...') }}"
+            name="storage_search"
+            value="{{ storage_search or '' }}"
+          >
+          {% include "icons/search.svg" %}
+        </div>
+        <div role="group" class="button-group">
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
+            {{ _("All") }}
+            <input type="radio" name="storage_type" value="all" class="hidden" {% if not storage_type or storage_type == 'all' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
+            {{ icon_avatar(type="database", size="xs") }}
+            {{ _("Databases") }}
+            <input type="radio" name="storage_type" value="database" class="hidden" {% if storage_type == 'database' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
+            {{ icon_avatar(type="volume", size="xs") }}
+            {{ _("Volumes") }}
+            <input type="radio" name="storage_type" value="volume" class="hidden" {% if storage_type == 'volume' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
+            {{ icon_avatar(type="kv", size="xs") }}
+            {{ _("KV") }}
+            <input type="radio" name="storage_type" value="kv" class="hidden" {% if storage_type == 'kv' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
+            {{ icon_avatar(type="queue", size="xs") }}
+            {{ _("Queues") }}
+            <input type="radio" name="storage_type" value="queue" class="hidden" {% if storage_type == 'queue' %}checked{% endif %}/>
+          </label>
+        </div>
+      </form>
+      <div class="relative">
+        <div id="storage-list">
+          {% include "team/partials/_storage-list.html" %}
+        </div>
+        <div class="htmx-indicator bg-background/90 absolute inset-0 flex items-center justify-center rounded-lg z-20">
+          <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4">
+            {% include "icons/loader.svg" %}
+            <span>{{ _('Updating') }}</span>
+          </div>
+        </div>
+      </div>
+    {% else %}
+       <section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
+        <div class="max-w-sm">
+          <div class="text-center">
+            <h2 class="h4">{{ _('No storage yet.') }}</h2>
+            <p class="text-muted-foreground mt-1">{{ _('Create storage and connect it to projects.') }}</p>
+            <button
+              type="button"
+              class="btn-sm mt-4"
+              onclick="document.getElementById('dialog-new-storage').showModal()"
+            >
+              {% include "icons/plus.svg" %}
+              {{ _('New storage') }}
+            </button>
+          </div>
+        </div>
+      </section>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

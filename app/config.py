@@ -18,6 +18,17 @@ class ImageSetting(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+class DetectionSetting(BaseModel):
+    priority: int = 0
+    any_files: list[str] = []
+    all_files: list[str] = []
+    any_paths: list[str] = []
+    none_files: list[str] = []
+    package_check: str | None = None
+
+    model_config = {"extra": "ignore"}
+
+
 class PresetSetting(BaseModel):
     slug: str
     name: str
@@ -29,6 +40,7 @@ class PresetSetting(BaseModel):
     logo: str
     root_directory: str | None = None
     beta: bool | None = None
+    detection: DetectionSetting | None = None
 
     model_config = {"extra": "ignore"}
 
@@ -98,6 +110,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379"
     docker_host: str = "tcp://docker-proxy:2375"
     data_dir: str = "/data"
+    host_data_dir: str | None = None
     app_dir: str = "/app"
     upload_dir: str = ""
     traefik_dir: str = ""
@@ -108,12 +121,15 @@ class Settings(BaseSettings):
     max_cpus: float | None = None
     default_memory_mb: int | None = None
     max_memory_mb: int | None = None
+    default_db_size_limit_bytes: int | None = 5 * 1024 * 1024 * 1024
     presets: list[dict] = []
     images: list[dict] = []
     job_timeout: int = 320
     job_completion_wait: int = 300
     deployment_timeout: int = 300
     container_delete_grace_seconds: int = 3
+    service_uid: int = 1000
+    service_gid: int = 1000
     db_echo: bool = False
     log_level: str = "WARNING"
     env: str = "production"
@@ -208,6 +224,8 @@ def get_settings():
         settings.config_file = os.path.join(settings.data_dir, "config.json")
     if not settings.version_file:
         settings.version_file = os.path.join(settings.data_dir, "version.json")
+    if not settings.host_data_dir:
+        settings.host_data_dir = settings.data_dir
 
     # Load presets/images from files (data-dir overrides core)
     core_presets_file = Path(settings.app_dir) / "settings" / "presets.json"

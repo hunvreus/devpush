@@ -18,7 +18,7 @@
     <button
       type="button"
       class="btn-ghost"
-      onclick="document.getElementById('dialog-new-team').close()"
+      onclick="this.closest('dialog').close()"
     >{{ _("Cancel") }}</button>
     {{ form.submit(class_="btn-primary", **{":disabled": "!name.trim()"}) }}
   </footer>

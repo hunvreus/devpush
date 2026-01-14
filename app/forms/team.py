@@ -28,7 +28,7 @@ FORBIDDEN_TEAM_SLUGS = [
 ]
 
 
-class NewTeamForm(StarletteForm):
+class TeamCreateForm(StarletteForm):
     name = StringField(_l("Name"), validators=[DataRequired(), Length(min=1, max=100)])
     submit = SubmitField(_l("Create team"))
 
@@ -102,7 +102,7 @@ class TeamDeleteForm(StarletteForm):
             raise ValidationError(_("Team slug confirmation did not match."))
 
 
-class TeamAddMemberForm(StarletteForm):
+class TeamMemberAddForm(StarletteForm):
     email = StringField(
         _l("Email"),
         validators=[
@@ -153,7 +153,7 @@ class TeamAddMemberForm(StarletteForm):
             )
 
 
-class TeamDeleteMemberForm(StarletteForm):
+class TeamMemberRemoveForm(StarletteForm):
     email = HiddenField(
         validators=[
             DataRequired(),

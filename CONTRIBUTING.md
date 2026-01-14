@@ -20,7 +20,7 @@
 ### Standard Conventions
 
 - All scripts must use `set -Eeuo pipefail` and error traps
-- Capture stderr to `SCRIPT_ERR_LOG` (e.g., `/tmp/scriptname_error.log`)
+- Capture stderr to `SCRIPT_ERR_LOG` (e.g., `/tmp/scriptname-error.log`)
 - Source `lib.sh` for common functions (`err`, `run_cmd`, `run_cmd_try`)
 - Argument parsing: Handle unknown options with `err "Unknown option: $1"; usage; exit 1`
 

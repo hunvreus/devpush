@@ -298,3 +298,69 @@ class GitHubService:
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_git_tree(
+        self,
+        user_access_token: str,
+        repo_id: int,
+        sha: str = "HEAD",
+        recursive: bool = True,
+    ) -> dict:
+        """Get git tree for repository (all files/directories).
+
+        Args:
+            user_access_token: User's GitHub OAuth token
+            repo_id: Repository ID
+            sha: Git reference (branch/tag/commit, default: HEAD)
+            recursive: Get entire tree recursively (default: True)
+
+        Returns:
+            Tree object with array of file paths
+        """
+        url = f"https://api.github.com/repositories/{repo_id}/git/trees/{sha}"
+        if recursive:
+            url += "?recursive=1"
+
+        response = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {user_access_token}"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_file_content(
+        self,
+        user_access_token: str,
+        repo_id: int,
+        path: str,
+        ref: str = "HEAD",
+    ) -> str | None:
+        """Get file content from repository.
+
+        Args:
+            user_access_token: User's GitHub OAuth token
+            repo_id: Repository ID
+            path: File path in repository
+            ref: Git reference (branch/tag/commit, default: HEAD)
+
+        Returns:
+            Decoded file content as string, or None if file not found
+        """
+        try:
+            response = httpx.get(
+                f"https://api.github.com/repositories/{repo_id}/contents/{path}?ref={ref}",
+                headers={"Authorization": f"Bearer {user_access_token}"},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # GitHub returns base64 encoded content
+            import base64
+
+            return base64.b64decode(data["content"]).decode("utf-8")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return None
+            raise

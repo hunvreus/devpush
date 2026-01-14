@@ -1,0 +1,134 @@
+{% from "macros/select.html" import select %}
+{% from "project/macros/environment-label.html" import environment_label %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
+
+{% set database_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="database", size="xs") }}
+    {{ _("Database (SQLite)") }}
+  </div>
+{% endset %}
+{% set volume_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="volume", size="xs") }}
+    {{ _("Volume") }}
+  </div>
+{% endset %}
+{% set kv_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="kv", size="xs") }}
+    {{ _("KV (Redis/ValKey)") }}
+  </div>
+{% endset %}
+{% set queue_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="queue", size="xs") }}
+    {{ _("Queue (Redis/ValKey)") }}
+  </div>
+{% endset %}
+
+{% set type_icons = {
+  "database": {"color": "sky", "icon": "database"},
+  "volume": {"color": "amber", "icon": "hard-drive"},
+  "kv": {"color": "rose", "icon": "layers"},
+  "queue": {"color": "green", "icon": "square-stack"}
+} %}
+
+<form
+  method="post"
+  action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
+  hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
+  hx-swap="outerHTML"
+  class="space-y-4"
+>
+  {{ form.csrf_token }}
+  {% if fragment == 'create_storage' %}
+    <div class="space-y-3 flex-1">
+      {{ form.type.label(class_="label") }}
+      {{ select(
+        name="type",
+        selected=form.type.data,
+        items=[
+          {"label": database_label, "value": "database"},
+          {"label": volume_label, "value": "volume"},
+          {"label": kv_label, "value": "kv", "attrs": {"aria-disabled": "true"}},
+          {"label": queue_label, "value": "queue", "attrs": {"aria-disabled": "true"}},
+        ],
+      ) }}
+    </div>
+  {% endif %}
+  <div class="space-y-3 flex-1">
+    {% if fragment == 'create_storage' %}
+      {{ form.name.label(class_="label") }}
+      {{ form.name(class_="input", placeholder=_("Storage name")) }}
+      <p class="text-muted-foreground text-sm">{{ _('Can only contain letters, numbers, hyphens, underscores and dots.') }}</p>
+      {% for error in form.name.errors %}
+        <p class="text-destructive text-sm">{{ error }}</p>
+      {% endfor %}
+    {% else %}
+      {{ form.storage_id.label(class_="label") }}
+      <input type="hidden" name="project_id" value="{{ project.id }}">
+      {{ form.association_id }}
+      {% if storages %}
+        {% set items = [] %}
+        {% for storage in storages %}
+          {% set label %}
+            <div class="flex items-center gap-x-2">
+              {{ icon_avatar(type=storage.type, size="xs") }}
+              {{ storage.name }}
+            </div>
+          {% endset %}
+          {% set _ = items.append({"label": label, "value": storage.id}) %}
+        {% endfor %}
+        {{ select(
+          name="storage_id",
+          selected=form.storage_id.data,
+          is_combobox=true,
+          items=items,
+          main_attrs={"class": "w-full"},
+          trigger_attrs={
+            "aria-invalid": "true" if form.storage_id.errors else "",
+            "class": "w-full truncate"
+          }
+        ) }}
+        {% for error in form.storage_id.errors %}
+          <p class="text-destructive text-sm">{{ error }}</p>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted-foreground text-sm">{{ _('No available storage.') }}</p>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="space-y-3">
+    {{ form.environment_ids.label(class_="label") }}
+    {% set items = [] %}
+    {% for environment in project.active_environments %}
+      {% set label %}{{ environment_label(environment) }}{% endset %}
+      {% set _ = items.append({"label": label, "value": environment.id}) %}
+    {% endfor %}
+    {{ select(
+      name="environment_ids",
+      selected=form.environment_ids.data,
+      is_combobox=true,
+      multiple=true,
+      placeholder=_("All environments"),
+      items=items,
+      main_attrs={"class": "w-full"},
+      trigger_attrs={
+        "aria-invalid": "true" if form.environment_ids.errors else "",
+        "class": "w-full truncate"
+      }
+    ) }}
+    {% for error in form.environment_ids.errors %}
+      <p class="text-destructive text-sm">{{ error }}</p>
+    {% endfor %}
+  </div>
+
+  <footer class="flex justify-end gap-x-2">
+    <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+    <button type="submit" class="btn">
+      {{ _('Create and connect') if fragment == 'create_storage' else _('Connect') }}
+    </button>
+  </footer>
+</form>

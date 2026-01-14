@@ -1,0 +1,11 @@
+{% from "macros/dialog.html" import dialog %}
+
+{% call dialog(
+	id="dialog-new-storage",
+	title=_("Create new storage"),
+	description=_("Create a new database, volume, KV or queue and connect it to one or more projects."),
+	dialog_attrs={"class": "w-full max-w-xl"},
+	body_attrs={"class": "space-y-4"}
+) %}
+	{% include "team/partials/_dialog-new-storage-form.html" %}
+{% endcall %}

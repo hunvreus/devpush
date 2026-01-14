@@ -1,4 +1,5 @@
 {% from "macros/select.html" import select %}
+{% from "macros/copy.html" import copy %}
 {% from "macros/dialog.html" import dialog %}
 {% from "project/macros/environment-label.html" import environment_label %}
 
@@ -8,12 +9,6 @@
   "308": _("308 - Permanent Redirect"),
   "302": _("302 - Found"),
   "307": _("307 - Temporary Redirect"),
-} %}
-
-{% set domain_statuses = {
-  "pending": _("Pending"),
-  "failed": _("Failed"),
-  "disabled": _("Disabled"),
 } %}
 
 {% macro render_domain_form(domain={}, index=0, update=False) %}
@@ -275,21 +270,7 @@
                             {{ env_id_hostname }}
                           </td>
                           <td>
-                              <button
-                                class="btn-sm-icon-ghost size-6 font-sans"
-                                type="button"
-                                :data-tooltip="copied ? '{{ _('Copied') }}' : '{{ _('Copy') }}'"
-                                data-side="left"
-                                x-data="{ copied: false }"
-                                @click="
-                                  navigator.clipboard.writeText('{{ env_id_hostname }}');
-                                  copied = true;
-                                  setTimeout(() => { copied = false }, 2000);
-                                "
-                              >
-                                <span x-show="!copied">{% include "icons/copy.svg" %}</span>
-                                <span x-show="copied">{% include "icons/check.svg" %}</span>
-                              </button>
+                            {{ copy(value=env_id_hostname) }}
                           </td>
                         </tr>
                       </tbody>
@@ -340,7 +321,6 @@
         @click="activeForm = 0"
         x-show="activeForm !== 0"
         :disabled="activeForm"
-        data-tooltip="{{ _('Add domain') }}"
       >
         {% include "icons/plus.svg" %}
         {{ _('Add domain') }}

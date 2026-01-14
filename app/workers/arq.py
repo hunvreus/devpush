@@ -1,12 +1,15 @@
 import logging
 from arq.connections import RedisSettings
-from workers.tasks.deploy import deploy_start, deploy_finalize, deploy_fail
-from workers.tasks.cleanup import (
-    cleanup_user,
-    cleanup_team,
-    cleanup_project,
-    cleanup_inactive_deployments,
+from workers.tasks.deployment import (
+    start_deployment,
+    finalize_deployment,
+    fail_deployment,
+    cleanup_inactive_containers,
 )
+from workers.tasks.project import delete_project
+from workers.tasks.storage import provision_storage, deprovision_storage
+from workers.tasks.team import delete_team
+from workers.tasks.user import delete_user
 
 from config import get_settings
 
@@ -17,13 +20,15 @@ settings = get_settings()
 
 class WorkerSettings:
     functions = [
-        deploy_start,
-        deploy_finalize,
-        deploy_fail,
-        cleanup_user,
-        cleanup_team,
-        cleanup_project,
-        cleanup_inactive_deployments,
+        start_deployment,
+        finalize_deployment,
+        fail_deployment,
+        delete_user,
+        delete_team,
+        delete_project,
+        cleanup_inactive_containers,
+        provision_storage,
+        deprovision_storage,
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 8

@@ -13,8 +13,7 @@
       </div>
     </section>
     <footer class="flex justify-end gap-x-2">
-      <button type="button" class="btn-ghost" onclick="document.getElementById('dialog-deploy').close()">{{ _('Cancel')
-        }}</button>
+      <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
       <button type="button" class="btn" disabled>
         {{ _('Deploy') }}
       </button>
@@ -78,7 +77,7 @@
       {% endfor %}
     </section>
     <footer class="flex justify-end gap-x-2">
-      <button type="button" class="btn-ghost" onclick="document.getElementById('dialog-deploy').close()">{{ _('Cancel') }}</button>
+      <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
       <button type="submit" class="btn-primary">
         {{ _('Deploy') }}
         <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">

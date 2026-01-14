@@ -1,7 +1,22 @@
 FROM oven/bun:1.3-slim
 
+ARG APP_UID=1000
+ARG APP_GID=1000
+
 # Create non-root user
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+RUN set -eu; \
+    group_name=appgroup; \
+    existing_group="$(getent group "${APP_GID}" | cut -d: -f1 || true)"; \
+    if [ -n "$existing_group" ]; then \
+        group_name="$existing_group"; \
+    else \
+        groupadd --system -g "${APP_GID}" appgroup; \
+    fi; \
+    if id -u appuser >/dev/null 2>&1; then \
+        usermod -u "${APP_UID}" -g "$group_name" appuser; \
+    else \
+        useradd --system -u "${APP_UID}" -g "$group_name" -o appuser; \
+    fi
 
 # Install system dependencies
 RUN apt-get update && \
@@ -13,9 +28,9 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Set permissions and Bun install dir
-RUN chown -R appuser:appgroup /app && \
+RUN chown -R appuser:$(id -gn appuser) /app && \
     mkdir -p /home/appuser/.bun && \
-    chown -R appuser:appgroup /home/appuser
+    chown -R appuser:$(id -gn appuser) /home/appuser
 
 # Switch to non-root user
 USER appuser

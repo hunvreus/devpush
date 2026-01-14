@@ -1,6 +1,50 @@
 {% macro render_env_vars(form, environments) %}
 {% from "macros/select.html" import select %}
 {% from "project/macros/environment-label.html" import environment_label %}
+{% from "macros/dialog.html" import dialog %}
+{% set footer %}
+  <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+  <button
+    type="button"
+    class="btn"
+    :disabled="!envFile"
+    @click="
+      const envVars = envFile.split('\n')
+        .filter(line => line.trim() && !line.startsWith('#'))
+        .map(line => {
+          const match = line.match(/^([^=]+)=(.*)$/);
+          if (!match) return null;
+          
+          return {
+            key: match[1].trim(),
+            value: match[2].trim().replace(/^[\x22\x27]|[\x22\x27]$/g, '')
+          };
+        })
+        .filter(Boolean);
+      document.dispatchEvent(new CustomEvent('env-vars:insert', { detail: envVars }));
+      envFile = '';
+      $el.closest('dialog').close();
+    "
+  >
+    {{ _('Insert') }}
+  </button>
+{% endset %}
+{% call dialog(
+  id="dialog-env-paste",
+  title=_("Paste .env file"),
+  description=_("Paste the contents of your .env file here to add the variables to your environment variables list."),
+  footer=footer,
+  dialog_attrs={
+    "class": "max-w-md",
+    "x-data": "{ envFile: '' }"
+  }
+) %}
+  <textarea
+    class="textarea w-full font-mono min-h-24 py-[7px] break-all max-h-36 overflow-y-auto text-[13px]"
+    x-model="envFile"
+  ></textarea>
+{% endcall %}
+
 <div
   class="space-y-2"
   x-data="{
@@ -67,15 +111,9 @@
         {% endfor %}
       </div>
       <div class="flex-1 space-y-2 min-w-0">
-        {% set items = [{
-          "label": _('All environments'),
-          "value": ""
-        }] %}
+        {% set items = [{"label": _('All environments'), "value": ""}] %}
         {% for environment in environments %}
-          {% set items = items.append({
-            "label": environment_label(environment),
-            "value": environment.slug
-          }) %}
+          {% set _ = items.append({"label": environment_label(environment), "value": environment.slug}) %}
         {% endfor %}
         {{ select(
           name='env_vars-' ~ loop.index0 ~ '-environment',
@@ -136,15 +174,9 @@
         ></textarea>
       </div>
       <div class="field flex-1 min-w-0">
-        {% set items = [{
-          "label": _('All environments'),
-          "value": ""
-        }] %}
+        {% set items = [{"label": _('All environments'), "value": ""}] %}
         {% for environment in environments %}
-        {% set items = items.append({
-          "label": environment_label(environment),
-          "value": environment.slug
-        }) %}
+          {% set _ = items.append({"label": environment_label(environment), "value": environment.slug}) %}
         {% endfor %}
         {{ select(
           name="",

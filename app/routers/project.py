@@ -10,6 +10,7 @@ from arq.connections import ArqRedis
 from urllib.parse import urlparse, parse_qs
 import logging
 import os
+import asyncio
 from typing import Any
 
 from dependencies import (
@@ -35,23 +36,30 @@ from models import (
     User,
     Team,
     TeamMember,
+    Storage,
+    StorageProject,
     utc_now,
 )
 from forms.project import (
-    NewProjectForm,
+    ProjectCreateForm,
     ProjectDeployForm,
     ProjectDeleteForm,
     ProjectGeneralForm,
     ProjectEnvVarsForm,
     ProjectEnvironmentForm,
-    ProjectDeleteEnvironmentForm,
-    ProjectBuildAndProjectDeployForm,
-    ProjectCancelDeploymentForm,
-    ProjectRollbackDeploymentForm,
+    ProjectEnvironmentRemoveForm,
+    ProjectBuildAndDeployForm,
+    ProjectDeploymentCancelForm,
+    ProjectDeploymentRollbackForm,
     ProjectDomainForm,
-    ProjectRemoveDomainForm,
-    ProjectVerifyDomainForm,
+    ProjectDomainRemoveForm,
+    ProjectDomainVerifyForm,
     ProjectResourcesForm,
+)
+from forms.storage import (
+    StorageCreateForm,
+    StorageProjectForm,
+    StorageProjectRemoveForm,
 )
 from config import get_settings, Settings
 from db import get_db
@@ -59,6 +67,7 @@ from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 from services.deployment import DeploymentService
 from services.domain import DomainService
+from services.preset_detector import PresetDetector
 from utils.project import get_latest_projects, get_latest_deployments
 from utils.team import get_latest_teams
 from utils.pagination import paginate
@@ -102,6 +111,7 @@ async def new_project_details(
     repo_owner: str = Query(None),
     repo_name: str = Query(None),
     repo_default_branch: str = Query(None),
+    fragment: str = Query(None),
     current_user: User = Depends(get_current_user),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     settings: Settings = Depends(get_settings),
@@ -119,12 +129,79 @@ async def new_project_details(
             request.url_for("new_project", team_slug=team.slug), status_code=303
         )
 
-    form: Any = await NewProjectForm.from_formdata(request, db=db, team=team)
+    form: Any = await ProjectCreateForm.from_formdata(request, db=db, team=team)
 
     if request.method == "GET":
         form.repo_id.data = int(repo_id)
         form.name.data = repo_name
         form.production_branch.data = repo_default_branch
+
+        # Handle build_and_deploy fragment with framework detection
+        if fragment == "build_and_deploy":
+            try:
+                github_oauth_token = await get_user_github_token(db, current_user)
+                if github_oauth_token:
+                    detector = PresetDetector(settings.presets)
+
+                    # Run detection with 5 second timeout
+                    detection = await asyncio.wait_for(
+                        detector.detect_with_commands(
+                            github_service,
+                            github_oauth_token,
+                            int(repo_id),
+                            repo_default_branch,
+                        ),
+                        timeout=5.0,
+                    )
+
+                    # If preset detected, get preset config and set all form fields
+                    if detection["preset"]:
+                        preset_config = next(
+                            (
+                                p
+                                for p in settings.presets
+                                if p["slug"] == detection["preset"]
+                            ),
+                            None,
+                        )
+
+                        if preset_config:
+                            form.preset.data = detection["preset"]
+                            form.image.data = preset_config.get("image")
+                            if preset_config.get("root_directory"):
+                                form.root_directory.data = preset_config.get(
+                                    "root_directory"
+                                )
+                            form.build_command.data = detection.get(
+                                "build_command"
+                            ) or preset_config.get("build_command")
+                            form.start_command.data = detection.get(
+                                "start_command"
+                            ) or preset_config.get("start_command")
+                            form.pre_deploy_command.data = preset_config.get(
+                                "pre_deploy_command"
+                            )
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Framework detection timed out for repo {repo_id}")
+                flash(request, _("Framework detection timed out."), "error")
+            except Exception as e:
+                logger.warning(f"Framework detection failed for repo {repo_id}: {e}")
+                flash(request, _("Framework detection failed."), "error")
+
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_form-build-and-deploy.html",
+                context={
+                    "current_user": current_user,
+                    "team": team,
+                    "form": form,
+                    "repo_full_name": f"{repo_owner or ''}/{repo_name or ''}",
+                    "presets": settings.presets,
+                    "images": settings.images,
+                    "detecting": False,
+                },
+            )
 
     if request.method == "POST" and await form.validate_on_submit():
         try:
@@ -437,6 +514,326 @@ async def project_deployments(
 
 
 @router.api_route(
+    "/{team_slug}/projects/{project_name}/storage",
+    methods=["GET", "POST"],
+    name="project_storage",
+)
+async def project_storage(
+    request: Request,
+    fragment: str | None = Query(None),
+    project: Project = Depends(get_project_by_name),
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    job_queue: ArqRedis = Depends(get_job_queue),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+    project_name = project.name
+
+    is_admin = get_access(role, "admin")
+
+    associations_query = (
+        select(StorageProject)
+        .join(Storage)
+        .where(
+            StorageProject.project_id == project.id,
+            Storage.type.in_(["database", "volume"]),
+            Storage.status != "deleted",
+        )
+        .options(
+            selectinload(StorageProject.storage),
+            selectinload(StorageProject.project),
+        )
+        .order_by(Storage.name.asc())
+    )
+    if not is_admin:
+        associations_query = associations_query.where(
+            Storage.created_by_user_id == current_user.id
+        )
+    associations_result = await db.execute(associations_query)
+    associations = associations_result.scalars().all()
+
+    storages_query = (
+        select(Storage)
+        .where(
+            Storage.team_id == team.id,
+            Storage.type.in_(["database", "volume"]),
+            Storage.status != "deleted",
+        )
+        .order_by(Storage.name.asc())
+    )
+    if not is_admin:
+        storages_query = storages_query.where(
+            Storage.created_by_user_id == current_user.id
+        )
+    storages_result = await db.execute(storages_query)
+    storages = storages_result.scalars().all()
+    available_storages = [
+        storage
+        for storage in storages
+        if storage.id not in {association.storage_id for association in associations}
+    ]
+
+    create_storage_form: Any = await StorageCreateForm.from_formdata(
+        request, db=db, team=team, project=project
+    )
+    if create_storage_form.environment_ids.data in (None, ""):
+        create_storage_form.environment_ids.data = []
+
+    connect_storage_form: Any = await StorageProjectForm.from_formdata(
+        request,
+        storages=available_storages,
+        projects=[project],
+        associations=associations,
+    )
+    if connect_storage_form.environment_ids.data in (None, ""):
+        connect_storage_form.environment_ids.data = []
+
+    edit_storage_form: Any = await StorageProjectForm.from_formdata(
+        request,
+        storages=storages,
+        projects=[project],
+        associations=associations,
+    )
+    if edit_storage_form.environment_ids.data in (None, ""):
+        edit_storage_form.environment_ids.data = []
+
+    remove_storage_form: Any = await StorageProjectRemoveForm.from_formdata(
+        request,
+        associations=associations,
+    )
+
+    if request.method == "POST" and fragment == "create_storage":
+        if await create_storage_form.validate_on_submit():
+            try:
+                storage = Storage(
+                    name=create_storage_form.name.data,
+                    type=create_storage_form.type.data,
+                    status="pending",
+                    team_id=team.id,
+                    created_by_user_id=current_user.id,
+                )
+                db.add(storage)
+                await db.flush()
+                association = StorageProject(
+                    project_id=project.id,
+                    storage_id=storage.id,
+                    environment_ids=create_storage_form.environment_ids.data or [],
+                )
+                db.add(association)
+                await db.commit()
+                try:
+                    await job_queue.enqueue_job("provision_storage", storage.id)
+                except Exception as exc:
+                    logger.error(
+                        "Failed to enqueue provisioning for storage %s: %s",
+                        storage.id,
+                        exc,
+                    )
+                flash(request, _("Storage created and connected."), "success")
+                return RedirectResponseX(
+                    url=str(
+                        request.url_for(
+                            "project_storage",
+                            team_slug=team.slug,
+                            project_name=project.name,
+                        )
+                    ),
+                    request=request,
+                )
+            except Exception as e:
+                await db.rollback()
+                logger.error(
+                    f"Error creating storage for project {project_name}: {str(e)}"
+                )
+                flash(request, _("Error creating storage."), "error")
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_dialog-project-storage-form.html",
+                context={
+                    "current_user": current_user,
+                    "role": role,
+                    "team": team,
+                    "project": project,
+                    "form": create_storage_form,
+                    "storages": None,
+                    "fragment": "create_storage",
+                },
+            )
+
+    if request.method == "POST" and fragment == "connect_storage":
+        if await connect_storage_form.validate_on_submit():
+            try:
+                existing_result = await db.execute(
+                    select(StorageProject).where(
+                        StorageProject.project_id == project.id,
+                        StorageProject.storage_id
+                        == connect_storage_form.storage_id.data,
+                    )
+                )
+                existing_association = existing_result.scalar_one_or_none()
+                if existing_association:
+                    existing_association.environment_ids = (
+                        connect_storage_form.environment_ids.data or []
+                    )
+                    flash(request, _("Storage connection updated."), "success")
+                else:
+                    association = StorageProject(
+                        project_id=project.id,
+                        storage_id=connect_storage_form.storage_id.data,
+                        environment_ids=connect_storage_form.environment_ids.data or [],
+                    )
+                    db.add(association)
+                    flash(request, _("Storage connected."), "success")
+                await db.commit()
+                return RedirectResponseX(
+                    url=str(
+                        request.url_for(
+                            "project_storage",
+                            team_slug=team.slug,
+                            project_name=project.name,
+                        )
+                    ),
+                    request=request,
+                )
+            except Exception as e:
+                await db.rollback()
+                logger.error(
+                    f"Error connecting storage for project {project_name}: {str(e)}"
+                )
+                flash(request, _("Error connecting storage."), "error")
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_dialog-project-storage-form.html",
+                context={
+                    "current_user": current_user,
+                    "role": role,
+                    "team": team,
+                    "project": project,
+                    "form": connect_storage_form,
+                    "storages": available_storages,
+                    "fragment": "connect_storage",
+                },
+            )
+
+    if request.method == "POST" and fragment == "update_storage_env":
+        if await edit_storage_form.validate_on_submit():
+            association_id = edit_storage_form.association_id.data
+            association_by_id = {
+                str(association.id): association for association in associations
+            }
+            association = (
+                association_by_id.get(str(association_id)) if association_id else None
+            )
+            if not association:
+                flash(request, _("Association not found."), "error")
+            else:
+                association.environment_ids = (
+                    edit_storage_form.environment_ids.data or []
+                )
+                await db.commit()
+                flash(request, _("Storage connection updated."), "success")
+                return RedirectResponseX(
+                    url=str(
+                        request.url_for(
+                            "project_storage",
+                            team_slug=team.slug,
+                            project_name=project.name,
+                        )
+                    ),
+                    request=request,
+                )
+        if request.headers.get("HX-Request"):
+            association = None
+            association_id = edit_storage_form.association_id.data
+            if association_id:
+                association = next(
+                    (
+                        item
+                        for item in associations
+                        if str(item.id) == str(association_id)
+                    ),
+                    None,
+                )
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_dialog-project-storage-environments-form.html",
+                context={
+                    "team": team,
+                    "project": project,
+                    "association": association,
+                    "edit_storage_form": edit_storage_form,
+                },
+            )
+
+    if request.method == "POST" and fragment == "disconnect_storage":
+        if await remove_storage_form.validate_on_submit():
+            association = remove_storage_form.association
+            await db.delete(association)
+            await db.commit()
+            flash(request, _("Storage disconnected."), "success")
+            return RedirectResponseX(
+                url=str(
+                    request.url_for(
+                        "project_storage",
+                        team_slug=team.slug,
+                        project_name=project.name,
+                    )
+                ),
+                request=request,
+            )
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/pages/storage.html",
+                context={
+                    "current_user": current_user,
+                    "role": role,
+                    "team": team,
+                    "project": project,
+                    "associations": associations,
+                    "storages": storages,
+                    "available_storages": available_storages,
+                    "create_storage_form": create_storage_form,
+                    "connect_storage_form": connect_storage_form,
+                    "edit_storage_form": edit_storage_form,
+                    "remove_storage_form": remove_storage_form,
+                },
+            )
+
+    latest_teams = await get_latest_teams(
+        db=db, current_user=current_user, current_team=team
+    )
+    latest_projects = await get_latest_projects(
+        db=db, team=team, current_project=project
+    )
+
+    return TemplateResponse(
+        request=request,
+        name="project/pages/storage.html",
+        context={
+            "current_user": current_user,
+            "role": role,
+            "team": team,
+            "project": project,
+            "associations": associations,
+            "storages": storages,
+            "available_storages": available_storages,
+            "create_storage_form": create_storage_form,
+            "connect_storage_form": connect_storage_form,
+            "edit_storage_form": edit_storage_form,
+            "remove_storage_form": remove_storage_form,
+            "latest_projects": latest_projects,
+            "latest_teams": latest_teams,
+        },
+    )
+
+
+@router.api_route(
     "/{team_slug}/projects/{project_name}/deploy",
     methods=["GET", "POST"],
     name="project_deploy",
@@ -696,7 +1093,7 @@ async def project_cancel(
 ):
     team, membership = team_and_membership
 
-    form: Any = await ProjectCancelDeploymentForm.from_formdata(request)
+    form: Any = await ProjectDeploymentCancelForm.from_formdata(request)
 
     if request.method == "POST" and await form.validate_on_submit():
         try:
@@ -757,7 +1154,7 @@ async def project_rollback(
 ):
     team, membership = team_and_membership
 
-    form: Any = await ProjectRollbackDeploymentForm.from_formdata(request)
+    form: Any = await ProjectDeploymentRollbackForm.from_formdata(request)
 
     if request.method == "POST" and await form.validate_on_submit():
         try:
@@ -821,7 +1218,7 @@ async def project_rollback(
 # ):
 #     team, membership = team_and_membership
 
-#     form: Any = await ProjectRollbackDeploymentForm.from_formdata(request)
+#     form: Any = await ProjectDeploymentRollbackForm.from_formdata(request)
 
 #     if request.method == "POST" and await form.validate_on_submit():
 #         try:
@@ -915,7 +1312,7 @@ async def project_settings(
                     await db.commit()
 
                     # Project is marked as deleted, actual cleanup is delegated to a job
-                    await job_queue.enqueue_job("cleanup_project", project.id)
+                    await job_queue.enqueue_job("delete_project", project.id)
 
                     flash(
                         request,
@@ -1095,7 +1492,7 @@ async def project_settings(
     environment_form: Any = await ProjectEnvironmentForm.from_formdata(
         request=request, project=project
     )
-    delete_environment_form: Any = await ProjectDeleteEnvironmentForm.from_formdata(
+    remove_environment_form: Any = await ProjectEnvironmentRemoveForm.from_formdata(
         request=request, project=project
     )
     environments_updated = False
@@ -1139,9 +1536,9 @@ async def project_settings(
                 flash(request, _("Something went wrong. Please try again."), "error")
 
     if fragment == "delete_environment":
-        if await delete_environment_form.validate_on_submit():
+        if await remove_environment_form.validate_on_submit():
             try:
-                environment_id = delete_environment_form.environment_id.data
+                environment_id = remove_environment_form.environment_id.data
                 if project.delete_environment(environment_id):
                     domains_result = await db.execute(
                         select(Domain).where(
@@ -1185,14 +1582,14 @@ async def project_settings(
                 "team": team,
                 "project": project,
                 "environment_form": environment_form,
-                "delete_environment_form": delete_environment_form,
+                "remove_environment_form": remove_environment_form,
                 "colors": COLORS,
                 "updated": environments_updated,
             },
         )
 
     # Build and deploy
-    build_and_deploy_form: Any = await ProjectBuildAndProjectDeployForm.from_formdata(
+    build_and_deploy_form: Any = await ProjectBuildAndDeployForm.from_formdata(
         request,
         data={
             "preset": project.config.get("preset"),
@@ -1288,10 +1685,10 @@ async def project_settings(
     domain_form: Any = await ProjectDomainForm.from_formdata(
         request=request, project=project, domains=domains, db=db
     )
-    remove_domain_form: Any = await ProjectRemoveDomainForm.from_formdata(
+    remove_domain_form: Any = await ProjectDomainRemoveForm.from_formdata(
         request=request, project=project, domains=domains
     )
-    verify_domain_form: Any = await ProjectVerifyDomainForm.from_formdata(
+    verify_domain_form: Any = await ProjectDomainVerifyForm.from_formdata(
         request=request, domains=domains
     )
 
@@ -1469,7 +1866,7 @@ async def project_settings(
             "project": project,
             "general_form": general_form,
             "environment_form": environment_form,
-            "delete_environment_form": delete_environment_form,
+            "remove_environment_form": remove_environment_form,
             "build_and_deploy_form": build_and_deploy_form,
             "resources_form": resources_form,
             "default_cpus": settings.default_cpus,
@@ -1516,7 +1913,7 @@ async def project_deployment(
 
     cancel_form = None
     if not deployment.conclusion:
-        cancel_form: Any = await ProjectCancelDeploymentForm.from_formdata(request)
+        cancel_form: Any = await ProjectDeploymentCancelForm.from_formdata(request)
 
     env_aliases = await project.get_environment_aliases(db=db)
 

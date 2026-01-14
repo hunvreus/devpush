@@ -23,7 +23,7 @@
         <p>{{ _('This will delete the project, its configuration, environments and deployments. This action cannot be undone.') }}</p>
         <p>{{ _('To confirm, enter the project name <b>"%(name)s"</b> below.', name=project.name) | safe }}</p>
         <form
-          method="POST"
+          method="post"
           action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='danger') }}"
         >
           {{ delete_project_form.csrf_token(id=False) }}

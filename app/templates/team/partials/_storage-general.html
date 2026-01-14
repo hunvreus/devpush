@@ -1,0 +1,41 @@
+{% from "macros/icon-avatar.html" import icon_avatar %}
+
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _('General') }}</h2>
+    <p>{{ _('Basic details for this storage.') }}</p>
+  </header>
+
+  <section class="space-y-6">
+    <div class="space-y-2">
+      <label class="label">{{ _('Type') }}</label>
+      <div class="items-center gap-x-2 selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm text-muted-foreground">
+        {{ icon_avatar(type=storage.type, size="xs") }}
+        {{ _(storage.type|capitalize) }}
+      </div>
+    </div>
+
+    <div class="space-y-2">
+      <label class="label">{{ _('Name') }}</label>
+      <input
+        type="text"
+        class="input w-full text-muted-foreground"
+        value="{{ storage.name }}"
+        readonly
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label class="label">{{ _('Storage ID') }}</label>
+      <div class="relative">
+        <input
+          type="text"
+          class="input w-full font-mono text-[13px] pr-9 text-muted-foreground"
+          value="{{ storage.id }}"
+          readonly
+        />
+        {{ copy(value=storage.id, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
+      </div>
+    </div>
+  </section>
+</div>

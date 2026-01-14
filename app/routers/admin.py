@@ -333,7 +333,7 @@ async def admin_settings(
                     target_user.status = "deleted"
                     await db.commit()
 
-                    await job_queue.enqueue_job("cleanup_user", target_user.id)
+                    await job_queue.enqueue_job("delete_user", target_user.id)
 
                     flash(
                         request,

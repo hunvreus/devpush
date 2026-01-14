@@ -251,7 +251,7 @@ run_cmd "${CHILD_MARK} Installing Docker packages" apt_install docker-ce docker-
 
 # Ensure Docker service is running
 run_cmd "${CHILD_MARK} Enabling Docker service" systemctl enable --now docker
-run_cmd "${CHILD_MARK} Waiting for Docker daemon" bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+run_cmd "${CHILD_MARK} Waiting for Docker daemon" bash -lc 'for i in $(seq 1 30); do docker info >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1'
 
 # Create user
 if ! id -u "$service_user" >/dev/null 2>&1; then

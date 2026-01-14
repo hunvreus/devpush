@@ -1,0 +1,65 @@
+{% from "macros/icon-avatar.html" import icon_avatar %}
+
+{% set current_type = storage_type or "all" %}
+
+{% if storages %}
+  <ul>
+    {% for storage in storages %}
+      <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">  
+        <a
+          href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
+          class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+          hx-boost="true"
+          data-tooltip="{{ _('%(type)s name', type=storage.type|capitalize) }}"
+        >
+          {{ icon_avatar(type=storage.type, size="xs") }}
+          <span class="truncate max-w-3xs" data-tooltip="{{ _('Name') }}">{{ storage.name }}</span>
+        </a>
+
+        {% if storage.status == "active" %}
+          <span class="text-muted-foreground">
+            {% if storage.projects %}
+              {{ _('%(count)s project%(plural)s connected', count=storage.projects|length, plural='s' if storage.projects|length > 1 else '') }}
+            {% else %}
+              {{ _('No projects connected') }}
+            {% endif %}
+          </span>
+        {% endif %}
+        
+        {% if storage.status == "pending" %}
+          <span class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1">
+            {% include "icons/loader.svg" %}
+            {{ _('Provisioning') }}
+          </span>
+        {% elif storage.status != "active" %}
+          <span class="badge-secondary text-muted-foreground">
+            {{ _(storage.status) }}
+          </span>
+        {% endif %}
+
+        <div class="flex items-center ml-auto">
+          <a
+            href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
+            class="btn-sm-icon-ghost"
+            data-tooltip="{{ _('Settings') }}"
+          >
+            {% include "icons/settings.svg" %}
+          </a>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <section
+    class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
+    <div class="max-w-sm">
+      <div class="text-center">
+        <h2 class="h4">{{ _('No results found.') }}</h2>
+        <p class="text-muted-foreground mt-1">{{ _('Try different search terms or filters.') }}</p>
+        <a class="btn-sm mt-4" href="{{ url_for('team_storage', team_slug=team.slug) }}">
+          {{ _('Reset filters') }}
+        </a>
+      </div>
+    </div>
+  </section>
+{% endif %}

@@ -32,7 +32,7 @@
 
   <section class="space-y-4">
     <form
-      class="flex justify-start items-center gap-x-2"
+      class="flex items-center gap-x-2"
       action="{{ url_for('project_deployments', team_slug=team.slug, project_name=project.name) }}"
       hx-get="{{ url_for('project_deployments', team_slug=team.slug, project_name=project.name).include_query_params(fragment='deployments') }}"
       hx-target="#deployments"
@@ -72,120 +72,122 @@
     >
       {% from "macros/select.html" import select %}
 
-      {# Environments #}
-      {% set items = [{
-        "label": _('All environments'),
-        "value": ""
-      }] %}
-      {% from "project/macros/environment-label.html" import environment_label %}
-      {% for environment in project.active_environments %}
-        {% set items = items.append({
-          "label": environment_label(environment),
-          "value": environment['slug']
-        }) %}
-      {% endfor %}
-      {{ select(
-        name='environment',
-        selected=request.query_params.get('environment'),
-        items=items,
-        trigger_attrs={'class': 'gap-1.5 h-8 px-3'}
-      ) }}
+      <div role="group" class="button-group">
+        {# Environments #}
+        {% set items = [{
+          "label": _('All environments'),
+          "value": ""
+        }] %}
+        {% from "project/macros/environment-label.html" import environment_label %}
+        {% for environment in project.active_environments %}
+          {% set items = items.append({
+            "label": environment_label(environment),
+            "value": environment['slug']
+          }) %}
+        {% endfor %}
+        {{ select(
+          name='environment',
+          selected=request.query_params.get('environment'),
+          items=items,
+          trigger_attrs={'class': 'gap-1.5 h-8 px-3'}
+        ) }}
 
-      {% from "deployment/macros/status.html" import status %}
+        {% from "deployment/macros/status.html" import status %}
 
-      {% set items = [{
-        "label": _('All statuses'),
-        "value": ""
-      }] %}
-      {% for conclusion in ['succeeded', 'failed', 'skipped', 'canceled', 'in_progress'] %}
-        {% set items = items.append({
-          "label": status(conclusion=conclusion if conclusion != 'in_progress' else None) | safe,
-          "value": conclusion
-        }) %}
-      {% endfor %}
+        {% set items = [{
+          "label": _('All statuses'),
+          "value": ""
+        }] %}
+        {% for conclusion in ['succeeded', 'failed', 'skipped', 'canceled', 'in_progress'] %}
+          {% set items = items.append({
+            "label": status(conclusion=conclusion if conclusion != 'in_progress' else None) | safe,
+            "value": conclusion
+          }) %}
+        {% endfor %}
 
-      {{ select(
-        name="status",
-        selected=request.query_params.get("status"),
-        items=items,
-        trigger_attrs={"class": "gap-1.5 h-8 px-3"}
-      ) }}
+        {{ select(
+          name="status",
+          selected=request.query_params.get("status"),
+          items=items,
+          trigger_attrs={"class": "gap-1.5 h-8 px-3"}
+        ) }}
 
-      {% from "macros/popover.html" import popover %}
-      {% set date_range_trigger %}
-        <span class="truncate">
-          <span x-show="dateFrom" x-cloak>
-            {{ _('From') }}
-            <span x-text="dateFrom ? new Date(dateFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+        {% from "macros/popover.html" import popover %}
+        {% set date_range_trigger %}
+          <span class="truncate">
+            <span x-show="dateFrom" x-cloak>
+              {{ _('From') }}
+              <span x-text="dateFrom ? new Date(dateFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+            </span>
+            <span x-show="dateTo" x-cloak>
+              <span x-text="dateFrom ? '{{ _('to') }}' : '{{ _('Until') }}'"></span>
+              <span x-text="dateTo ? new Date(dateTo).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+            </span>
+            <span x-show="!dateFrom && !dateTo">
+              {{ _('All dates') }}
+            </span>
           </span>
-          <span x-show="dateTo" x-cloak>
-            <span x-text="dateFrom ? '{{ _('to') }}' : '{{ _('Until') }}'"></span>
-            <span x-text="dateTo ? new Date(dateTo).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''"></span>
+          <span class="text-muted-foreground opacity-50 ml-auto">
+            {% include "icons/chevron-down.svg" %}
           </span>
-          <span x-show="!dateFrom && !dateTo">
-            {{ _('All dates') }}
-          </span>
-        </span>
-        <span class="text-muted-foreground opacity-50 ml-auto">
-          {% include "icons/chevron-down.svg" %}
-        </span>
-      {% endset %}
-      {% call popover(
-        trigger=date_range_trigger,
-        trigger_attrs={'class': 'btn-outline font-normal gap-1.5 h-8 px-3'},
-        popover_attrs={
-          'class': 'form p-4 space-y-4 min-w-auto',
-          'data-align': 'start'
-        }
-      ) %}
-      <div class="space-y-3">
-        <label>From</label>
-        <div class="flex items-center gap-x-2">
-          <input class="flex-1 h-8" type="date" name="date_from" x-model="dateFrom" max="9999-12-31" />
-          <button
-            type="button"
-            @click="dateFrom = null; $dispatch('change');"
-            class="btn-sm-icon-ghost"
-            data-tooltip="Clear"
-            :disabled="!dateFrom"
-          >
-            {% include "icons/circle-x.svg" %}
-          </button>
+        {% endset %}
+        {% call popover(
+          trigger=date_range_trigger,
+          trigger_attrs={'class': 'btn-outline font-normal gap-1.5 h-8 px-3'},
+          popover_attrs={
+            'class': 'form p-4 space-y-4 min-w-auto',
+            'data-align': 'start'
+          }
+        ) %}
+        <div class="space-y-3">
+          <label>From</label>
+          <div class="flex items-center gap-x-2">
+            <input class="flex-1 h-8" type="date" name="date_from" x-model="dateFrom" max="9999-12-31" />
+            <button
+              type="button"
+              @click="dateFrom = null; $dispatch('change');"
+              class="btn-sm-icon-ghost"
+              data-tooltip="Clear"
+              :disabled="!dateFrom"
+            >
+              {% include "icons/circle-x.svg" %}
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="space-y-3">
-        <label>To</label>
-        <div class="flex items-center gap-x-2">
-          <input class="flex-1 h-8" type="date" name="date_to" x-model="dateTo" max="9999-12-31" />
-          <button
-            type="button"
-            @click="dateTo = null; $dispatch('change');"
-            class="btn-sm-icon-ghost"
-            data-tooltip="Clear"
-            :disabled="!dateTo"
-          >
-            {% include "icons/circle-x.svg" %}
-          </button>
+        <div class="space-y-3">
+          <label>To</label>
+          <div class="flex items-center gap-x-2">
+            <input class="flex-1 h-8" type="date" name="date_to" x-model="dateTo" max="9999-12-31" />
+            <button
+              type="button"
+              @click="dateTo = null; $dispatch('change');"
+              class="btn-sm-icon-ghost"
+              data-tooltip="Clear"
+              :disabled="!dateTo"
+            >
+              {% include "icons/circle-x.svg" %}
+            </button>
+          </div>
         </div>
-      </div>
-      {% endcall %}
+        {% endcall %}
 
-      {% set items = [{
-        "label": _('All branches'),
-        "value": ""
-      }] %}
-      {% for branch in branches %}
-        {% set items = items.append({
-          "label": branch['name'],
-          "value": branch['name']
-        }) %}
-      {% endfor %}
-      {{ select(
-        name="branch",
-        selected=request.query_params.get("branch"),
-        items=items,
-        trigger_attrs={'class': 'gap-1.5 h-8 px-3'}
-      ) }}
+        {% set items = [{
+          "label": _('All branches'),
+          "value": ""
+        }] %}
+        {% for branch in branches %}
+          {% set items = items.append({
+            "label": branch['name'],
+            "value": branch['name']
+          }) %}
+        {% endfor %}
+        {{ select(
+          name="branch",
+          selected=request.query_params.get("branch"),
+          items=items,
+          trigger_attrs={'class': 'gap-1.5 h-8 px-3'}
+        ) }}
+      </div>
 
       <button
         type="button"
@@ -203,7 +205,7 @@
       <div class="htmx-indicator bg-background/90 absolute inset-0 flex items-center justify-center rounded-lg z-20">
         <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4">
           {% include "icons/loader.svg" %}
-          <span>{{ _('Updating deployments') }}</span>
+          <span>{{ _('Updating') }}</span>
         </div>
       </div>
 

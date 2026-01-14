@@ -224,7 +224,7 @@ class ProjectEnvironmentForm(StarletteForm):
             )
 
 
-class ProjectDeleteEnvironmentForm(StarletteForm):
+class ProjectEnvironmentRemoveForm(StarletteForm):
     environment_id = HiddenField(validators=[DataRequired()])
     confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
     submit = SubmitField(_l("Delete"))
@@ -343,7 +343,7 @@ class ProjectDomainForm(StarletteForm):
                 raise ValidationError(_("Environment not found."))
 
 
-class ProjectRemoveDomainForm(StarletteForm):
+class ProjectDomainRemoveForm(StarletteForm):
     domain_id = HiddenField(validators=[DataRequired()])
     confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
 
@@ -374,7 +374,7 @@ class ProjectRemoveDomainForm(StarletteForm):
             raise ValidationError(_("Domain confirmation did not match."))
 
 
-class ProjectVerifyDomainForm(StarletteForm):
+class ProjectDomainVerifyForm(StarletteForm):
     domain_id = HiddenField(validators=[DataRequired()])
 
     def __init__(self, *args, domains: list[Domain], **kwargs):
@@ -391,7 +391,7 @@ class ProjectVerifyDomainForm(StarletteForm):
             raise ValidationError(_("Domain is already verified."))
 
 
-class ProjectBuildAndProjectDeployForm(StarletteForm):
+class ProjectBuildAndDeployForm(StarletteForm):
     preset = SelectField(
         _l("Framework presets"),
         validators=[Optional(), Length(max=255)],
@@ -482,17 +482,18 @@ class ProjectGeneralForm(StarletteForm):
                     select(Project).where(
                         func.lower(Project.name) == field.data.lower(),
                         Project.team_id == self.team.id,
-                        Project.status != "deleted",
                         Project.id != self.project.id,
                     )
                 )
                 if result.scalar_one_or_none():
                     raise ValidationError(
-                        _("A project with this name already exists in this team.")
+                        _(
+                            "A project with this name already exists in this team or is reserved."
+                        )
                     )
 
 
-class NewProjectForm(StarletteForm):
+class ProjectCreateForm(StarletteForm):
     name = StringField(
         _l("Project name"),
         validators=[
@@ -566,12 +567,13 @@ class NewProjectForm(StarletteForm):
                 select(Project).where(
                     func.lower(Project.name) == field.data.lower(),
                     Project.team_id == self.team.id,
-                    Project.status != "deleted",
                 )
             )
             if result.scalar_one_or_none():
                 raise ValidationError(
-                    _("A project with this name already exists in this team.")
+                    _(
+                        "A project with this name already exists in this team or is reserved."
+                    )
                 )
 
     validate_image = validate_image
@@ -592,16 +594,16 @@ class ProjectDeployForm(StarletteForm):
     submit = SubmitField(_l("Deploy"))
 
 
-class ProjectCancelDeploymentForm(StarletteForm):
+class ProjectDeploymentCancelForm(StarletteForm):
     submit = SubmitField(_l("Cancel"))
 
 
-class ProjectRollbackDeploymentForm(StarletteForm):
+class ProjectDeploymentRollbackForm(StarletteForm):
     environment_id = HiddenField(_l("Environment ID"), validators=[DataRequired()])
     submit = SubmitField(_l("Rollback"))
 
 
-class ProjectPromoteDeploymentForm(StarletteForm):
+class ProjectDeploymentPromoteForm(StarletteForm):
     environment_id = HiddenField(_l("Environment ID"), validators=[DataRequired()])
     deployment_id = HiddenField(_l("Deployment ID"), validators=[DataRequired()])
     submit = SubmitField(_l("Promote"))

@@ -1,0 +1,58 @@
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _('Danger zone') }}</h2>
+    <p>{{ _('Permanently delete the storage and all of its data.') }}</p>
+  </header>
+
+  <section>
+    {% if get_access(role, "admin") %}
+      {% from "macros/dialog.html" import dialog %}
+      {% set trigger %}
+        {% include "icons/trash-2.svg" %}
+        {{ _('Delete storage') }}
+      {% endset %}
+      {% call dialog(
+        trigger=trigger,
+        title=_('Delete "%(name)s"?', name=storage.name),
+        trigger_attrs={"class": "btn-destructive"},
+        dialog_attrs={"class": "max-w-md"},
+        close_button=false,
+        close_on_overlay_click=false
+      ) %}
+      <div class="space-y-4" x-data="{ confirm: '' }">
+        <p>{{ _('This will delete the storage and all of its data. This action cannot be undone.') }}</p>
+        <p>{{ _('To confirm, enter the storage name <b>"%(name)s"</b> below.', name=storage.name) | safe }}</p>
+        <form
+          method="POST"
+          action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='danger') }}"
+        >
+          {{ delete_form.csrf_token(id=False) }}
+          {{ delete_form.name(
+            id='delete-storage-name',
+            value=storage.name
+          ) }}
+          {{ delete_form.confirm(
+            class_="w-full",
+            placeholder=_('Type the storage name to confirm'),
+            **{'x-model': 'confirm'}
+          ) }}
+          <footer class="flex justify-end gap-x-2 mt-4">
+            <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+            {{ delete_form.submit(
+              class_="btn-destructive",
+              **{':disabled': "confirm !== '" + storage.name + "'"}
+            ) }}
+          </footer>
+        </form>
+      </div>
+      {% endcall %}
+    {% else %}
+      <div class="space-y-6">
+        <div class="alert">
+          {% include "icons/info.svg" %}
+          <h2>{{ _("Only team owners and admins can delete storage.") }}</h2>
+        </div>
+      </div>
+    {% endif %}
+  </section>
+</div>

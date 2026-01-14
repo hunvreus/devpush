@@ -1,0 +1,80 @@
+{% from "macros/icon-avatar.html" import icon_avatar %}
+{% from "macros/select.html" import select %}
+
+{% set database_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="database", size="xs") }}
+    {{ _("Database (SQLite)") }}
+  </div>
+{% endset %}
+{% set volume_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="volume", size="xs") }}
+    {{ _("Volume") }}
+  </div>
+{% endset %}
+{% set kv_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="kv", size="xs") }}
+    {{ _("KV (Redis/ValKey)") }}
+  </div>
+{% endset %}
+{% set queue_label %}
+  <div class="flex items-center gap-x-2">
+    {{ icon_avatar(type="queue", size="xs") }}
+    {{ _("Queue (Redis/ValKey)") }}
+  </div>
+{% endset %}
+
+<form
+  method="post"
+  action="{{ url_for('team_storage', team_slug=team.slug) }}"
+  hx-post="{{ url_for('team_storage', team_slug=team.slug) }}"
+  hx-swap="outerHTML"
+  hx-indicator="find .htmx-indicator"
+  hx-disabled-elt="find button[type='submit']"
+  class="space-y-4"
+  x-data="{ name: '{{ form.name.data or "" }}' }"
+>
+  {{ form.csrf_token() }}
+  <div class="space-y-3 flex-1">
+    {{ form.type.label(class_="label") }}
+    {{ select(
+      name="type",
+      selected=form.type.data,
+      items=[
+        {"label": database_label, "value": "database"},
+        {"label": volume_label, "value": "volume"},
+        {"label": kv_label, "value": "kv", "attrs": {"aria-disabled": "true"}},
+        {"label": queue_label, "value": "queue", "attrs": {"aria-disabled": "true"}},
+      ],
+    ) }}
+  </div>
+  <div class="space-y-3">
+    {{ form.name.label(class="label") }}
+    {{ form.name(
+      class="input w-full",
+      placeholder=_("e.g., my-app-db-prod"),
+      **{"x-model": "name", "autofocus": "true", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$"}
+    ) }}
+    <p class="text-muted-foreground text-sm">{{ _('Can only contain letters, numbers, hyphens, underscores and dots.') }}</p>
+    {% for error in form.name.errors %}
+    <p class="text-destructive text-sm">{{ error }}</p>
+    {% endfor %}
+  </div>
+  <footer class="flex justify-end gap-x-2">
+    <button
+      type="button"
+      class="btn-ghost"
+      onclick="document.getElementById('dialog-new-storage').close()"
+    >{{ _("Cancel") }}</button>
+    <button
+     type="submit"
+     class="btn group"
+     :disabled="!name.trim()"
+    >
+      {{ _('Create storage') }}
+      <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
+    </button>
+  </footer>
+</form>

@@ -29,7 +29,7 @@ from forms.user import (
     UserDeleteForm,
     UserGeneralForm,
     UserEmailForm,
-    UserRevokeOAuthAccessForm,
+    UserOAuthAccessRevokeForm,
 )
 from forms.team import TeamLeaveForm, TeamInviteAcceptForm
 
@@ -57,7 +57,7 @@ async def user_settings(
                 current_user.status = "deleted"
                 await db.commit()
 
-                await job_queue.enqueue_job("cleanup_user", current_user.id)
+                await job_queue.enqueue_job("delete_user", current_user.id)
 
                 flash(
                     request,
@@ -355,7 +355,7 @@ async def user_settings(
         elif identity.provider == "google" and identity.provider_metadata:
             google_email = identity.provider_metadata.get("email")
 
-    revoke_oauth_access_form: Any = await UserRevokeOAuthAccessForm.from_formdata(
+    revoke_oauth_access_form: Any = await UserOAuthAccessRevokeForm.from_formdata(
         request
     )
 

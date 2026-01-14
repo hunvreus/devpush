@@ -1,0 +1,21 @@
+{# {% from "macros/select.html" import select %}
+{% from "project/macros/environment-label.html" import environment_label %}
+
+{% set items = [] %}
+{% set items = items.append({"label": _("All environments"), "value": ""}) %}
+{% if project %}
+  {% for environment in project.active_environments %}
+    {% set items = items.append({
+      "label": environment_label(environment),
+      "value": environment.id
+    }) %}
+  {% endfor %}
+{% endif %}
+
+{{ select(
+  name="environment_id",
+  selected=selected_environment_id,
+  items=items,
+  main_attrs={"class": "w-full"},
+  trigger_attrs={"class": "w-full"}
+) }} #}

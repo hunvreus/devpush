@@ -16,9 +16,7 @@
   {% from "project/macros/environment-label.html" import environment_label %}
   <ul {% for key, value in main_attrs.items() %} {{ key }}="{{ value }}" {% endfor %}>
     {% for deployment in deployments %}
-      <li
-        class="flex gap-x-4 items-center border border-border/100 border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors bg-clip-padding"
-      >
+      <li class="flex gap-x-4 items-center border border-border/100 border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors bg-clip-padding">
         {{ status(
           conclusion=deployment.conclusion,
           compact=True,
@@ -170,18 +168,17 @@
   <section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
     <div class="max-w-sm">
       <div class="text-center">
-        <h2 class="h4">{{ _('No deployments') }}</h2>
-        <p class="text-muted-foreground mt-1">{{ _('This project has no deployments yet. Push code to your repository or trigger a deployment below.') }}</p>
-        {% from "macros/dialog.html" import dialog %}
-          <button
-            type="button"
-            class="btn-sm mt-4"
-            onclick="
-              const dialog = document.getElementById('dialog-deploy');
-              dialog.dispatchEvent(new Event('dialog:opened'));
-              dialog.showModal();
-            "
-          >
+        <h2 class="h4">{{ _('No deployments yet.') }}</h2>
+        <p class="text-muted-foreground mt-1">{{ _('Push code to your repository or trigger a deployment below.') }}</p>
+        <button
+          type="button"
+          class="btn-sm mt-4"
+          onclick="
+            const dialog = document.getElementById('dialog-deploy');
+            dialog.dispatchEvent(new Event('dialog:opened'));
+            dialog.showModal();
+          "
+        >
           {% include "icons/cloud-upload.svg" %}
           {{ _('Deploy') }}
         </button>

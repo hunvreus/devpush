@@ -1,3 +1,7 @@
+{% from "macros/copy.html" import copy %}
+{% from "macros/image-upload.html" import image_upload %}
+{% from "macros/avatar.html" import avatar with context %}
+
 <form
   method="post"
   enctype="multipart/form-data"
@@ -22,9 +26,6 @@
   <section class="space-y-6">
     <div class="space-y-3">
       <label for="name" class="label">{{ _("Avatar") }}</label>
-      {% from "macros/image-upload.html" import image_upload %}
-
-      {% from "macros/avatar.html" import avatar with context %}
       {% set current_avatar %}
         {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
       {% endset %}
@@ -62,32 +63,11 @@
       <div class="relative">
         <input
           type="text"
-          class="input w-full font-mono text-[13px] text-foreground/50 pr-9"
+          class="input w-full font-mono text-[13px] text-muted-foreground pr-9"
           value="{{ team.id }}"
           readonly
         />
-        <button
-          type="button"
-          class="group absolute right-1.5 top-1/2 -translate-y-1/2 btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-6 btn-sm-ghost"
-          data-tooltip="{{ _('Copy') }}"
-          data-side="left"
-          onclick="
-            const button = this;
-            navigator.clipboard.writeText('{{ team.id }}').then(() => {
-              button.dataset.tooltip = '{{ _('Copied') }}';
-              button.dataset.copied = 'true';
-              setTimeout(() => {
-                button.dataset.tooltip = '{{ _('Copy') }}';
-                delete button.dataset.copied;
-              }, 2000);
-            }).catch(err => {
-              console.error('Failed to copy text: ', err);
-            });
-          "
-        >
-          <span class="block group-data-copied:hidden">{% include "icons/copy.svg" %}</span>
-          <span class="hidden group-data-copied:block">{% include "icons/check.svg" %}</span>
-        </button>
+        {{ copy(value=team.id, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
       </div>
       <p class="text-muted-foreground text-sm">{{ _("A unique identifier used in API, environment variables, etc.") }}</p>
     </div>

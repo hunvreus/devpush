@@ -99,4 +99,5 @@ printf '\n'
 run_cmd "Apply migrations" "${COMPOSE_BASE[@]}" exec -T app uv run alembic upgrade head
 
 # Success message
+printf '\n'
 printf "${GRN}Migrations applied. ✔${NC}\n"

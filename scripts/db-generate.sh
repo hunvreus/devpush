@@ -52,7 +52,6 @@ read -r -p "Migration message: " message
 
 # Generate migration
 printf '\n'
-printf "Generating migration\n"
 run_cmd "Generating migration" "${COMPOSE_BASE[@]}" exec -T app uv run alembic revision --autogenerate -m "$message"
 
 # Success message
