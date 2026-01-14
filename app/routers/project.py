@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Query
+from fastapi import APIRouter, Depends, Request, Query, HTTPException
 import httpx
 from fastapi.responses import Response, RedirectResponse
 from sqlalchemy import select, update
@@ -829,6 +829,53 @@ async def project_storage(
             "remove_storage_form": remove_storage_form,
             "latest_projects": latest_projects,
             "latest_teams": latest_teams,
+        },
+    )
+
+
+@router.get(
+    "/{team_slug}/projects/{project_name}/storage/{storage_id}/status",
+    name="project_storage_status",
+)
+async def project_storage_status(
+    request: Request,
+    storage_id: str,
+    project: Project = Depends(get_project_by_name),
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+    is_admin = get_access(role, "admin")
+
+    query = (
+        select(Storage)
+        .join(StorageProject)
+        .where(
+            Storage.id == storage_id,
+            StorageProject.project_id == project.id,
+            Storage.team_id == team.id,
+            Storage.status != "deleted",
+        )
+    )
+    if not is_admin:
+        query = query.where(Storage.created_by_user_id == current_user.id)
+
+    result = await db.execute(query)
+    storage = result.scalar_one_or_none()
+    if not storage:
+        raise HTTPException(status_code=404, detail="Storage not found")
+
+    return TemplateResponse(
+        request=request,
+        name="project/partials/_storage-status.html",
+        context={
+            "current_user": current_user,
+            "team": team,
+            "project": project,
+            "role": role,
+            "storage": storage,
         },
     )
 

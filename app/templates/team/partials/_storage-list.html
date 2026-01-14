@@ -5,7 +5,7 @@
 {% if storages %}
   <ul>
     {% for storage in storages %}
-      <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">  
+      <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
         <a
           href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
           class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
@@ -16,26 +16,15 @@
           <span class="truncate max-w-3xs" data-tooltip="{{ _('Name') }}">{{ storage.name }}</span>
         </a>
 
-        {% if storage.status == "active" %}
-          <span class="text-muted-foreground">
-            {% if storage.projects %}
-              {{ _('%(count)s project%(plural)s connected', count=storage.projects|length, plural='s' if storage.projects|length > 1 else '') }}
-            {% else %}
-              {{ _('No projects connected') }}
-            {% endif %}
-          </span>
-        {% endif %}
-        
-        {% if storage.status == "pending" %}
-          <span class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1">
-            {% include "icons/loader.svg" %}
-            {{ _('Provisioning') }}
-          </span>
-        {% elif storage.status != "active" %}
-          <span class="badge-secondary text-muted-foreground">
-            {{ _(storage.status) }}
-          </span>
-        {% endif %}
+        <span class="text-muted-foreground">
+          {% if storage.projects %}
+            {{ _('%(count)s project%(plural)s connected', count=storage.projects|length, plural='s' if storage.projects|length > 1 else '') }}
+          {% else %}
+            {{ _('No projects connected') }}
+          {% endif %}
+        </span>
+
+        {% include "team/partials/_storage-status.html" %}
 
         <div class="flex items-center ml-auto">
           <a

@@ -32,10 +32,11 @@
   <section class="space-y-4">
     {% if storage_count %}
       <form
+        id="storage-filters"
         class="flex items-center gap-x-2"
         hx-get="{{ url_for('team_storage', team_slug=team.slug).include_query_params(fragment='storage-content') }}"
         hx-target="#storage-list"
-        hx-trigger="input changed delay:500ms from:input[type='text'], change from:input[type='radio']"
+        hx-trigger="input changed delay:500ms from:#storage-filters input[type='text'], change from:#storage-filters input[type='radio']"
         hx-push-url="true"
         hx-indicator="next .htmx-indicator"
       >

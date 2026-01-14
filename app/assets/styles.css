@@ -461,10 +461,6 @@
   .table {
     display: table;
   }
-  .\!size-3 {
-    width: calc(var(--spacing) * 3) !important;
-    height: calc(var(--spacing) * 3) !important;
-  }
   .size-2 {
     width: calc(var(--spacing) * 2);
     height: calc(var(--spacing) * 2);
@@ -1345,9 +1341,6 @@
   .py-1\.5 {
     padding-block: calc(var(--spacing) * 1.5);
   }
-  .py-2 {
-    padding-block: calc(var(--spacing) * 2);
-  }
   .py-3 {
     padding-block: calc(var(--spacing) * 3);
   }
@@ -1383,9 +1376,6 @@
   }
   .pl-7 {
     padding-left: calc(var(--spacing) * 7);
-  }
-  .pl-8 {
-    padding-left: calc(var(--spacing) * 8);
   }
   .pl-9 {
     padding-left: calc(var(--spacing) * 9);
@@ -1602,13 +1592,6 @@
       border-bottom-left-radius: 0;
     }
   }
-  .group-hover\:text-foreground {
-    &:is(:where(.group):hover *) {
-      @media (hover: hover) {
-        color: var(--color-foreground);
-      }
-    }
-  }
   .group-data-copied\:block {
     &:is(:where(.group)[data-copied] *) {
       display: block;
@@ -1616,16 +1599,6 @@
   }
   .group-data-copied\:hidden {
     &:is(:where(.group)[data-copied] *) {
-      display: none;
-    }
-  }
-  .group-\[\.copied\]\:block {
-    &:is(:where(.group):is(.copied) *) {
-      display: block;
-    }
-  }
-  .group-\[\.copied\]\:hidden {
-    &:is(:where(.group):is(.copied) *) {
       display: none;
     }
   }

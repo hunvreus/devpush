@@ -642,6 +642,49 @@ async def team_storage_item(
     )
 
 
+@router.get(
+    "/{team_slug}/storage/{storage_id}/status",
+    name="team_storage_status",
+)
+async def team_storage_status(
+    request: Request,
+    storage_id: str,
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+    is_admin = get_access(role, "admin")
+
+    query = (
+        select(Storage)
+        .where(
+            Storage.id == storage_id,
+            Storage.team_id == team.id,
+            Storage.status != "deleted",
+        )
+    )
+    if not is_admin:
+        query = query.where(Storage.created_by_user_id == current_user.id)
+
+    result = await db.execute(query)
+    storage = result.scalar_one_or_none()
+    if not storage:
+        raise HTTPException(status_code=404, detail="Storage not found")
+
+    return TemplateResponse(
+        request=request,
+        name="team/partials/_storage-status.html",
+        context={
+            "current_user": current_user,
+            "team": team,
+            "role": role,
+            "storage": storage,
+        },
+    )
+
+
 @router.api_route(
     "/{team_slug}/settings", methods=["GET", "POST"], name="team_settings"
 )

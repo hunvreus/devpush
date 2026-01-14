@@ -47,11 +47,6 @@
       <ul>
         {% for association in associations %}
           <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
-            {% if association.storage.status != "active" %}
-              <span class="badge-secondary text-muted-foreground">
-                {{ _(association.storage.status|capitalize) }}
-              </span>
-            {% endif %}
             <a
               href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
@@ -62,6 +57,7 @@
               {{ icon_avatar(type=association.storage.type, size="xs") }}
               <span class="truncate max-w-3xs">{{ association.storage.name }}</span>
             </a>
+
             <div
               class="text-muted-foreground"
               data-tooltip="{{ _('Environments') }}"
@@ -76,6 +72,10 @@
                 {{ _('All environments') }}
               {% endif %}
             </div>
+
+            {% set storage = association.storage %}
+            {% include "project/partials/_storage-status.html" %}
+
             <div class="flex items-center ml-auto">
               {% set trigger %}
                 {% include "icons/info.svg" %}
