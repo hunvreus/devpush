@@ -2,12 +2,12 @@ import asyncio
 from datetime import datetime, timezone
 import aiodocker
 import logging
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.orm import joinedload
 from typing import Any
 import shlex
 
-from models import Deployment, Project
+from models import Alias, Deployment, Project
 from db import AsyncSessionLocal
 from dependencies import (
     get_redis_client,
@@ -32,7 +32,7 @@ async def _log_to_container(container, message, error=False):
     await exec.start(detach=True)
 
 
-async def deploy_start(ctx, deployment_id: str):
+async def start_deployment(ctx, deployment_id: str):
     """Starts a deployment."""
     try:
         settings = get_settings()
@@ -46,9 +46,7 @@ async def deploy_start(ctx, deployment_id: str):
             deployment = (
                 await db.execute(
                     select(Deployment)
-                    .options(
-                        joinedload(Deployment.project).joinedload(Project.team)
-                    )
+                    .options(joinedload(Deployment.project).joinedload(Project.team))
                     .where(Deployment.id == deployment_id)
                 )
             ).scalar_one()
@@ -83,8 +81,11 @@ async def deploy_start(ctx, deployment_id: str):
                 )
 
                 # Prepare environment variables
-                env_vars_dict = DeploymentService().build_runtime_env_vars(
+                env_vars_dict = DeploymentService().get_runtime_env_vars(
                     deployment, settings
+                )
+                mounts = await DeploymentService().get_runtime_mounts(
+                    deployment, db, settings
                 )
 
                 # Prepare commands
@@ -227,6 +228,7 @@ async def deploy_start(ctx, deployment_id: str):
                                 if memory_mb is not None and memory_mb > 0
                                 else {}
                             ),
+                            **({"Binds": mounts} if mounts else {}),
                             "SecurityOpt": ["no-new-privileges:true"],
                             "LogConfig": {
                                 "Type": "json-file",
@@ -274,11 +276,11 @@ async def deploy_start(ctx, deployment_id: str):
 
     except Exception as e:
         job_queue: ArqRedis = ctx["redis"]
-        await job_queue.enqueue_job("deploy_fail", deployment_id, reason=str(e))
+        await job_queue.enqueue_job("fail_deployment", deployment_id, reason=str(e))
         logger.info(f"{log_prefix} Deployment startup failed.", exc_info=True)
 
 
-async def deploy_finalize(ctx, deployment_id: str):
+async def finalize_deployment(ctx, deployment_id: str):
     """Finalizes a deployment, setting up aliases and updating Traefik config."""
     settings = get_settings()
     redis_client = get_redis_client()
@@ -326,7 +328,7 @@ async def deploy_finalize(ctx, deployment_id: str):
             # Cleanup inactive deployments
             job_queue: ArqRedis = ctx["redis"]
             await job_queue.enqueue_job(
-                "cleanup_inactive_deployments", deployment.project_id
+                "cleanup_inactive_containers", deployment.project_id
             )
             logger.info(
                 f"{log_prefix} Inactive deployments cleanup job queued for project {deployment.project_id}."
@@ -353,7 +355,7 @@ async def deploy_finalize(ctx, deployment_id: str):
             logger.error(f"{log_prefix} Error finalizing deployment.", exc_info=True)
 
 
-async def deploy_fail(ctx, deployment_id: str, reason: str = None):
+async def fail_deployment(ctx, deployment_id: str, reason: str = None):
     """Handles a failed deployment, cleaning up resources."""
     log_prefix = f"[DeployFail:{deployment_id}]"
     logger.info(f"{log_prefix} Handling failed deployment. Reason: {reason}")
@@ -428,3 +430,146 @@ async def deploy_fail(ctx, deployment_id: str, reason: str = None):
             f"stream:project:{deployment.project_id}:updates", fields
         )
         logger.error(f"{log_prefix} Deployment failed and cleaned up.")
+
+
+async def cleanup_inactive_containers(
+    ctx, project_id: str, remove_containers: bool = True
+):
+    """Stop/remove containers for deployments no longer referenced by aliases."""
+    settings = get_settings()
+
+    async with AsyncSessionLocal() as db:
+        async with aiodocker.Docker(url=settings.docker_host) as docker_client:
+            try:
+                # Get project
+                result = await db.execute(
+                    select(Project).where(Project.id == project_id)
+                )
+                project = result.scalar_one_or_none()
+
+                if not project:
+                    logger.warning(
+                        f"[CleanupInactiveContainers:{project_id}] Project not found"
+                    )
+                    return
+
+                if project.status == "deleted":
+                    logger.info(
+                        f"[CleanupInactiveContainers:{project_id}] Project deleted, skipping"
+                    )
+                    return
+
+                logger.info(
+                    f"[CleanupInactiveContainers:{project_id}] Starting cleanup for {project.name}"
+                )
+
+                # Get active deployment IDs
+                active_result = await db.execute(
+                    select(Alias.deployment_id)
+                    .join(Deployment, Alias.deployment_id == Deployment.id)
+                    .where(
+                        Deployment.project_id == project_id,
+                        Alias.deployment_id.isnot(None),
+                    )
+                    .union(
+                        select(Alias.previous_deployment_id)
+                        .join(Deployment, Alias.previous_deployment_id == Deployment.id)
+                        .where(
+                            Deployment.project_id == project_id,
+                            Alias.previous_deployment_id.isnot(None),
+                        )
+                    )
+                )
+                active_deployment_ids = set(active_result.scalars().all())
+
+                logger.debug(
+                    f"[CleanupInactiveContainers:{project_id}] Active deployments: {active_deployment_ids}"
+                )
+
+                # Get inactive deployments with containers
+                inactive_result = await db.execute(
+                    select(Deployment).where(
+                        Deployment.project_id == project_id,
+                        Deployment.container_id.isnot(None),
+                        Deployment.container_status == "running",
+                        Deployment.status == "completed",
+                        Deployment.id.notin_(active_deployment_ids)
+                        if active_deployment_ids
+                        else true(),
+                    )
+                )
+                inactive_deployments = inactive_result.scalars().all()
+
+                stopped_count = 0
+                removed_count = 0
+
+                for deployment in inactive_deployments:
+                    logger.info(
+                        f"[CleanupInactiveContainers:{project_id}] Processing inactive deployment {deployment.id}"
+                    )
+                    try:
+                        if deployment.container_id is None:
+                            logger.warning(
+                                f"[CleanupInactiveContainers:{project_id}] Deployment {deployment.id} has no container"
+                            )
+                            continue
+
+                        container = await docker_client.containers.get(
+                            deployment.container_id
+                        )
+
+                        # Stop container
+                        await container.stop()
+                        deployment.container_status = "stopped"
+                        stopped_count += 1
+                        logger.info(
+                            f"[CleanupInactiveContainers:{project_id}] Stopped container {deployment.container_id}"
+                        )
+
+                        # Remove if requested
+                        if remove_containers:
+                            await container.delete()
+                            deployment.container_status = "removed"
+                            removed_count += 1
+                            logger.info(
+                                f"[CleanupInactiveContainers:{project_id}] Removed container {deployment.container_id}"
+                            )
+
+                    except aiodocker.DockerError as error:
+                        if error.status == 404:
+                            logger.warning(
+                                f"[CleanupInactiveContainers:{project_id}] Container {deployment.container_id} not found"
+                            )
+                            deployment.container_status = None
+                        else:
+                            logger.error(
+                                f"[CleanupInactiveContainers:{project_id}] Docker error: {error}"
+                            )
+                    except Exception as error:
+                        logger.error(
+                            f"[CleanupInactiveContainers:{project_id}] Error processing container: {error}"
+                        )
+
+                # Commit status updates
+                if stopped_count > 0 or removed_count > 0:
+                    try:
+                        await db.commit()
+                        logger.info(
+                            f"[CleanupInactiveContainers:{project_id}] Stopped: {stopped_count}, Removed: {removed_count}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"[CleanupInactiveContainers:{project_id}] Failed to commit: {e}"
+                        )
+                        await db.rollback()
+                else:
+                    logger.info(
+                        f"[CleanupInactiveContainers:{project_id}] No inactive containers found"
+                    )
+
+            except Exception as error:
+                logger.error(
+                    f"[CleanupInactiveContainers:{project_id}] Task failed: {error}"
+                )
+                await db.rollback()
+                raise

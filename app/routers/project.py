@@ -56,7 +56,11 @@ from forms.project import (
     ProjectDomainVerifyForm,
     ProjectResourcesForm,
 )
-from forms.storage import StorageCreateForm, StorageProjectForm, StorageProjectRemoveForm
+from forms.storage import (
+    StorageCreateForm,
+    StorageProjectForm,
+    StorageProjectRemoveForm,
+)
 from config import get_settings, Settings
 from db import get_db
 from services.github import GitHubService
@@ -521,17 +525,20 @@ async def project_storage(
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    job_queue: ArqRedis = Depends(get_job_queue),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
     project_name = project.name
 
-    associations_result = await db.execute(
+    is_admin = get_access(role, "admin")
+
+    associations_query = (
         select(StorageProject)
         .join(Storage)
         .where(
             StorageProject.project_id == project.id,
-            Storage.type == "database",
+            Storage.type.in_(["database", "volume"]),
             Storage.status != "deleted",
         )
         .options(
@@ -540,17 +547,27 @@ async def project_storage(
         )
         .order_by(Storage.name.asc())
     )
+    if not is_admin:
+        associations_query = associations_query.where(
+            Storage.created_by_user_id == current_user.id
+        )
+    associations_result = await db.execute(associations_query)
     associations = associations_result.scalars().all()
 
-    storages_result = await db.execute(
+    storages_query = (
         select(Storage)
         .where(
             Storage.team_id == team.id,
-            Storage.type == "database",
+            Storage.type.in_(["database", "volume"]),
             Storage.status != "deleted",
         )
         .order_by(Storage.name.asc())
     )
+    if not is_admin:
+        storages_query = storages_query.where(
+            Storage.created_by_user_id == current_user.id
+        )
+    storages_result = await db.execute(storages_query)
     storages = storages_result.scalars().all()
     available_storages = [
         storage
@@ -588,18 +605,12 @@ async def project_storage(
     )
 
     if request.method == "POST" and fragment == "create_storage":
-        if not get_access(role, "admin"):
-            flash(
-                request,
-                _("You don't have permission to create storage."),
-                "warning",
-            )
-        elif await create_storage_form.validate_on_submit():
+        if await create_storage_form.validate_on_submit():
             try:
                 storage = Storage(
                     name=create_storage_form.name.data,
-                    type="database",
-                    status="active",
+                    type=create_storage_form.type.data,
+                    status="pending",
                     team_id=team.id,
                     created_by_user_id=current_user.id,
                 )
@@ -612,6 +623,14 @@ async def project_storage(
                 )
                 db.add(association)
                 await db.commit()
+                try:
+                    await job_queue.enqueue_job("provision_storage", storage.id)
+                except Exception as exc:
+                    logger.error(
+                        "Failed to enqueue provisioning for storage %s: %s",
+                        storage.id,
+                        exc,
+                    )
                 flash(request, _("Storage created and connected."), "success")
                 return RedirectResponseX(
                     url=str(
@@ -646,13 +665,7 @@ async def project_storage(
             )
 
     if request.method == "POST" and fragment == "connect_storage":
-        if not get_access(role, "admin"):
-            flash(
-                request,
-                _("You don't have permission to update storage connections."),
-                "warning",
-            )
-        elif await connect_storage_form.validate_on_submit():
+        if await connect_storage_form.validate_on_submit():
             try:
                 existing_result = await db.execute(
                     select(StorageProject).where(
@@ -708,22 +721,20 @@ async def project_storage(
             )
 
     if request.method == "POST" and fragment == "update_storage_env":
-        if not get_access(role, "admin"):
-            flash(
-                request,
-                _("You don't have permission to update storage connections."),
-                "warning",
-            )
-        elif await edit_storage_form.validate_on_submit():
+        if await edit_storage_form.validate_on_submit():
             association_id = edit_storage_form.association_id.data
             association_by_id = {
                 str(association.id): association for association in associations
             }
-            association = association_by_id.get(str(association_id)) if association_id else None
+            association = (
+                association_by_id.get(str(association_id)) if association_id else None
+            )
             if not association:
                 flash(request, _("Association not found."), "error")
             else:
-                association.environment_ids = edit_storage_form.environment_ids.data or []
+                association.environment_ids = (
+                    edit_storage_form.environment_ids.data or []
+                )
                 await db.commit()
                 flash(request, _("Storage connection updated."), "success")
                 return RedirectResponseX(
@@ -760,13 +771,7 @@ async def project_storage(
             )
 
     if request.method == "POST" and fragment == "disconnect_storage":
-        if not get_access(role, "admin"):
-            flash(
-                request,
-                _("You don't have permission to update storage connections."),
-                "warning",
-            )
-        elif await remove_storage_form.validate_on_submit():
+        if await remove_storage_form.validate_on_submit():
             association = remove_storage_form.association
             await db.delete(association)
             await db.commit()
@@ -1307,7 +1312,7 @@ async def project_settings(
                     await db.commit()
 
                     # Project is marked as deleted, actual cleanup is delegated to a job
-                    await job_queue.enqueue_job("cleanup_project", project.id)
+                    await job_queue.enqueue_job("delete_project", project.id)
 
                     flash(
                         request,

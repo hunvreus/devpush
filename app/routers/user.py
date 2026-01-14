@@ -57,7 +57,7 @@ async def user_settings(
                 current_user.status = "deleted"
                 await db.commit()
 
-                await job_queue.enqueue_job("cleanup_user", current_user.id)
+                await job_queue.enqueue_job("delete_user", current_user.id)
 
                 flash(
                     request,

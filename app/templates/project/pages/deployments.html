@@ -32,7 +32,7 @@
 
   <section class="space-y-4">
     <form
-      class="flex justify-start items-center gap-x-2"
+      class="flex items-center gap-x-2"
       action="{{ url_for('project_deployments', team_slug=team.slug, project_name=project.name) }}"
       hx-get="{{ url_for('project_deployments', team_slug=team.slug, project_name=project.name).include_query_params(fragment='deployments') }}"
       hx-target="#deployments"
@@ -205,7 +205,7 @@
       <div class="htmx-indicator bg-background/90 absolute inset-0 flex items-center justify-center rounded-lg z-20">
         <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4">
           {% include "icons/loader.svg" %}
-          <span>{{ _('Updating deployments') }}</span>
+          <span>{{ _('Updating') }}</span>
         </div>
       </div>
 

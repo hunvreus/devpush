@@ -35,6 +35,8 @@ done
 
 docker info >/dev/null 2>&1 || { err "Docker not accessible. Run with sudo or add your user to the docker group."; exit 1; }
 
+set_service_ids
+
 printf "Building runner images\n"
 if ((${#args[@]:-0} > 0)); then
   build_runner_images "${args[@]}"

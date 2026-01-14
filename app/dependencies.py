@@ -441,7 +441,7 @@ async def get_storage_by_name(
         select(Storage).where(
             func.lower(Storage.name) == storage_name.lower(),
             Storage.team_id == team.id,
-            Storage.type == "database",
+            Storage.type.in_(["database", "volume"]),
             Storage.status != "deleted",
         )
     )

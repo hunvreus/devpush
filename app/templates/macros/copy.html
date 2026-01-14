@@ -1,0 +1,37 @@
+{#
+  Renders a copy button component.
+
+  @param value {string} - The value to copy to the clipboard.
+  @param class {string} [optional] - Additional CSS classes for the button.
+  @param attrs {object} [optional] - Additional HTML attributes for the button.
+#}
+{% macro copy(
+  value,
+  class="",
+  attrs={}
+) %}
+<button
+  type="button"
+  class="group btn-icon-ghost text-muted-foreground hover:text-accent-foreground {{ class }}"
+  data-tooltip="{{ _('Copy') }}"
+  {% for key, value in attrs.items() %}
+    {{ key }}="{{ value }}"
+  {% endfor %}
+  onclick='
+    const button = this;
+    navigator.clipboard.writeText({{ value | tojson }}).then(() => {
+      button.dataset.tooltip = "{{ _('Copied') }}";
+      button.dataset.copied = "true";
+      setTimeout(() => {
+        button.dataset.tooltip = "{{ _('Copy') }}";
+        delete button.dataset.copied;
+      }, 2000);
+    }).catch(err => {
+      console.error("Failed to copy text: ", err);
+    });
+  '
+>
+  <span class="block group-data-copied:hidden">{% include "icons/copy.svg" %}</span>
+  <span class="hidden group-data-copied:block">{% include "icons/check.svg" %}</span>
+</button>
+{% endmacro %}

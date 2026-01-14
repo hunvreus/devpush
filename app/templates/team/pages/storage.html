@@ -17,7 +17,7 @@
       {{ _("Storage") }}
     </h1>
 
-    {% if storages %}
+    {% if storage_count %}
       <button
         type="button"
         class="btn"
@@ -29,126 +29,82 @@
     {% endif %}
   </header>
   
-  {% if storages %}
-    <section class="space-y-4">
-      <header class="flex items-center gap-x-2 justify-between">
-        <div class="relative">
+  <section class="space-y-4">
+    {% if storage_count %}
+      <form
+        class="flex items-center gap-x-2"
+        hx-get="{{ url_for('team_storage', team_slug=team.slug).include_query_params(fragment='storage-content') }}"
+        hx-target="#storage-list"
+        hx-trigger="input changed delay:500ms from:input[type='text'], change from:input[type='radio']"
+        hx-push-url="true"
+        hx-indicator="next .htmx-indicator"
+      >
+        <div class="relative [&>svg]:absolute [&>svg]:left-3 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:pointer-events-none [&>svg]:text-muted-foreground [&>svg]:size-4">
           <input
             type="text"
             class="input pl-9 rounded-full h-8"
             placeholder="{{ _('Search...') }}"
-            name="allowlist_search"
-            value="{{ allowlist_search or '' }}"
-            hx-get="{{ url_for('admin_settings').include_query_params(**{'fragment': 'allowlist-content'}) }}"
-            hx-target="#allowlist-content"
-            hx-trigger="input changed delay:300ms"
-            hx-push-url="true"
+            name="storage_search"
+            value="{{ storage_search or '' }}"
           >
-          <div class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground [&>svg]:size-4">
-            {% include "icons/search.svg" %}
-          </div>
+          {% include "icons/search.svg" %}
         </div>
         <div role="group" class="button-group">
-          <button class="btn-sm-outline" aria-pressed="true">
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
             {{ _("All") }}
-            <span class="ml-1 text-muted-foreground">{{ storages|length }}</span>
-          </button>
-          <button class="btn-sm-outline">
+            <input type="radio" name="storage_type" value="all" class="hidden" {% if not storage_type or storage_type == 'all' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
             {{ icon_avatar(type="database", size="xs") }}
             {{ _("Databases") }}
-            <span class="ml-1 text-muted-foreground">
-              {{ storages|selectattr("type", "equalto", "database")|list|length }}
-            </span>
-          </button>
-          <button class="btn-sm-outline">
+            <input type="radio" name="storage_type" value="database" class="hidden" {% if storage_type == 'database' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
             {{ icon_avatar(type="volume", size="xs") }}
             {{ _("Volumes") }}
-            <span class="ml-1 text-muted-foreground">
-              {{ storages|selectattr("type", "equalto", "volume")|list|length }}
-            </span>
-          </button>
-          <button class="btn-sm-outline">
+            <input type="radio" name="storage_type" value="volume" class="hidden" {% if storage_type == 'volume' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
             {{ icon_avatar(type="kv", size="xs") }}
             {{ _("KV") }}
-            <span class="ml-1 text-muted-foreground">
-              {{ storages|selectattr("type", "equalto", "kv")|list|length }}
-            </span>
-          </button>
-          <button class="btn-sm-outline">
+            <input type="radio" name="storage_type" value="kv" class="hidden" {% if storage_type == 'kv' %}checked{% endif %}/>
+          </label>
+          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
             {{ icon_avatar(type="queue", size="xs") }}
             {{ _("Queues") }}
-            <span class="ml-1 text-muted-foreground">
-              {{ storages|selectattr("type", "equalto", "queue")|list|length }}
-            </span>
-          </button>
+            <input type="radio" name="storage_type" value="queue" class="hidden" {% if storage_type == 'queue' %}checked{% endif %}/>
+          </label>
         </div>
-      </header>
-      <ul>
-        {% for storage in storages %}
-          <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">  
-            <a
-              href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
-              class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-              hx-boost="true"
-              data-tooltip="{{ _('%(type)s name', type=storage.type|capitalize) }}"
-            >
-              {{ icon_avatar(type=storage.type, size="xs") }}
-              <span class="truncate max-w-3xs" data-tooltip="{{ _('Name') }}">{{ storage.name }}</span>
-            </a>
-
-            {% if storage.status == "active" %}
-              <span class="text-muted-foreground">
-                {% if storage.projects %}
-                  {{ _('%(count)s project%(plural)s connected', count=storage.projects|length, plural='s' if storage.projects|length > 1 else '') }}
-                {% else %}
-                  {{ _('No projects connected') }}
-                {% endif %}
-              </span>
-            {% endif %}
-            
-            {% if storage.status == "pending" %}
-              <span class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1">
-                {% include "icons/loader.svg" %}
-                {{ _('Provisioning') }}
-              </span>
-            {% elif storage.status != "active" %}
-              <span class="badge-secondary text-muted-foreground">
-                {{ _(storage.status) }}
-              </span>
-            {% endif %}
-
-            <div class="flex items-center ml-auto">
-              <a
-                href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
-                class="btn-sm-icon-ghost"
-                data-tooltip="{{ _('Settings') }}"
-              >
-                {% include "icons/settings.svg" %}
-              </a>
-            </div>
-          </li>
-        {% endfor %}
-      </ul>
-    </section>
-  {% else %}
-    <section
-      class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
-      <div class="max-w-sm">
-        <div class="text-center">
-          <h2 class="h4">{{ _('No storage yet.') }}</h2>
-          <p class="text-muted-foreground mt-1">{{ _('Create a new database and connect it to projects.') }}
-          </p>
-          <button
-            type="button"
-            class="btn-sm mt-4"
-            onclick="document.getElementById('dialog-new-storage').showModal()"
-          >
-            {% include "icons/plus.svg" %}
-            {{ _('New storage') }}
-          </button>
+      </form>
+      <div class="relative">
+        <div id="storage-list">
+          {% include "team/partials/_storage-list.html" %}
+        </div>
+        <div class="htmx-indicator bg-background/90 absolute inset-0 flex items-center justify-center rounded-lg z-20">
+          <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4">
+            {% include "icons/loader.svg" %}
+            <span>{{ _('Updating') }}</span>
+          </div>
         </div>
       </div>
-    </section>
-  {% endif %}
+    {% else %}
+       <section class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4">
+        <div class="max-w-sm">
+          <div class="text-center">
+            <h2 class="h4">{{ _('No storage yet.') }}</h2>
+            <p class="text-muted-foreground mt-1">{{ _('Create storage and connect it to projects.') }}</p>
+            <button
+              type="button"
+              class="btn-sm mt-4"
+              onclick="document.getElementById('dialog-new-storage').showModal()"
+            >
+              {% include "icons/plus.svg" %}
+              {{ _('New storage') }}
+            </button>
+          </div>
+        </div>
+      </section>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}

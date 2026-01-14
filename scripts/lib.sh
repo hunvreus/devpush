@@ -394,6 +394,12 @@ build_runner_images() {
     built=1
     local build_cmd=(docker build -f "$dockerfile" -t "runner-$slug")
     ((no_cache==1)) && build_cmd+=(--no-cache)
+    if [[ -n "${SERVICE_UID:-}" ]]; then
+      build_cmd+=(--build-arg "APP_UID=$SERVICE_UID")
+    fi
+    if [[ -n "${SERVICE_GID:-}" ]]; then
+      build_cmd+=(--build-arg "APP_GID=$SERVICE_GID")
+    fi
     build_cmd+=("$dockerfile_dir")
     if ! run_cmd --try "${CHILD_MARK} ${label}" "${build_cmd[@]}"; then
       ((failed+=1))

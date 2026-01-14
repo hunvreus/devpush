@@ -35,7 +35,13 @@ def _parse_environment_ids(value):
 
 
 class StorageCreateForm(StarletteForm):
-    type = SelectField(_l("Type"), choices=[("database", _("Database"))])
+    type = SelectField(
+        _l("Type"),
+        choices=[
+            ("database", _("Database")),
+            ("volume", _("Volume")),
+        ],
+    )
     name = StringField(
         _l("Name"),
         validators=[

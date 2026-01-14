@@ -16,6 +16,8 @@ services:
       - internal
     env_file:
       - ${DATA_DIR:-../data}/.env
+    environment:
+      HOST_DATA_DIR: ${DATA_DIR:-../data}
     volumes:
       - ${DATA_DIR:-../data}:/data
     labels:
@@ -50,8 +52,10 @@ services:
       - runner
     env_file:
       - ${DATA_DIR:-../data}/.env
+    environment:
+      HOST_DATA_DIR: ${DATA_DIR:-../data}
     volumes:
-      - ${DATA_DIR:-../data}/traefik:/data/traefik
+      - ${DATA_DIR:-../data}:/data
     healthcheck:
       test: ["CMD", "uv", "run", "arq", "--check", "workers.arq.WorkerSettings"]
       interval: 10s
@@ -77,6 +81,8 @@ services:
       - runner
     env_file:
       - ${DATA_DIR:-../data}/.env
+    environment:
+      HOST_DATA_DIR: ${DATA_DIR:-../data}
 
   redis:
     image: redis:alpine

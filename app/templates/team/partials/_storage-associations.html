@@ -166,19 +166,19 @@
                 <button
                   type="button"
                   class="btn-icon-ghost"
-                  aria-label="{{ _('Edit') }}"
-                  data-tooltip="{{ _('Edit') }}"
+                  aria-label="{{ _('Edit environments') }}"
+                  data-tooltip="{{ _('Edit environments') }}"
                   @click="activeForm = {{ loop.index }}"
                   :disabled="activeForm"
                 >
                   {% include "icons/pencil.svg" %}
                 </button>                
                 {% set trigger %}
-                  {% include "icons/trash-2.svg" %}
+                  {% include "icons/unplug.svg" %}
                 {% endset %}
                 {% call dialog(
                   trigger=trigger,
-                  title=_('Disconnect "%(project)s" from "%(storage)s"?', project=association.project.name, storage=storage.name),
+                  title=_('Disconnect "%(project)s"?', project=association.project.name, storage=storage.name),
                   trigger_attrs={
                     "class": "btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20",
                     "aria-label": _('Disconnect'),
@@ -187,7 +187,7 @@
                   dialog_attrs={"class": "max-w-md"}
                 ) %}
                   <div class="space-y-4" x-data="{ confirm: '' }">
-                    <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(storage)s"</b> storage. Any deployment for this project will no longer have access to this storage.', project=association.project.name, storage=storage.name) | safe }}</p>
+                    <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(storage)s"</b> storage. Any new deployment for this project will no longer have access to this storage.', project=association.project.name, storage=storage.name) | safe }}</p>
                     <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=association.project.name) | safe }}</p>
                     <form
                       method="post"

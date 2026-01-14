@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Depends, Request, Query
+from fastapi import APIRouter, Depends, Request, Query, HTTPException
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -176,9 +176,13 @@ async def team_projects(
 async def team_storage(
     request: Request,
     page: int = Query(1, ge=1),
+    storage_search: str | None = Query(None),
+    storage_type: str | None = Query(None),
+    fragment: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    job_queue: ArqRedis = Depends(get_job_queue),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
@@ -189,13 +193,21 @@ async def team_storage(
         if await form.validate_on_submit():
             storage = Storage(
                 name=form.name.data,
-                type="database",
-                status="active",
+                type=form.type.data,
+                status="pending",
                 team_id=team.id,
                 created_by_user_id=current_user.id,
             )
             db.add(storage)
             await db.commit()
+            try:
+                await job_queue.enqueue_job("provision_storage", storage.id)
+            except Exception as exc:
+                logger.error(
+                    "Failed to enqueue provisioning for storage %s: %s",
+                    storage.id,
+                    exc,
+                )
             flash(request, _("Storage created."), "success")
 
             return RedirectResponseX(
@@ -219,18 +231,23 @@ async def team_storage(
 
     per_page = 25
 
-    query = (
-        select(Storage)
-        .where(
-            Storage.team_id == team.id,
-            Storage.type == "database",
-            Storage.status != "deleted",
-        )
-        .options(
-            selectinload(Storage.project_links).selectinload(StorageProject.project)
-        )
-        .order_by(Storage.updated_at.desc())
+    allowed_types = {"database", "volume", "kv", "queue"}
+    storage_type = storage_type if storage_type in allowed_types else None
+
+    query = select(Storage).where(
+        Storage.team_id == team.id,
+        Storage.status != "deleted",
     )
+    if not get_access(role, "admin"):
+        query = query.where(Storage.created_by_user_id == current_user.id)
+    if storage_type and storage_type != "all":
+        query = query.where(Storage.type == storage_type)
+    if storage_search:
+        query = query.where(Storage.name.ilike(f"%{storage_search}%"))
+
+    query = query.options(
+        selectinload(Storage.project_links).selectinload(StorageProject.project)
+    ).order_by(Storage.updated_at.desc())
 
     pagination = await paginate(db, query, page, per_page)
 
@@ -241,6 +258,35 @@ async def team_storage(
     )
     projects = projects.scalars().all()
 
+    storage_count_query = select(func.count(Storage.id)).where(
+        Storage.team_id == team.id,
+        Storage.status != "deleted",
+    )
+    if not get_access(role, "admin"):
+        storage_count_query = storage_count_query.where(
+            Storage.created_by_user_id == current_user.id
+        )
+    storage_count_result = await db.execute(storage_count_query)
+    storage_count = storage_count_result.scalar_one() or 0
+
+    if request.headers.get("HX-Request") and fragment == "storage-content":
+        return TemplateResponse(
+            request=request,
+            name="team/partials/_storage-list.html",
+            context={
+                "current_user": current_user,
+                "team": team,
+                "role": role,
+                "projects": projects,
+                "form": form,
+                "pagination": pagination,
+                "storages": pagination.get("items"),
+                "storage_search": storage_search,
+                "storage_type": storage_type,
+                "storage_count": storage_count,
+            },
+        )
+
     return TemplateResponse(
         request=request,
         name="team/pages/storage.html",
@@ -249,10 +295,13 @@ async def team_storage(
             "team": team,
             "role": role,
             "latest_teams": latest_teams,
-            "storages": pagination.get("items"),
-            "pagination": pagination,
             "projects": projects,
             "form": form,
+            "pagination": pagination,
+            "storages": pagination.get("items"),
+            "storage_search": storage_search,
+            "storage_type": storage_type,
+            "storage_count": storage_count,
         },
     )
 
@@ -269,9 +318,15 @@ async def team_storage_item(
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     storage: Storage = Depends(get_storage_by_name),
+    job_queue: ArqRedis = Depends(get_job_queue),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
+
+    is_admin = get_access(role, "admin")
+    is_storage_creator = storage.created_by_user_id == current_user.id
+    if not is_admin and not is_storage_creator:
+        raise HTTPException(status_code=404, detail="Storage not found")
 
     delete_form: Any = await StorageDeleteForm.from_formdata(request)
 
@@ -285,20 +340,34 @@ async def team_storage_item(
         elif await delete_form.validate_on_submit():
             storage.status = "deleted"
             await db.commit()
+            if storage.type in ("database", "volume"):
+                try:
+                    await job_queue.enqueue_job("deprovision_storage", storage.id)
+                except Exception as exc:
+                    logger.error(
+                        "Failed to enqueue deprovisioning for storage %s: %s",
+                        storage.id,
+                        exc,
+                    )
             flash(request, _("Storage deleted."), "success")
             return RedirectResponse(
                 url=str(request.url_for("team_storage", team_slug=team.slug)),
                 status_code=303,
             )
 
-    projects_result = await db.execute(
+    projects_query = (
         select(Project)
         .where(Project.team_id == team.id, Project.status != "deleted")
         .order_by(Project.name.asc())
     )
+    if not is_admin:
+        projects_query = projects_query.where(
+            Project.created_by_user_id == current_user.id
+        )
+    projects_result = await db.execute(projects_query)
     projects = projects_result.scalars().all()
 
-    associations_result = await db.execute(
+    associations_query = (
         select(StorageProject)
         .join(Project)
         .where(
@@ -309,6 +378,11 @@ async def team_storage_item(
         .options(selectinload(StorageProject.project))
         .order_by(Project.name.asc())
     )
+    if not is_admin:
+        associations_query = associations_query.where(
+            Project.created_by_user_id == current_user.id
+        )
+    associations_result = await db.execute(associations_query)
     associations = associations_result.scalars().all()
     available_projects = [
         project
@@ -329,6 +403,13 @@ async def team_storage_item(
         selected_project = next(
             (project for project in projects if project.id == project_id), None
         )
+        if not selected_project:
+            flash(
+                request,
+                _("You don't have permission to update storage associations."),
+                "warning",
+            )
+            return Response(status_code=403)
         association_form.project_id.data = project_id
         association_form.storage_id.data = storage.id
         return TemplateResponse(
@@ -347,7 +428,7 @@ async def team_storage_item(
         )
 
     if request.method == "POST" and fragment == "association":
-        if not get_access(role, "admin"):
+        if not is_admin and not is_storage_creator:
             flash(
                 request,
                 _("You don't have permission to update storage associations."),
@@ -397,17 +478,7 @@ async def team_storage_item(
                     db.add(association)
                     flash(request, _("Project linked to storage."), "success")
                 await db.commit()
-            associations_result = await db.execute(
-                select(StorageProject)
-                .join(Project)
-                .where(
-                    StorageProject.storage_id == storage.id,
-                    Project.team_id == team.id,
-                    Project.status != "deleted",
-                )
-                .options(selectinload(StorageProject.project))
-                .order_by(Project.name.asc())
-            )
+            associations_result = await db.execute(associations_query)
             associations = associations_result.scalars().all()
             available_projects = [
                 project
@@ -439,7 +510,6 @@ async def team_storage_item(
                         "associations": associations,
                         "association_form": association_form,
                         "remove_association_form": remove_association_form,
-                        "projects": projects,
                         "available_projects": available_projects,
                         "default_project": default_project,
                     },
@@ -473,7 +543,7 @@ async def team_storage_item(
             )
 
     if request.method == "POST" and fragment == "delete_association":
-        if not get_access(role, "admin"):
+        if not is_admin and not is_storage_creator:
             flash(
                 request,
                 _("You don't have permission to update storage associations."),
@@ -483,17 +553,7 @@ async def team_storage_item(
             association = remove_association_form.association
             await db.delete(association)
             await db.commit()
-            associations_result = await db.execute(
-                select(StorageProject)
-                .join(Project)
-                .where(
-                    StorageProject.storage_id == storage.id,
-                    Project.team_id == team.id,
-                    Project.status != "deleted",
-                )
-                .options(selectinload(StorageProject.project))
-                .order_by(Project.name.asc())
-            )
+            associations_result = await db.execute(associations_query)
             associations = associations_result.scalars().all()
             available_projects = [
                 project
@@ -625,7 +685,7 @@ async def team_settings(
                         await db.commit()
 
                         # Team is marked as deleted, actual cleanup is delegated to a job
-                        await job_queue.enqueue_job("cleanup_team", team.id)
+                        await job_queue.enqueue_job("delete_team", team.id)
 
                         flash(
                             request,

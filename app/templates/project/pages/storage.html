@@ -9,12 +9,13 @@
 {% from "macros/dialog.html" import dialog %}
 {% from "macros/select.html" import select %}
 {% from "macros/popover.html" import popover %}
+{% from "macros/copy.html" import copy %}
 
 {% set storage_types = {
-  "database": _("database"),
-  "volume": _("volume"),
+  "database": _("Database"),
+  "volume": _("Volume"),
   "kv": _("KV"),
-  "queue": _("queue")
+  "queue": _("Queue")
 } %}
 
 {% include "project/partials/_dialog-project-storage.html" %}
@@ -54,8 +55,8 @@
             <a
               href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-              data-tooltip="{{ _('%(type)s name', type=storage_types[association.storage.type] | capitalize) }}"
-              aria-label="{{ _('%(type)s name', type=storage_types[association.storage.type] | capitalize) }}"
+              data-tooltip="{{ _('%(type)s name', type=storage_types[association.storage.type]) }}"
+              aria-label="{{ _('%(type)s name', type=storage_types[association.storage.type]) }}"
               hx-boost="true"
             >
               {{ icon_avatar(type=association.storage.type, size="xs") }}
@@ -83,8 +84,8 @@
                 trigger=trigger,
                 trigger_attrs={
                   "class": "btn-sm-icon-ghost",
-                  "aria-label": _('How to use'),
-                  "data-tooltip": _('How to use'),
+                  "aria-label": _('Usage'),
+                  "data-tooltip": _('Usage'),
                 },
                 popover_attrs={
                   "data-align": "end",
@@ -92,44 +93,30 @@
                 }
               ) %}
                 <div class="alert bg-transparent border-0">
-                  <h3>{{ _('How to use this %(type)s?', type=storage_types[association.storage.type]) }}</h3>
+                  <h3>{{ _('Usage') }}</h3>
                   <section>
                   {% if association.storage.type == "database" %}
-                    <p>{{ _('On any of the selected environments, you can access the SQLite database at:') }}</p>
-                    <div class="relative w-full mt-2">
+                    <p>{{ _('You can access this SQLite database in any of the selected environments at:') }}</p>
+                    <div class="relative w-full mt-1">
+                      {% set database_path = "/data/database/" ~ association.storage.name ~ "/db.sqlite" %}
                       <input
                         type="text"
                         class="input w-full font-mono text-[13px] pr-9 text-muted-foreground h-8"
-                        value="/data/database/{{ association.storage.name }}/db.sqlite"
+                        value="{{ database_path }}"
                         readonly
                       />
-                      <button
-                        type="button"
-                        class="group absolute right-1.5 top-1/2 -translate-y-1/2 btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-6 btn-sm-ghost"
-                        data-tooltip="{{ _('Copy') }}"
-                        data-side="left"
-                        onclick="
-                          const button = this;
-                          navigator.clipboard.writeText('/data/database/{{ association.storage.name }}/db.sqlite').then(() => {
-                            button.dataset.tooltip = '{{ _('Copied') }}';
-                            button.dataset.copied = 'true';
-                            setTimeout(() => {
-                              button.dataset.tooltip = '{{ _('Copy') }}';
-                              delete button.dataset.copied;
-                            }, 2000);
-                          }).catch(err => {
-                            console.error('Failed to copy text: ', err);
-                          });
-                        "
-                      >
-                        <span class="block group-data-copied:hidden">{% include "icons/copy.svg" %}</span>
-                        <span class="hidden group-data-copied:block">{% include "icons/check.svg" %}</span>
-                      </button>
-                    </div>
+                      {{ copy(value=database_path, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
                   {% elif association.storage.type == "volume" %}
-                    <p>{{ _('Mount the volume and store files under:') }}</p>
-                    <div class="rounded-md bg-muted px-3 py-2 font-mono text-xs">
-                      /data/volume/{{ association.storage.name }}/
+                    <p>{{ _('You can access this volume in any of the selected environments at:') }}</p>
+                    <div class="relative w-full mt-1">
+                      {% set volume_path = "/data/volume/" ~ association.storage.name ~ "/" %}
+                      <input
+                        type="text"
+                        class="input w-full font-mono text-[13px] pr-9 text-muted-foreground h-8"
+                        value="{{ volume_path }}"
+                        readonly
+                      />
+                      {{ copy(value=volume_path, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
                     </div>
                   {% else %}
                     <p>{{ _('Use the connection details provided in this project’s settings.') }}</p>
@@ -138,85 +125,95 @@
                 </div>
               {% endcall %}
 
-              {% set trigger %}
-                {% include "icons/ellipsis.svg" %}
-              {% endset %}
-              {% call dropdown_menu(
-                trigger=trigger,
-                trigger_attrs={"class": "btn-sm-icon-ghost [&>svg]:shrink-0"},
-                popover_attrs={"data-align": "end"},
-                items=[
-                  {
-                    "label": _("Environments"),
-                    "attrs": {
-                      "onclick": "document.getElementById('dialog-storage-environments-" ~ association.id ~ "').showModal()"
+              {% if get_access(role, "admin") or association.storage.created_by_user_id == current_user.id %}
+                {% set icon_unplug %}{% include "icons/unplug.svg" %}{% endset %}
+                {% set icon_edit %}{% include "icons/pencil.svg" %}{% endset %}
+                {% set icon_settings %}{% include "icons/settings.svg" %}{% endset %}
+                {% set trigger %}
+                  {% include "icons/ellipsis.svg" %}
+                {% endset %}
+                {% call dropdown_menu(
+                  trigger=trigger,
+                  trigger_attrs={"class": "btn-sm-icon-ghost [&>svg]:shrink-0"},
+                  popover_attrs={"data-align": "end"},
+                  items=[
+                    {
+                      "icon": icon_edit,
+                      "label": _("Environments"),
+                      "attrs": {
+                        "onclick": "document.getElementById('dialog-storage-environments-" ~ association.id ~ "').showModal()"
+                      },
                     },
-                  },
-                  {
-                    "label": _("Settings"),
-                    "url": url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name),
-                  },
-                  {"type": "separator"},
-                  {
-                    "label": _("Disconnect"),
-                    "attrs": {
-                      "class": "text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 focus:bg-destructive/10 dark:focus:bg-destructive/20 focus:text-destructive",
-                      "onclick": "document.getElementById('dialog-storage-disconnect-" ~ association.id ~ "').showModal()"
+                    {
+                      "icon": icon_settings,
+                      "label": _("Settings"),
+                      "url": url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name),
                     },
-                  }
-                ]
-              ) %}
-                {% include "deployment/partials/_options.html" with context %}
-              {% endcall %}
+                    {"type": "separator"},
+                    {
+                      "icon": icon_unplug,
+                      "label": _("Disconnect"),
+                      "attrs": {
+                        "class": "text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 focus:bg-destructive/10 dark:focus:bg-destructive/20 focus:text-destructive [&_svg]:!text-destructive",
+                        "onclick": "document.getElementById('dialog-storage-disconnect-" ~ association.id ~ "').showModal()"
+                      },
+                    }
+                  ]
+                ) %}
+                  {% include "deployment/partials/_options.html" with context %}
+                {% endcall %}
+              {% endif %}
             </div>
 
-            {% call dialog(
-              id="dialog-storage-environments-" ~ association.id,
-              title=_('Edit environments for "%(storage)s"', storage=association.storage.name),
-              description=_('Select the environments that will have access to this storage.', project=project.name),
-              dialog_attrs={"class": "max-w-lg"}
-            ) %}
-              {% include "project/partials/_dialog-project-storage-environments-form.html" with context %}
-            {% endcall %}
+            {% if get_access(role, "admin") or association.storage.created_by_user_id == current_user.id %}
+              {% call dialog(
+                id="dialog-storage-environments-" ~ association.id,
+                title=_('Edit environments', storage=association.storage.name),
+                description=_('Select the environments that will have access to this storage.', project=project.name),
+                dialog_attrs={"class": "max-w-lg"}
+              ) %}
+                {% include "project/partials/_dialog-project-storage-environments-form.html" with context %}
+              {% endcall %}
 
-            {% call dialog(
-              id="dialog-storage-disconnect-" ~ association.id,
-              title=_('Disconnect "%(project)s" from "%(storage)s"?', project=project.name, storage=association.storage.name),
-              dialog_attrs={"class": "max-w-md"}
-            ) %}
-              <div class="space-y-4" x-data="{ confirm: '' }">
-                <p>{{ _('This will disconnect the <b>"%(project)s"</b> project from the <b>"%(storage)s"</b> storage. Any deployment for this project will no longer have access to this storage.', project=project.name, storage=association.storage.name) | safe }}</p>
-                <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=project.name) | safe }}</p>
-                <form
-                  method="post"
-                  action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
-                  hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
-                  hx-swap="outerHTML"
-                  hx-indicator="find .htmx-indicator"
-                  hx-disabled-elt="find button[type='submit']"
-                  hx-on::before-request="document.activeElement && document.activeElement.blur()"
-                  >
-                  {{ remove_storage_form.csrf_token(id=False) }}
-                  {{ remove_storage_form.association_id(id=False, value=association.id) }}
-                  {{ remove_storage_form.confirm(
-                    id=False,
-                    class_='w-full input',
-                    placeholder=_('Type the project name to confirm'),
-                    **{
-                      "x-model": "confirm",
-                      "@keydown.enter": "confirm !== '"~project.name~"' ? $event.preventDefault() : null"
-                    }
-                  ) }}
-                  <footer class="flex justify-end gap-x-2 pt-4">
-                    <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
-                    <button type="submit" class="btn-destructive group" :disabled="confirm !== '{{ project.name }}'">
-                      {{ _('Disconnect') }}
-                      <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
-                    </button>
-                  </footer>
-                </form>
-              </div>
-            {% endcall %}
+              {% call dialog(
+                id="dialog-storage-disconnect-" ~ association.id,
+                title=_('Disconnect "%(project)s"?', project=project.name, storage=association.storage.name),
+                dialog_attrs={"class": "max-w-md"}
+              ) %}
+                <div class="space-y-4" x-data="{ confirm: '' }">
+                  <p>{{ _('This will disconnect the <b>"%(storage)s"</b> storage from the <b>"%(project)s"</b> project. Any new deployment for this project will no longer have access to this storage.', project=project.name, storage=association.storage.name) | safe }}</p>
+                  <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=project.name) | safe }}</p>
+                  <form
+                    method="post"
+                    action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
+                    hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
+                    hx-swap="outerHTML"
+                    hx-indicator="find .htmx-indicator"
+                    hx-disabled-elt="find button[type='submit']"
+                    hx-on::before-request="document.activeElement && document.activeElement.blur()"
+                    >
+                    {{ remove_storage_form.csrf_token(id=False) }}
+                    {{ remove_storage_form.association_id(id=False, value=association.id) }}
+                    {{ remove_storage_form.confirm(
+                      id=False,
+                      class_='w-full input',
+                      placeholder=_('Type the project name to confirm'),
+                      **{
+                        "x-model": "confirm",
+                        "@keydown.enter": "confirm !== '"~project.name~"' ? $event.preventDefault() : null"
+                      }
+                    ) }}
+                    <footer class="flex justify-end gap-x-2 pt-4">
+                      <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                      <button type="submit" class="btn-destructive group" :disabled="confirm !== '{{ project.name }}'">
+                        {{ _('Disconnect') }}
+                        <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
+                      </button>
+                    </footer>
+                  </form>
+                </div>
+              {% endcall %}
+            {% endif %}
           </li>
         {% endfor %}
       </ul>

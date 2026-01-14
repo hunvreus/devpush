@@ -110,6 +110,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379"
     docker_host: str = "tcp://docker-proxy:2375"
     data_dir: str = "/data"
+    host_data_dir: str | None = None
     app_dir: str = "/app"
     upload_dir: str = ""
     traefik_dir: str = ""
@@ -127,6 +128,8 @@ class Settings(BaseSettings):
     job_completion_wait: int = 300
     deployment_timeout: int = 300
     container_delete_grace_seconds: int = 3
+    service_uid: int = 1000
+    service_gid: int = 1000
     db_echo: bool = False
     log_level: str = "WARNING"
     env: str = "production"
@@ -221,6 +224,8 @@ def get_settings():
         settings.config_file = os.path.join(settings.data_dir, "config.json")
     if not settings.version_file:
         settings.version_file = os.path.join(settings.data_dir, "version.json")
+    if not settings.host_data_dir:
+        settings.host_data_dir = settings.data_dir
 
     # Load presets/images from files (data-dir overrides core)
     core_presets_file = Path(settings.app_dir) / "settings" / "presets.json"

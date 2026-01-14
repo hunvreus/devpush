@@ -3,6 +3,14 @@
 {% block app_content %}
 {% from "macros/avatar.html" import avatar with context %}
 {% from "macros/icon-avatar.html" import icon_avatar %}
+{% from "macros/copy.html" import copy %}
+
+{% set storage_types = {
+  "database": _("Database"),
+  "volume": _("Volume"),
+  "kv": _("KV"),
+  "queue": _("Queue")
+} %}
 
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
@@ -15,18 +23,49 @@
         {{ _('Storage') }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
+      <a href="{{ url_for('team_storage', team_slug=team.slug) }}">
+        {{ storage_types[storage.type] }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
       {{ storage.name }}
     </h1>
   </header>
 
   <div class="flex flex-row-reverse gap-x-6">
     <nav class="sticky top-[122px] min-w-64 h-full flex flex-col gap-y-1 max-lg:hidden">
+      <a href="#usage" class="btn-sm-ghost justify-start">{{ _('Usage') }}</a>
       <a href="#general" class="btn-sm-ghost justify-start">{{ _('General') }}</a>
       <a href="#projects" class="btn-sm-ghost justify-start">{{ _('Projects') }}</a>
-      <a href="#danger" class="btn-sm-ghost justify-start text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20">{{ _('Danger') }}</a>
+      {% if get_access(role, "admin") %}
+        <a href="#danger" class="btn-sm-ghost justify-start text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20">{{ _('Danger') }}</a>
+      {% endif %}
     </nav>
 
     <div class="space-y-6 w-full form">
+      <section id="usage" class="alert">
+        {% include "icons/info.svg" %}
+        <h3>{{ _('Usage') }}</h3>
+        <section>
+          {% if storage.type == "database" %}
+            {% set storage_path = "/data/database/" ~ storage.name ~ "/db.sqlite" %}
+            {% set storage_description = _('You can access this SQLite database in any of the selected environments at:') %}
+          {% else %}
+            {% set storage_path = "/data/volume/" ~ storage.name ~ "/" %}
+            {% set storage_description = _('You can access this volume in any of the selected environments at:') %}
+          {% endif %}
+          <p >{{ storage_description }}</p>
+          <div class="relative w-full mt-1">
+            <input
+              type="text"
+              class="input w-full font-mono text-[13px] pr-9 text-muted-foreground text-amber-500/20"
+              value="{{ storage_path }}"
+              readonly
+            />
+            {{ copy(value=storage_path, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
+          </div>
+        </section>
+      </section>
+
       <section class="relative rounded-xl scroll-mt-[101px]" id="general">
         {% include "team/partials/_storage-general.html" %}
       </section>
@@ -35,9 +74,11 @@
         {% include "team/partials/_storage-associations.html" %}
       </section>
 
-      <section class="relative rounded-xl scroll-mt-[101px]" id="danger">
-        {% include "team/partials/_storage-danger.html" %}
-      </section>
+      {% if get_access(role, "admin") %}
+        <section class="relative rounded-xl scroll-mt-[101px]" id="danger">
+          {% include "team/partials/_storage-danger.html" %}
+        </section>
+      {% endif %}
     </div>
   </div>
 </div> 

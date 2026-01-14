@@ -12,6 +12,7 @@
 - [ ] **Remote nodes**: Ability to add multiple remote nodes to deploy apps.
 - [ ] **Deployment settings**: Provide more granular rules for deployments (triggers, # concurrent events, commit author, etc).
 - [ ] **Rate limiting**: Add Traefik protections for auth + sensitive endpoints (env-flagged).
+- [ ] **Migrate away from ARQ**: ARQ is deprecated, move over to https://github.com/taskiq-python/taskiq or similar.
 
 ## Later
 

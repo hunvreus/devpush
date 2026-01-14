@@ -21,7 +21,7 @@ This document describes the high‑level architecture of /dev/push, how the main
 - **App**: The app handles all of the user-facing logic (managing teams/projects, authenticating, searching logs...). It communicates with the workers via Redis.
 - **Workers**: When we create a new deployment, we queue a deploy job using arq (`app/workers/arq.py`). It will start a container, then delegate monitoring to a separate background worker (`app/workers/monitor.py`), before wrapping things back with yet another job. These workers are also used to run certain batch jobs (e.g. deleting a team, cleaning up inactive deployments and their containers).
 - **Logs**: build and runtime logs are streamed from Loki and served to the user via an SSE endpoint in the app.
-- **Runners**: User apps are deployed on one of the runner containers (e.g. `docker/runner/Dockerfile.python-3.12`). They are created in the deploy job (`app/workers/tasks/deploy.py`) and then run a series of commands based on the user configuration.
+- **Runners**: User apps are deployed on one of the runner containers (e.g. `docker/runner/Dockerfile.python-3.12`). They are created in the deploy job (`app/workers/tasks/deployment.py`) and then run a series of commands based on the user configuration.
 - **Reverse proxy**: We have Traefik sitting in front of both app and the deployed runner containers. All routing is done using Traefik labels, and we also maintain environment and branch aliases (e.g. `my-project-env-staging.devpush.app`) using Traefik config files.
 
 ## File structure
@@ -99,13 +99,13 @@ Notes:
 #### ARQ
 
 - Background jobs for deployments and cleanup.
-- Jobs: `deploy_start`, `deploy_finalize`, `deploy_fail`, `cleanup_*`.
-- Files: `app/workers/arq.py`, `app/workers/tasks/deploy.py`, `app/workers/tasks/cleanup.py`.
+- Jobs: `start_deployment`, `finalize_deployment`, `fail_deployment`, `delete_*`.
+- Files: `app/workers/arq.py`, `app/workers/tasks/deployment.py`, `app/workers/tasks/project.py`, `app/workers/tasks/team.py`, `app/workers/tasks/user.py`.
 
 #### Monitor
 
 - Polls running deployments every ~2s, probes port 8000 over `devpush_runner` network.
-- On success enqueues `deploy_finalize`; on failure enqueues `deploy_fail`.
+- On success enqueues `finalize_deployment`; on failure enqueues `fail_deployment`.
 - File: `app/workers/monitor.py`.
 
 ### Traefik
@@ -134,26 +134,26 @@ Notes:
 ## Deployment Flow
 
 1) Trigger
-  - Webhook: GitHub -> `/api/github/webhook` (verify, resolve project) -> create DB record -> enqueue `deploy_start`.
-  - Manual: user selects commit/env -> create DB record -> enqueue `deploy_start`.
+  - Webhook: GitHub -> `/api/github/webhook` (verify, resolve project) -> create DB record -> enqueue `start_deployment`.
+  - Manual: user selects commit/env -> create DB record -> enqueue `start_deployment`.
 
-2) `deploy_start`
+2) `start_deployment`
   - Create runner container (language image, env vars, resource limits, Traefik labels; Alloy tails container logs).
   - Inside container: clone repo at commit, run optional build/pre‑deploy commands, then start app.
   - Mark deployment `in_progress`, set `container_id=…`, emit Redis Stream update.
 
 3) Monitor
   - Probe container IP on `devpush_runner:8000/`.
-  - On ready -> enqueue `deploy_finalize`. On exit/error -> enqueue `deploy_fail`.
+  - On ready -> enqueue `finalize_deployment`. On exit/error -> enqueue `fail_deployment`.
 
 4) Finalize:
-  a) deploy_finalize (success)
+  a) finalize_deployment (success)
     - Mark `status=completed`, `conclusion=succeeded`.
     - Create/update aliases: branch, environment, environment_id.
     - Regenerate Traefik dynamic config for aliases and custom domains.
-    - Enqueue `cleanup_inactive_deployments` and emit Redis Stream updates.
+    - Enqueue `cleanup_inactive_containers` and emit Redis Stream updates.
 
-  b) deploy_fail (error)
+  b) fail_deployment (error)
     - Stop/remove container if present; mark `conclusion=failed` and emit updates.
 
 ## Data Model (Simplified)

@@ -44,7 +44,7 @@
       placeholder=_("All environments"),
       items=items,
       main_attrs={"class": "w-full"},
-      trigger_attrs={"class": "w-full truncate"}
+      trigger_attrs={"class": "w-full truncate", "autofocus": "true"}
     ) }}
     {% for error in edit_storage_form.environment_ids.errors %}
       <p class="text-destructive text-sm">{{ error }}</p>

@@ -4,25 +4,25 @@
 
 {% set database_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="sky", icon="database", size="xs") }}
+    {{ icon_avatar(type="database", size="xs") }}
     {{ _("Database (SQLite)") }}
   </div>
 {% endset %}
 {% set volume_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="amber", icon="hard-drive", size="xs") }}
+    {{ icon_avatar(type="volume", size="xs") }}
     {{ _("Volume") }}
   </div>
 {% endset %}
 {% set kv_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="rose", icon="layers", size="xs") }}
+    {{ icon_avatar(type="kv", size="xs") }}
     {{ _("KV (Redis/ValKey)") }}
   </div>
 {% endset %}
 {% set queue_label %}
   <div class="flex items-center gap-x-2">
-    {{ icon_avatar(color="green", icon="square-stack", size="xs") }}
+    {{ icon_avatar(type="queue", size="xs") }}
     {{ _("Queue (Redis/ValKey)") }}
   </div>
 {% endset %}
@@ -50,7 +50,7 @@
         selected=form.type.data,
         items=[
           {"label": database_label, "value": "database"},
-          {"label": volume_label, "value": "volume", "attrs": {"aria-disabled": "true"}},
+          {"label": volume_label, "value": "volume"},
           {"label": kv_label, "value": "kv", "attrs": {"aria-disabled": "true"}},
           {"label": queue_label, "value": "queue", "attrs": {"aria-disabled": "true"}},
         ],
@@ -72,10 +72,9 @@
       {% if storages %}
         {% set items = [] %}
         {% for storage in storages %}
-          {% set ti = type_icons.get(storage.type, {"color": "sky", "icon": "database"}) %}
           {% set label %}
             <div class="flex items-center gap-x-2">
-              {{ icon_avatar(color=ti["color"], icon=ti["icon"], size="xs") }}
+              {{ icon_avatar(type=storage.type, size="xs") }}
               {{ storage.name }}
             </div>
           {% endset %}

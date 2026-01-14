@@ -86,7 +86,7 @@
         {% endif %}
       >
         <div role="heading" id="{{ group_label_id }}">{{ item.label }}</div>
-        {{ render_dropdown_items(item.items, item_id) if item.items }}
+        {{ render_dropdown_items(item['items'], item_id) if item['items'] }}
       </div>
     {% elif item.type == "separator" %}
       <hr role="separator" />
@@ -102,6 +102,7 @@
             {% endfor %}
           {% endif %}
         >
+          {% if item.icon %}{{ item.icon | safe }}{% endif %}
           {{ item.label | safe }}
         </a>
       {% else %}
@@ -114,6 +115,7 @@
             {% endfor %}
           {% endif %}
         >
+          {% if item.icon %}{{ item.icon | safe }}{% endif %}
           {{ item.label | safe }}
         </div>
       {% endif %}

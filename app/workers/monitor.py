@@ -50,7 +50,7 @@ async def _check_status(
         )
         if (now_utc - created_at).total_seconds() > settings.deployment_timeout:
             await redis_pool.enqueue_job(
-                "deploy_fail", deployment.id, "Deployment timeout"
+                "fail_deployment", deployment.id, "Deployment timeout"
             )
             logger.warning(f"{log_prefix} Deployment timed out; failure job enqueued.")
             await _cleanup_deployment(deployment.id)
@@ -67,7 +67,7 @@ async def _check_status(
             }
         except Exception:
             await redis_pool.enqueue_job(
-                "deploy_fail", deployment.id, "Container not found"
+                "fail_deployment", deployment.id, "Container not found"
             )
             return
     else:
@@ -83,7 +83,7 @@ async def _check_status(
         if status == "exited":
             exit_code = container_info["State"].get("ExitCode", -1)
             reason = f"Container exited with code {exit_code}"
-            await redis_pool.enqueue_job("deploy_fail", deployment.id, reason)
+            await redis_pool.enqueue_job("fail_deployment", deployment.id, reason)
             logger.warning(
                 f"{log_prefix} Deployment failed (failure job enqueued): {reason}"
             )
@@ -93,7 +93,7 @@ async def _check_status(
             networks = container_info.get("NetworkSettings", {}).get("Networks", {})
             container_ip = networks.get("devpush_runner", {}).get("IPAddress")
             if container_ip and await _http_probe(container_ip, 8000):
-                await redis_pool.enqueue_job("deploy_finalize", deployment.id)
+                await redis_pool.enqueue_job("finalize_deployment", deployment.id)
                 logger.info(
                     f"{log_prefix} Deployment ready (finalization job enqueued)."
                 )
@@ -103,7 +103,7 @@ async def _check_status(
         logger.error(
             f"{log_prefix} Unexpected error while checking status.", exc_info=True
         )
-        await redis_pool.enqueue_job("deploy_fail", deployment.id, str(e))
+        await redis_pool.enqueue_job("fail_deployment", deployment.id, str(e))
         await _cleanup_deployment(deployment.id)
     finally:
         if deployment.id in deployment_probe_state:
