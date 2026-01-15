@@ -23,7 +23,7 @@
         {{ _('Storage') }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
-      <a href="{{ url_for('team_storage', team_slug=team.slug) }}">
+      <a href="{{ request.url_for('team_storage', team_slug=team.slug).include_query_params(storage_type=storage.type) }}">
         {{ storage_types[storage.type] }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>

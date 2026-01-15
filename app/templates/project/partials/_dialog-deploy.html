@@ -11,8 +11,8 @@
     action="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
     hx-get="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
     hx-trigger="change, dialog:opened from:closest dialog"
-    hx-indicator="next .htmx-indicator"
-    hx-target="#deploy-dialog-form"
+    hx-indicator="#deploy-dialog-commits-skeleton"
+    hx-target="#deploy-dialog-commits"
   >
     {% from "macros/select.html" import select %}
     {% from "project/macros/environment-label.html" import environment_label %}
@@ -28,8 +28,8 @@
     {% endcall %}
   </form>
   <div class="relative block h-[292px]">
-    <div id="deploy-dialog-form"></div>
-    <div class="htmx-indicator absolute inset-0 space-y-4 bg-background">
+    <div id="deploy-dialog-commits"></div>
+    <div id="deploy-dialog-commits-skeleton" class="htmx-indicator absolute inset-0 space-y-4 bg-background">
       {% include "project/partials/_dialog-deploy-commits-skeleton.html" %}
     </div>
   </div>

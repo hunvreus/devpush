@@ -36,9 +36,34 @@
         class="flex items-center gap-x-2"
         hx-get="{{ url_for('team_storage', team_slug=team.slug).include_query_params(fragment='storage-content') }}"
         hx-target="#storage-list"
-        hx-trigger="input changed delay:500ms from:#storage-filters input[type='text'], change from:#storage-filters input[type='radio']"
+        hx-trigger="input changed delay:500ms from:#storage-filters, change from:#storage-filters"
         hx-push-url="true"
         hx-indicator="next .htmx-indicator"
+        x-data="{
+          isDirty: false,
+          updateDirty() {
+            const params = new URLSearchParams(window.location.search);
+            for (const [key, value] of params) {
+              if (['storage_type', 'storage_search'].includes(key) && value.trim() !== '') {
+                this.isDirty = true;
+                return;
+              }
+            }
+            this.isDirty = false;
+          },
+          resetFilters() {
+            $el.querySelectorAll('[type=text]').forEach(input => input.value = '');
+            $el.querySelectorAll('[type=radio]').forEach(input => input.checked = (input.value === ''));
+            $dispatch('change');
+            this.updateDirty();
+          },
+        }"
+        x-init="
+          updateDirty();
+          document.body.addEventListener('htmx:pushedIntoHistory', () => {
+            updateDirty();
+          });
+        "
       >
         <div class="relative [&>svg]:absolute [&>svg]:left-3 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:pointer-events-none [&>svg]:text-muted-foreground [&>svg]:size-4">
           <input
@@ -53,7 +78,7 @@
         <div role="group" class="button-group">
           <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
             {{ _("All") }}
-            <input type="radio" name="storage_type" value="all" class="hidden" {% if not storage_type or storage_type == 'all' %}checked{% endif %}/>
+            <input type="radio" name="storage_type" value="" class="hidden" {% if not storage_type or storage_type == 'all' %}checked{% endif %}/>
           </label>
           <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
             {{ icon_avatar(type="database", size="xs") }}
@@ -76,13 +101,23 @@
             <input type="radio" name="storage_type" value="queue" class="hidden" {% if storage_type == 'queue' %}checked{% endif %}/>
           </label>
         </div>
+        <button
+          type="button"
+          class="btn-sm-icon-ghost"
+          :disabled="!isDirty"
+          @click="resetFilters()"
+          data-tooltip="{{ _('Reset') }}"
+          aria-label="{{ _('Reset') }}"
+        >
+          {% include "icons/circle-x.svg" %}
+        </button>
       </form>
       <div class="relative">
         <div id="storage-list">
           {% include "team/partials/_storage-list.html" %}
         </div>
         <div class="htmx-indicator bg-background/90 absolute inset-0 flex items-center justify-center rounded-lg z-20">
-          <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4">
+          <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
             {% include "icons/loader.svg" %}
             <span>{{ _('Updating') }}</span>
           </div>

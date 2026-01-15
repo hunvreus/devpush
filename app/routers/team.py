@@ -240,7 +240,7 @@ async def team_storage(
     )
     if not get_access(role, "admin"):
         query = query.where(Storage.created_by_user_id == current_user.id)
-    if storage_type and storage_type != "all":
+    if storage_type:
         query = query.where(Storage.type == storage_type)
     if storage_search:
         query = query.where(Storage.name.ilike(f"%{storage_search}%"))
@@ -657,13 +657,10 @@ async def team_storage_status(
     team, membership = team_and_membership
     is_admin = get_access(role, "admin")
 
-    query = (
-        select(Storage)
-        .where(
-            Storage.id == storage_id,
-            Storage.team_id == team.id,
-            Storage.status != "deleted",
-        )
+    query = select(Storage).where(
+        Storage.id == storage_id,
+        Storage.team_id == team.id,
+        Storage.status != "deleted",
     )
     if not is_admin:
         query = query.where(Storage.created_by_user_id == current_user.id)
