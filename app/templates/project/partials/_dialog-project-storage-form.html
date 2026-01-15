@@ -14,24 +14,10 @@
     {{ _("Volume") }}
   </div>
 {% endset %}
-{% set kv_label %}
-  <div class="flex items-center gap-x-2">
-    {{ icon_avatar(type="kv", size="xs") }}
-    {{ _("KV (Redis/ValKey)") }}
-  </div>
-{% endset %}
-{% set queue_label %}
-  <div class="flex items-center gap-x-2">
-    {{ icon_avatar(type="queue", size="xs") }}
-    {{ _("Queue (Redis/ValKey)") }}
-  </div>
-{% endset %}
 
 {% set type_icons = {
   "database": {"color": "sky", "icon": "database"},
   "volume": {"color": "amber", "icon": "hard-drive"},
-  "kv": {"color": "rose", "icon": "layers"},
-  "queue": {"color": "green", "icon": "square-stack"}
 } %}
 
 <form
@@ -51,8 +37,6 @@
         items=[
           {"label": database_label, "value": "database"},
           {"label": volume_label, "value": "volume"},
-          {"label": kv_label, "value": "kv", "attrs": {"aria-disabled": "true"}},
-          {"label": queue_label, "value": "queue", "attrs": {"aria-disabled": "true"}},
         ],
       ) }}
     </div>
@@ -86,6 +70,7 @@
           is_combobox=true,
           items=items,
           main_attrs={"class": "w-full"},
+          listbox_attrs={"class": "max-h-40 overflow-y-auto scrollbar"},
           trigger_attrs={
             "aria-invalid": "true" if form.storage_id.errors else "",
             "class": "w-full truncate"

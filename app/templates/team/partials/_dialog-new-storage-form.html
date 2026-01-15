@@ -45,8 +45,6 @@
       items=[
         {"label": database_label, "value": "database"},
         {"label": volume_label, "value": "volume"},
-        {"label": kv_label, "value": "kv", "attrs": {"aria-disabled": "true"}},
-        {"label": queue_label, "value": "queue", "attrs": {"aria-disabled": "true"}},
       ],
     ) }}
   </div>
@@ -55,7 +53,7 @@
     {{ form.name(
       class="input w-full",
       placeholder=_("e.g., my-app-db-prod"),
-      **{"x-model": "name", "autofocus": "true", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$"}
+      **{"x-model": "name", "autofocus": "true", "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\-]*[A-Za-z0-9]$"}
     ) }}
     <p class="text-muted-foreground text-sm">{{ _('Can only contain letters, numbers, hyphens, underscores and dots.') }}</p>
     {% for error in form.name.errors %}
