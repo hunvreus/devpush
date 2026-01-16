@@ -295,8 +295,7 @@ if ((do_full==0)); then
     if [[ -n "$meta_reason" ]]; then
       printf "${YEL}Update reason: %s${NC}\n" "$meta_reason"
     fi
-    printf "${YEL}This will update and blue-green restart:${NC}\n"
-    printf "${YEL}  %s${NC}\n" "${comps//,/ }"
+    printf "${YEL}This will update and blue-green restart: %s${NC}\n" "${comps//,/ }"
     if [[ ! -t 0 ]]; then
       err "Non-interactive mode: pass --yes to proceed with component update"
       exit 1
