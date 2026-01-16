@@ -295,14 +295,8 @@ if ((do_full==0)); then
     if [[ -n "$meta_reason" ]]; then
       printf "${YEL}Update reason: %s${NC}\n" "$meta_reason"
     fi
-    printf "This will update and blue-green restart:\n"
-    printf "  %s\n" "${comps//,/ }"
-    printf '\n'
-    printf "To use other options:\n"
-    printf "  --full             Full stack restart (downtime)\n"
-    printf "  --components <csv> Update specific services\n"
-    printf "  --all              Update app and workers\n"
-    printf '\n'
+    printf "${YEL}This will update and blue-green restart:${NC}\n"
+    printf "${YEL}  %s${NC}\n" "${comps//,/ }"
     if [[ ! -t 0 ]]; then
       err "Non-interactive mode: pass --yes to proceed with component update"
       exit 1
