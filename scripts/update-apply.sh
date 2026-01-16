@@ -16,7 +16,7 @@ Usage: update-apply.sh [--ref <tag>] [--all | --components <csv> | --full] [--no
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
   --ref <tag>       Git tag to record (best-effort if omitted)
-  --all             Update app,worker-arq,worker-monitor,alloy
+  --all             Update app and workers (app,worker-arq,worker-monitor)
   --components <csv>
                     Comma-separated list of services to update (${VALID_COMPONENTS//|/, })
   --full            Full stack update (down whole stack, then up). Causes downtime
@@ -98,42 +98,113 @@ ver_lte() {
   ver_lt "$1" "$2"
 }
 
-# Run upgrade hooks for version transitions
-run_upgrade_hooks() {
+# Versioned file helper
+default_components="app,worker-arq,worker-monitor"
+meta_full=0
+meta_components=""
+meta_reason=""
+
+get_versioned_files() {
   local current_ver="$1"
   local target_ver="$2"
-  local hooks_dir="${3:-$PWD/scripts/upgrades}"
+  local base_dir="$3"
+  local ext="$4"
 
-  [[ -d "$hooks_dir" ]] || return 0
+  [[ -d "$base_dir" ]] || return 0
 
   current_ver="${current_ver%%-*}"
   target_ver="${target_ver%%-*}"
 
-  # Collect eligible hooks first
-  local eligible=()
-  while IFS= read -r script; do
-    local hook_ver
-    hook_ver=$(basename "$script" .sh)
-    [[ "$hook_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-    if ver_lt "$current_ver" "$hook_ver" && ver_lte "$hook_ver" "$target_ver"; then
-      eligible+=("$script")
+  while IFS= read -r file; do
+    local ver
+    ver=$(basename "$file" ".$ext")
+    [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    if ver_lt "$current_ver" "$ver" && ver_lte "$ver" "$target_ver"; then
+      printf '%s\n' "$file"
     fi
-  done < <(find "$hooks_dir" -name "*.sh" -type f 2>/dev/null | sort -V)
+  done < <(find "$base_dir" -name "*.${ext}" -type f 2>/dev/null | sort -V)
+}
 
-  local count=${#eligible[@]}
+# Run upgrade hooks for version transitions
+run_upgrade_hooks() {
+  local scripts=("$@")
+
+  local count=${#scripts[@]}
   ((count==0)) && return 0
 
   printf '\n'
   printf "Running %s upgrade(s)\n" "$count"
 
   # Execute hooks
-  for script in "${eligible[@]}"; do
+  for script in "${scripts[@]}"; do
     local hook_name
     hook_name=$(basename "$script")
     if ! run_cmd --try "${CHILD_MARK} Running $hook_name" bash "$script"; then
       printf "${YEL}Upgrade %s failed (continuing update).${NC}\n" "$hook_name"
     fi
   done
+}
+
+read_update_meta() {
+  local files=("$@")
+  local -A component_set=()
+  local reason_list=()
+  local full_required=0
+
+  for meta_file in "${files[@]}"; do
+    local full_val
+    local comps_val
+    local reason_val
+    full_val=$(json_get full "$meta_file" "")
+    comps_val=$(json_get components "$meta_file" "")
+    reason_val=$(json_get reason "$meta_file" "")
+
+    if [[ "$full_val" == "true" ]]; then
+      full_required=1
+    fi
+
+    if [[ -n "$comps_val" ]]; then
+      IFS=',' read -ra _meta_secs <<< "$comps_val"
+      for comp in "${_meta_secs[@]}"; do
+        comp="${comp// /}"
+        [[ -z "$comp" ]] && continue
+        if ! validate_component "$comp"; then
+          exit 1
+        fi
+        component_set["$comp"]=1
+      done
+    fi
+
+    if [[ -n "$reason_val" ]]; then
+      reason_list+=("$reason_val")
+    fi
+  done
+
+  meta_full=0
+  meta_components=""
+  meta_reason=""
+
+  if ((full_required==1)); then
+    meta_full=1
+  fi
+
+  if (( ${#component_set[@]} > 0 )); then
+    local comps=()
+    for comp in "${!component_set[@]}"; do
+      comps+=("$comp")
+    done
+    meta_components=$(printf '%s\n' "${comps[@]}" | sort | paste -sd, -)
+  fi
+
+  if (( ${#reason_list[@]} > 0 )); then
+    for reason in "${reason_list[@]}"; do
+      if [[ -n "$meta_reason" ]]; then
+        meta_reason="${meta_reason}; ${reason}"
+      else
+        meta_reason="$reason"
+      fi
+    done
+  fi
 }
 
 old_version=$(json_get git_ref "$VERSION_FILE" "")
@@ -144,7 +215,29 @@ elif [[ -z "$ref" ]]; then
   printf '\n'
   printf "${YEL}No target version specified. Skipping upgrade hooks.${NC}\n"
 else
-  run_upgrade_hooks "$old_version" "$ref" "$APP_DIR/scripts/upgrades"
+  upgrade_files=()
+  while IFS= read -r script; do
+    upgrade_files+=("$script")
+  done < <(get_versioned_files "$old_version" "$ref" "$APP_DIR/scripts/upgrades" "sh")
+
+  meta_files=()
+  while IFS= read -r meta_file; do
+    meta_files+=("$meta_file")
+  done < <(get_versioned_files "$old_version" "$ref" "$APP_DIR/scripts/upgrades" "json")
+
+  read_update_meta "${meta_files[@]}"
+  run_upgrade_hooks "${upgrade_files[@]}"
+fi
+
+# Apply update metadata defaults
+meta_forced_full=0
+if ((meta_full==1)) && ((do_full==0)); then
+  do_full=1
+  do_all=0
+  comps=""
+  meta_forced_full=1
+elif [[ -z "$comps" ]] && ((do_all==0)) && ((do_full==0)) && [[ -n "$meta_components" ]]; then
+  comps="$meta_components"
 fi
 
 # Full stack update helper (with downtime)
@@ -167,47 +260,56 @@ full_update() {
 # Option1: Full update (with downtime)
 if ((do_full==1)); then
   if ((yes!=1)); then
+    printf '\n'
+    if ((meta_forced_full==1)); then
+      printf "${YEL}Update metadata requires a full stack restart.${NC}\n"
+    fi
+    if [[ -n "$meta_reason" ]]; then
+      printf "${YEL}Update reason: %s${NC}\n" "$meta_reason"
+    fi
     printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
-    read -p "Proceed? [y/N]: " ans
+    if [[ ! -t 0 ]]; then
+      err "Non-interactive mode: pass --yes to proceed with full update"
+      exit 1
+    fi
+    read -r -p "Proceed? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { info "Aborted."; exit 1; }
   fi
   full_update
 fi
 
 # Option2: Components update (no downtime for app and workers)
-if ((do_all==1)); then
-  comps="app,worker-arq,worker-monitor,alloy"
-elif [[ -z "$comps" ]]; then
-  if [[ ! -t 0 ]]; then
-    err "Non-interactive mode: specify --all, --components, or --full"
-    exit 1
+if ((do_full==0)); then
+  if [[ -z "$comps" ]]; then
+    if ((do_all==1)); then
+      comps="$default_components"
+    elif [[ -n "$meta_components" ]]; then
+      comps="$meta_components"
+    else
+      comps="$default_components"
+    fi
   fi
-  printf '\n'
-  printf "Select components to update:\n"
-  printf "1) app + workers + alloy (app, worker-arq, worker-monitor, alloy)\n"
-  printf "2) app\n"
-  printf "3) worker-arq\n"
-  printf "4) worker-monitor\n"
-  printf "5) Full stack (with downtime)\n"
-  read -r -p "Choice [1-5]: " ch
-  ch="${ch//[^0-9]/}"
-  case "$ch" in
-    1) comps="app,worker-arq,worker-monitor,alloy" ;;
-    2) comps="app" ;;
-    3) comps="worker-arq" ;;
-    4) comps="worker-monitor" ;;
-    5)
-      printf '\n'
-      printf "${YEL}This will stop ALL services, update, and restart the whole stack. Downtime WILL occur.${NC}\n"
-      read -r -p "Proceed with FULL stack update? [y/N]: " ans
-      [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { info "Aborted."; exit 1; }
-      full_update
-      ;;
-    *)
-      printf "Invalid choice.\n"
+
+  if ((yes!=1)); then
+    printf '\n'
+    if [[ -n "$meta_reason" ]]; then
+      printf "${YEL}Update reason: %s${NC}\n" "$meta_reason"
+    fi
+    printf "This will update and blue-green restart:\n"
+    printf "  %s\n" "${comps//,/ }"
+    printf '\n'
+    printf "To use other options:\n"
+    printf "  --full             Full stack restart (downtime)\n"
+    printf "  --components <csv> Update specific services\n"
+    printf "  --all              Update app and workers\n"
+    printf '\n'
+    if [[ ! -t 0 ]]; then
+      err "Non-interactive mode: pass --yes to proceed with component update"
       exit 1
-      ;;
-  esac
+    fi
+    read -r -p "Proceed? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]([Ee][Ss])?$ ]] || { info "Aborted."; exit 1; }
+  fi
 fi
 
 IFS=',' read -ra C <<< "$comps"
