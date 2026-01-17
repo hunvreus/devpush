@@ -183,6 +183,43 @@ apt_install() {
   return 1
 }
 
+# --- FIX: Docker install with containerd.io fallback (handles repo/CDN 404) ---
+install_docker_packages() {
+  # First try the normal install
+  if apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+    return 0
+  fi
+
+  echo "Docker install failed; trying containerd.io version fallback..." >&2
+
+  # Force refresh lists (helps if repo was mid-sync)
+  rm -rf /var/lib/apt/lists/*
+  apt-get update -yq || true
+
+  # Get all available containerd.io versions, newest first (madison output is usually already newest-first,
+  # but we don't assume; we just iterate in listed order).
+  mapfile -t versions < <(apt-cache madison containerd.io | awk '{print $3}' | sed '/^$/d')
+
+  if [[ "${#versions[@]}" -eq 0 ]]; then
+    echo "No containerd.io versions found via apt-cache madison." >&2
+    return 1
+  fi
+
+  for v in "${versions[@]}"; do
+    echo "Trying containerd.io=$v ..." >&2
+    if apt-get install -yq \
+        -o Dpkg::Options::=--force-confdef \
+        -o Dpkg::Options::=--force-confold \
+        "containerd.io=$v" docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin; then
+      return 0
+    fi
+  done
+
+  echo "All containerd.io fallback versions failed." >&2
+  return 1
+}
+# --- END FIX ---
+
 # Adds the Docker repository to the system
 add_docker_repo() {
     install -m 0755 -d /etc/apt/keyrings
@@ -247,7 +284,7 @@ run_cmd "Installing base packages" apt_install ca-certificates git jq curl gnupg
 printf '\n'
 printf "Installing Docker\n"
 run_cmd "${CHILD_MARK} Adding Docker repository" add_docker_repo
-run_cmd "${CHILD_MARK} Installing Docker packages" apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+run_cmd "${CHILD_MARK} Installing Docker packages" install_docker_packages
 
 # Ensure Docker service is running
 run_cmd "${CHILD_MARK} Enabling Docker service" systemctl enable --now docker
