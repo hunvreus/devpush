@@ -1,47 +1,75 @@
-{% extends "layouts/app.html" %}
-
-{% block app_content %}
+{% extends "layouts/app.html" %} {% block app_content %}
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
-  <h1 class="h1 flex items-center gap-x-3">
-    <a href="/" class="btn-sm-icon-outline" data-tooltip="{{ _('Back to home') }}" data-align="start">
-      {% include "icons/arrow-left.svg" %}
-    </a>
-    {{ _("Account settings") }}
-  </h1>
+    <h1 class="h1 flex items-center gap-x-3">
+        <a
+            href="/"
+            class="btn-sm-icon-outline"
+            data-tooltip="{{ _('Back to home') }}"
+            data-align="start"
+        >
+            {% include "icons/arrow-left.svg" %}
+        </a>
+        {{ _("Account settings") }}
+    </h1>
 
-  <div class="flex flex-row-reverse gap-x-6">
-    <nav class="sticky top-[122px] min-w-64 h-full flex flex-col gap-y-1 max-lg:hidden">
-      <a href="#general" class="btn-sm-ghost justify-start">{{ _("General") }}</a>
-      <a href="#email" class="btn-sm-ghost justify-start">{{ _("Email") }}</a>
-      <a href="#authentication" class="btn-sm-ghost justify-start">{{ _("Authentication") }}</a>
-      <a href="#teams" class="btn-sm-ghost justify-start">{{ _("Teams") }}</a>
-      <a href="#danger"
-        class="btn-sm-ghost justify-start text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20">{{
-        _('Danger') }}</a>
-    </nav>
+    <div class="flex flex-row-reverse gap-x-6">
+        <nav
+            class="sticky top-[122px] min-w-64 h-full flex flex-col gap-y-1 max-lg:hidden"
+        >
+            <a href="#general" class="btn-sm-ghost justify-start"
+                >{{ _("General") }}</a
+            >
+            <a href="#appearance" class="btn-sm-ghost justify-start"
+                >{{ _("Appearance") }}</a
+            >
+            <a href="#email" class="btn-sm-ghost justify-start"
+                >{{ _("Email") }}</a
+            >
+            <a href="#authentication" class="btn-sm-ghost justify-start"
+                >{{ _("Authentication") }}</a
+            >
+            <a href="#teams" class="btn-sm-ghost justify-start"
+                >{{ _("Teams") }}</a
+            >
+            <a
+                href="#danger"
+                class="btn-sm-ghost justify-start text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20"
+                >{{ _('Danger') }}</a
+            >
+        </nav>
 
-    <div class="space-y-6 w-full">
-      <section class="relative rounded-xl scroll-mt-[101px]" id="general">
-        {% include "user/partials/_settings-general.html" %}
-      </section>
+        <div class="space-y-6 w-full">
+            <section class="relative rounded-xl scroll-mt-[101px]" id="general">
+                {% include "user/partials/_settings-general.html" %}
+            </section>
 
-      <section class="relative rounded-xl scroll-mt-[101px]" id="email">
-        {% include "user/partials/_settings-email.html" %}
-      </section>
+            <section
+                class="relative rounded-xl scroll-mt-[101px]"
+                id="appearance"
+            >
+                {% include "user/partials/_settings-appearance.html" %}
+            </section>
 
-      <section class="relative rounded-xl scroll-mt-[101px]" id="authentication">
-        {% include "user/partials/_settings-authentication.html" %}
-      </section>
+            <section class="relative rounded-xl scroll-mt-[101px]" id="email">
+                {% include "user/partials/_settings-email.html" %}
+            </section>
 
-      <section class="relative rounded-xl scroll-mt-[101px]" id="teams">
-        {% include "user/partials/_settings-teams.html" %}
-      </section>
+            <section
+                class="relative rounded-xl scroll-mt-[101px]"
+                id="authentication"
+            >
+                {% include "user/partials/_settings-authentication.html" %}
+            </section>
 
-      {# DANGER ZONE #}
-      <section class="relative rounded-xl scroll-mt-[101px]" id="danger">
-        {% include "user/partials/_settings-danger.html" %}
-      </section>
+            <section class="relative rounded-xl scroll-mt-[101px]" id="teams">
+                {% include "user/partials/_settings-teams.html" %}
+            </section>
+
+            {# DANGER ZONE #}
+            <section class="relative rounded-xl scroll-mt-[101px]" id="danger">
+                {% include "user/partials/_settings-danger.html" %}
+            </section>
+        </div>
     </div>
-  </div>
 </div>
 {% endblock %}
