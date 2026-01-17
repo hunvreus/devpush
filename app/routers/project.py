@@ -35,6 +35,7 @@ from models import (
     User,
     Team,
     TeamMember,
+    DeployToken,
     utc_now,
 )
 from forms.project import (
@@ -52,6 +53,9 @@ from forms.project import (
     ProjectRemoveDomainForm,
     ProjectVerifyDomainForm,
     ProjectResourcesForm,
+    ProjectWebhooksForm,
+    DeployTokenForm,
+    DeleteDeployTokenForm,
 )
 from config import get_settings, Settings
 from db import get_db
@@ -1452,6 +1456,147 @@ async def project_settings(
             },
         )
 
+    # Webhooks
+    webhook_events = (project.config or {}).get("webhook_events") or [
+        "started",
+        "succeeded",
+        "failed",
+        "canceled",
+    ]
+    webhooks_form: Any = await ProjectWebhooksForm.from_formdata(
+        request,
+        data={
+            "webhook_url": (project.config or {}).get("webhook_url", ""),
+            "webhook_secret": (project.config or {}).get("webhook_secret", ""),
+            "webhook_events": webhook_events,
+        },
+    )
+
+    if fragment == "webhooks":
+        if await webhooks_form.validate_on_submit():
+            form_data = await request.form()
+            selected_events = form_data.getlist("webhook_events")
+            webhook_events = list(selected_events) if selected_events else []
+            project.config = {
+                **(project.config or {}),
+                "webhook_url": webhooks_form.webhook_url.data or "",
+                "webhook_secret": webhooks_form.webhook_secret.data or "",
+                "webhook_events": webhook_events,
+            }
+            await db.commit()
+            flash(request, _("Webhooks updated."), "success")
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_settings-webhooks.html",
+                context={
+                    "current_user": current_user,
+                    "team": team,
+                    "project": project,
+                    "webhooks_form": webhooks_form,
+                    "webhook_events": webhook_events,
+                },
+            )
+
+    # Deploy Tokens
+    deploy_tokens_result = await db.execute(
+        select(DeployToken)
+        .where(DeployToken.project_id == project.id, DeployToken.status == "active")
+        .order_by(DeployToken.created_at.desc())
+    )
+    deploy_tokens = list(deploy_tokens_result.scalars().all())
+
+    token_form: Any = await DeployTokenForm.from_formdata(request, project=project)
+    delete_token_form: Any = await DeleteDeployTokenForm.from_formdata(request)
+    new_token_value = None
+
+    if fragment == "add_token":
+        if await token_form.validate_on_submit():
+            try:
+                raw_token = DeployToken.generate_token()
+                token_hash = DeployToken.hash_token(raw_token)
+
+                deploy_token = DeployToken(
+                    project_id=project.id,
+                    name=token_form.name.data,
+                    _token=token_hash,
+                    environment_id=token_form.environment_id.data or None,
+                    status="active",
+                    created_by_user_id=current_user.id,
+                )
+                db.add(deploy_token)
+                await db.commit()
+
+                new_token_value = raw_token
+                deploy_tokens.insert(0, deploy_token)
+                flash(request, _("Deploy token created."), "success")
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Error creating deploy token: {str(e)}")
+                flash(request, _("Failed to create deploy token."), "error")
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_settings-deploy-tokens.html",
+                context={
+                    "current_user": current_user,
+                    "team": team,
+                    "project": project,
+                    "deploy_tokens": deploy_tokens,
+                    "token_form": token_form,
+                    "delete_token_form": delete_token_form,
+                    "new_token_value": new_token_value,
+                },
+            )
+
+    if fragment == "delete_token":
+        form_data = await request.form()
+        token_id = form_data.get("token_id")
+
+        if token_id:
+            token_to_delete = next((t for t in deploy_tokens if t.id == token_id), None)
+            if token_to_delete:
+                delete_token_form.token_name = token_to_delete.name
+
+        if await delete_token_form.validate_on_submit():
+            try:
+                result = await db.execute(
+                    select(DeployToken).where(
+                        DeployToken.id == token_id,
+                        DeployToken.project_id == project.id,
+                    )
+                )
+                token_to_delete = result.scalar_one_or_none()
+
+                if token_to_delete:
+                    token_to_delete.status = "revoked"
+                    await db.commit()
+                    deploy_tokens = [t for t in deploy_tokens if t.id != token_id]
+                    flash(request, _("Deploy token revoked."), "success")
+                else:
+                    flash(request, _("Token not found."), "error")
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Error revoking deploy token: {str(e)}")
+                flash(request, _("Failed to revoke deploy token."), "error")
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="project/partials/_settings-deploy-tokens.html",
+                context={
+                    "current_user": current_user,
+                    "team": team,
+                    "project": project,
+                    "deploy_tokens": deploy_tokens,
+                    "token_form": token_form,
+                    "delete_token_form": delete_token_form,
+                    "new_token_value": None,
+                },
+            )
+
     latest_teams = await get_latest_teams(
         db=db, current_user=current_user, current_team=team
     )
@@ -1487,6 +1632,12 @@ async def project_settings(
             "domains": domains,
             "server_ip": settings.server_ip,
             "deploy_domain": settings.deploy_domain,
+            "webhooks_form": webhooks_form,
+            "webhook_events": webhook_events,
+            "deploy_tokens": deploy_tokens,
+            "token_form": token_form,
+            "delete_token_form": delete_token_form,
+            "new_token_value": new_token_value,
             "colors": COLORS,
             "presets": settings.presets,
             "images": settings.images,

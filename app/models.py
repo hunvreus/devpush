@@ -850,3 +850,135 @@ class Allowlist(Base):
     @override
     def __repr__(self):
         return f"<Allowlist {self.type}:{self.value}>"
+
+
+class TeamWebhook(Base):
+    """Team-level webhook configuration for deployment events.
+
+    Webhooks can be scoped to specific projects or apply to all projects in the team.
+    """
+
+    __tablename__: str = "team_webhook"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: token_hex(16)
+    )
+    team_id: Mapped[str] = mapped_column(ForeignKey("team.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    _secret: Mapped[str | None] = mapped_column("secret", String(512), nullable=True)
+    events: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    project_ids: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True
+    )  # None = all projects
+    status: Mapped[str] = mapped_column(
+        SQLAEnum("active", "disabled", name="team_webhook_status"),
+        nullable=False,
+        default="active",
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user.id", use_alter=True, ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    # Relationships
+    team: Mapped[Team] = relationship()
+    created_by_user: Mapped[User | None] = relationship(
+        foreign_keys=[created_by_user_id]
+    )
+
+    @property
+    def secret(self) -> str | None:
+        if self._secret:
+            fernet = get_fernet()
+            return fernet.decrypt(self._secret.encode()).decode()
+        return None
+
+    @secret.setter
+    def secret(self, value: str | None):
+        if value:
+            fernet = get_fernet()
+            self._secret = fernet.encrypt(value.encode()).decode()
+        else:
+            self._secret = None
+
+    def applies_to_project(self, project_id: str) -> bool:
+        """Check if this webhook applies to the given project."""
+        if self.project_ids is None:
+            return True  # All projects
+        return project_id in self.project_ids
+
+    @override
+    def __repr__(self):
+        return f"<TeamWebhook {self.name}>"
+
+
+class DeployToken(Base):
+    """Deploy token for triggering deployments via API/webhook.
+
+    Tokens can be scoped to specific environments or all environments.
+    """
+
+    __tablename__: str = "deploy_token"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: token_hex(16)
+    )
+    project_id: Mapped[str] = mapped_column(ForeignKey("project.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    _token: Mapped[str] = mapped_column(
+        "token", String(128), nullable=False, unique=True
+    )
+    environment_id: Mapped[str | None] = mapped_column(
+        String(8), nullable=True
+    )  # None = all environments
+    status: Mapped[str] = mapped_column(
+        SQLAEnum("active", "revoked", name="deploy_token_status"),
+        nullable=False,
+        default="active",
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user.id", use_alter=True, ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        index=True, nullable=False, default=utc_now
+    )
+
+    # Relationships
+    project: Mapped[Project] = relationship()
+    created_by_user: Mapped[User | None] = relationship(
+        foreign_keys=[created_by_user_id]
+    )
+
+    @classmethod
+    def generate_token(cls) -> str:
+        """Generate a secure random token."""
+        return f"dp_{token_hex(32)}"
+
+    @property
+    def token(self) -> str:
+        """Get the token (stored as hash, so this returns the hash)."""
+        return self._token
+
+    @classmethod
+    def hash_token(cls, raw_token: str) -> str:
+        """Hash a raw token for storage."""
+        import hashlib
+
+        return hashlib.sha256(raw_token.encode()).hexdigest()
+
+    def can_deploy_environment(self, environment_id: str) -> bool:
+        """Check if this token can deploy to the given environment."""
+        if self.environment_id is None:
+            return True  # All environments
+        return self.environment_id == environment_id
+
+    @override
+    def __repr__(self):
+        return f"<DeployToken {self.name}>"

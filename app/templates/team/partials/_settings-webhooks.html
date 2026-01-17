@@ -1,0 +1,330 @@
+{% from "macros/dialog.html" import dialog %}
+
+{% set event_labels = {
+  "started": _("Deployment Started"),
+  "succeeded": _("Deployment Succeeded"),
+  "failed": _("Deployment Failed"),
+  "canceled": _("Deployment Canceled"),
+} %}
+
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _('Webhooks') }}</h2>
+    <p>{{ _('Configure webhooks to receive notifications when deployments occur.') }}</p>
+  </header>
+
+  <section class="space-y-6">
+    {% if webhooks %}
+      <div class="rounded-xl border relative overflow-x-auto scrollbar">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>{{ _('Name') }}</th>
+              <th>{{ _('URL') }}</th>
+              <th>{{ _('Events') }}</th>
+              <th>{{ _('Projects') }}</th>
+              <th>{{ _('Status') }}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for webhook in webhooks %}
+              <tr>
+                <td class="font-medium">{{ webhook.name }}</td>
+                <td class="max-w-[200px] truncate" title="{{ webhook.url }}">{{ webhook.url }}</td>
+                <td>
+                  {% if webhook.events %}
+                    <span class="text-sm text-muted-foreground">{{ webhook.events | length }} event(s)</span>
+                  {% else %}
+                    <span class="text-sm text-muted-foreground">{{ _('All events') }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if webhook.project_ids %}
+                    <span class="text-sm text-muted-foreground">{{ webhook.project_ids | length }} project(s)</span>
+                  {% else %}
+                    <span class="text-sm text-muted-foreground">{{ _('All projects') }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if webhook.status == 'active' %}
+                    <span class="badge badge-success">{{ _('Active') }}</span>
+                  {% else %}
+                    <span class="badge badge-muted">{{ _('Disabled') }}</span>
+                  {% endif %}
+                </td>
+                <td class="w-full text-right">
+                  {% set edit_trigger %}
+                    {% include "icons/pencil.svg" %}
+                  {% endset %}
+                  {% call dialog(
+                    id="edit-webhook-" ~ webhook.id,
+                    trigger=edit_trigger,
+                    title=_('Edit Webhook'),
+                    trigger_attrs={
+                      "class": "btn-icon-ghost",
+                      "aria-label": _('Edit'),
+                      "data-tooltip": _('Edit'),
+                    },
+                    dialog_attrs={"class": "max-w-lg whitespace-normal text-left"},
+                    close_button=true,
+                    close_on_overlay_click=false
+                  ) %}
+                    <form
+                      method="post"
+                      action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='edit_webhook') }}"
+                      hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='edit_webhook') }}"
+                      hx-swap="outerHTML"
+                      hx-target="closest .card"
+                      hx-indicator="find .htmx-indicator"
+                      hx-disabled-elt="input, button, select"
+                      class="space-y-4"
+                    >
+                      {{ webhook_form.csrf_token }}
+                      <input type="hidden" name="webhook_id" value="{{ webhook.id }}" />
+
+                      <div class="grid gap-y-2">
+                        {{ webhook_form.name.label(class="label") }}
+                        {{ webhook_form.name(class="input", value=webhook.name, placeholder=_("My Webhook")) }}
+                      </div>
+
+                      <div class="grid gap-y-2">
+                        {{ webhook_form.url.label(class="label") }}
+                        {{ webhook_form.url(class="input", value=webhook.url, placeholder="https://example.com/webhook") }}
+                      </div>
+
+                      <div class="grid gap-y-2">
+                        {{ webhook_form.secret.label(class="label") }}
+                        {{ webhook_form.secret(class="input", value="", placeholder=_("Leave empty to keep existing secret")) }}
+                        <p class="text-sm text-muted-foreground">{{ _('Used for HMAC-SHA256 signature verification.') }}</p>
+                      </div>
+
+                      <div class="grid gap-y-2">
+                        <label class="label">{{ _('Events') }}</label>
+                        <div class="grid grid-cols-2 gap-2">
+                          {% for event, label in event_labels.items() %}
+                            <label class="flex items-center gap-x-2 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                name="events" 
+                                value="{{ event }}"
+                                class="checkbox"
+                                {% if event in (webhook.events or []) %}checked{% endif %}
+                              />
+                              <span>{{ label }}</span>
+                            </label>
+                          {% endfor %}
+                        </div>
+                        <p class="text-sm text-muted-foreground">{{ _('Leave unchecked to receive all events.') }}</p>
+                      </div>
+
+                      <div class="grid gap-y-2">
+                        <label class="label">{{ _('Projects') }}</label>
+                        <div class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                          {% for project in projects %}
+                            <label class="flex items-center gap-x-2 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                name="project_ids" 
+                                value="{{ project.id }}"
+                                class="checkbox"
+                                {% if webhook.project_ids and project.id in webhook.project_ids %}checked{% endif %}
+                              />
+                              <span>{{ project.name }}</span>
+                            </label>
+                          {% endfor %}
+                        </div>
+                        <p class="text-sm text-muted-foreground">{{ _('Leave unchecked to receive events for all projects.') }}</p>
+                      </div>
+
+                      <footer class="flex justify-end gap-x-2 pt-4">
+                        <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                        <button type="submit" class="btn">{{ _('Save') }}</button>
+                      </footer>
+                    </form>
+                  {% endcall %}
+
+                  {% set delete_trigger %}
+                    {% include "icons/trash-2.svg" %}
+                  {% endset %}
+                  {% call dialog(
+                    id="delete-webhook-" ~ webhook.id,
+                    trigger=delete_trigger,
+                    title=_('Delete Webhook "%(name)s"?', name=webhook.name),
+                    trigger_attrs={
+                      "class": "btn-icon-ghost text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20",
+                      "aria-label": _('Delete'),
+                      "data-tooltip": _('Delete'),
+                      "data-align": "end",
+                    },
+                    dialog_attrs={"class": "max-w-md whitespace-normal text-left"},
+                    close_button=false,
+                    close_on_overlay_click=false
+                  ) %}
+                    <div class="space-y-4">
+                      <p>{{ _("This will permanently delete the webhook. No further notifications will be sent.") }}</p>
+                      <p>{{ _('To confirm, enter the webhook name <b>"%(name)s"</b> below.', name=webhook.name) | safe }}</p>
+                      <form
+                        method="post"
+                        action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_webhook') }}"
+                        hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_webhook') }}"
+                        hx-swap="outerHTML"
+                        hx-target="closest .card"
+                        hx-indicator="find .htmx-indicator"
+                        hx-disabled-elt="input, button"
+                        x-data="{ isValid: false }"
+                        @submit.prevent="isValid && $el.requestSubmit()"
+                        @keydown.enter.prevent="if(isValid){ $el.closest('form').requestSubmit() }"
+                      >
+                        {{ delete_webhook_form.csrf_token }}
+                        <input type="hidden" name="webhook_id" value="{{ webhook.id }}" />
+                        <div class="grid gap-y-2">
+                          {{ delete_webhook_form.confirm(
+                            class_="w-full input",
+                            placeholder=_("Type the webhook name to confirm"),
+                            ** {"@input": "isValid = $event.target.value === '" ~ webhook.name ~ "'"}
+                          ) }}
+                        </div>
+                        <footer class="flex justify-end gap-x-2 pt-4">
+                          <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                          <button type="submit" class="btn-destructive" :disabled="!isValid">{{ _('Delete') }}</button>
+                        </footer>
+                      </form>
+                    </div>
+                  {% endcall %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-center py-8 text-muted-foreground">
+        <p>{{ _('No webhooks configured yet.') }}</p>
+      </div>
+    {% endif %}
+
+    <div class="space-y-4">
+      <h3 class="font-medium">{{ _('Add a new webhook') }}</h3>
+
+      <form
+        class="space-y-4"
+        method="post"
+        action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_webhook') }}"
+        hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_webhook') }}"
+        hx-swap="outerHTML"
+        hx-target="closest .card"
+        hx-indicator="find .htmx-indicator"
+        hx-disabled-elt="input, button, select"
+        x-data="{ url: '', name: '' }"
+      >
+        {{ webhook_form.csrf_token }}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid gap-y-2">
+            {{ webhook_form.name.label(class="label") }}
+            {{ webhook_form.name(class="input", placeholder=_("My Webhook"), **{"x-model": "name"}) }}
+            {% for error in webhook_form.name.errors %}
+              <p class="text-destructive text-sm">{{ error }}</p>
+            {% endfor %}
+          </div>
+
+          <div class="grid gap-y-2">
+            {{ webhook_form.url.label(class="label") }}
+            {{ webhook_form.url(class="input", placeholder="https://example.com/webhook", **{"x-model": "url"}) }}
+            {% for error in webhook_form.url.errors %}
+              <p class="text-destructive text-sm">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="grid gap-y-2">
+          {{ webhook_form.secret.label(class="label") }}
+          {{ webhook_form.secret(class="input", placeholder=_("Optional: secret for signature verification")) }}
+          <p class="text-sm text-muted-foreground">{{ _('Used for HMAC-SHA256 signature verification.') }}</p>
+        </div>
+
+        <div class="grid gap-y-2">
+          <label class="label">{{ _('Events') }}</label>
+          <div class="grid grid-cols-2 gap-2">
+            {% for event, label in event_labels.items() %}
+              <label class="flex items-center gap-x-2 cursor-pointer">
+                <input type="checkbox" name="events" value="{{ event }}" class="checkbox" checked />
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <p class="text-sm text-muted-foreground">{{ _('Leave unchecked to receive all events.') }}</p>
+        </div>
+
+        <div class="grid gap-y-2">
+          <label class="label">{{ _('Projects') }}</label>
+          <div class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+            {% for project in projects %}
+              <label class="flex items-center gap-x-2 cursor-pointer">
+                <input type="checkbox" name="project_ids" value="{{ project.id }}" class="checkbox" />
+                <span>{{ project.name }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <p class="text-sm text-muted-foreground">{{ _('Leave unchecked to receive events for all projects.') }}</p>
+        </div>
+
+        <div class="flex justify-end">
+          <button type="submit" class="btn" :disabled="!url || !name">
+            {% include "icons/plus.svg" %}
+            {{ _('Add Webhook') }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    {# Payload documentation #}
+    <details class="border rounded-xl p-4">
+      <summary class="cursor-pointer font-medium">{{ _('Webhook Payload Format') }}</summary>
+      <div class="mt-4 space-y-4">
+        <div>
+          <h4 class="font-medium text-sm mb-2">{{ _('Headers') }}</h4>
+          <ul class="text-sm text-muted-foreground space-y-1">
+            <li><code class="font-mono bg-muted px-1 rounded">X-DevPush-Event</code>: {{ _('Event type (e.g., deployment.succeeded)') }}</li>
+            <li><code class="font-mono bg-muted px-1 rounded">X-DevPush-Delivery</code>: {{ _('Unique delivery ID') }}</li>
+            <li><code class="font-mono bg-muted px-1 rounded">X-DevPush-Signature</code>: {{ _('HMAC-SHA256 signature (if secret is set)') }}</li>
+          </ul>
+        </div>
+        <div>
+          <h4 class="font-medium text-sm mb-2">{{ _('Example Payload') }}</h4>
+          <pre class="text-xs bg-muted p-3 rounded-lg overflow-x-auto"><code>{
+  "event": "deployment.succeeded",
+  "timestamp": "2025-01-01T12:00:00Z",
+  "project": {
+    "id": "abc123",
+    "name": "my-project",
+    "slug": "my-project",
+    "repo_full_name": "owner/repo"
+  },
+  "deployment": {
+    "id": "def456",
+    "status": "completed",
+    "conclusion": "succeeded",
+    "branch": "main",
+    "commit_sha": "...",
+    "environment": {
+      "id": "prod",
+      "name": "Production",
+      "slug": "production"
+    },
+    "url": "https://..."
+  }
+}</code></pre>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
+    <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+      {% include "icons/loader.svg" %}
+      {{ _("Saving") }}
+    </div>
+  </div>
+</div>
