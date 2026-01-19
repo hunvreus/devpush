@@ -1,18 +1,15 @@
 // Grafana Alloy configuration for /dev/push
-// Option A: File tailing + Docker discovery via socket proxy
+// Optimized for low-latency log delivery
 
 discovery.docker "docker" {
   host             = "http://docker-proxy:2375"
-  // Lower interval so new containers are discovered within ~1s for near‑real‑time logs
   refresh_interval = "500ms"
 }
 
-// Build file targets from Docker metadata and map container labels
 discovery.relabel "docker_logs" {
   targets = discovery.docker.docker.targets
 
-  // Fallback: construct default json-file path from container ID
-  // Build /var/lib/docker/containers/<id>/<id>-json.log
+  // Efficient Path Construction
   rule {
     source_labels = ["__meta_docker_container_id"]
     regex         = "(.*)"
@@ -21,7 +18,7 @@ discovery.relabel "docker_logs" {
     action        = "replace"
   }
 
-  // If Docker exposes a concrete log path, prefer it (only when non-empty)
+  // If Docker exposes a concrete log path, prefer it
   rule {
     source_labels = ["__meta_docker_container_log_path"]
     regex         = "(.+)"
@@ -30,41 +27,14 @@ discovery.relabel "docker_logs" {
     action        = "replace"
   }
 
-  // Map devpush.* docker labels -> Loki stream labels
-  // Map both prefixed and plain labels (deployment_id, project_id, environment_id, branch)
+  // Simplified Label Mapping - catches both devpush_ prefixed and plain labels
   rule {
     action      = "labelmap"
-    regex       = "__meta_docker_container_label_devpush_(.+)"
-    replacement = "$1"
-  }
-  rule {
-    action      = "labelmap"
-    regex       = "__meta_docker_container_label_(project_id|deployment_id|environment_id|branch)"
+    regex       = "__meta_docker_container_label_(?:devpush_)?(deployment_id|project_id|environment_id|branch)"
     replacement = "$1"
   }
 
-  rule {
-    source_labels = ["__meta_docker_container_label_devpush_project_id"]
-    target_label  = "project_id"
-    action        = "replace"
-  }
-  rule {
-    source_labels = ["__meta_docker_container_label_devpush_deployment_id"]
-    target_label  = "deployment_id"
-    action        = "replace"
-  }
-  rule {
-    source_labels = ["__meta_docker_container_label_devpush_environment_id"]
-    target_label  = "environment_id"
-    action        = "replace"
-  }
-  rule {
-    source_labels = ["__meta_docker_container_label_devpush_branch"]
-    target_label  = "branch"
-    action        = "replace"
-  }
-
-  // Optional: tag all logs with a job label
+  // Add job label
   rule {
     target_label = "job"
     replacement  = "docker"
@@ -72,21 +42,24 @@ discovery.relabel "docker_logs" {
   }
 }
 
+// Fast file matching - checks filesystem every 500ms instead of default 10s
+local.file_match "docker_logs" {
+  path_targets = discovery.relabel.docker_logs.output
+  sync_period  = "500ms"  // This is the key fix for discovery lag
+}
+
 // Tail Docker json-file logs
 loki.source.file "docker" {
-  targets    = discovery.relabel.docker_logs.output
+  targets    = local.file_match.docker_logs.targets
   forward_to = [loki.process.docker.receiver]
 }
 
-// Parse Docker JSON log lines and set timestamp/message/labels
+// Parse Docker JSON log lines (keep this for proper formatting)
 loki.process "docker" {
-  // Extract fields from Docker JSON log entries: {time, stream, log}
+  // Extract fields from Docker JSON log entries
   stage.json {
     expressions = { log = "log", stream = "stream", time = "time" }
   }
-
-  // Do NOT override the log entry timestamp. Using ingestion time avoids
-  // clock-skew (container vs host) causing "future" timestamps and visible lag.
 
   // Add the stream (stdout/stderr) as a label
   stage.labels {
@@ -101,12 +74,12 @@ loki.process "docker" {
   forward_to = [loki.write.default.receiver]
 }
 
-// Write to Loki
+// Write to Loki with aggressive batching for low latency
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
-    // Reduce time to first push for new streams
-    batch_wait = "300ms"
-    batch_size = "128KB"
+    // Push more frequently for near-real-time logs
+    batch_wait = "100ms"  // Down from 300ms
+    batch_size = "32KB"   // Down from 128KB
   }
 }
