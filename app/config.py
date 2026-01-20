@@ -124,9 +124,9 @@ class Settings(BaseSettings):
     default_db_size_limit_bytes: int | None = 5 * 1024 * 1024 * 1024
     presets: list[dict] = []
     images: list[dict] = []
-    job_timeout: int = 320
-    job_completion_wait: int = 300
-    deployment_timeout: int = 300
+    job_timeout_seconds: int = 320
+    job_completion_wait_seconds: int = 300
+    deployment_timeout_seconds: int = 300
     container_delete_grace_seconds: int = 3
     service_uid: int = 1000
     service_gid: int = 1000

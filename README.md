@@ -146,9 +146,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | `MAX_CPUS` | Maximum allowed CPU override per project. Used only when `DEFAULT_CPUS` is set. Required to let user customize CPU. |
 | `DEFAULT_MEMORY_MB` | Default memory limit (MB) per deployment. No limit if not provided. |
 | `MAX_MEMORY_MB` | Maximum allowed memory override per project. Used only when `DEFAULT_MEMORY_MB` is set. Required to let user customize memory. |
-| `JOB_TIMEOUT` | Job timeout (seconds). Default: `320`. |
+| `JOB_TIMEOUT_SECONDS` | Job timeout (seconds). Default: `320`. |
 | `JOB_MAX_TRIES` | Max retries per background job. Default: `3`. |
-| `DEPLOYMENT_TIMEOUT` | Deployment timeout (seconds). Default: `300`. |
+| `DEPLOYMENT_TIMEOUT_SECONDS` | Deployment timeout (seconds). Default: `300`. |
 | `LOG_LEVEL` | Logging level. Default: `WARNING`. |
 | `MAGIC_LINK_TTL_SECONDS` | Magic link validity (seconds). Default: `900`. |
 | `AUTH_TOKEN_TTL_DAYS` | Auth cookie/JWT lifetime (days). Default: `30`. |

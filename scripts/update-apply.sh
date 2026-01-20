@@ -391,7 +391,7 @@ if ((skip_components==0)); then
         rollout_service app blue_green
         ;;
       worker-arq)
-        timeout="$(read_env_value "$ENV_FILE" JOB_COMPLETION_WAIT || true)"; : "${timeout:=300}"
+        timeout="$(read_env_value "$ENV_FILE" JOB_COMPLETION_WAIT_SECONDS || true)"; : "${timeout:=300}"
         rollout_service worker-arq blue_green "$timeout"
         ;;
       worker-monitor)

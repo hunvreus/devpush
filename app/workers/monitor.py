@@ -48,7 +48,7 @@ async def _check_status(
             if deployment.created_at.tzinfo is None
             else deployment.created_at
         )
-        if (now_utc - created_at).total_seconds() > settings.deployment_timeout:
+        if (now_utc - created_at).total_seconds() > settings.deployment_timeout_seconds:
             await redis_pool.enqueue_job(
                 "fail_deployment", deployment.id, "Deployment timeout"
             )

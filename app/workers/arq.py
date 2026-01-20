@@ -32,8 +32,8 @@ class WorkerSettings:
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 8
-    job_timeout = settings.job_timeout
-    job_completion_wait = settings.job_completion_wait
+    job_timeout_seconds = settings.job_timeout_seconds
+    job_completion_wait_seconds = settings.job_completion_wait_seconds
     max_tries = settings.job_max_tries
     health_check_interval = 65  # Greater than 60s to avoid health check timeout
     allow_abort_jobs = True

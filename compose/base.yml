@@ -42,7 +42,7 @@ services:
         APP_GID: ${SERVICE_GID:-1000}
     entrypoint: /entrypoint.worker-arq.sh
     restart: always
-    stop_grace_period: ${JOB_TIMEOUT:-320}s
+    stop_grace_period: ${JOB_TIMEOUT_SECONDS:-320}s
     depends_on:
       - redis
       - pgsql
