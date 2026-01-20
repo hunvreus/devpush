@@ -159,7 +159,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 1. **ARQ worker**: `app/workers/arq.py` - Handles async job queue
 2. **Monitor worker**: `app/workers/monitor.py` - Monitors deployment containers
 3. **Tasks**: `app/workers/tasks/` - Individual task implementations (deploy, cleanup, etc.)
-4. **Job queue**: Access via `get_job_queue()` dependency (returns `ArqRedis` connection)
+4. **Job queue**: Access via `get_queue()` dependency (returns `ArqRedis` connection)
 
 ### Code Style
 

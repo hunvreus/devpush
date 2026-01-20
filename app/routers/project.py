@@ -20,7 +20,7 @@ from dependencies import (
     get_team_by_slug,
     get_github_service,
     get_redis_client,
-    get_job_queue,
+    get_queue,
     flash,
     get_translation as _,
     TemplateResponse,
@@ -525,7 +525,7 @@ async def project_storage(
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
@@ -624,7 +624,7 @@ async def project_storage(
                 db.add(association)
                 await db.commit()
                 try:
-                    await job_queue.enqueue_job("provision_storage", storage.id)
+                    await queue.enqueue_job("provision_storage", storage.id)
                 except Exception as exc:
                     logger.error(
                         "Failed to enqueue provisioning for storage %s: %s",
@@ -895,7 +895,7 @@ async def project_deploy(
     settings: Settings = Depends(get_settings),
     github_service: GitHubService = Depends(get_github_service),
     redis_client: Redis = Depends(get_redis_client),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     github_installation_service: GitHubInstallationService = Depends(
         get_github_installation_service
     ),
@@ -930,7 +930,7 @@ async def project_deploy(
                 current_user=current_user,
                 db=db,
                 redis_client=redis_client,
-                deployment_queue=job_queue,
+                queue=queue,
             )
 
             flash(
@@ -1045,7 +1045,7 @@ async def project_redeploy(
     db: AsyncSession = Depends(get_db),
     github_service: GitHubService = Depends(get_github_service),
     redis_client: Redis = Depends(get_redis_client),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     github_installation_service: GitHubInstallationService = Depends(
         get_github_installation_service
     ),
@@ -1082,7 +1082,7 @@ async def project_redeploy(
                 current_user=current_user,
                 db=db,
                 redis_client=redis_client,
-                deployment_queue=job_queue,
+                queue=queue,
             )
 
             flash(
@@ -1136,7 +1136,7 @@ async def project_cancel(
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     deployment: Deployment = Depends(get_deployment_by_id),
     redis_client: Redis = Depends(get_redis_client),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
 ):
     team, membership = team_and_membership
 
@@ -1147,7 +1147,7 @@ async def project_cancel(
             await DeploymentService().cancel(
                 project=project,
                 deployment=deployment,
-                deployment_queue=job_queue,
+                queue=queue,
                 redis_client=redis_client,
             )
 
@@ -1329,7 +1329,7 @@ async def project_settings(
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
 ):
     team, membership = team_and_membership
 
@@ -1359,7 +1359,7 @@ async def project_settings(
                     await db.commit()
 
                     # Project is marked as deleted, actual cleanup is delegated to a job
-                    await job_queue.enqueue_job("delete_project", project.id)
+                    await queue.enqueue_job("delete_project", project.id)
 
                     flash(
                         request,
@@ -1966,14 +1966,14 @@ async def project_deployment(
 
     if request.headers.get("HX-Request") and fragment == "header":
         if request.method == "POST" and await cancel_form.validate_on_submit():
-            job_queue = get_job_queue(request)
+            queue = get_queue(request)
             redis_client = get_redis_client()
 
             try:
                 await DeploymentService().cancel(
                     project=project,
                     deployment=deployment,
-                    deployment_queue=job_queue,
+                    queue=queue,
                     redis_client=redis_client,
                     db=db,
                 )

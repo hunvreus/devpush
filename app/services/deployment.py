@@ -312,8 +312,7 @@ class DeploymentService:
         commit: dict,
         db: AsyncSession,
         redis_client: Redis,
-        job_queue: ArqRedis | None = None,
-        deployment_queue: ArqRedis | None = None,
+        queue: ArqRedis,
         trigger: str = "user",
         current_user: User | None = None,
     ) -> Deployment:
@@ -362,10 +361,6 @@ class DeploymentService:
         db.add(deployment)
         await db.commit()
 
-        queue = deployment_queue or job_queue
-        if not queue:
-            raise ValueError("No job queue provided for deployment creation.")
-
         job = await queue.enqueue_job("start_deployment", deployment.id)
         deployment.job_id = job.job_id
         await db.commit()
@@ -391,7 +386,7 @@ class DeploymentService:
         self,
         project: Project,
         deployment: Deployment,
-        job_queue: ArqRedis,
+        queue: ArqRedis,
         redis_client: Redis,
         db: AsyncSession,
     ) -> Alias:
@@ -403,7 +398,7 @@ class DeploymentService:
         if not deployment.job_id:
             logger.warning(f"Deployment {deployment.id} has no job_id to cancel")
 
-        job = Job(job_id=deployment.job_id, redis=job_queue)
+        job = Job(job_id=deployment.job_id, redis=queue)
 
         # Check if job exists and get its status
         try:

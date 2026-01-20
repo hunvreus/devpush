@@ -25,7 +25,7 @@ from models import (
 from dependencies import (
     get_current_user,
     get_team_by_slug,
-    get_job_queue,
+    get_queue,
     flash,
     get_translation as _,
     TemplateResponse,
@@ -182,7 +182,7 @@ async def team_storage(
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
@@ -201,7 +201,7 @@ async def team_storage(
             db.add(storage)
             await db.commit()
             try:
-                await job_queue.enqueue_job("provision_storage", storage.id)
+                await queue.enqueue_job("provision_storage", storage.id)
             except Exception as exc:
                 logger.error(
                     "Failed to enqueue provisioning for storage %s: %s",
@@ -318,7 +318,7 @@ async def team_storage_item(
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     storage: Storage = Depends(get_storage_by_name),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
@@ -342,7 +342,7 @@ async def team_storage_item(
             await db.commit()
             if storage.type in ("database", "volume"):
                 try:
-                    await job_queue.enqueue_job("deprovision_storage", storage.id)
+                    await queue.enqueue_job("deprovision_storage", storage.id)
                 except Exception as exc:
                     logger.error(
                         "Failed to enqueue deprovisioning for storage %s: %s",
@@ -692,7 +692,7 @@ async def team_settings(
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     db: AsyncSession = Depends(get_db),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     settings: Settings = Depends(get_settings),
 ):
     team, membership = team_and_membership
@@ -725,7 +725,7 @@ async def team_settings(
                         await db.commit()
 
                         # Team is marked as deleted, actual cleanup is delegated to a job
-                        await job_queue.enqueue_job("delete_team", team.id)
+                        await queue.enqueue_job("delete_team", team.id)
 
                         flash(
                             request,

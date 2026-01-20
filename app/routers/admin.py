@@ -16,7 +16,7 @@ from dependencies import (
     TemplateResponse,
     get_current_user,
     is_superadmin,
-    get_job_queue,
+    get_queue,
 )
 from db import get_db
 from models import User, Allowlist
@@ -104,7 +104,7 @@ async def admin_settings(
     allowlist_search: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     settings: Settings = Depends(get_settings),
 ):
     if not is_superadmin(current_user):
@@ -333,7 +333,7 @@ async def admin_settings(
                     target_user.status = "deleted"
                     await db.commit()
 
-                    await job_queue.enqueue_job("delete_user", target_user.id)
+                    await queue.enqueue_job("delete_user", target_user.id)
 
                     flash(
                         request,

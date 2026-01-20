@@ -110,7 +110,7 @@ def get_redis_client() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=True)
 
 
-def get_job_queue(request: Request) -> ArqRedis:
+def get_queue(request: Request) -> ArqRedis:
     return request.app.state.redis_pool
 
 

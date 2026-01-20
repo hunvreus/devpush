@@ -19,7 +19,7 @@ from dependencies import (
     TemplateResponse,
     templates,
     get_current_user,
-    get_job_queue,
+    get_queue,
     RedirectResponseX,
     get_redis_client,
 )
@@ -45,7 +45,7 @@ async def user_settings(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    job_queue: ArqRedis = Depends(get_job_queue),
+    queue: ArqRedis = Depends(get_queue),
     redis=Depends(get_redis_client),
 ):
     # Delete
@@ -57,7 +57,7 @@ async def user_settings(
                 current_user.status = "deleted"
                 await db.commit()
 
-                await job_queue.enqueue_job("delete_user", current_user.id)
+                await queue.enqueue_job("delete_user", current_user.id)
 
                 flash(
                     request,

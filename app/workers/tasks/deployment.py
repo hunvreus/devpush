@@ -275,8 +275,8 @@ async def start_deployment(ctx, deployment_id: str):
                 logger.error(f"{log_prefix} Error updating deployment status: {e}")
 
     except Exception as e:
-        job_queue: ArqRedis = ctx["redis"]
-        await job_queue.enqueue_job("fail_deployment", deployment_id, reason=str(e))
+        queue: ArqRedis = ctx["redis"]
+        await queue.enqueue_job("fail_deployment", deployment_id, reason=str(e))
         logger.info(f"{log_prefix} Deployment startup failed.", exc_info=True)
 
 
@@ -326,8 +326,8 @@ async def finalize_deployment(ctx, deployment_id: str):
                 logger.error(f"{log_prefix} Failed to update Traefik config: {e}")
 
             # Cleanup inactive deployments
-            job_queue: ArqRedis = ctx["redis"]
-            await job_queue.enqueue_job(
+            queue: ArqRedis = ctx["redis"]
+            await queue.enqueue_job(
                 "cleanup_inactive_containers", deployment.project_id
             )
             logger.info(
