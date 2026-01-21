@@ -112,26 +112,6 @@ async def _ensure_traefik_on_network(
             raise
 
 
-async def _ensure_probe_on_network(
-    docker_client: aiodocker.Docker, network_name: str, log_prefix: str
-):
-    monitor_id = await _get_service_container_id(docker_client, "worker-monitor")
-    if not monitor_id:
-        logger.warning(
-            f"{log_prefix} Monitor container not found for network attach."
-        )
-        return
-
-    network = await docker_client.networks.get(network_name)
-    try:
-        await network.connect({"Container": monitor_id})
-    except aiodocker.DockerError as error:
-        if error.status == 403 and "endpoint with name" in str(error).lower():
-            return
-        if error.status != 409:
-            raise
-
-
 async def _disconnect_traefik_from_network(
     docker_client: aiodocker.Docker, network_name: str, log_prefix: str
 ):
@@ -154,70 +134,6 @@ async def _disconnect_traefik_from_network(
             logger.warning(
                 f"{log_prefix} Failed to detach Traefik from {network_name}: {error}"
             )
-
-
-async def _disconnect_probe_from_network(
-    docker_client: aiodocker.Docker, network_name: str, log_prefix: str
-):
-    monitor_id = await _get_service_container_id(docker_client, "worker-monitor")
-    if not monitor_id:
-        logger.warning(
-            f"{log_prefix} Monitor container not found for network detach."
-        )
-        return
-
-    try:
-        network = await docker_client.networks.get(network_name)
-    except aiodocker.DockerError as error:
-        if error.status != 404:
-            raise
-        return
-
-    try:
-        await network.disconnect({"Container": monitor_id, "Force": True})
-    except aiodocker.DockerError as error:
-        if error.status not in (404, 409):
-            logger.warning(
-                f"{log_prefix} Failed to detach monitor from {network_name}: {error}"
-            )
-
-
-async def _workspace_has_deployments(
-    docker_client: aiodocker.Docker, network_name: str
-) -> bool:
-    try:
-        network = await docker_client.networks.get(network_name)
-    except aiodocker.DockerError as error:
-        if error.status != 404:
-            raise
-        return False
-
-    info = await network.show()
-    containers = info.get("Containers") or {}
-    for container_id in containers.keys():
-        try:
-            container = await docker_client.containers.get(container_id)
-            container_info = await container.show()
-        except Exception:
-            continue
-
-        labels = container_info.get("Config", {}).get("Labels", {}) or {}
-        if labels.get("devpush.deployment_id"):
-            return True
-
-    return False
-
-
-async def _purge_workspace_network_if_unused(
-    docker_client: aiodocker.Docker, network_name: str, log_prefix: str
-):
-    if await _workspace_has_deployments(docker_client, network_name):
-        return
-
-    await _disconnect_probe_from_network(docker_client, network_name, log_prefix)
-    await _remove_network_if_empty(docker_client, network_name, log_prefix)
-    logger.info(f"{log_prefix} Purged workspace network {network_name}.")
-
 
 async def _remove_network_if_empty(
     docker_client: aiodocker.Docker, network_name: str, log_prefix: str
@@ -244,7 +160,6 @@ async def _remove_network_if_empty(
 async def _cleanup_networks(
     docker_client: aiodocker.Docker,
     edge_network_name: str | None,
-    workspace_network_name: str | None,
     log_prefix: str,
 ):
     if edge_network_name:
@@ -252,11 +167,6 @@ async def _cleanup_networks(
             docker_client, edge_network_name, log_prefix
         )
         await _remove_network_if_empty(docker_client, edge_network_name, log_prefix)
-
-    if workspace_network_name:
-        await _purge_workspace_network_if_unused(
-            docker_client, workspace_network_name, log_prefix
-        )
 
 
 async def _log_to_container(container, message, error=False):
@@ -393,13 +303,6 @@ async def start_deployment(ctx, deployment_id: str):
                         "devpush.workspace_id": deployment.project.team_id,
                     },
                 )
-                await _ensure_traefik_on_network(
-                    docker_client, edge_network_name, log_prefix
-                )
-                await _ensure_probe_on_network(
-                    docker_client, workspace_network_name, log_prefix
-                )
-
                 labels = {
                     "traefik.enable": "true",
                     f"traefik.http.routers.{router}.rule": f"Host(`{deployment.slug}.{settings.deploy_domain}`)",
@@ -532,6 +435,10 @@ async def start_deployment(ctx, deployment_id: str):
                 logger.info(
                     f"{log_prefix} Container {container.id} started. Monitoring..."
                 )
+                job_queue: ArqRedis = ctx["redis"]
+                await job_queue.enqueue_job(
+                    "reconcile_edge_network", deployment.id
+                )
 
     except asyncio.CancelledError:
         logger.info(f"{log_prefix} Deployment canceled.")
@@ -553,28 +460,10 @@ async def start_deployment(ctx, deployment_id: str):
 
             try:
                 edge_network_name = _edge_network_name(deployment_id)
-                workspace_network_name = None
-                async with AsyncSessionLocal() as db:
-                    deployment = (
-                        await db.execute(
-                            select(Deployment)
-                            .options(joinedload(Deployment.project))
-                            .where(Deployment.id == deployment_id)
-                        )
-                    ).scalar_one_or_none()
-                    if deployment:
-                        workspace_network_name = _workspace_network_name(
-                            deployment.project.team_id
-                        )
                 async with aiodocker.Docker(
                     url=settings.docker_host
                 ) as docker_client:
-                    await _cleanup_networks(
-                        docker_client,
-                        edge_network_name,
-                        workspace_network_name,
-                        log_prefix,
-                    )
+                    await _cleanup_networks(docker_client, edge_network_name, log_prefix)
             except Exception:
                 logger.warning(
                     f"{log_prefix} Failed to cleanup networks after cancel.",
@@ -605,6 +494,75 @@ async def start_deployment(ctx, deployment_id: str):
             f"Deployment failed unexpectedly: {e}",
         )
         logger.info(f"{log_prefix} Deployment startup failed.", exc_info=True)
+
+
+async def reconcile_edge_network(ctx, deployment_id: str | None = None):
+    """Ensures Traefik is attached to edge networks for active deployments."""
+    settings = get_settings()
+    log_prefix = "[EdgeReconcile]"
+
+    async with aiodocker.Docker(url=settings.docker_host) as docker_client:
+        edge_networks: set[str] = set()
+
+        if deployment_id:
+            async with AsyncSessionLocal() as db:
+                deployment = (
+                    await db.execute(
+                        select(Deployment).where(Deployment.id == deployment_id)
+                    )
+                ).scalar_one_or_none()
+                if not deployment or not deployment.container_id:
+                    deployment_id = None
+                else:
+                    try:
+                        container_obj = await docker_client.containers.get(
+                            deployment.container_id
+                        )
+                        info = await container_obj.show()
+                        labels = info.get("Config", {}).get("Labels", {}) or {}
+                        edge_network = labels.get("devpush.edge_network")
+                        if edge_network:
+                            edge_networks.add(edge_network)
+                        else:
+                            deployment_id = None
+                    except Exception:
+                        deployment_id = None
+
+        if not edge_networks and not deployment_id:
+            try:
+                containers = await docker_client.containers.list(all=True)
+            except Exception:
+                logger.warning(f"{log_prefix} Failed to list containers.")
+                return
+
+            for container in containers:
+                if isinstance(container, dict):
+                    labels = container.get("Labels") or {}
+                    container_id = container.get("Id")
+                else:
+                    labels = getattr(container, "labels", {}) or {}
+                    container_id = getattr(container, "id", None)
+
+                edge_network = labels.get("devpush.edge_network")
+                if not edge_network and container_id:
+                    try:
+                        container_obj = await docker_client.containers.get(container_id)
+                        info = await container_obj.show()
+                        labels = info.get("Config", {}).get("Labels", {}) or {}
+                        edge_network = labels.get("devpush.edge_network")
+                    except Exception:
+                        continue
+
+                if edge_network:
+                    edge_networks.add(edge_network)
+
+        if not edge_networks:
+            return
+
+        for edge_network in sorted(edge_networks):
+            await _ensure_traefik_on_network(
+                docker_client, edge_network, log_prefix
+            )
 
 
 async def finalize_deployment(ctx, deployment_id: str):
@@ -725,7 +683,6 @@ async def fail_deployment(
         )
 
         edge_network_name = _edge_network_name(deployment.id)
-        workspace_network_name = _workspace_network_name(deployment.project.team_id)
         networks_cleaned = False
 
         if deployment.container_id and deployment.container_status not in (
@@ -740,13 +697,10 @@ async def fail_deployment(
                     try:
                         try:
                             container_info = await container.show()
-                            edge_from_label, workspace_from_label = (
-                                _get_network_names_from_labels(container_info)
+                            edge_from_label, _ = _get_network_names_from_labels(
+                                container_info
                             )
                             edge_network_name = edge_from_label or edge_network_name
-                            workspace_network_name = (
-                                workspace_from_label or workspace_network_name
-                            )
                         except Exception:
                             logger.warning(
                                 f"{log_prefix} Failed to read container network labels."
@@ -782,12 +736,7 @@ async def fail_deployment(
                         container_status="removed",
                         emit=False,
                     )
-                    await _cleanup_networks(
-                        docker_client,
-                        edge_network_name,
-                        workspace_network_name,
-                        log_prefix,
-                    )
+                    await _cleanup_networks(docker_client, edge_network_name, log_prefix)
                     networks_cleaned = True
                 else:
                     logger.error(
@@ -803,12 +752,7 @@ async def fail_deployment(
         if not networks_cleaned:
             try:
                 async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-                    await _cleanup_networks(
-                        docker_client,
-                        edge_network_name,
-                        workspace_network_name,
-                        log_prefix,
-                    )
+                    await _cleanup_networks(docker_client, edge_network_name, log_prefix)
             except Exception:
                 logger.warning(
                     f"{log_prefix} Failed to cleanup networks after failure.",
@@ -844,7 +788,6 @@ async def delete_container(ctx, deployment_id: str):
             return
 
         edge_network_name = _edge_network_name(deployment.id)
-        workspace_network_name = _workspace_network_name(deployment.project.team_id)
 
         try:
             async with aiodocker.Docker(url=settings.docker_host) as docker_client:
@@ -855,13 +798,10 @@ async def delete_container(ctx, deployment_id: str):
                     try:
                         try:
                             container_info = await container.show()
-                            edge_from_label, workspace_from_label = (
-                                _get_network_names_from_labels(container_info)
+                            edge_from_label, _ = _get_network_names_from_labels(
+                                container_info
                             )
                             edge_network_name = edge_from_label or edge_network_name
-                            workspace_network_name = (
-                                workspace_from_label or workspace_network_name
-                            )
                         except Exception:
                             logger.warning(
                                 f"{log_prefix} Failed to read container network labels."
@@ -871,21 +811,13 @@ async def delete_container(ctx, deployment_id: str):
                         pass
                     await container.delete(force=True)
                     deployment.container_status = "removed"
-                    await _cleanup_networks(
-                        docker_client,
-                        edge_network_name,
-                        workspace_network_name,
-                        log_prefix,
-                    )
+                    await _cleanup_networks(docker_client, edge_network_name, log_prefix)
                     await db.commit()
                 except aiodocker.DockerError as error:
                     if error.status == 404:
                         deployment.container_status = "removed"
                         await _cleanup_networks(
-                            docker_client,
-                            edge_network_name,
-                            workspace_network_name,
-                            log_prefix,
+                            docker_client, edge_network_name, log_prefix
                         )
                         await db.commit()
         except Exception:
@@ -981,11 +913,10 @@ async def cleanup_inactive_containers(
                             deployment.container_id
                         )
                         edge_network_name = None
-                        workspace_network_name = None
                         try:
                             container_info = await container.show()
-                            edge_network_name, workspace_network_name = (
-                                _get_network_names_from_labels(container_info)
+                            edge_network_name, _ = _get_network_names_from_labels(
+                                container_info
                             )
                         except Exception:
                             logger.warning(
@@ -1011,7 +942,6 @@ async def cleanup_inactive_containers(
                             await _cleanup_networks(
                                 docker_client,
                                 edge_network_name,
-                                workspace_network_name,
                                 f"[CleanupInactiveContainers:{project_id}]",
                             )
 
