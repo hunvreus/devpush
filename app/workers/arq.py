@@ -2,6 +2,7 @@ import logging
 from arq.connections import RedisSettings
 from workers.tasks.deployment import (
     start_deployment,
+    reconcile_edge_network,
     finalize_deployment,
     fail_deployment,
     cleanup_inactive_containers,
@@ -18,9 +19,14 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+async def startup(ctx):
+    await reconcile_edge_network(ctx)
+
+
 class WorkerSettings:
     functions = [
         start_deployment,
+        reconcile_edge_network,
         finalize_deployment,
         fail_deployment,
         delete_user,
@@ -37,3 +43,4 @@ class WorkerSettings:
     max_tries = settings.job_max_tries
     health_check_interval = 65  # Greater than 60s to avoid health check timeout
     allow_abort_jobs = True
+    on_startup = startup
