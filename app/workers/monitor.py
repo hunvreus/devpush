@@ -91,7 +91,14 @@ async def _check_status(
 
         elif status == "running":
             networks = container_info.get("NetworkSettings", {}).get("Networks", {})
-            container_ip = networks.get("devpush_runner", {}).get("IPAddress")
+            labels = container_info.get("Config", {}).get("Labels", {}) or {}
+            workspace_network = labels.get("devpush.workspace_network")
+            container_ip = None
+            if workspace_network:
+                container_ip = networks.get(workspace_network, {}).get("IPAddress")
+            if not container_ip:
+                # LEGACY(network): fallback for deployments created before edge/workspace networks.
+                container_ip = networks.get("devpush_runner", {}).get("IPAddress")
             if container_ip and await _http_probe(container_ip, 8000):
                 await redis_pool.enqueue_job("finalize_deployment", deployment.id)
                 logger.info(
