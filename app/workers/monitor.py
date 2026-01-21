@@ -9,6 +9,13 @@ from config import get_settings
 
 from db import AsyncSessionLocal
 from models import Deployment
+from utils.docker_network import (
+    connect_container_to_network,
+    disconnect_container_from_network,
+    get_service_container_id,
+    network_has_deployments,
+    remove_network_if_empty,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,114 +33,10 @@ async def _http_probe(ip: str, port: int, timeout: float = 5) -> bool:
         return False
 
 
-async def _get_service_container_id(
-    docker_client: aiodocker.Docker, service_name: str
-) -> str | None:
-    try:
-        containers = await docker_client.containers.list(all=True)
-    except Exception:
-        return None
-
-    fallback_ids = []
-    for container in containers:
-        if isinstance(container, dict):
-            labels = container.get("Labels") or {}
-            container_id = container.get("Id")
-            names = container.get("Names") or []
-        else:
-            labels = getattr(container, "labels", {}) or {}
-            container_id = getattr(container, "id", None)
-            names = getattr(container, "names", []) or []
-
-        if labels.get("com.docker.compose.service") == service_name:
-            return container_id
-        if any(service_name in name for name in names):
-            return container_id
-        if container_id:
-            fallback_ids.append(container_id)
-
-    for container_id in fallback_ids:
-        try:
-            container = await docker_client.containers.get(container_id)
-            info = await container.show()
-        except Exception:
-            continue
-
-        labels = info.get("Config", {}).get("Labels", {}) or {}
-        name = (info.get("Name") or "").lstrip("/")
-        if labels.get("com.docker.compose.service") == service_name:
-            return container_id
-        if service_name in name:
-            return container_id
-
-    return None
-
-
 async def _ensure_probe_on_network(
     docker_client: aiodocker.Docker, probe_id: str | None, network_name: str | None
 ):
-    if not probe_id or not network_name:
-        return
-
-    try:
-        network = await docker_client.networks.get(network_name)
-    except aiodocker.DockerError:
-        return
-
-    try:
-        await network.connect({"Container": probe_id})
-    except aiodocker.DockerError as error:
-        if error.status == 403 and "endpoint with name" in str(error).lower():
-            return
-        if error.status != 409:
-            raise
-
-
-async def _network_has_deployments(
-    docker_client: aiodocker.Docker, network_name: str
-) -> bool:
-    try:
-        network = await docker_client.networks.get(network_name)
-    except aiodocker.DockerError as error:
-        if error.status != 404:
-            raise
-        return False
-
-    info = await network.show()
-    containers = info.get("Containers") or {}
-    for container_id in containers.keys():
-        try:
-            container = await docker_client.containers.get(container_id)
-            container_info = await container.show()
-        except Exception:
-            continue
-
-        labels = container_info.get("Config", {}).get("Labels", {}) or {}
-        if labels.get("devpush.deployment_id"):
-            return True
-
-    return False
-
-
-async def _remove_network_if_empty(
-    docker_client: aiodocker.Docker, network_name: str
-):
-    try:
-        network = await docker_client.networks.get(network_name)
-    except aiodocker.DockerError as error:
-        if error.status != 404:
-            raise
-        return
-
-    info = await network.show()
-    containers = info.get("Containers") or {}
-    if containers:
-        return
-
-    try:
-        await network.delete()
-    except aiodocker.DockerError:
-        return
+    await connect_container_to_network(docker_client, probe_id, network_name)
 
 
 async def _detach_probe_from_unused_networks(
@@ -153,25 +56,14 @@ async def _detach_probe_from_unused_networks(
     for network_name in networks.keys():
         if not network_name.startswith(WORKSPACE_NETWORK_PREFIX):
             continue
-        if await _network_has_deployments(docker_client, network_name):
+        if await network_has_deployments(docker_client, network_name):
             continue
 
-        try:
-            network = await docker_client.networks.get(network_name)
-        except aiodocker.DockerError:
-            continue
-
-        try:
-            await network.disconnect({"Container": probe_id, "Force": True})
-        except aiodocker.DockerError as error:
-            if error.status not in (404, 409):
-                logger.warning(
-                    f"[DeployMonitor] Failed to detach probe from {network_name}: {error}"
-                )
-                continue
-
-        if not await _network_has_deployments(docker_client, network_name):
-            await _remove_network_if_empty(docker_client, network_name)
+        await disconnect_container_from_network(
+            docker_client, probe_id, network_name
+        )
+        if not await network_has_deployments(docker_client, network_name):
+            await remove_network_if_empty(docker_client, network_name)
 
 
 async def _check_status(
@@ -315,7 +207,7 @@ async def monitor():
                     deployments_to_check = result.scalars().all()
 
                     if deployments_to_check:
-                        probe_id = await _get_service_container_id(
+                        probe_id = await get_service_container_id(
                             docker_client, "worker-monitor"
                         )
                         tasks = [
@@ -329,7 +221,7 @@ async def monitor():
                             docker_client, probe_id
                         )
                     else:
-                        probe_id = await _get_service_container_id(
+                        probe_id = await get_service_container_id(
                             docker_client, "worker-monitor"
                         )
                         await _detach_probe_from_unused_networks(

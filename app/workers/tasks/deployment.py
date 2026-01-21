@@ -9,6 +9,13 @@ import shlex
 
 from models import Alias, Deployment, Project
 from db import AsyncSessionLocal
+from utils.docker_network import (
+    connect_container_to_network,
+    disconnect_container_from_network,
+    ensure_network,
+    get_service_container_id,
+    remove_network_if_empty,
+)
 from dependencies import (
     get_redis_client,
     get_github_installation_service,
@@ -36,126 +43,26 @@ def _get_network_names_from_labels(container_info: dict[str, Any]):
     return labels.get("devpush.edge_network"), labels.get("devpush.workspace_network")
 
 
-async def _ensure_network(
-    docker_client: aiodocker.Docker, name: str, labels: dict[str, str]
-):
-    try:
-        return await docker_client.networks.get(name)
-    except aiodocker.DockerError as error:
-        if error.status != 404:
-            raise
-
-    await docker_client.networks.create(
-        {"Name": name, "CheckDuplicate": True, "Labels": labels}
-    )
-    return await docker_client.networks.get(name)
-
-
-async def _get_service_container_id(
-    docker_client: aiodocker.Docker, service_name: str
-) -> str | None:
-    try:
-        containers = await docker_client.containers.list(all=True)
-    except Exception:
-        return None
-
-    fallback_ids = []
-    for container in containers:
-        if isinstance(container, dict):
-            labels = container.get("Labels") or {}
-            container_id = container.get("Id")
-            names = container.get("Names") or []
-        else:
-            labels = getattr(container, "labels", {}) or {}
-            container_id = getattr(container, "id", None)
-            names = getattr(container, "names", []) or []
-
-        if labels.get("com.docker.compose.service") == service_name:
-            return container_id
-        if any(service_name in name for name in names):
-            return container_id
-        if container_id:
-            fallback_ids.append(container_id)
-
-    for container_id in fallback_ids:
-        try:
-            container = await docker_client.containers.get(container_id)
-            info = await container.show()
-        except Exception:
-            continue
-
-        labels = info.get("Config", {}).get("Labels", {}) or {}
-        name = (info.get("Name") or "").lstrip("/")
-        if labels.get("com.docker.compose.service") == service_name:
-            return container_id
-        if service_name in name:
-            return container_id
-
-    return None
-
-
 async def _ensure_traefik_on_network(
     docker_client: aiodocker.Docker, network_name: str, log_prefix: str
 ):
-    traefik_id = await _get_service_container_id(docker_client, "traefik")
+    traefik_id = await get_service_container_id(docker_client, "traefik")
     if not traefik_id:
         logger.warning(f"{log_prefix} Traefik container not found for network attach.")
         return
 
-    network = await docker_client.networks.get(network_name)
-    try:
-        await network.connect({"Container": traefik_id})
-    except aiodocker.DockerError as error:
-        if error.status == 403 and "endpoint with name" in str(error).lower():
-            return
-        if error.status != 409:
-            raise
+    await connect_container_to_network(docker_client, traefik_id, network_name)
 
 
 async def _disconnect_traefik_from_network(
     docker_client: aiodocker.Docker, network_name: str, log_prefix: str
 ):
-    traefik_id = await _get_service_container_id(docker_client, "traefik")
+    traefik_id = await get_service_container_id(docker_client, "traefik")
     if not traefik_id:
         logger.warning(f"{log_prefix} Traefik container not found for network detach.")
         return
 
-    try:
-        network = await docker_client.networks.get(network_name)
-    except aiodocker.DockerError as error:
-        if error.status != 404:
-            raise
-        return
-
-    try:
-        await network.disconnect({"Container": traefik_id, "Force": True})
-    except aiodocker.DockerError as error:
-        if error.status not in (404, 409):
-            logger.warning(
-                f"{log_prefix} Failed to detach Traefik from {network_name}: {error}"
-            )
-
-async def _remove_network_if_empty(
-    docker_client: aiodocker.Docker, network_name: str, log_prefix: str
-):
-    try:
-        network = await docker_client.networks.get(network_name)
-    except aiodocker.DockerError as error:
-        if error.status != 404:
-            raise
-        return
-
-    info = await network.show()
-    containers = info.get("Containers") or {}
-    if containers:
-        return
-
-    try:
-        await network.delete()
-        logger.info(f"{log_prefix} Removed network {network_name}")
-    except aiodocker.DockerError as error:
-        logger.warning(f"{log_prefix} Failed to remove {network_name}: {error}")
-
+    await disconnect_container_from_network(docker_client, traefik_id, network_name)
 
 async def _cleanup_networks(
     docker_client: aiodocker.Docker,
@@ -166,7 +73,8 @@ async def _cleanup_networks(
         await _disconnect_traefik_from_network(
             docker_client, edge_network_name, log_prefix
         )
-        await _remove_network_if_empty(docker_client, edge_network_name, log_prefix)
+        if await remove_network_if_empty(docker_client, edge_network_name):
+            logger.info(f"{log_prefix} Removed network {edge_network_name}")
 
 
 async def _log_to_container(container, message, error=False):
@@ -303,7 +211,7 @@ async def start_deployment(ctx, deployment_id: str):
                     deployment.project.team_id
                 )
 
-                await _ensure_network(
+                await ensure_network(
                     docker_client,
                     edge_network_name,
                     {
@@ -311,7 +219,7 @@ async def start_deployment(ctx, deployment_id: str):
                         "devpush.deployment_id": deployment.id,
                     },
                 )
-                await _ensure_network(
+                await ensure_network(
                     docker_client,
                     workspace_network_name,
                     {
