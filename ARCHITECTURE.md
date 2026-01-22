@@ -19,7 +19,7 @@ This document describes the high‑level architecture of /dev/push, how the main
 ## Overview
 
 - **App**: The app handles all of the user-facing logic (managing teams/projects, authenticating, searching logs...). It communicates with the workers via Redis.
-- **Workers**: When we create a new deployment, we queue a deploy job using arq (`app/workers/arq.py`). It will start a container, then delegate monitoring to a separate background worker (`app/workers/monitor.py`), before wrapping things back with yet another job. These workers are also used to run certain batch jobs (e.g. deleting a team, cleaning up inactive deployments and their containers).
+- **Workers**: When we create a new deployment, we queue a deploy job using arq (`app/workers/jobs.py`). It will start a container, then delegate monitoring to a separate background worker (`app/workers/monitor.py`), before wrapping things back with yet another job. These workers are also used to run certain batch jobs (e.g. deleting a team, cleaning up inactive deployments and their containers). Deployment lifecycle statuses: `prepare → deploy → finalize → completed` (with `conclusion`: succeeded/failed/canceled/skipped; `fail` is transient for failure handling).
 - **Logs**: build and runtime logs are streamed from Loki and served to the user via an SSE endpoint in the app.
 - **Runners**: User apps are deployed on one of the runner containers (e.g. `docker/runner/Dockerfile.python-3.12`). They are created in the deploy job (`app/workers/tasks/deployment.py`) and then run a series of commands based on the user configuration.
 - **Reverse proxy**: We have Traefik sitting in front of both app and the deployed runner containers. All routing is done using Traefik labels, and we also maintain environment and branch aliases (e.g. `my-project-env-staging.devpush.app`) using Traefik config files.
@@ -27,8 +27,8 @@ This document describes the high‑level architecture of /dev/push, how the main
 ## File structure
 
 - `app/`: The main FastAPI application (see README file).
-- `app/workers`: The workers (`arq` and `monitor`)
-- `docker/`: Container definitions and entrypoint scripts. Includes local development specific files (e.g. `Dockerfile.app.dev`, `entrypoint.worker-arq.dev.sh`).
+- `app/workers`: The workers (`jobs` and `monitor`)
+- `docker/`: Container definitions and entrypoint scripts. Includes local development specific files (e.g. `Dockerfile.app.dev`, `entrypoint.worker-jobs.dev.sh`).
 - `scripts/`: Helper scripts for local (macOS) and production environments
 - `compose/`: Container orchestration with Docker Compose. Files: `base.yml`, `override.yml`, `override.dev.yml`, and SSL provider-specific files (`ssl-default.yml`, `ssl-cloudflare.yml`, etc.).
 
@@ -48,7 +48,7 @@ flowchart TB
 
   subgraph Core
     A[FastAPI App]
-    W[ARQ Worker]
+    W[Jobs Worker]
     M[Monitor Worker]
   end
 
@@ -96,16 +96,16 @@ Notes:
 
 ### Workers
 
-#### ARQ
+#### Jobs
 
 - Background jobs for deployments and cleanup.
-- Jobs: `start_deployment`, `finalize_deployment`, `fail_deployment`, `delete_*`.
-- Files: `app/workers/arq.py`, `app/workers/tasks/deployment.py`, `app/workers/tasks/project.py`, `app/workers/tasks/team.py`, `app/workers/tasks/user.py`.
+- Jobs: `start_deployment`, `finalize_deployment`, `fail_deployment`, `delete_container`, `delete_*`.
+- Files: `app/workers/jobs.py`, `app/workers/tasks/deployment.py`, `app/workers/tasks/project.py`, `app/workers/tasks/team.py`, `app/workers/tasks/user.py`.
 
 #### Monitor
 
 - Polls running deployments every ~2s, probes port 8000 over `devpush_runner` network.
-- On success enqueues `finalize_deployment`; on failure enqueues `fail_deployment`.
+- On success enqueues `finalize_deployment`; on failure enqueues `fail_deployment`; cancellations enqueue `delete_container` to clean up runners after a grace.
 - File: `app/workers/monitor.py`.
 
 ### Traefik

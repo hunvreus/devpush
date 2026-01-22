@@ -149,6 +149,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | `JOB_TIMEOUT_SECONDS` | Job timeout (seconds). Default: `320`. |
 | `JOB_MAX_TRIES` | Max retries per background job. Default: `3`. |
 | `DEPLOYMENT_TIMEOUT_SECONDS` | Deployment timeout (seconds). Default: `300`. |
+| `CONTAINER_DELETE_GRACE_SECONDS` | Wait before deleting containers after stop/failure to let logs ship. Default: `3`. |
+| `LOG_STREAM_GRACE_SECONDS` | Grace window for deployment log streaming (when to connect/close SSE around terminal states). Default: `5`. |
 | `LOG_LEVEL` | Logging level. Default: `WARNING`. |
 | `MAGIC_LINK_TTL_SECONDS` | Magic link validity (seconds). Default: `900`. |
 | `AUTH_TOKEN_TTL_DAYS` | Auth cookie/JWT lifetime (days). Default: `30`. |

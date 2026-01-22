@@ -16,6 +16,7 @@ from dependencies import (
     get_team_by_id,
     templates,
 )
+from config import get_settings
 
 router = APIRouter()
 
@@ -37,11 +38,14 @@ async def deployment_event(
     deployment: Deployment = Depends(get_deployment_by_id),
     redis_client: Redis = Depends(get_redis_client),
 ):
+    settings = get_settings()
+
     async def event_generator():
         status_stream = (
             f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status"
         )
         status_start_position = "0-0"
+        terminal_statuses = {"succeeded", "failed", "canceled", "skipped"}
 
         last_event_id = request.headers.get("Last-Event-ID")  # Reconnection
         now_ns = int(time.time() * 1e9)
@@ -49,8 +53,9 @@ async def deployment_event(
             # Reconnect: resume exactly from the last event id (no padding)
             logs_start_timestamp = int(last_event_id)
         else:
-            # Initial connect: start from the earlier of client start and (now - 5s)
-            pad_cutoff = max(0, now_ns - 5_000_000_000)
+            # Initial connect: start from the earlier of client start and (now - grace)
+            grace_ns = settings.log_stream_grace_seconds * 1_000_000_000
+            pad_cutoff = max(0, now_ns - grace_ns)
             base_start = int(start_timestamp) if start_timestamp else now_ns
             logs_start_timestamp = min(base_start, pad_cutoff)
 
@@ -68,26 +73,35 @@ async def deployment_event(
                 if (
                     deployment_conclusion
                     and deployment_concluded_at
-                    and (int(time.time()) - deployment_concluded_at) >= 5
+                    and (int(time.time()) - deployment_concluded_at)
+                    >= settings.log_stream_grace_seconds
                 ):
+                    yield f"id: {int(deployment_concluded_at * 1e9)}\n"
                     yield "event: deployment_log_closed\n"
                     yield f"data: {deployment_conclusion}\n\n"
                     break
 
-                logs = await request.app.state.loki_service.get_logs(
-                    project_id=deployment.project_id,
-                    deployment_id=deployment.id,
-                    start_timestamp=logs_start_timestamp,
-                    limit=5000,
-                )
+                logs = []
+                try:
+                    logs = await request.app.state.loki_service.get_logs(
+                        project_id=deployment.project_id,
+                        deployment_id=deployment.id,
+                        start_timestamp=logs_start_timestamp,
+                        limit=5000,
+                        timeout=10.0,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Error fetching logs for deployment %s: %s", deployment.id, e
+                    )
 
                 if logs:
                     logs_html = logs_template.module.log_list(logs=logs)
+                    last_id = max(int(log["timestamp"]) for log in logs)
+                    yield f"id: {last_id}\n"
                     yield "event: deployment_log\n"
                     yield f"data: {logs_html.replace(chr(10), '').replace(chr(13), '')}\n\n"
-                    logs_start_timestamp = (
-                        max(int(log["timestamp"]) for log in logs) + 1
-                    )
+                    logs_start_timestamp = last_id + 1
 
                 if not deployment_conclusion:
                     try:
@@ -99,10 +113,10 @@ async def deployment_event(
                         )
                         for stream_name, stream_messages in messages:
                             for message_id, message_fields in stream_messages:
-                                if message_fields.get("deployment_status") in [
-                                    "succeeded",
-                                    "failed",
-                                ]:
+                                if (
+                                    message_fields.get("deployment_status")
+                                    in terminal_statuses
+                                ):
                                     deployment_conclusion = message_fields.get(
                                         "deployment_status"
                                     )
@@ -119,11 +133,30 @@ async def deployment_event(
                                             ).timestamp()
                                         )
 
+                                    concluded_ns = (
+                                        int(deployment_concluded_at * 1e9)
+                                        if deployment_concluded_at
+                                        else int(time.time() * 1e9)
+                                    )
+                                    yield f"id: {concluded_ns}\n"
                                     yield "event: deployment_concluded\n"
                                     yield f"data: {deployment_conclusion}\n\n"
                                 status_start_position = message_id
                     except asyncio.TimeoutError:
                         pass
+
+                # If concluded and no further logs have arrived for a short grace, close.
+                if (
+                    deployment_conclusion
+                    and deployment_concluded_at
+                    and (int(time.time()) - deployment_concluded_at)
+                    >= settings.log_stream_grace_seconds
+                    and not logs
+                ):
+                    yield f"id: {int(deployment_concluded_at * 1e9)}\n"
+                    yield "event: deployment_log_closed\n"
+                    yield f"data: {deployment_conclusion}\n\n"
+                    break
 
                 await asyncio.sleep(0.5)
 

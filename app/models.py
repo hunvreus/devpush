@@ -749,15 +749,23 @@ class Deployment(Base):
     )
     _env_vars: Mapped[str] = mapped_column("env_vars", Text, nullable=False, default="")
     job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    error: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     container_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     container_status: Mapped[str | None] = mapped_column(
         SQLAEnum("running", "stopped", "removed", name="deployment_container_status"),
         nullable=True,
     )
     status: Mapped[str] = mapped_column(
-        SQLAEnum("queued", "in_progress", "completed", name="deployment_status"),
+        SQLAEnum(
+            "prepare",
+            "deploy",
+            "finalize",
+            "fail",
+            "completed",
+            name="deployment_status",
+        ),
         nullable=False,
-        default="queued",
+        default="prepare",
     )
     conclusion: Mapped[str] = mapped_column(
         SQLAEnum(

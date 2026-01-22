@@ -1,10 +1,8 @@
 import asyncio
-from datetime import datetime, timezone
 import aiodocker
 import logging
 from sqlalchemy import select, true
 from sqlalchemy.orm import joinedload
-from typing import Any
 import shlex
 
 from models import Alias, Deployment, Project
@@ -34,6 +32,7 @@ async def _log_to_container(container, message, error=False):
 
 async def start_deployment(ctx, deployment_id: str):
     """Starts a deployment."""
+    container = None
     try:
         settings = get_settings()
         redis_client = get_redis_client()
@@ -51,33 +50,14 @@ async def start_deployment(ctx, deployment_id: str):
                 )
             ).scalar_one()
 
-            if deployment.project.status != "active":
-                deployment.status = "skipped"
-                deployment.conclusion = "skipped"
-                deployment.concluded_at = datetime.now(timezone.utc)
-                await db.commit()
-                return
-
             container = None
             async with aiodocker.Docker(url=settings.docker_host) as docker_client:
                 # Mark deployment as in-progress
-                deployment.status = "in_progress"
-                await db.commit()
-
-                fields: Any = {
-                    "event_type": "deployment_status_update",
-                    "project_id": deployment.project_id,
-                    "deployment_id": deployment.id,
-                    "deployment_status": "in_progress",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-
-                await redis_client.xadd(
-                    f"stream:project:{deployment.project_id}:updates", fields
-                )
-                await redis_client.xadd(
-                    f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
-                    fields,
+                await DeploymentService.update_status(
+                    db,
+                    deployment,
+                    status="prepare",
+                    redis_client=redis_client,
                 )
 
                 # Prepare environment variables
@@ -208,48 +188,77 @@ async def start_deployment(ctx, deployment_id: str):
                 image = config.get("image")
 
                 # Create and start container
-                container = await docker_client.containers.create_or_replace(
-                    name=container_name,
-                    config={
-                        "Image": f"runner-{image}",
-                        "Cmd": ["/bin/sh", "-c", " && ".join(commands)],
-                        "Env": [f"{k}={v}" for k, v in env_vars_dict.items()],
-                        "WorkingDir": "/app",
-                        "Labels": labels,
-                        "NetworkingConfig": {"EndpointsConfig": {"devpush_runner": {}}},
-                        "HostConfig": {
-                            **(
-                                {"CpuQuota": int(cpus * 100000), "CpuPeriod": 100000}
-                                if cpus is not None and cpus > 0
-                                else {}
-                            ),
-                            **(
-                                {"Memory": memory_mb * 1024 * 1024}
-                                if memory_mb is not None and memory_mb > 0
-                                else {}
-                            ),
-                            **({"Binds": mounts} if mounts else {}),
-                            "SecurityOpt": ["no-new-privileges:true"],
-                            "LogConfig": {
-                                "Type": "json-file",
-                                "Config": {"max-size": "10m", "max-file": "5"},
+                try:
+                    container = await docker_client.containers.create_or_replace(
+                        name=container_name,
+                        config={
+                            "Image": f"runner-{image}",
+                            "Cmd": ["/bin/sh", "-c", " && ".join(commands)],
+                            "Env": [f"{k}={v}" for k, v in env_vars_dict.items()],
+                            "WorkingDir": "/app",
+                            "Labels": labels,
+                            "NetworkingConfig": {
+                                "EndpointsConfig": {"devpush_runner": {}}
+                            },
+                            "HostConfig": {
+                                **(
+                                    {
+                                        "CpuQuota": int(cpus * 100000),
+                                        "CpuPeriod": 100000,
+                                    }
+                                    if cpus is not None and cpus > 0
+                                    else {}
+                                ),
+                                **(
+                                    {"Memory": memory_mb * 1024 * 1024}
+                                    if memory_mb is not None and memory_mb > 0
+                                    else {}
+                                ),
+                                **({"Binds": mounts} if mounts else {}),
+                                "SecurityOpt": ["no-new-privileges:true"],
+                                "LogConfig": {
+                                    "Type": "json-file",
+                                    "Config": {"max-size": "10m", "max-file": "5"},
+                                },
                             },
                         },
-                    },
-                )
+                    )
+                except aiodocker.DockerError as error:
+                    queue: ArqRedis = ctx["redis"]
+                    err_str = str(error)
+                    if "No such image" in err_str or "not found" in err_str.lower():
+                        reason = "Runner image not found. Contact your administrator."
+                    elif "port is already allocated" in err_str.lower():
+                        reason = "Port conflict. Another deployment may be using the same port."
+                    else:
+                        reason = f"Failed to create container: {error}"
+                    await queue.enqueue_job(
+                        "fail_deployment",
+                        deployment_id,
+                        "prepare",
+                        reason,
+                    )
+                    logger.error(
+                        f"{log_prefix} Failed to start container for {deployment.id}: {error}"
+                    )
+                    return
 
                 await container.start()
 
                 # Save container info
                 deployment.container_id = container.id
-                deployment.container_status = "running"
-                await db.commit()
+                await DeploymentService.update_status(
+                    db,
+                    deployment,
+                    status="deploy",
+                    container_status="running",
+                    redis_client=redis_client,
+                )
                 logger.info(
                     f"{log_prefix} Container {container.id} started. Monitoring..."
                 )
 
     except asyncio.CancelledError:
-        # TODO: check if it works and refactor
         logger.info(f"{log_prefix} Deployment canceled.")
 
         if container:
@@ -258,9 +267,12 @@ async def start_deployment(ctx, deployment_id: str):
                     await container.stop()
                 except Exception:
                     pass
-                # Grace period to allow logs to be ingested
-                await asyncio.sleep(settings.container_delete_grace_seconds)
-                await container.delete(force=True)
+                queue: ArqRedis = ctx["redis"]
+                await queue.enqueue_job(
+                    "delete_container",
+                    deployment_id,
+                    _defer_by=settings.container_delete_grace_seconds,
+                )
             except Exception as e:
                 logger.error(f"{log_prefix} Error cleaning up container: {e}")
 
@@ -268,15 +280,25 @@ async def start_deployment(ctx, deployment_id: str):
                 async with AsyncSessionLocal() as db:
                     deployment = await db.get(Deployment, deployment_id)
                     if deployment:
-                        deployment.conclusion = "canceled"
-                        deployment.concluded_at = datetime.now(timezone.utc)
-                        await db.commit()
+                        await DeploymentService.update_status(
+                            db,
+                            deployment,
+                            status="completed",
+                            conclusion="canceled",
+                            container_status="stopped",
+                            redis_client=get_redis_client(),
+                        )
             except Exception as e:
                 logger.error(f"{log_prefix} Error updating deployment status: {e}")
 
     except Exception as e:
         queue: ArqRedis = ctx["redis"]
-        await queue.enqueue_job("fail_deployment", deployment_id, reason=str(e))
+        await queue.enqueue_job(
+            "fail_deployment",
+            deployment_id,
+            "deploy",
+            f"Deployment failed unexpectedly: {e}",
+        )
         logger.info(f"{log_prefix} Deployment startup failed.", exc_info=True)
 
 
@@ -284,8 +306,11 @@ async def finalize_deployment(ctx, deployment_id: str):
     """Finalizes a deployment, setting up aliases and updating Traefik config."""
     settings = get_settings()
     redis_client = get_redis_client()
+    service = DeploymentService()
     log_prefix = f"[DeployFinalize:{deployment_id}]"
     logger.info(f"{log_prefix} Finalizing deployment")
+
+    queue: ArqRedis | None = ctx.get("redis") if isinstance(ctx, dict) else None
 
     async with AsyncSessionLocal() as db:
         deployment = None
@@ -298,13 +323,19 @@ async def finalize_deployment(ctx, deployment_id: str):
                 )
             ).scalar_one()
 
-            # Update the deployment status
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            deployment.status = "completed"
-            deployment.conclusion = "succeeded"
-            deployment.project.updated_at = now
-            deployment.concluded_at = now
-            await db.commit()
+            if deployment.conclusion == "canceled":
+                logger.info(
+                    "%s Deployment already canceled; skipping finalize.", log_prefix
+                )
+                return
+
+            await service.update_status(
+                db,
+                deployment,
+                status="finalize",
+                error=None,
+                redis_client=redis_client,
+            )
 
             # Log a success message
             async with aiodocker.Docker(url=settings.docker_host) as docker_client:
@@ -325,6 +356,15 @@ async def finalize_deployment(ctx, deployment_id: str):
             except Exception as e:
                 logger.error(f"{log_prefix} Failed to update Traefik config: {e}")
 
+            await service.update_status(
+                db,
+                deployment,
+                status="completed",
+                conclusion="succeeded",
+                error=None,
+                redis_client=redis_client,
+            )
+
             # Cleanup inactive deployments
             queue: ArqRedis = ctx["redis"]
             await queue.enqueue_job(
@@ -334,33 +374,26 @@ async def finalize_deployment(ctx, deployment_id: str):
                 f"{log_prefix} Inactive deployments cleanup job queued for project {deployment.project_id}."
             )
 
-            # Send messags to Redis streams
-            fields = {
-                "event_type": "deployment_status_update",
-                "project_id": deployment.project_id,
-                "deployment_id": deployment.id,
-                "deployment_status": deployment.conclusion,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-
-            await redis_client.xadd(
-                f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
-                fields,
-            )
-            await redis_client.xadd(
-                f"stream:project:{deployment.project_id}:updates", fields
-            )
-
         except Exception:
             logger.error(f"{log_prefix} Error finalizing deployment.", exc_info=True)
+            if queue:
+                await queue.enqueue_job(
+                    "fail_deployment",
+                    deployment_id,
+                    "finalize",
+                    "Failed to finalize deployment (aliases/routing). The app may still be running.",
+                )
 
 
-async def fail_deployment(ctx, deployment_id: str, reason: str = None):
+async def fail_deployment(
+    ctx, deployment_id: str, status: str, reason: str | None = None
+):
     """Handles a failed deployment, cleaning up resources."""
     log_prefix = f"[DeployFail:{deployment_id}]"
     logger.info(f"{log_prefix} Handling failed deployment. Reason: {reason}")
     settings = get_settings()
     redis_client = get_redis_client()
+    service = DeploymentService()
 
     async with AsyncSessionLocal() as db:
         deployment = (
@@ -370,6 +403,26 @@ async def fail_deployment(ctx, deployment_id: str, reason: str = None):
                 .where(Deployment.id == deployment_id)
             )
         ).scalar_one()
+
+        if deployment.conclusion == "canceled":
+            logger.info(
+                "%s Deployment already canceled; skipping fail handler.", log_prefix
+            )
+            return
+        if deployment.conclusion:
+            logger.info(
+                "%s Deployment already concluded (%s); skipping fail handler.",
+                log_prefix,
+                deployment.conclusion,
+            )
+            return
+
+        await service.update_status(
+            db,
+            deployment,
+            status="fail",
+            redis_client=redis_client,
+        )
 
         if deployment.container_id and deployment.container_status not in (
             "removed",
@@ -384,12 +437,20 @@ async def fail_deployment(ctx, deployment_id: str, reason: str = None):
                         await container.stop()
                     except Exception:
                         pass
-                    # Grace period to allow logs to be ingested
-                    await asyncio.sleep(settings.container_delete_grace_seconds)
-                    await container.delete(force=True)
-                    deployment.container_status = "removed"
+                    queue: ArqRedis = ctx["redis"]
+                    await queue.enqueue_job(
+                        "delete_container",
+                        deployment.id,
+                        _defer_by=settings.container_delete_grace_seconds,
+                    )
                     logger.info(
                         f"{log_prefix} Cleaned up failed container {deployment.container_id}"
+                    )
+                    await service.update_status(
+                        db,
+                        deployment,
+                        container_status="stopped",
+                        emit=False,
                     )
 
             except aiodocker.DockerError as error:
@@ -397,7 +458,12 @@ async def fail_deployment(ctx, deployment_id: str, reason: str = None):
                     logger.warning(
                         f"{log_prefix} Container {deployment.container_id} not found, already removed"
                     )
-                    deployment.container_status = "removed"
+                    await service.update_status(
+                        db,
+                        deployment,
+                        container_status="removed",
+                        emit=False,
+                    )
                 else:
                     logger.error(
                         f"{log_prefix} Docker error cleaning up container {deployment.container_id}: {error}",
@@ -409,27 +475,50 @@ async def fail_deployment(ctx, deployment_id: str, reason: str = None):
                     exc_info=True,
                 )
 
-        deployment.status = "completed"
-        deployment.conclusion = "failed"
-        deployment.project.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        deployment.concluded_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        await db.commit()
-
-        fields = {
-            "event_type": "deployment_status_update",
-            "project_id": deployment.project_id,
-            "deployment_id": deployment.id,
-            "deployment_status": "failed",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        await redis_client.xadd(
-            f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
-            fields,
-        )
-        await redis_client.xadd(
-            f"stream:project:{deployment.project_id}:updates", fields
+        await service.update_status(
+            db,
+            deployment,
+            status="completed",
+            conclusion="failed",
+            error={"status": status, "message": reason or "Deployment failed"},
+            redis_client=redis_client,
         )
         logger.error(f"{log_prefix} Deployment failed and cleaned up.")
+
+
+async def delete_container(ctx, deployment_id: str):
+    """Delete a deployment container after a grace period."""
+    log_prefix = f"[DeleteContainer:{deployment_id}]"
+    logger.info(f"{log_prefix} Deleting container")
+    settings = get_settings()
+    async with AsyncSessionLocal() as db:
+        deployment = await db.get(Deployment, deployment_id)
+        if not deployment or not deployment.container_id:
+            logger.warning(f"{log_prefix} Deployment or container not found")
+            return
+
+        try:
+            async with aiodocker.Docker(url=settings.docker_host) as docker_client:
+                try:
+                    container = await docker_client.containers.get(
+                        deployment.container_id
+                    )
+                    try:
+                        await container.stop()
+                    except Exception:
+                        pass
+                    await container.delete(force=True)
+                    deployment.container_status = "removed"
+                    await db.commit()
+                except aiodocker.DockerError as error:
+                    if error.status == 404:
+                        deployment.container_status = "removed"
+                        await db.commit()
+        except Exception:
+            logger.error(
+                f"[DeleteContainer:{deployment_id}] Error deleting container.",
+                exc_info=True,
+            )
 
 
 async def cleanup_inactive_containers(

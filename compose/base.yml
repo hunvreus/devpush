@@ -33,14 +33,14 @@ services:
       retries: 3
       start_period: 10s
 
-  worker-arq:
+  worker-jobs:
     build:
       context: ..
       dockerfile: docker/Dockerfile.app
       args:
         APP_UID: ${SERVICE_UID:-1000}
         APP_GID: ${SERVICE_GID:-1000}
-    entrypoint: /entrypoint.worker-arq.sh
+    entrypoint: /entrypoint.worker-jobs.sh
     restart: always
     stop_grace_period: ${JOB_TIMEOUT_SECONDS:-320}s
     depends_on:
@@ -57,7 +57,7 @@ services:
     volumes:
       - ${DATA_DIR:-../data}:/data
     healthcheck:
-      test: ["CMD", "uv", "run", "arq", "--check", "workers.arq.WorkerSettings"]
+      test: ["CMD", "uv", "run", "arq", "--check", "workers.jobs.WorkerSettings"]
       interval: 10s
       timeout: 5s
       retries: 3

@@ -31,5 +31,5 @@ USER appuser
 EXPOSE 8000
 
 COPY docker/entrypoint.app.sh /entrypoint.app.sh
-COPY docker/entrypoint.worker-arq.sh /entrypoint.worker-arq.sh
+COPY docker/entrypoint.worker-jobs.sh /entrypoint.worker-jobs.sh
 COPY docker/entrypoint.worker-monitor.sh /entrypoint.worker-monitor.sh

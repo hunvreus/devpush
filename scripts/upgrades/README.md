@@ -25,7 +25,7 @@ This directory contains versioned upgrade hooks and optional update metadata.
 ### Example (components update)
 ```json
 {
-  "components": "app,worker-arq,worker-monitor",
+  "components": "app,worker-jobs,worker-monitor",
   "reason": "Only app and workers changed"
 }
 ```

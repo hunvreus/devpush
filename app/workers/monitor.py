@@ -9,6 +9,7 @@ from config import get_settings
 
 from db import AsyncSessionLocal
 from models import Deployment
+from services.deployment import DeploymentService
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,12 @@ async def _check_status(
     deployment: Deployment,
     docker_client: aiodocker.Docker,
     redis_pool: ArqRedis,
+    db,
 ):
     """Checks the status of a single deployment's container."""
+    if deployment.status == "completed":
+        return
+
     if (
         deployment.id in deployment_probe_state
         and deployment_probe_state[deployment.id]["probe_active"]
@@ -50,7 +55,10 @@ async def _check_status(
         )
         if (now_utc - created_at).total_seconds() > settings.deployment_timeout_seconds:
             await redis_pool.enqueue_job(
-                "fail_deployment", deployment.id, "Deployment timeout"
+                "fail_deployment",
+                deployment.id,
+                "deploy",
+                "Timed out waiting for app to respond on port 8000. Ensure your app starts an HTTP server on this port.",
             )
             logger.warning(f"{log_prefix} Deployment timed out; failure job enqueued.")
             await _cleanup_deployment(deployment.id)
@@ -67,7 +75,10 @@ async def _check_status(
             }
         except Exception:
             await redis_pool.enqueue_job(
-                "fail_deployment", deployment.id, "Container not found"
+                "fail_deployment",
+                deployment.id,
+                "deploy",
+                "Container stopped unexpectedly. Check the deployment logs for errors.",
             )
             return
     else:
@@ -82,8 +93,22 @@ async def _check_status(
 
         if status == "exited":
             exit_code = container_info["State"].get("ExitCode", -1)
-            reason = f"Container exited with code {exit_code}"
-            await redis_pool.enqueue_job("fail_deployment", deployment.id, reason)
+            if exit_code == 0:
+                reason = "App exited unexpectedly. Ensure your app keeps running and doesn't exit on its own."
+            elif exit_code == 137:
+                reason = "App was killed (out of memory or manually stopped). Try increasing memory limits."
+            elif exit_code == 1:
+                reason = (
+                    "App crashed on startup. Check deployment logs for error details."
+                )
+            else:
+                reason = f"App exited with code {exit_code}. Check deployment logs for error details."
+            await redis_pool.enqueue_job(
+                "fail_deployment",
+                deployment.id,
+                "deploy",
+                reason,
+            )
             logger.warning(
                 f"{log_prefix} Deployment failed (failure job enqueued): {reason}"
             )
@@ -93,6 +118,12 @@ async def _check_status(
             networks = container_info.get("NetworkSettings", {}).get("Networks", {})
             container_ip = networks.get("devpush_runner", {}).get("IPAddress")
             if container_ip and await _http_probe(container_ip, 8000):
+                await DeploymentService.update_status(
+                    db,
+                    deployment,
+                    status="finalize",
+                    redis_client=redis_pool,
+                )
                 await redis_pool.enqueue_job("finalize_deployment", deployment.id)
                 logger.info(
                     f"{log_prefix} Deployment ready (finalization job enqueued)."
@@ -103,7 +134,12 @@ async def _check_status(
         logger.error(
             f"{log_prefix} Unexpected error while checking status.", exc_info=True
         )
-        await redis_pool.enqueue_job("fail_deployment", deployment.id, str(e))
+        await redis_pool.enqueue_job(
+            "fail_deployment",
+            deployment.id,
+            "deploy",
+            f"Unexpected error while monitoring deployment: {e}",
+        )
         await _cleanup_deployment(deployment.id)
     finally:
         if deployment.id in deployment_probe_state:
@@ -145,7 +181,7 @@ async def monitor():
 
                     result = await db.execute(
                         select(Deployment).where(
-                            Deployment.status == "in_progress",
+                            Deployment.status == "deploy",
                             Deployment.container_status == "running",
                         )
                     )
@@ -153,7 +189,7 @@ async def monitor():
 
                     if deployments_to_check:
                         tasks = [
-                            _check_status(deployment, docker_client, redis_pool)
+                            _check_status(deployment, docker_client, redis_pool, db)
                             for deployment in deployments_to_check
                         ]
                         await asyncio.gather(*tasks)

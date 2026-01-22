@@ -300,7 +300,7 @@ fi
 if (( rebuild_images == 1 )); then
   printf '\n'
   set_compose_base
-  run_cmd "Rebuilding app/worker images" "${COMPOSE_BASE[@]}" build app worker-arq worker-monitor
+  run_cmd "Rebuilding app/worker images" "${COMPOSE_BASE[@]}" build app worker-jobs worker-monitor
 fi
 
 # Start the stack

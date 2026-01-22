@@ -10,6 +10,10 @@
 {% set is_current = env_aliases and env_aliases.get(deployment.environment.id).deployment_id == deployment.id %}
 {% set is_previous = env_aliases and env_aliases.get(deployment.environment.id).previous_deployment_id == deployment.id %}
 
+{% if deployment.status == "finalize" %}
+<h1 class="text-4xl font-bold">{{ _('Finalizing deployment') }}</h1>
+{% endif %}
+
 <header class="flex items-center gap-x-4 justify-between">
   <h1 class="h1 flex items-center gap-x-3">
     <a
@@ -27,14 +31,14 @@
   </h1>
 
   <div class="flex items-center gap-x-2 ml-auto">
-    {# {% if cancel_form %}
+    {% if cancel_form %}
       <form
         method="post"
-        action="{{ url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id).include_query_params(fragment='header') }}"
-        hx-post="{{ url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id).include_query_params(fragment='header') }}"
-        hx-target="#deployment-page-header"
-        hx-disabled-elt="button"
+        action="{{ url_for('project_cancel_deploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+        hx-post="{{ url_for('project_cancel_deploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+        hx-disabled-elt="find button"
         hx-indicator="find .htmx-indicator"
+        hx-confirm="{{ _('Are you sure you want to cancel this deployment?') }}"
       >
         {{ cancel_form.csrf_token() }}
         <button type="submit" class="btn-destructive">
@@ -43,7 +47,7 @@
           <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
         </button>
       </form>
-    {% endif %} #}
+    {% endif %}
 
     {% if deployment.conclusion == 'succeeded' and deployment.container_status == 'running' %}
       <div class="flex items-center">
@@ -190,3 +194,11 @@
     </li>
   </ul>
 </div>
+
+{% if deployment.error %}
+  <div class="alert-destructive">
+    {% include "icons/triangle-alert.svg" %}
+    <h2>{{ _('Deployment failed in %(phase)s phase', phase=deployment.error.status) }}</h2>
+    <section class="text-muted-foreground">{{ deployment.error.message }}</section>
+  </div>
+{% endif %}

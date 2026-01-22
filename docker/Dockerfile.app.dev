@@ -15,5 +15,5 @@ ENV HOME=/app
 EXPOSE 8000
 
 COPY docker/entrypoint.app.dev.sh /entrypoint.app.dev.sh
-COPY docker/entrypoint.worker-arq.dev.sh /entrypoint.worker-arq.dev.sh
+COPY docker/entrypoint.worker-jobs.dev.sh /entrypoint.worker-jobs.dev.sh
 COPY docker/entrypoint.worker-monitor.dev.sh /entrypoint.worker-monitor.dev.sh

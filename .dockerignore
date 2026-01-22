@@ -6,8 +6,8 @@ docker-compose*.yml
 docker/
 !docker/entrypoint.app.sh
 !docker/entrypoint.app.dev.sh
-!docker/entrypoint.worker-arq.sh
-!docker/entrypoint.worker-arq.dev.sh
+!docker/entrypoint.worker-jobs.sh
+!docker/entrypoint.worker-jobs.dev.sh
 !docker/entrypoint.worker-monitor.sh
 !docker/entrypoint.worker-monitor.dev.sh
 

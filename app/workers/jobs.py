@@ -4,6 +4,7 @@ from workers.tasks.deployment import (
     start_deployment,
     finalize_deployment,
     fail_deployment,
+    delete_container,
     cleanup_inactive_containers,
 )
 from workers.tasks.project import delete_project
@@ -27,6 +28,7 @@ class WorkerSettings:
         delete_team,
         delete_project,
         cleanup_inactive_containers,
+        delete_container,
         provision_storage,
         deprovision_storage,
     ]

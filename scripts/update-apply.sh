@@ -16,7 +16,7 @@ Usage: update-apply.sh [--ref <tag>] [--all | --components <csv> | --full] [--no
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
   --ref <tag>       Git tag to record (best-effort if omitted)
-  --all             Update app and workers (app,worker-arq,worker-monitor)
+  --all             Update app and workers (app,worker-jobs,worker-monitor)
   --components <csv>
                     Comma-separated list of services to update (${VALID_COMPONENTS//|/, })
   --full            Full stack update (down whole stack, then up). Causes downtime
@@ -99,7 +99,7 @@ ver_lte() {
 }
 
 # Versioned file helper
-default_components="app,worker-arq,worker-monitor"
+default_components="app,worker-jobs,worker-monitor"
 meta_full=0
 meta_components=""
 meta_reason=""
@@ -373,7 +373,7 @@ rollout_service(){
   printf '\n'
   printf "Updating %s\n" "$s"
   case "$s" in
-    app|worker-arq|worker-monitor)
+    app|worker-jobs|worker-monitor)
       run_cmd "${CHILD_MARK} Building image" "${COMPOSE_BASE[@]}" build "$s"
       ;;
   esac
@@ -390,9 +390,9 @@ if ((skip_components==0)); then
       app)
         rollout_service app blue_green
         ;;
-      worker-arq)
+      worker-jobs)
         timeout="$(read_env_value "$ENV_FILE" JOB_COMPLETION_WAIT_SECONDS || true)"; : "${timeout:=300}"
-        rollout_service worker-arq blue_green "$timeout"
+        rollout_service worker-jobs blue_green "$timeout"
         ;;
       worker-monitor)
         rollout_service worker-monitor recreate

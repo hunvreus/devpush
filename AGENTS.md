@@ -85,7 +85,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 - `app/services/`: Business logic services (GitHub, deployment, domain, Loki, etc.)
 - `app/utils/`: Utility functions (access control, pagination, color, etc.)
 - `app/templates/`: Jinja2 templates organized by domain
-- `app/workers/`: Background workers (arq, monitor) and tasks
+- `app/workers/`: Background workers (jobs, monitor) and tasks
 - `app/config.py`: Pydantic settings and configuration
 - `app/dependencies.py`: FastAPI dependencies and template helpers
 - `app/db.py`: Database connection and session management
@@ -156,7 +156,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 
 ### Workers
 
-1. **ARQ worker**: `app/workers/arq.py` - Handles async job queue
+1. **Jobs worker**: `app/workers/jobs.py` - Handles async job queue
 2. **Monitor worker**: `app/workers/monitor.py` - Monitors deployment containers
 3. **Tasks**: `app/workers/tasks/` - Individual task implementations (deploy, cleanup, etc.)
 4. **Job queue**: Access via `get_queue()` dependency (returns `ArqRedis` connection)
@@ -201,7 +201,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 ### Container Services
 
 1. **app**: FastAPI application
-2. **worker-arq**: ARQ background worker
+2. **worker-jobs**: Jobs background worker
 3. **worker-monitor**: Monitor background worker
 4. **pgsql**: PostgreSQL database
 5. **redis**: Redis cache/queue

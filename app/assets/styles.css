@@ -131,6 +131,7 @@
     --font-weight-normal: 400;
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
+    --font-weight-bold: 700;
     --tracking-tight: -0.025em;
     --tracking-widest: 0.1em;
     --leading-tight: 1.25;
@@ -656,6 +657,9 @@
   }
   .max-w-3xs {
     max-width: var(--container-3xs);
+  }
+  .max-w-48 {
+    max-width: calc(var(--spacing) * 48);
   }
   .max-w-full {
     max-width: 100%;
@@ -1533,6 +1537,10 @@
   }
   .text-\[13px\] {
     font-size: 13px;
+  }
+  .font-bold {
+    --tw-font-weight: var(--font-weight-bold);
+    font-weight: var(--font-weight-bold);
   }
   .font-medium {
     --tw-font-weight: var(--font-weight-medium);

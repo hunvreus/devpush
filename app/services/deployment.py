@@ -1,6 +1,7 @@
 import os
 import re
 import yaml
+import aiodocker
 import logging
 from datetime import datetime, timezone
 from sqlalchemy import select
@@ -11,7 +12,7 @@ from arq.jobs import Job
 
 from models import Deployment, Alias, Project, User, Domain, Storage, StorageProject
 from utils.environment import get_environment_for_branch
-from config import Settings
+from config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,50 @@ logger = logging.getLogger(__name__)
 class DeploymentService:
     def __init__(self):
         pass
+
+    @staticmethod
+    async def update_status(
+        db: AsyncSession,
+        deployment: Deployment,
+        *,
+        status: str | None = None,
+        conclusion: str | None = None,
+        error: dict | None = None,
+        container_status: str | None = None,
+        redis_client: Redis | None = None,
+        emit: bool = True,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        if status is not None:
+            deployment.status = status
+        if conclusion is not None:
+            deployment.conclusion = conclusion
+            deployment.concluded_at = now.replace(tzinfo=None)
+            if deployment.project:
+                deployment.project.updated_at = now.replace(tzinfo=None)
+        if error is not None:
+            deployment.error = error
+        if container_status is not None:
+            deployment.container_status = container_status
+
+        await db.commit()
+
+        if emit and redis_client and (status or conclusion):
+            status_value = conclusion if conclusion else status
+            fields = {
+                "event_type": "deployment_status_update",
+                "project_id": deployment.project_id,
+                "deployment_id": deployment.id,
+                "deployment_status": status_value,
+                "timestamp": now.isoformat(),
+            }
+            await redis_client.xadd(
+                f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
+                fields,
+            )
+            await redis_client.xadd(
+                f"stream:project:{deployment.project_id}:updates", fields
+            )
 
     def get_alias_domains(
         self, deployment: Deployment, settings: Settings
@@ -312,7 +357,6 @@ class DeploymentService:
         commit: dict,
         db: AsyncSession,
         redis_client: Redis,
-        queue: ArqRedis,
         trigger: str = "user",
         current_user: User | None = None,
     ) -> Deployment:
@@ -361,10 +405,6 @@ class DeploymentService:
         db.add(deployment)
         await db.commit()
 
-        job = await queue.enqueue_job("start_deployment", deployment.id)
-        deployment.job_id = job.job_id
-        await db.commit()
-
         await redis_client.xadd(
             f"stream:project:{project.id}:updates",
             fields={
@@ -389,50 +429,77 @@ class DeploymentService:
         queue: ArqRedis,
         redis_client: Redis,
         db: AsyncSession,
-    ) -> Alias:
+    ) -> Deployment:
         """Cancel a deployment."""
-        logger.info(
-            f"Attempting to cancel deployment {deployment.id} with job_id: {deployment.job_id}"
+        logger.info("Cancel requested for deployment %s", deployment.id)
+
+        if (
+            deployment.status in {"finalize", "fail", "completed"}
+            or deployment.conclusion
+        ):
+            raise Exception("Deployment is already finalizing, failing, or completed")
+
+        await DeploymentService.update_status(
+            db,
+            deployment,
+            status="completed",
+            conclusion="canceled",
+            redis_client=redis_client,
         )
 
-        if not deployment.job_id:
-            logger.warning(f"Deployment {deployment.id} has no job_id to cancel")
-
-        job = Job(job_id=deployment.job_id, redis=queue)
-
-        # Check if job exists and get its status
-        try:
+        if deployment.job_id:
+            job = Job(job_id=deployment.job_id, redis=queue)
             job_info = await job.info()
-            logger.info(f"Job info for deployment {deployment.id}: {job_info}")
-        except Exception as e:
-            logger.error(f"Error getting job info for deployment {deployment.id}: {e}")
+            if job_info and job_info.success is None:
+                await job.abort()
 
-        abort_result = await job.abort()
-        logger.info(f"Abort result for deployment {deployment.id}: {abort_result}")
-
-        if abort_result:
-            deployment.status = "completed"
-            deployment.conclusion = "canceled"
-            await db.commit()
-
-            logger.info(f"Deployment {deployment.id} canceled.")
-
-            fields = {
-                "event_type": "deployment_status_update",
-                "project_id": project.id,
-                "deployment_id": deployment.id,
-                "deployment_status": "canceled",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-
-            await redis_client.xadd(
-                f"stream:project:{project.id}:deployment:{deployment.id}:status",
-                fields,
-            )
-            await redis_client.xadd(f"stream:project:{project.id}:updates", fields)
-        else:
-            logger.error(f"Error aborting deployment {deployment.id}.")
-            raise Exception("Error aborting deployment.")
+        # Stop container if running to halt logs/app
+        if deployment.container_id and deployment.container_status not in (
+            "removed",
+            "stopped",
+        ):
+            settings = get_settings()
+            try:
+                async with aiodocker.Docker(url=settings.docker_host) as docker_client:
+                    try:
+                        container = await docker_client.containers.get(
+                            deployment.container_id
+                        )
+                        try:
+                            await container.stop()
+                        except Exception:
+                            pass
+                        await queue.enqueue_job(
+                            "delete_container",
+                            deployment.id,
+                            _defer_by=settings.container_delete_grace_seconds,
+                        )
+                        await DeploymentService.update_status(
+                            db,
+                            deployment,
+                            container_status="stopped",
+                            emit=False,
+                        )
+                    except aiodocker.DockerError as e:
+                        if e.status == 404:
+                            await DeploymentService.update_status(
+                                db,
+                                deployment,
+                                container_status="removed",
+                                emit=False,
+                            )
+                        else:
+                            logger.error(
+                                "Error stopping container for deployment %s: %s",
+                                deployment.id,
+                                e,
+                            )
+            except Exception as e:
+                logger.error(
+                    "Error during container cleanup for deployment %s: %s",
+                    deployment.id,
+                    e,
+                )
 
         return deployment
 

@@ -24,6 +24,8 @@
       hx-ext="sse"
       sse-connect="{{ sse_connect_url }}"
       sse-close="deployment_log_closed"
+      x-init
+      @htmx:sse-close="$dispatch('deployment-logs-closed')"
     >
       <div
         sse-swap="deployment_log"

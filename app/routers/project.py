@@ -378,7 +378,8 @@ async def project_index(
 
 
 @router.get(
-    "/{team_slug}/projects/{project_name}/deployments", name="project_deployments"
+    "/{team_slug}/projects/{project_name}/deployments",
+    name="project_deployments",
 )
 async def project_deployments(
     request: Request,
@@ -930,8 +931,10 @@ async def project_deploy(
                 current_user=current_user,
                 db=db,
                 redis_client=redis_client,
-                queue=queue,
             )
+            job = await queue.enqueue_job("start_deployment", deployment.id)
+            deployment.job_id = job.job_id
+            await db.commit()
 
             flash(
                 request,
@@ -1082,8 +1085,10 @@ async def project_redeploy(
                 current_user=current_user,
                 db=db,
                 redis_client=redis_client,
-                queue=queue,
             )
+            job = await queue.enqueue_job("start_deployment", new_deployment.id)
+            new_deployment.job_id = job.job_id
+            await db.commit()
 
             flash(
                 request,
@@ -1124,17 +1129,17 @@ async def project_redeploy(
     )
 
 
-@router.api_route(
+@router.post(
     "/{team_slug}/projects/{project_name}/deployments/{deployment_id}/cancel",
-    methods=["GET", "POST"],
-    name="project_cancel",
+    name="project_cancel_deploy",
 )
-async def project_cancel(
+async def project_cancel_deploy(
     request: Request,
     project: Project = Depends(get_project_by_name),
     current_user: User = Depends(get_current_user),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     deployment: Deployment = Depends(get_deployment_by_id),
+    db: AsyncSession = Depends(get_db),
     redis_client: Redis = Depends(get_redis_client),
     queue: ArqRedis = Depends(get_queue),
 ):
@@ -1142,15 +1147,15 @@ async def project_cancel(
 
     form: Any = await ProjectDeploymentCancelForm.from_formdata(request)
 
-    if request.method == "POST" and await form.validate_on_submit():
+    if await form.validate_on_submit():
         try:
             await DeploymentService().cancel(
                 project=project,
                 deployment=deployment,
                 queue=queue,
                 redis_client=redis_client,
+                db=db,
             )
-
             flash(
                 request,
                 _(
@@ -1170,17 +1175,21 @@ async def project_cancel(
                 ),
                 "error",
             )
+    else:
+        for error in form.errors.values():
+            for e in error:
+                flash(request, _("Cancel failed: %(error)s", error=e), "error")
 
-    return TemplateResponse(
+    return RedirectResponseX(
+        url=str(
+            request.url_for(
+                "project_deployment",
+                team_slug=team.slug,
+                project_name=project.name,
+                deployment_id=deployment.id,
+            )
+        ),
         request=request,
-        name="project/partials/_dialog-cancel-form.html",
-        context={
-            "current_user": current_user,
-            "team": team,
-            "project": project,
-            "form": form,
-            "deployment": deployment,
-        },
     )
 
 
@@ -1959,45 +1968,12 @@ async def project_deployment(
     team, membership = team_and_membership
 
     cancel_form = None
-    if not deployment.conclusion:
-        cancel_form: Any = await ProjectDeploymentCancelForm.from_formdata(request)
+    if not deployment.conclusion and deployment.status != "finalize":
+        cancel_form = await ProjectDeploymentCancelForm.from_formdata(request)
 
     env_aliases = await project.get_environment_aliases(db=db)
 
     if request.headers.get("HX-Request") and fragment == "header":
-        if request.method == "POST" and await cancel_form.validate_on_submit():
-            queue = get_queue(request)
-            redis_client = get_redis_client()
-
-            try:
-                await DeploymentService().cancel(
-                    project=project,
-                    deployment=deployment,
-                    queue=queue,
-                    redis_client=redis_client,
-                    db=db,
-                )
-
-                flash(
-                    request,
-                    _(
-                        'Deployment "%(deployment_id)s" canceled.',
-                        deployment_id=deployment.id,
-                    ),
-                    "success",
-                )
-
-            except Exception as e:
-                logger.error(f"Error canceling deployment: {str(e)}")
-                flash(
-                    request,
-                    _(
-                        "Error canceling deployment %(deployment_id)s.",
-                        deployment_id=deployment.id,
-                    ),
-                    "error",
-                )
-
         return TemplateResponse(
             request=request,
             name="deployment/partials/_header.html",
@@ -2053,7 +2029,8 @@ async def project_deployment(
             or deployment.container_status == "running"
             or (
                 deployment.concluded_at
-                and (utc_now() - deployment.concluded_at).total_seconds() < 5
+                and (utc_now() - deployment.concluded_at).total_seconds()
+                < get_settings().log_stream_grace_seconds
             )
         ):
             sse_connect_url = request.url_for(

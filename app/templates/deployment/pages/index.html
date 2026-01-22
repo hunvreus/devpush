@@ -38,6 +38,7 @@
         }
       "
       x-data="{
+        deploymentLogsClosed: false,
         getTime(timestamp) {
           return new Date(timestamp).toLocaleTimeString('default', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
         },
@@ -50,12 +51,24 @@
           ':data-side': '\'right\''
         }
       }"
+      @deployment-logs-closed.window="deploymentLogsClosed = true"
     >
-      <div class="absolute inset-0 hidden only:flex items-center justify-center text-muted-foreground">
-        <div class="flex items-center gap-x-2 [&>svg]:size-4 [&>svg]:animate-spin">
-          {% include "icons/loader.svg" %}
-          {{ _('Waiting for logs') }}
-        </div>
+      <div class="absolute inset-0 hidden only:flex items-center justify-center text-muted-foreground" id="deployment-logs-placeholder">
+        {% if deployment.conclusion != 'succeeded' and deployment.error and deployment.error.status == 'prepare' %}
+          <div class="flex items-center gap-x-2 [&>svg]:size-4">
+            {% include "icons/ban.svg" %}
+            {{ _('No logs found') }}
+          </div>
+        {% else %}
+          <div class="flex items-center gap-x-2 [&>svg]:size-4 [&>svg]:animate-spin" x-show="!deploymentLogsClosed">
+            {% include "icons/loader.svg" %}
+            {{ _('Waiting for logs') }}
+          </div>
+          <div class="flex items-center gap-x-2 [&>svg]:size-4" x-show="deploymentLogsClosed">
+            {% include "icons/ban.svg" %}
+            {{ _('No logs found') }}
+          </div>
+        {% endif %}
       </div>
     </div>
   </section>

@@ -12,10 +12,10 @@ services:
       ENV: development
       UV_PROJECT_ENVIRONMENT: /opt/venv
 
-  worker-arq:
+  worker-jobs:
     build:
       dockerfile: docker/Dockerfile.app.dev
-    entrypoint: /entrypoint.worker-arq.dev.sh
+    entrypoint: /entrypoint.worker-jobs.dev.sh
     volumes:
       - ${APP_DIR:-..}/app:/app
     environment:

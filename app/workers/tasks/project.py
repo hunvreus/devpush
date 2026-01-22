@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import time
@@ -109,7 +108,8 @@ async def delete_project(ctx, project_id: str, batch_size: int = 100):
                             f"[DeleteProject:{project_id}] Failed to commit batch: {e}"
                         )
                         await db.rollback()
-                        await asyncio.sleep(1)
+                        # TODO: continue creates infinite retry on persistent errors;
+                        # consider letting exception bubble up to ARQ retry instead
                         continue
 
                 # No more deployments:
