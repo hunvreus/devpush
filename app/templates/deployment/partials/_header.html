@@ -197,8 +197,6 @@
 
 {% if deployment.error %}
   <div class="alert-destructive">
-    {% include "icons/triangle-alert.svg" %}
-    <h2>{{ _('Deployment failed in %(phase)s phase', phase=deployment.error.status) }}</h2>
-    <section class="text-muted-foreground">{{ deployment.error.message }}</section>
+    <h2>{{ deployment.error.message }}</h2>
   </div>
 {% endif %}
