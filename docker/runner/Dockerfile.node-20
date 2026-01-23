@@ -25,9 +25,6 @@ RUN apt-get update && \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm globally
-RUN npm install -g pnpm
-
 WORKDIR /app
 
 # Set permissions

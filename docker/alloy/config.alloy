@@ -56,20 +56,7 @@ loki.source.file "docker" {
 
 // Parse Docker JSON log lines (keep this for proper formatting)
 loki.process "docker" {
-  // Extract fields from Docker JSON log entries
-  stage.json {
-    expressions = { log = "log", stream = "stream", time = "time" }
-  }
-
-  // Add the stream (stdout/stderr) as a label
-  stage.labels {
-    values = { stream = "" }
-  }
-
-  // Set the log line content
-  stage.output {
-    source = "log"
-  }
+  stage.docker {} // parse docker json-file entries and set stream/container labels
 
   forward_to = [loki.write.default.receiver]
 }
