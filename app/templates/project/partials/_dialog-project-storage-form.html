@@ -21,12 +21,13 @@
 } %}
 
 <form
+  id="project-storage-form"
   method="post"
   action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
   hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
   hx-swap="outerHTML"
   hx-indicator="find .htmx-indicator"
-  hx-disabled-elt="find input, find button"
+  hx-disabled-elt="#project-storage-form input, #project-storage-form button"
   class="space-y-4"
 >
   {{ form.csrf_token }}
