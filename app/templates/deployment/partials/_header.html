@@ -196,7 +196,8 @@
 </div>
 
 {% if deployment.error %}
-  <div class="alert-destructive">
-    <h2>{{ deployment.error.message }}</h2>
+  <div class="alert-destructive" data-error-phase="{{ deployment.error.status }}">
+    {% include "icons/info.svg" %}
+    <section>{{ deployment.error.message }}</section>
   </div>
 {% endif %}
