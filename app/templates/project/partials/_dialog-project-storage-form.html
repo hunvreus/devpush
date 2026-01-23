@@ -25,6 +25,8 @@
   action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
   hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment=fragment) }}"
   hx-swap="outerHTML"
+  hx-indicator="find .htmx-indicator"
+  hx-disabled-elt="find input, find button"
   class="space-y-4"
 >
   {{ form.csrf_token }}
@@ -114,6 +116,7 @@
     <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
     <button type="submit" class="btn">
       {{ _('Create and connect') if fragment == 'create_storage' else _('Connect') }}
+      <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
     </button>
   </footer>
 </form>
