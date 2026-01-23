@@ -146,7 +146,7 @@
                           {% endfor %}
                         </div>
                         <footer class="flex justify-end gap-x-2 pt-4">
-                          <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                          <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
                           {{ remove_member_form.submit(class_="btn-destructive", **{":disabled": "!isValid"}) }}
                         </footer>
                       </form>

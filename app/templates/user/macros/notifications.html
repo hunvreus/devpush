@@ -13,7 +13,7 @@
 
     {% for invite in invites %}
       {% set footer %}
-        <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+        <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
         <form
           hx-post="{{ url_for('user_notifications').include_query_params(fragment='accept_invite') }}"
           hx-swap="none"

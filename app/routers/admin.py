@@ -318,40 +318,41 @@ async def admin_settings(
     if action == "delete_user":
         if request.method == "POST":
             if await delete_user_form.validate_on_submit():
-                try:
-                    target_user = await db.get(User, int(delete_user_form.user_id.data))
+                flash(request, _("YO YO YO User deleted successfully."), "success")
+                # try:
+                #     target_user = await db.get(User, int(delete_user_form.user_id.data))
 
-                    if not target_user or target_user.status == "deleted":
-                        flash(request, _("User not found."), "error")
-                        return RedirectResponse("/admin", status_code=303)
+                #     if not target_user or target_user.status == "deleted":
+                #         flash(request, _("User not found."), "error")
+                #         return RedirectResponse("/admin", status_code=303)
 
-                    if is_superadmin(target_user):
-                        flash(request, _("You cannot delete the superadmin."), "error")
-                        return RedirectResponse("/admin", status_code=303)
+                #     if is_superadmin(target_user):
+                #         flash(request, _("You cannot delete the superadmin."), "error")
+                #         return RedirectResponse("/admin", status_code=303)
 
-                    # User is marked as deleted, actual cleanup is delegated to a job
-                    target_user.status = "deleted"
-                    await db.commit()
+                #     # User is marked as deleted, actual cleanup is delegated to a job
+                #     target_user.status = "deleted"
+                #     await db.commit()
 
-                    await queue.enqueue_job("delete_user", target_user.id)
+                #     await queue.enqueue_job("delete_user", target_user.id)
 
-                    flash(
-                        request,
-                        _(
-                            'User "%(name)s" has been marked for deletion.',
-                            name=target_user.name or target_user.username,
-                        ),
-                        "success",
-                    )
+                #     flash(
+                #         request,
+                #         _(
+                #             'User "%(name)s" has been marked for deletion.',
+                #             name=target_user.name or target_user.username,
+                #         ),
+                #         "success",
+                #     )
 
-                except Exception as e:
-                    await db.rollback()
-                    logger.error(f"Error deleting user: {str(e)}")
-                    flash(
-                        request,
-                        _("An error occurred while deleting the user."),
-                        "error",
-                    )
+                # except Exception as e:
+                #     await db.rollback()
+                #     logger.error(f"Error deleting user: {str(e)}")
+                #     flash(
+                #         request,
+                #         _("An error occurred while deleting the user."),
+                #         "error",
+                #     )
 
             if not request.headers.get("HX-Request"):
                 return RedirectResponse("/admin", status_code=303)

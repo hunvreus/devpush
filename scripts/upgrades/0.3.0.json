@@ -1,0 +1,4 @@
+{
+  "full": true,
+  "reason": "worker-arq was renamed to worker-jobs, full restart removes the old container"
+}

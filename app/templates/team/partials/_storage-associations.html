@@ -111,8 +111,7 @@
       <button class="btn-icon-ghost" type="submit" aria-label="{{ _('Save') }}" data-tooltip="{{ _('Save') }}">
         {% include "icons/check.svg" %}
       </button>
-      <button class="btn-icon-ghost" type="button" @click="activeForm = null" aria-label="{{ _('Cancel') }}"
-        data-tooltip="{{ _('Cancel') }}">
+      <button class="btn-icon-ghost" type="button" @click="activeForm = null" aria-label="{{ _('Cancel') }}" data-tooltip="{{ _('Cancel') }}">
         {% include "icons/x.svg" %}
       </button>
     </div>
@@ -216,6 +215,7 @@
 
                       <footer class="flex justify-end gap-x-2 pt-4">
                         <button
+                          type="button"
                           class="btn-ghost"
                           onclick="this.closest('dialog').close()"
                         >{{ _('Cancel') }}</button>

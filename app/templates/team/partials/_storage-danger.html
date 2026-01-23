@@ -37,7 +37,7 @@
             **{'x-model': 'confirm'}
           ) }}
           <footer class="flex justify-end gap-x-2 mt-4">
-            <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+            <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
             {{ delete_form.submit(
               class_="btn-destructive",
               **{':disabled': "confirm !== '" + storage.name + "'"}

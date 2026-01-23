@@ -204,7 +204,7 @@
                       }
                     ) }}
                     <footer class="flex justify-end gap-x-2 pt-4">
-                      <button class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                      <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
                       <button type="submit" class="btn-destructive group" :disabled="confirm !== '{{ project.name }}'">
                         {{ _('Disconnect') }}
                         <div class="htmx-indicator [&>svg]:size-4 [&>svg]:animate-spin">{% include "icons/loader.svg" %}</div>
