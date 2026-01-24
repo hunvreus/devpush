@@ -534,7 +534,6 @@ async def github_webhook(
                             commit=commit_data,
                             db=db,
                             redis_client=redis_client,
-                            queue=queue,
                             trigger="webhook",
                         )
 
