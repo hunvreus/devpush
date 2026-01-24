@@ -1,4 +1,4 @@
-FROM ghcr.io/hunvreus/devpush-frankenphp-base:sha-323632498b5faeede0e914339f5e07ac233dfb60
+FROM ghcr.io/hunvreus/devpush-frankenphp-base:sha-30f778cf3d054ab6b9f4bfdca36732f67dfdc2db
 
 HEALTHCHECK NONE
 
@@ -6,6 +6,9 @@ ARG APP_UID=1000
 ARG APP_GID=1000
 
 USER root
+
+# Remove app and data directories created by the base image
+RUN rm -rf /app /data
 
 # Create non-root user
 RUN set -eu; \

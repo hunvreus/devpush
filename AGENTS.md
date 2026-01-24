@@ -143,7 +143,7 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 2. **Paths**: Centralized in `Settings`:
    - `data_dir`: `/var/lib/devpush` (prod) or `./data` (dev)
    - `app_dir`: `/opt/devpush` (prod) or project root (dev)
-   - `upload_dir`, `traefik_dir`, `env_file`, `config_file`, `version_file`: Derived from `data_dir`
+   - `upload_dir`, `traefik_dir`, `env_file`, `version_file`: Derived from `data_dir`
 3. **Environment variables**: Loaded from `.env` file (path from `settings.env_file`)
 4. **Secrets**: Stored in `.env` file, never committed to git
 
@@ -240,13 +240,13 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 1. **Production**:
    - Code: `/opt/devpush`
    - Data: `/var/lib/devpush`
-   - Config: `/var/lib/devpush/config.json`
+   - Config: `/var/lib/devpush`
    - Env: `/var/lib/devpush/.env`
 
 2. **Development**:
    - Code: Project root
    - Data: `./data`
-   - Config: `./data/config.json`
+   - Config: `./data`
    - Env: `./data/.env`
 
 3. **Always use `settings.data_dir`, `settings.app_dir`, etc.** from `app/config.py` rather than hardcoding paths

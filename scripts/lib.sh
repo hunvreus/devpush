@@ -53,12 +53,11 @@ else
   BACKUP_DIR="${DEVPUSH_BACKUP_DIR:-$APP_DIR/backups}"
 fi
 
-# Environment file, config file, version file
+# Environment file, version file
 ENV_FILE="$DATA_DIR/.env"
-CONFIG_FILE="$DATA_DIR/config.json"
 VERSION_FILE="$DATA_DIR/version.json"
 
-export ENVIRONMENT APP_DIR DATA_DIR ENV_FILE CONFIG_FILE VERSION_FILE LOG_DIR BACKUP_DIR
+export ENVIRONMENT APP_DIR DATA_DIR ENV_FILE VERSION_FILE LOG_DIR BACKUP_DIR
 
 # Spinner for long-running commands
 spinner() {

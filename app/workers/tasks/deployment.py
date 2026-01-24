@@ -115,16 +115,18 @@ async def start_deployment(ctx, deployment_id: str):
                 # Step 3: Install dependencies
                 if deployment.config.get("build_command"):
                     commands.append("echo 'Installing dependencies...'")
-                    commands.append(deployment.config.get("build_command"))
+                    commands.append(f"( {deployment.config.get('build_command')} )")
 
                 # Step 4: Run pre-deploy command
                 if deployment.config.get("pre_deploy_command"):
                     commands.append("echo 'Running pre-deploy command...'")
-                    commands.append(deployment.config.get("pre_deploy_command"))
+                    commands.append(
+                        f"( {deployment.config.get('pre_deploy_command')} )"
+                    )
 
                 # Step 5: Start the application
                 commands.append("echo 'Starting application...'")
-                commands.append(deployment.config.get("start_command"))
+                commands.append(f"( {deployment.config.get('start_command')} )")
 
                 # Setup container configuration
                 container_name = f"runner-{deployment.id[:7]}"

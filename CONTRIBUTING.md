@@ -32,7 +32,7 @@
 
 **Privilege Model:**
 
-- `/var/lib/devpush`: Owned by the `devpush` system user created during install (UID/GID stored as `service_uid/service_gid` in `config.json`)
+- `/var/lib/devpush`: Owned by the `devpush` system user created during install (UID/GID stored as `SERVICE_UID/SERVICE_GID` in `.env`)
 - Scripts work whether run as root or the `devpush` user; avoid `sudo` inside scripts unless they must run as root
 
 **File Operations:**

@@ -115,7 +115,6 @@ class Settings(BaseSettings):
     upload_dir: str = ""
     traefik_dir: str = ""
     env_file: str = ""
-    config_file: str = ""
     version_file: str = ""
     default_cpus: float | None = None
     max_cpus: float | None = None
@@ -221,8 +220,6 @@ def get_settings():
         settings.traefik_dir = os.path.join(settings.data_dir, "traefik")
     if not settings.env_file:
         settings.env_file = os.path.join(settings.data_dir, ".env")
-    if not settings.config_file:
-        settings.config_file = os.path.join(settings.data_dir, "config.json")
     if not settings.version_file:
         settings.version_file = os.path.join(settings.data_dir, "version.json")
     if not settings.host_data_dir:
