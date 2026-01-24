@@ -536,6 +536,11 @@ async def github_webhook(
                             redis_client=redis_client,
                             trigger="webhook",
                         )
+                        job = await queue.enqueue_job(
+                            "start_deployment", deployment.id
+                        )
+                        deployment.job_id = job.job_id
+                        await db.commit()
 
                         logger.info(
                             f"Deployment {deployment.id} created for commit {commit_data['sha']} on project {project.name}"
