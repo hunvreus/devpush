@@ -144,9 +144,9 @@
     {{ form.build_command.label() }}
     <div class="relative">
       {{ form.build_command(
-        
+        id=False,
         class="w-full font-mono text-[13px]",
-        
+        **{'x-ref': 'buildCommandInput'}
       ) }}
     </div>
     {% for error in form.build_command.errors %}
