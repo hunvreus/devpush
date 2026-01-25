@@ -20,6 +20,7 @@ Apply a fetched update: validate, pull images, rollout, migrate, and record vers
   --components <csv>
                     Comma-separated list of services to update (${VALID_COMPONENTS//|/, })
   --full            Full stack update (down whole stack, then up). Causes downtime
+  --backup          Create a backup before applying the update (recommended)
   --no-migrate      Do not run DB migrations after app update
   --no-telemetry    Do not send telemetry
   --yes, -y         Non-interactive yes to prompts
@@ -30,7 +31,7 @@ USG
 }
 
 # Parse CLI flags
-ref=""; comps=""; do_all=0; do_full=0; migrate=1; yes=0; skip_components=0; telemetry=1
+ref=""; comps=""; do_all=0; do_full=0; do_backup=0; migrate=1; yes=0; skip_components=0; telemetry=1
 [[ "${NO_TELEMETRY:-0}" == "1" ]] && telemetry=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --full) do_full=1; shift ;;
+    --backup) do_backup=1; shift ;;
     --no-migrate) migrate=0; shift ;;
     --no-telemetry) telemetry=0; shift ;;
     --yes|-y) yes=1; shift ;;
@@ -238,6 +240,19 @@ if ((meta_full==1)) && ((do_full==0)); then
   meta_forced_full=1
 elif [[ -z "$comps" ]] && ((do_all==0)) && ((do_full==0)) && [[ -n "$meta_components" ]]; then
   comps="$meta_components"
+fi
+
+# Backup (recommended)
+if ((do_backup==1)); then
+  printf '\n'
+  run_cmd "Creating backup" bash "$SCRIPT_DIR/backup.sh"
+elif ((yes!=1)) && [[ -t 0 ]]; then
+  printf '\n'
+  read -r -p "Create a backup before updating? [Y/n]: " ans
+  if [[ -z "${ans:-}" || "$ans" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+    printf '\n'
+    run_cmd "Creating backup" bash "$SCRIPT_DIR/backup.sh"
+  fi
 fi
 
 # Full stack update helper (with downtime)

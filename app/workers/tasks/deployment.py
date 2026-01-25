@@ -331,14 +331,6 @@ async def finalize_deployment(ctx, deployment_id: str):
                 )
                 return
 
-            await service.update_status(
-                db,
-                deployment,
-                status="finalize",
-                error=None,
-                redis_client=redis_client,
-            )
-
             # Log a success message
             async with aiodocker.Docker(url=settings.docker_host) as docker_client:
                 container = await docker_client.containers.get(deployment.container_id)
@@ -353,7 +345,10 @@ async def finalize_deployment(ctx, deployment_id: str):
             # Update Traefik dynamic config
             try:
                 await DeploymentService().update_traefik_config(
-                    deployment.project, db, settings
+                    deployment.project,
+                    db,
+                    settings,
+                    include_deployment_ids={deployment.id},
                 )
             except Exception as e:
                 logger.error(f"{log_prefix} Failed to update Traefik config: {e}")

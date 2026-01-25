@@ -1,10 +1,11 @@
 import os
 import re
+import tempfile
 import yaml
 import aiodocker
 import logging
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 from arq.connections import ArqRedis
@@ -247,17 +248,28 @@ class DeploymentService:
         project: Project,
         db: AsyncSession,
         settings: Settings,
+        *,
+        include_deployment_ids: set[str] | None = None,
     ) -> None:
         """Update Traefik config for a project including domains."""
         path = os.path.join(settings.traefik_dir, f"project_{project.id}.yml")
 
         # Get aliases
+        include_ids = include_deployment_ids or set()
+        if include_ids:
+            where_clause = or_(
+                Deployment.conclusion == "succeeded",
+                Deployment.id.in_(list(include_ids)),
+            )
+        else:
+            where_clause = Deployment.conclusion == "succeeded"
+
         result = await db.execute(
             select(Alias)
             .join(Deployment, Alias.deployment_id == Deployment.id)
             .filter(
                 Deployment.project_id == project.id,
-                Deployment.conclusion == "succeeded",
+                where_clause,
             )
         )
         aliases = result.scalars().all()
@@ -339,6 +351,12 @@ class DeploymentService:
                     }
                 }
 
+        # If there is nothing to configure, remove any stale config file.
+        if not routers and not services and not middlewares:
+            if os.path.exists(path):
+                os.remove(path)
+            return
+
         # Write config
         os.makedirs(settings.traefik_dir, exist_ok=True)
         config = {"http": {"routers": routers}}
@@ -347,8 +365,20 @@ class DeploymentService:
         if middlewares:
             config["http"]["middlewares"] = middlewares
 
-        with open(path, "w") as f:
-            yaml.dump(config, f, sort_keys=False, indent=2)
+        # Write atomically so Traefik's file watcher never reads a partially-written YAML.
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{os.path.basename(path)}.", dir=settings.traefik_dir
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                yaml.safe_dump(config, f, sort_keys=False, indent=2)
+            os.replace(tmp_path, path)
+        finally:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
     async def create(
         self,
