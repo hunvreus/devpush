@@ -1,11 +1,10 @@
 import asyncio
-import logging
-import shlex
-from typing import Any
-
 import aiodocker
+import logging
 from sqlalchemy import select, true
 from sqlalchemy.orm import joinedload
+import shlex
+from typing import Any
 
 from models import Alias, Deployment, Project
 from db import AsyncSessionLocal
