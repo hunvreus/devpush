@@ -1,0 +1,21 @@
+{
+  "runners": {
+    "python-3.12": { "enabled": true },
+    "node-20": { "enabled": true },
+    "go-1.25": { "enabled": true },
+    "php-fpm-8.3": { "enabled": true },
+    "php-fpm-node-8.3": { "enabled": true },
+    "frankenphp-8.3": { "enabled": true }
+  },
+  "presets": {
+    "python": { "enabled": true },
+    "flask": { "enabled": true },
+    "django": { "enabled": true },
+    "fastapi": { "enabled": true },
+    "nodejs": { "enabled": true },
+    "go": { "enabled": true },
+    "php": { "enabled": true },
+    "laravel": { "enabled": true },
+    "bun": { "enabled": false }
+  }
+}

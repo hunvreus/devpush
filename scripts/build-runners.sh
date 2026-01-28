@@ -11,7 +11,7 @@ usage(){
   cat <<USG
 Usage: build-runners.sh [--no-cache] [--image <name>] [-h|--help]
 
-Build runner images defined in app/settings/images.json.
+Build runner images defined in registry/catalog.json.
 
   --no-cache          Force rebuild without cache
   --image <name>      Build only the specified image (slug)

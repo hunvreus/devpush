@@ -14,25 +14,35 @@ from dependencies import (
 from config import get_settings
 from arq.connections import ArqRedis
 from services.deployment import DeploymentService
+from services.loki import LokiService
 
 logger = logging.getLogger(__name__)
 
 
-async def _log_to_container(container, message, error=False):
-    """Logs a message to the container."""
-    fd = "2" if error else "1"
-    exec = await container.exec(
-        ["/bin/sh", "-c", f"echo '{message}' >> /proc/1/fd/{fd}"],
-        user="appuser",
-        stdout=False,
-        stderr=False,
-    )
-    await exec.start(detach=True)
+async def _push_loki_log(
+    loki: LokiService,
+    deployment: Deployment,
+    message: str,
+    level: str | None = None,
+) -> None:
+    labels = {
+        "project_id": deployment.project_id,
+        "deployment_id": deployment.id,
+        "environment_id": deployment.environment_id,
+        "branch": deployment.branch,
+        "stream": "stdout",
+    }
+    line = f"{level}: {message}" if level else message
+    try:
+        await loki.push_log(labels, line)
+    except Exception as exc:
+        logger.warning("Failed to push log to Loki: %s", exc)
 
 
 async def start_deployment(ctx, deployment_id: str):
     """Starts a deployment."""
     container = None
+    loki: LokiService | None = None
     try:
         settings = get_settings()
         redis_client = get_redis_client()
@@ -49,6 +59,7 @@ async def start_deployment(ctx, deployment_id: str):
                     .where(Deployment.id == deployment_id)
                 )
             ).scalar_one()
+            loki = LokiService()
 
             container = None
             async with aiodocker.Docker(url=settings.docker_host) as docker_client:
@@ -187,14 +198,69 @@ async def start_deployment(ctx, deployment_id: str):
                         if override_memory_mb > 0:
                             memory_mb = min(override_memory_mb, max_memory_mb)
 
-                image = config.get("image")
+                runner_slug = config.get("runner") or config.get("image")
+                if not runner_slug:
+                    raise ValueError("Runner not set in deployment config.")
+                runner_image = next(
+                    (
+                        runner.get("image")
+                        for runner in settings.runners
+                        if runner.get("slug") == runner_slug
+                    ),
+                    None,
+                )
+                if not runner_image:
+                    raise ValueError(f"Runner '{runner_slug}' not found in settings.")
+
+                await _push_loki_log(
+                    loki,
+                    deployment,
+                    "Checking runner image availability...",
+                )
+                try:
+                    await docker_client.images.get(runner_image)
+                    await _push_loki_log(
+                        loki,
+                        deployment,
+                        f"Runner image already present ({runner_image})",
+                    )
+                except aiodocker.DockerError as error:
+                    if error.status == 404:
+                        await _push_loki_log(
+                            loki,
+                            deployment,
+                            f"Pulling runner image ({runner_image})...",
+                        )
+                        try:
+                            await docker_client.images.pull(runner_image)
+                            await _push_loki_log(
+                                loki,
+                                deployment,
+                                "Runner image pulled",
+                            )
+                        except Exception:
+                            await _push_loki_log(
+                                loki,
+                                deployment,
+                                "Failed to pull runner image",
+                                level="Error",
+                            )
+                            raise
+                    else:
+                        raise
+
+                await _push_loki_log(
+                    loki,
+                    deployment,
+                    "Preparing and starting container...",
+                )
 
                 # Create and start container
                 try:
                     container = await docker_client.containers.create_or_replace(
                         name=container_name,
                         config={
-                            "Image": f"runner-{image}",
+                            "Image": runner_image,
                             "Cmd": ["/bin/sh", "-c", " && ".join(commands)],
                             "Env": [f"{k}={v}" for k, v in env_vars_dict.items()],
                             "WorkingDir": "/app",
@@ -302,6 +368,9 @@ async def start_deployment(ctx, deployment_id: str):
             f"Deployment failed unexpectedly: {e}",
         )
         logger.info(f"{log_prefix} Deployment startup failed.", exc_info=True)
+    finally:
+        if loki:
+            await loki.client.aclose()
 
 
 async def finalize_deployment(ctx, deployment_id: str):
@@ -330,14 +399,6 @@ async def finalize_deployment(ctx, deployment_id: str):
                     "%s Deployment already canceled; skipping finalize.", log_prefix
                 )
                 return
-
-            # Log a success message
-            async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-                container = await docker_client.containers.get(deployment.container_id)
-                await _log_to_container(
-                    container,
-                    f"Success: Deployment is available at {deployment.url}",
-                )
 
             await DeploymentService().setup_aliases(deployment, db, settings)
             await db.commit()

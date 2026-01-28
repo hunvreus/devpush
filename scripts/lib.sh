@@ -324,7 +324,7 @@ init_script_logging() {
   trap '_script_err_trap' ERR
 }
 
-# Build runner images (data-dir override or core images.json)
+# Build runner images (data-dir override or bundled registry catalog.json)
 build_runner_images() {
   local no_cache=0
   local target=""
@@ -340,17 +340,17 @@ build_runner_images() {
 
   local core_runner_dir="$APP_DIR/docker/runner"
   local override_runner_dir="$DATA_DIR/runner"
-  local core_images_json="$APP_DIR/app/settings/images.json"
-  local override_images_json="$DATA_DIR/images.json"
-  local settings_json="$core_images_json"
+  local core_catalog_json="$APP_DIR/registry/catalog.json"
+  local override_catalog_json="$DATA_DIR/registry/catalog.json"
+  local settings_json="$core_catalog_json"
   local entries=()
 
-  if [[ -f "$override_images_json" ]]; then
-    settings_json="$override_images_json"
+  if [[ -f "$override_catalog_json" ]]; then
+    settings_json="$override_catalog_json"
   fi
 
   if [[ -f "$settings_json" && -n "${settings_json:-}" ]]; then
-    runner_list_cmd=(jq -r '.[] | select(type=="object") | select(.slug and (.slug|type=="string")) | "\(.slug)|\(.name // .slug)"' "$settings_json")
+    runner_list_cmd=(jq -r '.runners[] | select(type=="object") | select(.slug and (.slug|type=="string")) | "\(.slug)|\(.name // .slug)"' "$settings_json")
     if command -v mapfile >/dev/null 2>&1; then
       mapfile -t entries < <("${runner_list_cmd[@]}" 2>/dev/null || true)
     else
@@ -383,7 +383,7 @@ build_runner_images() {
     local label="${name}"
     
     if [[ ! -f "$dockerfile" ]]; then
-      printf "${CHILD_MARK} ${label} ${YEL}⊘${NC}\n"
+      printf "%s %s ${YEL}⊘${NC}\n" "${CHILD_MARK}" "${label}"
       local display_path="${dockerfile#$APP_DIR/}"
       [[ "$display_path" == "$dockerfile" ]] && display_path="${dockerfile#$DATA_DIR/}"
       printf "  ${DIM}${CHILD_MARK} Skipping (missing %s)${NC}\n" "$display_path"
@@ -413,6 +413,78 @@ build_runner_images() {
     fi
   elif ((failed>0)); then
     printf "  ${DIM}${CHILD_MARK} %s runner build(s) failed${NC}\n" "$failed"
+  fi
+}
+
+# Write registry files (catalog.json and overrides.json)
+write_registry_files() {
+  local src_dir="${APP_DIR}/registry"
+  local dst_dir="${DATA_DIR}/registry"
+  local owner_args=()
+
+  install -d "$dst_dir"
+
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    if [[ -n "${SERVICE_USER:-}" ]]; then
+      owner_args=(-o "$SERVICE_USER" -g "$SERVICE_USER")
+    elif [[ -n "${SERVICE_UID:-}" && -n "${SERVICE_GID:-}" ]]; then
+      owner_args=(-o "$SERVICE_UID" -g "$SERVICE_GID")
+    fi
+  fi
+
+  local src_catalog="$src_dir/catalog.json"
+  local dst_catalog="$dst_dir/catalog.json"
+  if [[ -f "$src_catalog" ]]; then
+    if [[ ! -f "$dst_catalog" ]]; then
+      if ((${#owner_args[@]})); then
+        run_cmd "${CHILD_MARK} Copying catalog.json" install "${owner_args[@]}" -m 0640 "$src_catalog" "$dst_catalog"
+      else
+        run_cmd "${CHILD_MARK} Copying catalog.json" install -m 0640 "$src_catalog" "$dst_catalog"
+      fi
+    else
+      local src_version dst_version dst_source newest
+      src_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$src_catalog" | head -n1)"
+      dst_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$dst_catalog" | head -n1)"
+      dst_source="$(sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$dst_catalog" | head -n1)"
+      if [[ "$dst_source" == "bundled" && -n "$src_version" ]]; then
+        if [[ -z "$dst_version" ]]; then
+          if ((${#owner_args[@]})); then
+            run_cmd "${CHILD_MARK} Refreshing catalog.json" install "${owner_args[@]}" -m 0640 "$src_catalog" "$dst_catalog"
+          else
+            run_cmd "${CHILD_MARK} Refreshing catalog.json" install -m 0640 "$src_catalog" "$dst_catalog"
+          fi
+        else
+          newest="$(printf '%s\n%s\n' "$dst_version" "$src_version" | sort -V | tail -n1)"
+          if [[ "$newest" == "$src_version" && "$src_version" != "$dst_version" ]]; then
+            if ((${#owner_args[@]})); then
+              run_cmd "${CHILD_MARK} Refreshing catalog.json" install "${owner_args[@]}" -m 0640 "$src_catalog" "$dst_catalog"
+            else
+              run_cmd "${CHILD_MARK} Refreshing catalog.json" install -m 0640 "$src_catalog" "$dst_catalog"
+            fi
+          else
+            printf "%s Copying catalog.json ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+            printf "  ${DIM}%s Local catalog is up to date, skipping${NC}\n" "${CHILD_MARK}"
+          fi
+        fi
+      else
+        printf "%s Copying catalog.json ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+        printf "  ${DIM}%s Local catalog is not bundled, skipping${NC}\n" "${CHILD_MARK}"
+      fi
+    fi
+  else
+    printf "%s Copying catalog.json ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "  ${DIM}%s Missing source catalog, skipping${NC}\n" "${CHILD_MARK}"
+  fi
+
+  if [[ -f "$src_dir/overrides.json" && ! -f "$dst_dir/overrides.json" ]]; then
+    if ((${#owner_args[@]})); then
+      run_cmd "${CHILD_MARK} Copying overrides.json" install "${owner_args[@]}" -m 0640 "$src_dir/overrides.json" "$dst_dir/overrides.json"
+    else
+      run_cmd "${CHILD_MARK} Copying overrides.json" install -m 0640 "$src_dir/overrides.json" "$dst_dir/overrides.json"
+    fi
+  else
+    printf "%s Copying overrides.json ${YEL}⊘${NC}\n" "${CHILD_MARK}"
+    printf "  ${DIM}%s File already exists or missing source, skipping${NC}\n" "${CHILD_MARK}"
   fi
 }
 

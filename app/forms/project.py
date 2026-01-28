@@ -31,26 +31,34 @@ from models import Project, Team, Domain
 from utils.color import COLORS
 
 
-def _image_choices(images: list[dict]) -> dict[str, list[tuple[str, str]]]:
+def _runner_choices(runners: list[dict]) -> dict[str, list[tuple[str, str]]]:
     grouped: dict[str, list[tuple[str, str]]] = {}
-    for img in images:
-        slug = img.get("slug")
-        name = img.get("name")
+    for runner in runners:
+        if runner.get("enabled") is not True:
+            continue
+        slug = runner.get("slug")
+        name = runner.get("name")
         if not isinstance(slug, str) or not isinstance(name, str):
             continue
         category = (
-            img.get("category") if isinstance(img.get("category"), str) else "Other"
+            runner.get("category")
+            if isinstance(runner.get("category"), str)
+            else "Other"
         )
         grouped.setdefault(category, []).append((slug, name))
     return grouped
 
 
-def validate_image(self, field):
+def validate_runner(self, field):
     valid_slugs = {
-        img.get("slug") for img in self._images if isinstance(img.get("slug"), str)
+        runner.get("slug")
+        for runner in self._runners
+        if isinstance(runner.get("slug"), str) and runner.get("enabled") is True
     }
-    if self.image.data and self.image.data not in valid_slugs:
-        raise ValidationError(_("Invalid image. Please select an image from the list."))
+    if self.runner.data and self.runner.data not in valid_slugs:
+        raise ValidationError(
+            _("Invalid runner. Please select a runner from the list.")
+        )
 
 
 def validate_root_directory(form, field):
@@ -396,8 +404,8 @@ class ProjectBuildAndDeployForm(StarletteForm):
         _l("Framework presets"),
         validators=[Optional(), Length(max=255)],
     )
-    image = SelectField(
-        _l("Image"),
+    runner = SelectField(
+        _l("Runner"),
         validators=[DataRequired(), Length(min=1, max=255)],
     )
     root_directory = StringField(
@@ -421,14 +429,16 @@ class ProjectBuildAndDeployForm(StarletteForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         settings = get_settings()
-        self._images = settings.images
+        self._runners = settings.runners
         self._presets = settings.presets
         self.preset.choices = [("", _l("None"))] + [
-            (preset["slug"], preset["name"]) for preset in self._presets
+            (preset["slug"], preset["name"])
+            for preset in self._presets
+            if preset.get("enabled") is True
         ]
-        self.image.choices = _image_choices(self._images)
+        self.runner.choices = _runner_choices(self._runners)
 
-    validate_image = validate_image
+    validate_runner = validate_runner
 
     validate_root_directory = validate_root_directory
 
@@ -516,8 +526,8 @@ class ProjectCreateForm(StarletteForm):
         choices=[],
         validators=[Optional(), Length(max=255)],
     )
-    image = SelectField(
-        _l("Image"),
+    runner = SelectField(
+        _l("Runner"),
         choices=[],
         validators=[DataRequired(), Length(min=1, max=255)],
     )
@@ -548,12 +558,14 @@ class ProjectCreateForm(StarletteForm):
         self.db = db
         self.team = team
         settings = get_settings()
-        self._images = settings.images
+        self._runners = settings.runners
         self._presets = settings.presets
         self.preset.choices = [("", _l("None"))] + [
-            (preset["slug"], preset["name"]) for preset in self._presets
+            (preset["slug"], preset["name"])
+            for preset in self._presets
+            if preset.get("enabled") is True
         ]
-        self.image.choices = _image_choices(self._images)
+        self.runner.choices = _runner_choices(self._runners)
 
     def process(self, formdata=None, obj=None, data=None, **kwargs):
         if formdata is not None:
@@ -576,7 +588,7 @@ class ProjectCreateForm(StarletteForm):
                     )
                 )
 
-    validate_image = validate_image
+    validate_runner = validate_runner
 
 
 class ProjectDeleteForm(StarletteForm):

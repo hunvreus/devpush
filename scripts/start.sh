@@ -72,11 +72,19 @@ printf '\n'
 run_cmd "Waiting for Docker to be ready" wait_for_docker
 
 # Default data directory
-mkdir -p -m 0750 "$DATA_DIR/traefik" "$DATA_DIR/upload"
+mkdir -p -m 0750 "$DATA_DIR/traefik" "$DATA_DIR/upload" "$DATA_DIR/registry"
 if [[ "$ENVIRONMENT" == "production" ]]; then
   service_user="$(default_service_user)"
   chown -R "$service_user:$service_user" "$DATA_DIR" || true
 fi
+
+# Determine service user/group
+set_service_ids
+
+# Ensure registry files exist (catalog.json and overrides.json)
+printf '\n'
+printf "Ensuring registry files exist\n"
+write_registry_files
 
 # Validate env
 validate_env "$ENV_FILE"

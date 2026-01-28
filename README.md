@@ -81,6 +81,11 @@ Start the stack:
 
 The stack auto-detects development mode on macOS and enables hot reloading. Data is stored in `./data/`.
 
+## Registry catalog
+
+Default runner/preset definitions ship in `registry/` and are copied to `DATA_DIR/registry/` during install/update.
+See `registry/README.md` for the catalog format and override rules.
+
 **Key scripts**:
 
 - `./scripts/start.sh` / `stop.sh` / `restart.sh` — manage the stack
@@ -92,73 +97,73 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 
 ## Scripts
 
-| Script | What it does |
-|---|---|
-| `scripts/backup.sh` | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`) |
-| `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <name>`) |
-| `scripts/clean.sh` | Stop stack and remove all Docker resources and data (`--keep-docker`, `--keep-data`, `--yes`) |
-| `scripts/compose.sh` | Docker compose wrapper with correct files/env (`--`) |
-| `scripts/db-generate.sh` | Generate Alembic migration (prompts for message) |
-| `scripts/db-migrate.sh` | Apply Alembic migrations (`--timeout <sec>`) |
-| `scripts/install.sh` | Server setup: Docker, user, clone repo, .env, systemd (`--repo <url>`, `--ref <ref>`, `--yes`, `--no-telemetry`, `--verbose`) |
-| `scripts/restart.sh` | Restart services (`--no-migrate`) |
-| `scripts/restore.sh` | Restore from backup archive (`--archive <file>`, `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--remove-runners`, `--timeout <sec>`, `--yes`, `--verbose`) |
-| `scripts/start.sh` | Start stack (`--no-migrate`, `--timeout <sec>`, `--verbose`) |
-| `scripts/status.sh` | Show stack status |
-| `scripts/stop.sh` | Stop services (`--hard`) |
-| `scripts/uninstall.sh` | Uninstall from server (`--yes`, `--skip-backup`, `--no-telemetry`, `--verbose`) |
-| `scripts/update.sh` | Update by tag (`--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--verbose`) |
+| Script                     | What it does                                                                                                                                                                      |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/backup.sh`        | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`)                                                                                     |
+| `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <name>`)                                                                                                                              |
+| `scripts/clean.sh`         | Stop stack and remove all Docker resources and data (`--keep-docker`, `--keep-data`, `--yes`)                                                                                     |
+| `scripts/compose.sh`       | Docker compose wrapper with correct files/env (`--`)                                                                                                                              |
+| `scripts/db-generate.sh`   | Generate Alembic migration (prompts for message)                                                                                                                                  |
+| `scripts/db-migrate.sh`    | Apply Alembic migrations (`--timeout <sec>`)                                                                                                                                      |
+| `scripts/install.sh`       | Server setup: Docker, user, clone repo, .env, systemd (`--repo <url>`, `--ref <ref>`, `--yes`, `--no-telemetry`, `--verbose`)                                                     |
+| `scripts/restart.sh`       | Restart services (`--no-migrate`)                                                                                                                                                 |
+| `scripts/restore.sh`       | Restore from backup archive (`--archive <file>`, `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--remove-runners`, `--timeout <sec>`, `--yes`, `--verbose`) |
+| `scripts/start.sh`         | Start stack (`--no-migrate`, `--timeout <sec>`, `--verbose`)                                                                                                                      |
+| `scripts/status.sh`        | Show stack status                                                                                                                                                                 |
+| `scripts/stop.sh`          | Stop services (`--hard`)                                                                                                                                                          |
+| `scripts/uninstall.sh`     | Uninstall from server (`--yes`, `--skip-backup`, `--no-telemetry`, `--verbose`)                                                                                                   |
+| `scripts/update.sh`        | Update by tag (`--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--verbose`)                                                    |
 
 ## Environment variables
 
-| Variable | Description |
-|---|---|
-| `SECRET_KEY` | App secret for sessions/CSRF. Auto-generated by install.sh. |
-| `ENCRYPTION_KEY` | Fernet key for encrypting secrets. Auto-generated by install.sh. |
-| `POSTGRES_PASSWORD` | PostgreSQL password. Auto-generated by install.sh. |
-| `SERVICE_UID` | Container user UID. Auto-set to match host user. |
-| `SERVICE_GID` | Container user GID. Auto-set to match host user. |
-| `SERVER_IP` | Public IP of the server. Auto-detected by install.sh. |
-| `CERT_CHALLENGE_PROVIDER` | ACME challenge provider: `default` (HTTP-01) or `cloudflare`, `route53`, `gcloud`, `digitalocean`, `azure` (DNS-01). Default: `default`. |
-| `GITHUB_APP_ID` | GitHub App ID. |
-| `GITHUB_APP_NAME` | GitHub App name. |
-| `GITHUB_APP_PRIVATE_KEY` | GitHub App private key (PEM format, use `\n` for newlines). |
-| `GITHUB_APP_WEBHOOK_SECRET` | GitHub webhook secret. |
-| `GITHUB_APP_CLIENT_ID` | GitHub OAuth client ID. |
-| `GITHUB_APP_CLIENT_SECRET` | GitHub OAuth client secret. |
-| `APP_HOSTNAME` | Domain for the app (e.g., `example.com`). |
-| `DEPLOY_DOMAIN` | Domain for deployments (wildcard root). No default—set explicitly (e.g., `deploy.example.com`). |
-| `LE_EMAIL` | Email for Let's Encrypt notifications. |
-| `EMAIL_SENDER_ADDRESS` | Email sender for invites/login. |
-| `RESEND_API_KEY` | API key for [Resend](https://resend.com). |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID (optional). |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret (optional). |
-| `APP_NAME` | Display name. Default: `/dev/push`. |
-| `APP_DESCRIPTION` | App description. |
-| `EMAIL_SENDER_NAME` | Sender display name. Default: `/dev/push`. |
-| `POSTGRES_DB` | Database name. Default: `devpush`. |
-| `POSTGRES_USER` | Database user. Default: `devpush-app`. |
-| `REDIS_URL` | Redis URL. Default: `redis://redis:6379`. |
-| `DOCKER_HOST` | Docker API. Default: `tcp://docker-proxy:2375`. |
-| `DATA_DIR` | Data directory. Default: `/var/lib/devpush`. |
-| `APP_DIR` | Code directory. Default: `/opt/devpush`. |
-| `DEFAULT_CPUS` | Default CPU limit per deployment. No limit if not provided. |
-| `MAX_CPUS` | Maximum allowed CPU override per project. Used only when `DEFAULT_CPUS` is set. Required to let user customize CPU. |
-| `DEFAULT_MEMORY_MB` | Default memory limit (MB) per deployment. No limit if not provided. |
-| `MAX_MEMORY_MB` | Maximum allowed memory override per project. Used only when `DEFAULT_MEMORY_MB` is set. Required to let user customize memory. |
-| `JOB_TIMEOUT_SECONDS` | Job timeout (seconds). Default: `320`. |
-| `JOB_MAX_TRIES` | Max retries per background job. Default: `3`. |
-| `DEPLOYMENT_TIMEOUT_SECONDS` | Deployment timeout (seconds). Default: `300`. |
-| `CONTAINER_DELETE_GRACE_SECONDS` | Wait before deleting containers after stop/failure to let logs ship. Default: `3`. |
-| `LOG_STREAM_GRACE_SECONDS` | Grace window for deployment log streaming (when to connect/close SSE around terminal states). Default: `5`. |
-| `LOG_LEVEL` | Logging level. Default: `WARNING`. |
-| `MAGIC_LINK_TTL_SECONDS` | Magic link validity (seconds). Default: `900`. |
-| `AUTH_TOKEN_TTL_DAYS` | Auth cookie/JWT lifetime (days). Default: `30`. |
-| `AUTH_TOKEN_REFRESH_THRESHOLD_DAYS` | Refresh auth token when expiring within N days. Default: `1`. |
-| `AUTH_TOKEN_ISSUER` | JWT issuer for auth_token. Default: `devpush-app`. |
-| `AUTH_TOKEN_AUDIENCE` | JWT audience for auth_token. Default: `devpush-web`. |
+| Variable                            | Description                                                                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `SECRET_KEY`                        | App secret for sessions/CSRF. Auto-generated by install.sh.                                                                              |
+| `ENCRYPTION_KEY`                    | Fernet key for encrypting secrets. Auto-generated by install.sh.                                                                         |
+| `POSTGRES_PASSWORD`                 | PostgreSQL password. Auto-generated by install.sh.                                                                                       |
+| `SERVICE_UID`                       | Container user UID. Auto-set to match host user.                                                                                         |
+| `SERVICE_GID`                       | Container user GID. Auto-set to match host user.                                                                                         |
+| `SERVER_IP`                         | Public IP of the server. Auto-detected by install.sh.                                                                                    |
+| `CERT_CHALLENGE_PROVIDER`           | ACME challenge provider: `default` (HTTP-01) or `cloudflare`, `route53`, `gcloud`, `digitalocean`, `azure` (DNS-01). Default: `default`. |
+| `GITHUB_APP_ID`                     | GitHub App ID.                                                                                                                           |
+| `GITHUB_APP_NAME`                   | GitHub App name.                                                                                                                         |
+| `GITHUB_APP_PRIVATE_KEY`            | GitHub App private key (PEM format, use `\n` for newlines).                                                                              |
+| `GITHUB_APP_WEBHOOK_SECRET`         | GitHub webhook secret.                                                                                                                   |
+| `GITHUB_APP_CLIENT_ID`              | GitHub OAuth client ID.                                                                                                                  |
+| `GITHUB_APP_CLIENT_SECRET`          | GitHub OAuth client secret.                                                                                                              |
+| `APP_HOSTNAME`                      | Domain for the app (e.g., `example.com`).                                                                                                |
+| `DEPLOY_DOMAIN`                     | Domain for deployments (wildcard root). No default—set explicitly (e.g., `deploy.example.com`).                                          |
+| `LE_EMAIL`                          | Email for Let's Encrypt notifications.                                                                                                   |
+| `EMAIL_SENDER_ADDRESS`              | Email sender for invites/login.                                                                                                          |
+| `RESEND_API_KEY`                    | API key for [Resend](https://resend.com).                                                                                                |
+| `GOOGLE_CLIENT_ID`                  | Google OAuth client ID (optional).                                                                                                       |
+| `GOOGLE_CLIENT_SECRET`              | Google OAuth client secret (optional).                                                                                                   |
+| `APP_NAME`                          | Display name. Default: `/dev/push`.                                                                                                      |
+| `APP_DESCRIPTION`                   | App description.                                                                                                                         |
+| `EMAIL_SENDER_NAME`                 | Sender display name. Default: `/dev/push`.                                                                                               |
+| `POSTGRES_DB`                       | Database name. Default: `devpush`.                                                                                                       |
+| `POSTGRES_USER`                     | Database user. Default: `devpush-app`.                                                                                                   |
+| `REDIS_URL`                         | Redis URL. Default: `redis://redis:6379`.                                                                                                |
+| `DOCKER_HOST`                       | Docker API. Default: `tcp://docker-proxy:2375`.                                                                                          |
+| `DATA_DIR`                          | Data directory. Default: `/var/lib/devpush`.                                                                                             |
+| `APP_DIR`                           | Code directory. Default: `/opt/devpush`.                                                                                                 |
+| `DEFAULT_CPUS`                      | Default CPU limit per deployment. No limit if not provided.                                                                              |
+| `MAX_CPUS`                          | Maximum allowed CPU override per project. Used only when `DEFAULT_CPUS` is set. Required to let user customize CPU.                      |
+| `DEFAULT_MEMORY_MB`                 | Default memory limit (MB) per deployment. No limit if not provided.                                                                      |
+| `MAX_MEMORY_MB`                     | Maximum allowed memory override per project. Used only when `DEFAULT_MEMORY_MB` is set. Required to let user customize memory.           |
+| `JOB_TIMEOUT_SECONDS`               | Job timeout (seconds). Default: `320`.                                                                                                   |
+| `JOB_MAX_TRIES`                     | Max retries per background job. Default: `3`.                                                                                            |
+| `DEPLOYMENT_TIMEOUT_SECONDS`        | Deployment timeout (seconds). Default: `300`.                                                                                            |
+| `CONTAINER_DELETE_GRACE_SECONDS`    | Wait before deleting containers after stop/failure to let logs ship. Default: `3`.                                                       |
+| `LOG_STREAM_GRACE_SECONDS`          | Grace window for deployment log streaming (when to connect/close SSE around terminal states). Default: `5`.                              |
+| `LOG_LEVEL`                         | Logging level. Default: `WARNING`.                                                                                                       |
+| `MAGIC_LINK_TTL_SECONDS`            | Magic link validity (seconds). Default: `900`.                                                                                           |
+| `AUTH_TOKEN_TTL_DAYS`               | Auth cookie/JWT lifetime (days). Default: `30`.                                                                                          |
+| `AUTH_TOKEN_REFRESH_THRESHOLD_DAYS` | Refresh auth token when expiring within N days. Default: `1`.                                                                            |
+| `AUTH_TOKEN_ISSUER`                 | JWT issuer for auth_token. Default: `devpush-app`.                                                                                       |
+| `AUTH_TOKEN_AUDIENCE`               | JWT audience for auth_token. Default: `devpush-web`.                                                                                     |
 
-## Support the project 
+## Support the project
 
 - [Contribute code](/CONTRIBUTING.md)
 - [Report issues](https://github.com/hunvreus/devpush/issues)
