@@ -118,12 +118,14 @@ async def _check_status(
             networks = container_info.get("NetworkSettings", {}).get("Networks", {})
             container_ip = networks.get("devpush_runner", {}).get("IPAddress")
             if container_ip and await _http_probe(container_ip, 8000):
+                logger.info(f"{log_prefix} Ready check passed; updating status to finalize.")
                 await DeploymentService.update_status(
                     db,
                     deployment,
                     status="finalize",
                     redis_client=redis_pool,
                 )
+                logger.info(f"{log_prefix} Status set to finalize; enqueueing finalize job.")
                 await redis_pool.enqueue_job("finalize_deployment", deployment.id)
                 logger.info(
                     f"{log_prefix} Deployment ready (finalization job enqueued)."
