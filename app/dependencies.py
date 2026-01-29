@@ -330,7 +330,7 @@ async def get_team_by_slug(
         .where(
             Team.slug == team_slug,
             TeamMember.user_id == current_user.id,
-            TeamMember.role.in_(["owner", "member"]),
+            TeamMember.role.in_(["owner", "admin", "member"]),
         )
         .limit(1)
     )
@@ -353,7 +353,7 @@ async def get_team_by_id(
         .where(
             Team.id == team_id,
             TeamMember.user_id == current_user.id,
-            TeamMember.role.in_(["owner", "member"]),
+            TeamMember.role.in_(["owner", "admin", "member"]),
         )
         .limit(1)
     )
