@@ -10,10 +10,6 @@
 {% set is_current = env_aliases and env_aliases.get(deployment.environment.id).deployment_id == deployment.id %}
 {% set is_previous = env_aliases and env_aliases.get(deployment.environment.id).previous_deployment_id == deployment.id %}
 
-{% if deployment.status == "finalize" %}
-<h1 class="text-4xl font-bold">{{ _('Finalizing deployment') }}</h1>
-{% endif %}
-
 <header class="flex items-center gap-x-4 justify-between">
   <h1 class="h1 flex items-center gap-x-3">
     <a
