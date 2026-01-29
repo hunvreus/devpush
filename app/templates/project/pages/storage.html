@@ -106,6 +106,7 @@
                         readonly
                       />
                       {{ copy(value=database_path, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
+                    </div>
                   {% elif association.storage.type == "volume" %}
                     <p>{{ _('You can access this volume in any of the selected environments at:') }}</p>
                     <div class="relative w-full mt-1">

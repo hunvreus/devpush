@@ -1,6 +1,15 @@
+import json
+
 from starlette_wtf import StarletteForm
-from wtforms import HiddenField, StringField, SubmitField, SelectField, TextAreaField
-from wtforms.validators import DataRequired, ValidationError
+from wtforms import (
+    BooleanField,
+    HiddenField,
+    SelectField,
+    StringField,
+    SubmitField,
+    TextAreaField,
+)
+from wtforms.validators import DataRequired, Length, Optional, ValidationError
 
 from dependencies import get_translation as _, get_lazy_translation as _l
 
@@ -41,3 +50,58 @@ class AllowlistImportForm(StarletteForm):
         validators=[DataRequired()],
     )
     submit = SubmitField(_l("Import"), name="allowlist_import")
+
+
+class RegistryActionForm(StarletteForm):
+    action = HiddenField(_l("Action"), validators=[DataRequired()])
+
+
+class RunnerForm(StarletteForm):
+    action = HiddenField(_l("Action"), validators=[DataRequired()])
+    slug = StringField(_l("Slug"), validators=[DataRequired(), Length(max=255)])
+    name = StringField(_l("Name"), validators=[DataRequired(), Length(max=255)])
+    category = StringField(_l("Category"), validators=[Optional(), Length(max=255)])
+    image = StringField(
+        _l("Image"), validators=[DataRequired(), Length(max=512)]
+    )
+    enabled = BooleanField(_l("Enabled"))
+
+
+class PresetForm(StarletteForm):
+    action = HiddenField(_l("Action"), validators=[DataRequired()])
+    slug = StringField(_l("Slug"), validators=[DataRequired(), Length(max=255)])
+    name = StringField(_l("Name"), validators=[DataRequired(), Length(max=255)])
+    category = StringField(_l("Category"), validators=[Optional(), Length(max=255)])
+    runner = StringField(_l("Runner"), validators=[DataRequired(), Length(max=255)])
+    build_command = TextAreaField(_l("Build command"), validators=[DataRequired()])
+    pre_deploy_command = TextAreaField(_l("Pre-deploy command"), validators=[Optional()])
+    start_command = TextAreaField(_l("Start command"), validators=[DataRequired()])
+    root_directory = StringField(_l("Root directory"), validators=[Optional(), Length(max=255)])
+    logo = TextAreaField(_l("Logo"), validators=[DataRequired()])
+    detection = TextAreaField(_l("Detection (JSON)"), validators=[Optional()])
+    enabled = BooleanField(_l("Enabled"))
+
+    def validate_detection(self, field):
+        if not field.data:
+            return
+        try:
+            json.loads(field.data)
+        except json.JSONDecodeError as exc:
+            raise ValidationError(_("Invalid detection JSON.")) from exc
+
+
+class RegistrySlugForm(StarletteForm):
+    action = HiddenField(_l("Action"), validators=[DataRequired()])
+    slug = HiddenField(_l("Slug"), validators=[DataRequired()])
+
+
+class RunnerToggleForm(StarletteForm):
+    action = HiddenField(_l("Action"), validators=[DataRequired()])
+    slug = HiddenField(_l("Slug"), validators=[DataRequired()])
+    enabled = BooleanField(_l("Enabled"))
+
+
+class PresetToggleForm(StarletteForm):
+    action = HiddenField(_l("Action"), validators=[DataRequired()])
+    slug = HiddenField(_l("Slug"), validators=[DataRequired()])
+    enabled = BooleanField(_l("Enabled"))

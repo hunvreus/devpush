@@ -87,6 +87,35 @@ def _load_registry_json(path: Path, label: str):
         raise ValueError(f"Failed to load {label} from {path}: {exc}") from exc
 
 
+def load_catalog(path: Path) -> CatalogSetting:
+    adapter = TypeAdapter(CatalogSetting)
+    return _load_registry_file(path, adapter, "catalog")
+
+
+def load_overrides(path: Path) -> dict:
+    overrides = _load_registry_json(path, "overrides")
+    if not isinstance(overrides, dict):
+        raise ValueError("Invalid overrides format: expected JSON object")
+    return overrides
+
+
+def save_overrides(path: Path, overrides: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(overrides, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def normalize_overrides(overrides: dict) -> dict:
+    if not isinstance(overrides, dict):
+        raise ValueError("Invalid overrides format: expected JSON object")
+    runners = overrides.get("runners") or {}
+    presets = overrides.get("presets") or {}
+    if not isinstance(runners, dict):
+        raise ValueError("Invalid overrides format: runners must be an object")
+    if not isinstance(presets, dict):
+        raise ValueError("Invalid overrides format: presets must be an object")
+    return {"runners": runners, "presets": presets}
+
+
 def _deep_merge_dicts(base: dict, override: dict) -> dict:
     merged = dict(base)
     for key, value in override.items():
@@ -127,21 +156,10 @@ def _merge_by_slug(base_items: list[dict], overrides: dict) -> list[dict]:
 def load_registry_settings(
     catalog_path: Path, overrides_path: Path
 ) -> tuple[list[dict], list[dict]]:
-    catalog_adapter = TypeAdapter(CatalogSetting)
-
-    catalog = _load_registry_file(catalog_path, catalog_adapter, "catalog")
-    overrides = _load_registry_json(overrides_path, "overrides")
-
-    if not isinstance(overrides, dict):
-        raise ValueError("Invalid overrides format: expected JSON object")
-
-    runner_overrides = overrides.get("runners") or {}
-    preset_overrides = overrides.get("presets") or {}
-
-    if not isinstance(runner_overrides, dict):
-        raise ValueError("Invalid overrides format: runners must be an object")
-    if not isinstance(preset_overrides, dict):
-        raise ValueError("Invalid overrides format: presets must be an object")
+    catalog = load_catalog(catalog_path)
+    overrides = normalize_overrides(load_overrides(overrides_path))
+    runner_overrides = overrides["runners"]
+    preset_overrides = overrides["presets"]
 
     catalog_data = catalog.model_dump()
     merged = {
@@ -192,3 +210,31 @@ def load_registry_settings(
     presets = [preset.model_dump() for preset in merged_catalog.presets]
 
     return runners, presets
+
+
+def build_registry_sources(
+    catalog: CatalogSetting, overrides: dict
+) -> dict[str, dict[str, str]]:
+    overrides = normalize_overrides(overrides)
+    runner_overrides = overrides["runners"]
+    preset_overrides = overrides["presets"]
+
+    catalog_runner_slugs = {runner.slug for runner in catalog.runners}
+    catalog_preset_slugs = {preset.slug for preset in catalog.presets}
+
+    runner_sources: dict[str, str] = {}
+    preset_sources: dict[str, str] = {}
+
+    for slug in catalog_runner_slugs:
+        runner_sources[slug] = "overridden" if slug in runner_overrides else "default"
+    for slug in runner_overrides.keys():
+        if slug not in catalog_runner_slugs:
+            runner_sources[slug] = "custom"
+
+    for slug in catalog_preset_slugs:
+        preset_sources[slug] = "overridden" if slug in preset_overrides else "default"
+    for slug in preset_overrides.keys():
+        if slug not in catalog_preset_slugs:
+            preset_sources[slug] = "custom"
+
+    return {"runners": runner_sources, "presets": preset_sources}

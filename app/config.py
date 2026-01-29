@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     data_dir: str = "/data"
     host_data_dir: str | None = None
     app_dir: str = "/app"
+    registry_catalog_url: str = (
+        "https://raw.githubusercontent.com/devpushhq/registry/main/catalog/v1/catalog.json"
+    )
     upload_dir: str = ""
     traefik_dir: str = ""
     env_file: str = ""

@@ -100,6 +100,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - CONTAINERS=1
+      - IMAGES=1
       - INFO=1
       - SYSTEM=1
       - POST=1

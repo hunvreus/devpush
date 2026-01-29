@@ -8,22 +8,21 @@
 
   <section class="space-y-4">
     {% if version_info %}
-      <div
-        hx-get="{{ url_for('admin_settings') }}?fragment=system"
-        hx-swap="outerHTML"
-        hx-trigger="load"
-        class="alert [&>svg]:size-4 [&>svg]:animate-spin text-muted-foreground"
-      >
-        {% include "icons/loader.svg" %}
-       <h2>{{ _('Checking for updates...') }}</h2>
-      </div>
       <ul class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <li>
           <div class="text-muted-foreground text-sm">{{ _('Version') }}</div>
-          <a href="https://github.com/hunvreus/devpush/releases/tag/{{ version_info.get('git_ref') }}" target="_blank" class="inline-flex items-center gap-x-2 [&>svg]:size-3 [&>svg]:text-muted-foreground hover:[&>svg]:text-foreground transition-colors" data-tooltip="{{ _('View on GitHub') }}">
+          <div class="flex items-center gap-x-2">
             <span class="font-mono text-[13px]">{{ version_info.get('git_ref', '-') }}</span>
-            {% include "icons/arrow-up-right.svg" %}
-          </a>
+            <div
+              hx-get="{{ url_for('admin_settings') }}?fragment=system"
+              hx-swap="outerHTML"
+              hx-trigger="load"
+              class="badge-secondary [&>svg]:animate-spin"
+            >
+              {% include "icons/loader.svg" %}
+              {{ _('Checking') }}
+            </div>
+          </div>
         </li>
         <li>
           <div class="text-muted-foreground text-sm">{{ _('Last updated') }}</div>

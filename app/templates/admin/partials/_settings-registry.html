@@ -1,0 +1,498 @@
+{% from "macros/dialog.html" import dialog %}
+{% from "macros/dropdown-menu.html" import dropdown_menu %}
+{% from "macros/tabs.html" import tabs %}
+{% from "macros/popover.html" import popover %}
+{% from "macros/copy.html" import copy %}
+
+{% if not registry_catalog %}
+  <div class="card">
+    <header class="border-b">
+      <h2>{{ _('Registry') }}</h2>
+      <p>{{ _('Manage runners and presets from the registry catalog.') }}</p>
+    </header>
+    <section>
+      <p class="text-muted-foreground">{{ _('Registry catalog not found.') }}</p>
+    </section>
+  </div>
+{% else %}
+  <div class="card">
+    <header class="border-b">
+      <h2>{{ _('Registry') }}</h2>
+      <p>{{ _('Manage runners and presets from the registry catalog.') }}</p>
+    </header>
+
+    <section class="space-y-6">
+      <ul class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <li>
+          <div class="text-muted-foreground text-sm">{{ _('Version') }}</div>
+          <div class="flex items-center gap-x-2">
+            <span class="font-mono text-[13px]">{{ registry_catalog.meta.version }}</span>
+            <div
+              hx-get="{{ url_for('admin_settings') }}?fragment=registry-check"
+              hx-swap="outerHTML"
+              hx-trigger="load"
+              class="badge-secondary [&>svg]:animate-spin"
+            >
+              {% include "icons/loader.svg" %}
+              {{ _('Checking') }}
+            </div>
+          </div>
+        </li>
+      </ul>
+
+      {% set runners_panel %}
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="text-muted-foreground">{{ _('%(count)s runners', count=registry_runners | length) }}</div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="btn-sm"
+                onclick="document.getElementById('dialog-add-runner').showModal()"
+              >
+                {% include "icons/plus.svg" %}
+                {{ _('Add runner') }}
+              </button>
+              {% set trigger %}
+                {% include "icons/ellipsis.svg" %}
+              {% endset %}
+              {% call dropdown_menu(
+                trigger=trigger,
+                trigger_attrs={"class": "btn-sm-icon-outline"},
+                popover_attrs={"data-align": "end"}
+              ) %}
+                <form method="post" action="{{ url_for('admin_settings') }}">
+                  {{ registry_form.csrf_token() }}
+                  {{ registry_form.action(value="registry_pull_all") }}
+                  <button type="submit" role="menuitem">
+                    {% include "icons/arrow-down.svg" %}
+                    {{ _('Pull all enabled') }}
+                  </button>
+                </form>
+                <form method="post" action="{{ url_for('admin_settings') }}">
+                  {{ registry_form.csrf_token() }}
+                  {{ registry_form.action(value="registry_remove_all") }}
+                  <button type="submit" role="menuitem">
+                    {% include "icons/x.svg" %}
+                    {{ _('Clear all cached') }}
+                  </button>
+                </form>
+              {% endcall %}
+            </div>
+          </div>
+
+          <div class="rounded-xl border relative overflow-x-auto">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="pl-4">{{ _('Enabled') }}</th>
+                  <th>{{ _('Name & Slug') }}</th>
+                  <th>{{ _('Category') }}</th>
+                  <th class="w-40 text-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for runner in registry_runners %}
+                  {% set source = registry_sources.runners.get(runner.slug, 'default') %}
+                  <tr>
+                    <td class="text-center pl-4">
+                      <form
+                        method="post"
+                        action="{{ url_for('admin_settings') }}"
+                        hx-post="{{ url_for('admin_settings') }}"
+                        hx-trigger="change"
+                        hx-swap="none"
+                        class="h-4.5 mx-auto"
+                      >
+                        {{ runner_toggle_form.csrf_token() }}
+                        {{ runner_toggle_form.action(value="registry_toggle_runner") }}
+                        {{ runner_toggle_form.slug(value=runner.slug, id="runner-toggle-" ~ runner.slug) }}
+                        {{ runner_toggle_form.enabled(
+                          class_="input",
+                          role="switch",
+                          checked=runner.enabled,
+                          id="runner-toggle-enabled-" ~ runner.slug
+                        ) }}
+                      </form>
+                    </td>
+                    <td class="truncate w-full">
+                      <div class="font-medium">{{ runner.name }}</div>
+                      <div class="font-mono text-muted-foreground">{{ runner.slug }}</div>
+                    </td>
+                    <td>{{ runner.category or '-' }}</td>
+                    <td class="text-right whitespace-nowrap">
+                      <div class="flex items-center">
+                        <button
+                          type="button"
+                          class="btn-sm-icon-ghost"
+                          onclick="document.getElementById('dialog-edit-runner-{{ runner.slug }}').showModal()"
+                          aria-label="{{ _('Configure') }}"
+                          data-tooltip="{{ _('Configure') }}"
+                        >
+                          {% include "icons/settings.svg" %}
+                        </button>
+                        <form method="post" action="{{ url_for('admin_settings') }}">
+                          {{ registry_slug_form.csrf_token() }}
+                          {{ registry_slug_form.action(value="registry_pull_runner") }}
+                          {{ registry_slug_form.slug(value=runner.slug, id="runner-pull-" ~ runner.slug) }}
+                          <button
+                            type="submit"
+                            role="menuitem"
+                            class="btn-sm-icon-ghost"
+                            aria-label="{{ _('Pull image') }}"
+                            data-tooltip="{{ _('Pull image') }}"
+                          >
+                            {% include "icons/arrow-down.svg" %}
+                          </button>
+                        </form>
+                        <form method="post" action="{{ url_for('admin_settings') }}">
+                          {{ registry_slug_form.csrf_token() }}
+                          {{ registry_slug_form.action(value="registry_remove_runner") }}
+                          {{ registry_slug_form.slug(value=runner.slug, id="runner-remove-" ~ runner.slug) }}
+                          <button
+                            type="submit"
+                            role="menuitem"
+                            class="btn-sm-icon-ghost"
+                            aria-label="{{ _('Clear image') }}"
+                            data-tooltip="{{ _('Clear image') }}"
+                          >
+                            {% include "icons/x.svg" %}
+                          </button>
+                        </form>
+                        {% if source != 'default' %}
+                          <form method="post" action="{{ url_for('admin_settings') }}">
+                            {{ registry_slug_form.csrf_token() }}
+                            {{ registry_slug_form.action(value="registry_reset_runner") }}
+                            {{ registry_slug_form.slug(value=runner.slug, id="runner-reset-" ~ runner.slug) }}
+                            <button
+                              type="submit"
+                              role="menuitem"
+                              data-align="end"
+                              class="btn-sm-icon-ghost text-destructive"
+                              aria-label="{{ _('Reset to default') }}"
+                              data-tooltip="{{ _('Reset to default') }}"
+                            >
+                              {% include "icons/undo-2.svg" %}
+                            </button>
+                          </form>
+                        {% endif %}
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          {% call dialog(
+            id="dialog-add-runner",
+            title=_("Add runner"),
+            dialog_attrs={"class": "max-w-lg"},
+            body_attrs={"class": "space-y-4"}
+          ) %}
+            <form method="post" action="{{ url_for('admin_settings') }}" class="space-y-4">
+              {{ runner_form.csrf_token() }}
+              {{ runner_form.action(value="registry_add_runner") }}
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {{ runner_form.slug(class_="input", placeholder=_('Slug')) }}
+                {{ runner_form.name(class_="input", placeholder=_('Name')) }}
+                {{ runner_form.category(class_="input", placeholder=_('Category')) }}
+                {{ runner_form.image(class_="input font-mono text-xs", placeholder=_('Image')) }}
+              </div>
+              <label class="inline-flex items-center gap-2 text-sm">
+                {{ runner_form.enabled(checked=True) }}
+                {{ _('Enabled') }}
+              </label>
+              <footer class="flex justify-end gap-2">
+                <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                <button type="submit" class="btn-primary">{{ _('Add runner') }}</button>
+              </footer>
+            </form>
+          {% endcall %}
+
+          {% for runner in registry_runners %}
+            {% call dialog(
+              id="dialog-edit-runner-" ~ runner.slug,
+              title=_("Edit runner"),
+              dialog_attrs={"class": "max-w-lg"},
+              body_attrs={"class": "space-y-4"}
+            ) %}
+              <form method="post" action="{{ url_for('admin_settings') }}" class="space-y-4">
+                {{ runner_form.csrf_token() }}
+                {{ runner_form.action(value="registry_update_runner") }}
+                {{ runner_form.slug(type="hidden", value=runner.slug, id="runner-edit-slug-" ~ runner.slug) }}
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Name') }}</label>
+                    {{ runner_form.name(class_="input w-full", value=runner.name, id="runner-edit-name-" ~ runner.slug) }}
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Category') }}</label>
+                    {{ runner_form.category(class_="input w-full", value=runner.category or '', id="runner-edit-category-" ~ runner.slug) }}
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Image') }}</label>
+                    {{ runner_form.image(class_="input w-full font-mono text-xs", value=runner.image, id="runner-edit-image-" ~ runner.slug) }}
+                  </div>
+                </div>
+                <label class="inline-flex items-center gap-2 text-sm">
+                  {{ runner_form.enabled(checked=runner.enabled, id="runner-edit-enabled-" ~ runner.slug) }}
+                  {{ _('Enabled') }}
+                </label>
+                <footer class="flex justify-end gap-2">
+                  <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                  <button type="submit" class="btn-primary">{{ _('Save') }}</button>
+                </footer>
+              </form>
+            {% endcall %}
+          {% endfor %}
+        </div>
+      {% endset %}
+
+      {% set presets_panel %}
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="text-muted-foreground">{{ _('%(count)s presets', count=registry_presets | length) }}</div>
+            <button
+              type="button"
+              class="btn-sm"
+              onclick="document.getElementById('dialog-add-preset').showModal()"
+            >
+              {% include "icons/plus.svg" %}
+              {{ _('Add preset') }}
+            </button>
+          </div>
+
+          <div class="rounded-xl border relative overflow-x-auto">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="pl-4">{{ _('Slug') }}</th>
+                  <th>{{ _('Name') }}</th>
+                  <th>{{ _('Category') }}</th>
+                  <th>{{ _('Runner') }}</th>
+                  <th>{{ _('Source') }}</th>
+                  <th>{{ _('Enabled') }}</th>
+                  <th class="w-32 text-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for preset in registry_presets %}
+                  {% set source = registry_sources.presets.get(preset.slug, 'default') %}
+                  <tr>
+                    <td class="pl-4 font-mono text-xs">{{ preset.slug }}</td>
+                    <td class="max-w-xs truncate">{{ preset.name }}</td>
+                    <td>{{ preset.category or '-' }}</td>
+                    <td class="font-mono text-xs">{{ preset.config.runner }}</td>
+                    <td>
+                      {% if source == 'custom' %}
+                        <span class="badge">{{ _('Custom') }}</span>
+                      {% elif source == 'overridden' %}
+                        <span class="badge-secondary">{{ _('Overridden') }}</span>
+                      {% else %}
+                        <span class="badge-outline">{{ _('Default') }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <form
+                        method="post"
+                        action="{{ url_for('admin_settings') }}"
+                        hx-post="{{ url_for('admin_settings') }}"
+                        hx-trigger="change"
+                        hx-swap="none"
+                        class="inline-flex items-center gap-2"
+                      >
+                        {{ preset_toggle_form.csrf_token() }}
+                        {{ preset_toggle_form.action(value="registry_toggle_preset") }}
+                        {{ preset_toggle_form.slug(value=preset.slug, id="preset-toggle-" ~ preset.slug) }}
+                        {{ preset_toggle_form.enabled(class_="input", checked=preset.enabled, id="preset-toggle-enabled-" ~ preset.slug) }}
+                      </form>
+                    </td>
+                    <td class="text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        class="btn-sm-ghost"
+                        onclick="document.getElementById('dialog-edit-preset-{{ preset.slug }}').showModal()"
+                      >
+                        {{ _('Edit') }}
+                      </button>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          {% call dialog(
+            id="dialog-add-preset",
+            title=_("Add preset"),
+            dialog_attrs={"class": "max-w-2xl"},
+            body_attrs={"class": "space-y-4"}
+          ) %}
+            <form method="post" action="{{ url_for('admin_settings') }}" class="form space-y-4">
+              {{ preset_form.csrf_token() }}
+              {{ preset_form.action(value="registry_add_preset") }}
+              <div class="space-y-3">
+                {{ preset_form.slug.label }}
+                {{ preset_form.slug(class_="input") }}
+                {% for error in preset_form.slug.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              <div class="space-y-3">
+                {{ preset_form.name.label }}
+                {{ preset_form.name(class_="input") }}
+                {% for error in preset_form.name.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              <div class="space-y-3">
+                {{ preset_form.category.label }}
+                {{ preset_form.category(class_="input") }}
+                {% for error in preset_form.category.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              <div class="space-y-3">
+                {{ preset_form.runner.label }}
+                {{ preset_form.runner(class_="input") }}
+                {% for error in preset_form.runner.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              <div class="space-y-3">
+                {{ preset_form.build_command.label }}
+                {{ preset_form.build_command(class_="textarea") }}
+                {% for error in preset_form.build_command.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              <div class="space-y-3">
+                {{ preset_form.pre_deploy_command.label }}
+                {{ preset_form.pre_deploy_command(class_="textarea") }}
+                {% for error in preset_form.pre_deploy_command.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              <div class="space-y-3">
+                {{ preset_form.start_command.label }}
+                {{ preset_form.start_command(class_="textarea") }}
+                {% for error in preset_form.start_command.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              <div class="space-y-3">
+                {{ preset_form.root_directory.label }}
+                {{ preset_form.root_directory(class_="input") }}
+                {% for error in preset_form.root_directory.errors %}
+                  <p class="text-sm text-destructive">{{ error }}</p>
+                {% endfor %}
+              </div>
+              {{ preset_form.logo(class_="textarea", placeholder=_('Logo (SVG or URL)')) }}
+              {{ preset_form.detection(class_="textarea", placeholder=_('Detection JSON (optional)')) }}
+              <label class="inline-flex items-center gap-2 text-sm">
+                {{ preset_form.enabled(checked=True) }}
+                {{ _('Enabled') }}
+              </label>
+              <footer class="flex justify-end gap-2">
+                <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                <button type="submit" class="btn-primary">{{ _('Add preset') }}</button>
+              </footer>
+            </form>
+          {% endcall %}
+
+          {% for preset in registry_presets %}
+            {% set source = registry_sources.presets.get(preset.slug, 'default') %}
+            {% call dialog(
+              id="dialog-edit-preset-" ~ preset.slug,
+              title=_("Edit preset"),
+              dialog_attrs={"class": "max-w-2xl"},
+              body_attrs={"class": "space-y-4"}
+            ) %}
+              {% if source != 'default' %}
+                <form method="post" action="{{ url_for('admin_settings') }}" class="flex justify-end">
+                  {{ registry_slug_form.csrf_token() }}
+                  {{ registry_slug_form.action(value="registry_reset_preset") }}
+                  {{ registry_slug_form.slug(value=preset.slug, id="preset-reset-" ~ preset.slug) }}
+                  <button type="submit" class="btn-ghost text-muted-foreground">
+                    {{ _('Reset to default') }}
+                  </button>
+                </form>
+              {% endif %}
+              <form id="preset-edit-{{ preset.slug }}" method="post" action="{{ url_for('admin_settings') }}" class="space-y-4">
+                {{ preset_form.csrf_token() }}
+                {{ preset_form.action(value="registry_update_preset") }}
+                {{ preset_form.slug(type="hidden", value=preset.slug, id="preset-edit-slug-" ~ preset.slug) }}
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Name') }}</label>
+                    {{ preset_form.name(class_="input w-full", value=preset.name, id="preset-edit-name-" ~ preset.slug) }}
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Category') }}</label>
+                    {{ preset_form.category(class_="input w-full", value=preset.category or '', id="preset-edit-category-" ~ preset.slug) }}
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Runner') }}</label>
+                    {{ preset_form.runner(class_="input w-full", value=preset.config.runner, id="preset-edit-runner-" ~ preset.slug) }}
+                  </div>
+                  <div>
+                    <label class="text-xs text-muted-foreground">{{ _('Build command') }}</label>
+                    {{ preset_form.build_command(class_="textarea w-full", value=preset.config.build_command, id="preset-edit-build-" ~ preset.slug) }}
+                  </div>
+                  <div>
+                    <label class="text-xs text-muted-foreground">{{ _('Pre-deploy command') }}</label>
+                    {{ preset_form.pre_deploy_command(class_="textarea w-full", value=preset.config.pre_deploy_command or '', id="preset-edit-pre-" ~ preset.slug) }}
+                  </div>
+                  <div>
+                    <label class="text-xs text-muted-foreground">{{ _('Start command') }}</label>
+                    {{ preset_form.start_command(class_="textarea w-full", value=preset.config.start_command, id="preset-edit-start-" ~ preset.slug) }}
+                  </div>
+                  <div>
+                    <label class="text-xs text-muted-foreground">{{ _('Root directory') }}</label>
+                    {{ preset_form.root_directory(class_="input w-full", value=preset.config.root_directory or '', id="preset-edit-root-" ~ preset.slug) }}
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Logo') }}</label>
+                    {{ preset_form.logo(class_="textarea w-full", value=preset.config.logo, id="preset-edit-logo-" ~ preset.slug) }}
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="text-xs text-muted-foreground">{{ _('Detection (JSON)') }}</label>
+                    {{ preset_form.detection(class_="textarea w-full", value=(preset.config.detection | tojson(indent=2)) if preset.config.detection else '', id="preset-edit-detection-" ~ preset.slug) }}
+                  </div>
+                </div>
+                <label class="inline-flex items-center gap-2 text-sm">
+                  {{ preset_form.enabled(checked=preset.enabled, id="preset-edit-enabled-" ~ preset.slug) }}
+                  {{ _('Enabled') }}
+                </label>
+                <footer class="flex justify-end gap-2">
+                  <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
+                  <button type="submit" class="btn-primary">{{ _('Save') }}</button>
+                </footer>
+              </form>
+            {% endcall %}
+          {% endfor %}
+        </div>
+      {% endset %}
+
+      {{ tabs(
+        tabsets=[
+          {
+            "id": "registry-runners",
+            "tab": _("Runners"),
+            "panel": runners_panel,
+            "panel_attrs": {"class": "pt-4"}
+          },
+          {
+            "id": "registry-presets",
+            "tab": _("Presets"),
+            "panel": presets_panel,
+            "panel_attrs": {"class": "pt-4"}
+          }
+        ],
+        main_attrs={"class": "w-full"},
+        tablist_attrs={"class": "w-full"},
+      ) }}
+    </section>
+  </div>
+{% endif %}

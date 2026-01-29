@@ -1,0 +1,26 @@
+{% if registry_error %}
+  <div class="alert text-muted-foreground">
+    <h2>{{ _('Registry check failed') }}</h2>
+    <p class="text-xs">{{ registry_error }}</p>
+  </div>
+{% else %}
+  {% if registry_remote_version and registry_local_version and registry_remote_version != registry_local_version %}
+    <div class="alert">
+      <h2>{{ _('Catalog update available') }}</h2>
+      <p>{{ _('Current: %(current)s · Latest: %(latest)s', current=registry_local_version, latest=registry_remote_version) }}</p>
+      <form method="post" action="{{ url_for('admin_settings') }}" class="mt-3">
+        {{ registry_form.csrf_token() }}
+        {{ registry_form.action(value="registry_sync_catalog") }}
+        <button type="submit" class="btn-primary">
+          {% include "icons/refresh-cw.svg" %}
+          {{ _('Sync catalog') }}
+        </button>
+      </form>
+    </div>
+  {% else %}
+    <div class="alert text-muted-foreground">
+      <h2>{{ _('Catalog is up to date') }}</h2>
+      <p>{{ registry_local_version or '-' }}</p>
+    </div>
+  {% endif %}
+{% endif %}
