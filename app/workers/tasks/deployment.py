@@ -154,6 +154,7 @@ async def start_deployment(ctx, deployment_id: str):
                     "traefik.docker.network": "devpush_runner",
                     "devpush.deployment_id": deployment.id,
                     "devpush.project_id": deployment.project_id,
+                    "devpush.team_id": deployment.project.team_id,
                     "devpush.environment_id": deployment.environment_id,
                     "devpush.branch": deployment.branch,
                 }
