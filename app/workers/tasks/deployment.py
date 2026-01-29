@@ -292,6 +292,17 @@ async def start_deployment(ctx, deployment_id: str):
                                 ),
                                 **({"Binds": mounts} if mounts else {}),
                                 "SecurityOpt": ["no-new-privileges:true"],
+                                "RestartPolicy": {
+                                    "Name": settings.deployment_restart_policy,
+                                    **(
+                                        {
+                                            "MaximumRetryCount": settings.deployment_restart_max_retries,
+                                        }
+                                        if settings.deployment_restart_policy
+                                        == "on-failure"
+                                        else {}
+                                    ),
+                                },
                                 "LogConfig": {
                                     "Type": "json-file",
                                     "Config": {"max-size": "10m", "max-file": "5"},
