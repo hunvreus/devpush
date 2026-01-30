@@ -1,5 +1,6 @@
 import httpx
 import re
+import time
 from typing import List, Dict, Any
 import logging
 
@@ -92,3 +93,19 @@ class LokiService:
 
         logs.sort(key=lambda x: int(x["timestamp"]))
         return logs
+
+    async def push_log(
+        self,
+        labels: Dict[str, str],
+        line: str,
+        timestamp_ns: int | None = None,
+        timeout: float = 10.0,
+    ) -> None:
+        """Push a single log line to Loki."""
+        clean_labels = {k: str(v) for k, v in labels.items() if v is not None}
+        ts = str(timestamp_ns if timestamp_ns is not None else time.time_ns())
+        payload = {"streams": [{"stream": clean_labels, "values": [[ts, line]]}]}
+        response = await self.client.post(
+            f"{self.loki_url}/loki/api/v1/push", json=payload, timeout=timeout
+        )
+        response.raise_for_status()

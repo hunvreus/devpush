@@ -9,12 +9,12 @@
   {{ build_and_deploy_form.csrf_token(id=False) }}
   <header class="border-b">
     <h2>{{ _('Build & Deploy') }}</h2>
-    <p>{{ _('Configuration for building and deploying the project: root folder, image, commands, etc.') }}</p>
+    <p>{{ _('Configuration for building and deploying the project: root folder, runner, commands, etc.') }}</p>
   </header>
 
   <section class="space-y-6">
     {% from "project/macros/build-and-deploy.html" import render_build_and_deploy %}
-    {{ render_build_and_deploy(build_and_deploy_form, presets, images, init_values=false) }}
+    {{ render_build_and_deploy(build_and_deploy_form, presets, runners, init_values=false) }}
   </section>
 
   <footer class="flex justify-end gap-x-2">

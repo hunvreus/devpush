@@ -11,6 +11,12 @@ from workers.tasks.project import delete_project
 from workers.tasks.storage import provision_storage, deprovision_storage
 from workers.tasks.team import delete_team
 from workers.tasks.user import delete_user
+from workers.tasks.registry import (
+    pull_runner_image,
+    pull_all_runner_images,
+    remove_runner_image,
+    remove_all_runner_images,
+)
 
 from config import get_settings
 
@@ -31,6 +37,10 @@ class WorkerSettings:
         delete_container,
         provision_storage,
         deprovision_storage,
+        pull_runner_image,
+        pull_all_runner_images,
+        remove_runner_image,
+        remove_all_runner_images,
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 8

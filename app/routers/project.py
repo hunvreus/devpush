@@ -130,6 +130,12 @@ async def new_project_details(
         )
 
     form: Any = await ProjectCreateForm.from_formdata(request, db=db, team=team)
+    enabled_presets = [
+        preset for preset in settings.presets if preset.get("enabled") is True
+    ]
+    enabled_runners = [
+        runner for runner in settings.runners if runner.get("enabled") is True
+    ]
 
     if request.method == "GET":
         form.repo_id.data = int(repo_id)
@@ -141,7 +147,7 @@ async def new_project_details(
             try:
                 github_oauth_token = await get_user_github_token(db, current_user)
                 if github_oauth_token:
-                    detector = PresetDetector(settings.presets)
+                    detector = PresetDetector(enabled_presets)
 
                     # Run detection with 5 second timeout
                     detection = await asyncio.wait_for(
@@ -156,18 +162,19 @@ async def new_project_details(
 
                     # If preset detected, get preset config and set all form fields
                     if detection["preset"]:
-                        preset_config = next(
+                        preset_entry = next(
                             (
                                 p
-                                for p in settings.presets
+                                for p in enabled_presets
                                 if p["slug"] == detection["preset"]
                             ),
                             None,
                         )
 
-                        if preset_config:
+                        if preset_entry:
+                            preset_config = preset_entry.get("config", {})
                             form.preset.data = detection["preset"]
-                            form.image.data = preset_config.get("image")
+                            form.runner.data = preset_config.get("runner")
                             if preset_config.get("root_directory"):
                                 form.root_directory.data = preset_config.get(
                                     "root_directory"
@@ -197,8 +204,8 @@ async def new_project_details(
                     "team": team,
                     "form": form,
                     "repo_full_name": f"{repo_owner or ''}/{repo_name or ''}",
-                    "presets": settings.presets,
-                    "images": settings.images,
+                    "presets": enabled_presets,
+                    "runners": enabled_runners,
                     "detecting": False,
                 },
             )
@@ -262,7 +269,7 @@ async def new_project_details(
             github_installation=github_installation,
             config={
                 "preset": form.preset.data,
-                "image": form.image.data,
+                "runner": form.runner.data,
                 "root_directory": form.root_directory.data,
                 "build_command": form.build_command.data,
                 "pre_deploy_command": form.pre_deploy_command.data,
@@ -306,8 +313,8 @@ async def new_project_details(
             "team": team,
             "form": form,
             "repo_full_name": f"{repo_owner or ''}/{repo_name or ''}",
-            "presets": settings.presets,
-            "images": settings.images,
+            "presets": enabled_presets,
+            "runners": enabled_runners,
             "environments": [
                 {"color": "blue", "name": "Production", "slug": "production"}
             ],
@@ -1355,6 +1362,13 @@ async def project_settings(
             status_code=302,
         )
 
+    enabled_presets = [
+        preset for preset in settings.presets if preset.get("enabled") is True
+    ]
+    enabled_runners = [
+        runner for runner in settings.runners if runner.get("enabled") is True
+    ]
+
     # Delete
     delete_project_form = None
     if get_access(role, "admin"):
@@ -1649,7 +1663,7 @@ async def project_settings(
         request,
         data={
             "preset": project.config.get("preset"),
-            "image": project.config.get("image"),
+            "runner": project.config.get("runner") or project.config.get("image"),
             "root_directory": project.config.get("root_directory"),
             "build_command": project.config.get("build_command"),
             "pre_deploy_command": project.config.get("pre_deploy_command"),
@@ -1659,15 +1673,17 @@ async def project_settings(
 
     if fragment == "build_and_deploy":
         if await build_and_deploy_form.validate_on_submit():
-            project.config = {
+            project_config = {
                 **project.config,
                 "preset": build_and_deploy_form.preset.data,
-                "image": build_and_deploy_form.image.data,
+                "runner": build_and_deploy_form.runner.data,
                 "root_directory": build_and_deploy_form.root_directory.data,
                 "build_command": build_and_deploy_form.build_command.data,
                 "pre_deploy_command": build_and_deploy_form.pre_deploy_command.data,
                 "start_command": build_and_deploy_form.start_command.data,
             }
+            project_config.pop("image", None)
+            project.config = project_config
             await db.commit()
             flash(request, _("Build & Deploy settings updated."), "success")
 
@@ -1680,8 +1696,8 @@ async def project_settings(
                     "team": team,
                     "project": project,
                     "build_and_deploy_form": build_and_deploy_form,
-                    "presets": settings.presets,
-                    "images": settings.images,
+                    "presets": enabled_presets,
+                    "runners": enabled_runners,
                 },
             )
 
@@ -1941,8 +1957,8 @@ async def project_settings(
             "server_ip": settings.server_ip,
             "deploy_domain": settings.deploy_domain,
             "colors": COLORS,
-            "presets": settings.presets,
-            "images": settings.images,
+            "presets": enabled_presets,
+            "runners": enabled_runners,
             "latest_projects": latest_projects,
             "latest_teams": latest_teams,
         },
@@ -1974,6 +1990,13 @@ async def project_deployment(
     env_aliases = await project.get_environment_aliases(db=db)
 
     if request.headers.get("HX-Request") and fragment == "header":
+        if deployment.status == "completed":
+            if deployment.conclusion == "succeeded":
+                flash(request, _("Deployment succeeded."), "success")
+            elif deployment.conclusion == "canceled":
+                flash(request, _("Deployment canceled."), "warning")
+            else:
+                flash(request, _("Deployment failed."), "error")
         return TemplateResponse(
             request=request,
             name="deployment/partials/_header.html",

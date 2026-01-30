@@ -57,7 +57,8 @@ services:
     volumes:
       - ${DATA_DIR:-../data}:/data
     healthcheck:
-      test: ["CMD", "uv", "run", "arq", "--check", "workers.jobs.WorkerSettings"]
+      test:
+        ["CMD", "uv", "run", "arq", "--check", "workers.jobs.WorkerSettings"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -83,6 +84,8 @@ services:
       - ${DATA_DIR:-../data}/.env
     environment:
       HOST_DATA_DIR: ${DATA_DIR:-../data}
+    volumes:
+      - ${DATA_DIR:-../data}:/data
 
   redis:
     image: redis:alpine
@@ -97,11 +100,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - CONTAINERS=1
+      - IMAGES=1
       - INFO=1
       - SYSTEM=1
       - POST=1
       - EXEC=1
       - NETWORKS=1
+      - IMAGES=1
       - DISABLE_IPV6=1
     networks:
       - internal

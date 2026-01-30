@@ -72,14 +72,19 @@ fi
 
 cd "$APP_DIR" || { err "App dir not found: $APP_DIR"; exit 1; }
 
+# Determine service user/group
+set_service_ids
+
+# Refresh registry files (catalog.json and overrides.json)
+printf '\n'
+printf "Refreshing registry files\n"
+write_registry_files
+
 # Ensure version.json exists
 if [[ ! -f "$VERSION_FILE" ]]; then
   err "version.json not found. Run install.sh first."
   exit 1
 fi
-
-# Determine service user/group
-set_service_ids
 
 # Validate environment variables
 validate_env "$ENV_FILE"

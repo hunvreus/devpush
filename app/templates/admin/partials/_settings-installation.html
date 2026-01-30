@@ -8,30 +8,29 @@
 
   <section class="space-y-4">
     {% if version_info %}
-      <div
-        hx-get="{{ url_for('admin_settings') }}?fragment=system"
-        hx-swap="outerHTML"
-        hx-trigger="load"
-        class="alert [&>svg]:size-4 [&>svg]:animate-spin text-muted-foreground"
-      >
-        {% include "icons/loader.svg" %}
-       <h2>{{ _('Checking for updates...') }}</h2>
-      </div>
       <ul class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <li>
-          <div class="text-muted-foreground text-sm">{{ _('Version') }}</div>
-          <a href="https://github.com/hunvreus/devpush/releases/tag/{{ version_info.get('git_ref') }}" target="_blank" class="inline-flex items-center gap-x-2 [&>svg]:size-3 [&>svg]:text-muted-foreground hover:[&>svg]:text-foreground transition-colors" data-tooltip="{{ _('View on GitHub') }}">
+          <div class="text-muted-foreground">{{ _('Version') }}</div>
+          <div class="flex items-center gap-x-2 h-5.5">
             <span class="font-mono text-[13px]">{{ version_info.get('git_ref', '-') }}</span>
-            {% include "icons/arrow-up-right.svg" %}
-          </a>
+            <div
+              hx-get="{{ url_for('admin_settings') }}?fragment=system"
+              hx-swap="outerHTML"
+              hx-trigger="load"
+              class="badge-secondary [&>svg]:animate-spin"
+            >
+              {{ _('Checking') }}
+              {% include "icons/loader.svg" %}
+            </div>
+          </div>
         </li>
         <li>
-          <div class="text-muted-foreground text-sm">{{ _('Last updated') }}</div>
-          {{ version_info.get('updated_at') | time_ago }}
+          <div class="text-muted-foreground">{{ _('Last updated') }}</div>
+          <div class="h-5.5">{{ version_info.get('updated_at') | time_ago }}</div>
         </li>
         <li>
-          <div class="text-muted-foreground text-sm">{{ _('Install ID') }}</div>
-          <div class="flex items-center gap-x-2">
+          <div class="text-muted-foreground">{{ _('Install ID') }}</div>
+          <div class="flex items-center gap-x-2 h-5.5">
             <span class="font-mono truncate max-w-full flex-1 text-[13px]">{{ version_info.get('install_id', '-') }}</span>
             {{ copy(value=version_info.get('install_id'), class="size-3 [&_svg]:size-3") }}
           </div>

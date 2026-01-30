@@ -1,16 +1,14 @@
-{% macro render_build_and_deploy(form, presets, images, init_values=true) %}
+{% macro render_build_and_deploy(form, presets, runners, init_values=true) %}
 <script>
   var presets = {{ presets | tojson }};
-  var images = {{ images | tojson }};
+  var runners = {{ runners | tojson }};
   presets = presets.map(preset => {
     const presetTags = Array.isArray(preset?.tags) ? preset.tags : [];
-    if (!presetTags.length) return { ...preset, allowedImages: null };
-
-    const matched = images.filter(i =>
-      Array.isArray(i.tags) && presetTags.every(t => i.tags.includes(t))
+    if (!presetTags.length) return { ...preset, allowedRunners: null };
+    const matched = runners.filter(runner =>
+      Array.isArray(runner?.tags) && presetTags.every(tag => runner.tags.includes(tag))
     );
-
-    return { ...preset, allowedImages: matched.length ? matched : null };
+    return { ...preset, allowedRunners: matched.length ? matched.map(r => r.slug) : null };
   });
 </script>
 <div
@@ -22,10 +20,12 @@
       if (!this.selectedPreset) return null;
       return presets.find(p => p.slug === this.selectedPreset);
     },
-    disableImageOptions(preset) {
-      if (!$refs.imageInput) return;
-      $refs.imageInput.querySelectorAll('option').forEach(option => {
-        if (!preset?.category) {
+    disableRunnerOptions(preset) {
+      if (!$refs.runnerInput) return;
+      $refs.runnerInput.querySelectorAll('option').forEach(option => {
+        if (preset?.allowedRunners) {
+          option.disabled = !preset.allowedRunners.includes(option.value);
+        } else if (!preset?.category) {
           option.disabled = false;
         } else {
           if (option.parentElement.tagName === 'OPTGROUP' && option.parentElement.label === preset?.category) {
@@ -39,7 +39,7 @@
     setPreset(slug = null, force = false, apply = true) {
       this.selectedPreset = slug || '';
       if (!slug) {
-        this.disableImageOptions(null);
+        this.disableRunnerOptions(null);
         return;
       }
       const preset = this.getPreset();
@@ -49,13 +49,19 @@
         if (value === undefined || value === null) return;
         if (force || !ref.value) ref.value = value;
       };
-      this.disableImageOptions(preset);
+      this.disableRunnerOptions(preset);
       if (!apply) return;
-      applyValue($refs.imageInput, preset?.image);
-      applyValue($refs.rootDirectoryInput, preset?.root_directory);
-      applyValue($refs.buildCommandInput, preset?.build_command);
-      applyValue($refs.preDeployCommandInput, preset?.pre_deploy_command);
-      applyValue($refs.startCommandInput, preset?.start_command);
+      
+      let runnerValue = preset?.config?.runner;
+      const options = Array.from($refs.runnerInput.querySelectorAll('option'));
+      if (!options.find(option => option.value === runnerValue && !option.disabled)) {
+        runnerValue = options.find(option => !option.disabled && option.parentElement?.label === preset?.category)?.value;
+      }
+      applyValue($refs.runnerInput, runnerValue);
+      applyValue($refs.rootDirectoryInput, preset?.config?.root_directory);
+      applyValue($refs.buildCommandInput, preset?.config?.build_command);
+      applyValue($refs.preDeployCommandInput, preset?.config?.pre_deploy_command);
+      applyValue($refs.startCommandInput, preset?.config?.start_command);
     },
   }"
   x-init="setPreset(selectedPreset, false, initValues)"
@@ -75,9 +81,9 @@
       {% for preset in presets %}
         {% set label %}
           <span class="flex items-center gap-x-2">
-            {{ preset.logo | safe }}
+            {{ (preset.config and preset.config.logo) | safe }}
             {{ preset.name }}
-            {% if preset.beta %}
+            {% if preset.config and preset.config.beta %}
               <span class="badge-outline">Beta</span>
             {% endif %}
           </span>
@@ -100,7 +106,7 @@
         aria-label="{{ _('Reset') }}"
         x-show="selectedPreset"
         x-cloak
-        @click="if (window.confirm('{{ _('Reset all fields to the preset defaults (root directory, image, commands)?') }}')) { setPreset(selectedPreset, true); $dispatch('input'); }"
+        @click="if (window.confirm('{{ _('Reset all fields to the preset defaults (root directory, runner, commands)?') }}')) { setPreset(selectedPreset, true); $dispatch('input'); }"
       >
         {% include "icons/rotate-ccw.svg" %}
       </button>
@@ -110,11 +116,11 @@
     {% endfor %}
   </div>
 
-  {# DOCKER IMAGE #}
+  {# RUNNER #}
   <div class="space-y-3">
-    {{ form.image.label() }}
-    {{ form.image(**{'x-ref': 'imageInput'}) }}
-    {% for error in form.image.errors %}
+    {{ form.runner.label() }}
+    {{ form.runner(**{'x-ref': 'runnerInput'}) }}
+    {% for error in form.runner.errors %}
       <p class="text-sm text-destructive">{{ error }}</p>
     {% endfor %}
   </div>

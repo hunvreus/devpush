@@ -1,0 +1,19 @@
+
+{# {% if registry_remote_version and registry_local_version and registry_remote_version != registry_local_version %} #}
+{% if true %}
+  <form
+    method="post"
+    action="{{ url_for('admin_settings').include_query_params(fragment='registry-check', action='registry-sync-catalog') }}"
+  >
+    {{ registry_slug_form.csrf_token() }}
+    {{ registry_slug_form.slug(value="catalog", id="registry-sync-catalog") }}
+    <button type="submit" class="badge-outline text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20 transition-colors">
+      {{ _('Update to %(latest)s', latest=registry_remote_version) }}
+      {% include "icons/refresh-cw.svg" %}    
+    </button>
+  </form>
+{% else %}
+  <div class="badge-secondary">
+    {{ _('Latest') }}
+  </div>
+{% endif %}

@@ -269,7 +269,7 @@ printf '\n'
 printf "Setting up data\n"
 
 # Create data directory
-run_cmd "${CHILD_MARK} Creating data directory ($DATA_DIR)" install -o "$service_user" -g "$service_user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload"
+run_cmd "${CHILD_MARK} Creating data directory ($DATA_DIR)" install -o "$service_user" -g "$service_user" -m 0750 -d "$DATA_DIR" "$DATA_DIR/traefik" "$DATA_DIR/upload" "$DATA_DIR/registry"
 
 # Generate .env file with secrets
 generate_env() {
@@ -375,6 +375,11 @@ fi
 run_cmd "${CHILD_MARK} Checking out ref ($ref)" runuser -u "$service_user" -- git -C "$APP_DIR" reset --hard FETCH_HEAD
 
 cd "$APP_DIR"
+
+# Create registry files (catalog.json and overrides.json)
+printf '\n'
+printf "Creating registry files\n"
+write_registry_files
 
 # Build runner images
 printf '\n'

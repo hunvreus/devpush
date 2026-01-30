@@ -1,6 +1,13 @@
 from starlette_wtf import StarletteForm
-from wtforms import HiddenField, StringField, SubmitField, SelectField, TextAreaField
-from wtforms.validators import DataRequired, ValidationError
+from wtforms import (
+    BooleanField,
+    HiddenField,
+    SelectField,
+    StringField,
+    SubmitField,
+    TextAreaField,
+)
+from wtforms.validators import DataRequired, Length, Optional, ValidationError
 
 from dependencies import get_translation as _, get_lazy_translation as _l
 
@@ -41,3 +48,17 @@ class AllowlistImportForm(StarletteForm):
         validators=[DataRequired()],
     )
     submit = SubmitField(_l("Import"), name="allowlist_import")
+
+
+class RegistrySlugForm(StarletteForm):
+    slug = HiddenField(_l("Slug"), validators=[DataRequired()])
+
+
+class RunnerToggleForm(StarletteForm):
+    slug = HiddenField(_l("Slug"), validators=[DataRequired()])
+    enabled = BooleanField(_l("Enabled"))
+
+
+class PresetToggleForm(StarletteForm):
+    slug = HiddenField(_l("Slug"), validators=[DataRequired()])
+    enabled = BooleanField(_l("Enabled"))

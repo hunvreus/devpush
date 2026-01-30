@@ -25,7 +25,10 @@ class PresetDetector:
         """
         self.patterns = []
         for preset in presets:
-            detection = preset.get("detection")
+            if preset.get("enabled") is not True:
+                continue
+            config = preset.get("config", {})
+            detection = config.get("detection")
             if detection:
                 self.patterns.append(
                     {
