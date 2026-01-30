@@ -58,20 +58,13 @@ class DeploymentService:
                 "deployment_status": status_value,
                 "timestamp": now.isoformat(),
             }
-            try:
-                await redis_client.xadd(
-                    f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
-                    fields,
-                )
-                await redis_client.xadd(
-                    f"stream:project:{deployment.project_id}:updates", fields
-                )
-            except Exception:
-                logger.error(
-                    "Failed to emit deployment status to Redis for %s.",
-                    deployment.id,
-                    exc_info=True,
-                )
+            await redis_client.xadd(
+                f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
+                fields,
+            )
+            await redis_client.xadd(
+                f"stream:project:{deployment.project_id}:updates", fields
+            )
 
     def get_alias_domains(
         self, deployment: Deployment, settings: Settings
