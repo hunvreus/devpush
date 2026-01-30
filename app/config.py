@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from utils.registry import load_registry_settings
+from services.registry import RegistryService
 
 logger = logging.getLogger(__name__)
 
@@ -157,11 +157,9 @@ def get_settings():
         settings.host_data_dir = settings.data_dir
 
     registry_dir = Path(settings.data_dir) / "registry"
-    catalog_path = registry_dir / "catalog.json"
-    overrides_path = registry_dir / "overrides.json"
-
-    settings.runners, settings.presets = load_registry_settings(
-        catalog_path, overrides_path
-    )
+    registry_service = RegistryService(registry_dir)
+    registry_state = registry_service.refresh()
+    settings.runners = registry_state.runners
+    settings.presets = registry_state.presets
 
     return settings
