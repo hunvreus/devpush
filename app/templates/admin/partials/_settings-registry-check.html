@@ -1,6 +1,5 @@
 
-{# {% if registry_remote_version and registry_local_version and registry_remote_version != registry_local_version %} #}
-{% if true %}
+{% if registry_remote_version and registry_local_version and registry_remote_version != registry_local_version %}
   <form
     method="post"
     action="{{ url_for('admin_settings').include_query_params(fragment='registry-check', action='registry-update') }}"

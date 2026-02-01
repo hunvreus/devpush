@@ -4,8 +4,7 @@
     "node-20": { "enabled": true },
     "go-1.25": { "enabled": true },
     "php-fpm-8.3": { "enabled": true },
-    "php-fpm-node-8.3": { "enabled": true },
-    "frankenphp-8.3": { "enabled": true }
+    "php-fpm-node-8.3": { "enabled": true }
   },
   "presets": {
     "python": { "enabled": true },
