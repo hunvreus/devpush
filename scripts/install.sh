@@ -381,12 +381,6 @@ printf '\n'
 printf "Creating registry files\n"
 write_registry_files
 
-# Build runner images
-printf '\n'
-printf "Building runner images\n"
-set_service_ids
-build_runner_images
-
 # Save install metadata (version.json)
 printf '\n'
 run_cmd "Saving install metadata (${VERSION_FILE})" record_version

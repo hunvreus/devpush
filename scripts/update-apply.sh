@@ -432,11 +432,6 @@ if ((skip_components==0)) && [[ "$comps" == *"app"* ]] && ((migrate==1)); then
   run_cmd "${CHILD_MARK} Running database migrations" bash "$SCRIPT_DIR/db-migrate.sh"
 fi
 
-# Build runner images
-printf '\n'
-printf "Building runner images\n"
-build_runner_images
-
 # Update install metadata (version.json)
 commit=$(runuser -u "$SERVICE_USER" -- git -C "$APP_DIR" rev-parse --verify HEAD)
 if [[ -z "$ref" ]]; then

@@ -40,7 +40,6 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
    ```bash
    printf "Installing...\n"
    printf "%s Building runner images...\n" "$CHILD_MARK"
-   build_runner_images
    run_cmd "${CHILD_MARK} Starting services..." "${COMPOSE_BASE[@]}" up -d
    ```
 
@@ -54,7 +53,6 @@ These guidelines apply to every script under `scripts/` (install/start/stop/rest
 ### Helper Scripts
 
 1. Prefer shared helpers over inline logic:
-   - Runner images: call `build_runner_images` (emits child lines per runner).
    - DB migrations: `run_cmd "Running database migrations..." bash "$SCRIPT_DIR/db-migrate.sh"`.
 2. If a helper emits output, rely on its own logging (no extra text before/after unless absolutely necessary).
 

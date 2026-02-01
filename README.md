@@ -67,12 +67,6 @@ cp .env.dev.example data/.env
 # Edit data/.env with your GitHub App credentials
 ```
 
-Build the runner images (only on first start or if you've modified the runners):
-
-```bash
-./scripts/build-runners.sh
-```
-
 Start the stack:
 
 ```bash
@@ -100,7 +94,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | Script                     | What it does                                                                                                                                                                      |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/backup.sh`        | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`)                                                                                     |
-| `scripts/build-runners.sh` | Build runner images (`--no-cache`, `--image <name>`)                                                                                                                              |
 | `scripts/clean.sh`         | Stop stack and remove all Docker resources and data (`--keep-docker`, `--keep-data`, `--yes`)                                                                                     |
 | `scripts/compose.sh`       | Docker compose wrapper with correct files/env (`--`)                                                                                                                              |
 | `scripts/db-generate.sh`   | Generate Alembic migration (prompts for message)                                                                                                                                  |

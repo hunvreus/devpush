@@ -21,14 +21,14 @@ This document describes the high‑level architecture of /dev/push, how the main
 - **App**: The app handles all of the user-facing logic (managing teams/projects, authenticating, searching logs...). It communicates with the workers via Redis.
 - **Workers**: When we create a new deployment, we queue a deploy job using arq (`app/workers/jobs.py`). It will start a container, then delegate monitoring to a separate background worker (`app/workers/monitor.py`), before wrapping things back with yet another job. These workers are also used to run certain batch jobs (e.g. deleting a team, cleaning up inactive deployments and their containers). Deployment lifecycle statuses: `prepare → deploy → finalize → completed` (with `conclusion`: succeeded/failed/canceled/skipped; `fail` is transient for failure handling).
 - **Logs**: build and runtime logs are streamed from Loki and served to the user via an SSE endpoint in the app.
-- **Runners**: User apps are deployed on one of the runner containers (e.g. `docker/runner/Dockerfile.python-3.12`). They are created in the deploy job (`app/workers/tasks/deployment.py`) and then run a series of commands based on the user configuration.
+- **Runners**: User apps run inside runner containers pulled from the registry catalog (e.g. `ghcr.io/devpushhq/runner-python-3.12:1.0.0`). The deploy job (`app/workers/tasks/deployment.py`) creates the container and runs the configured build/start commands.
 - **Reverse proxy**: We have Traefik sitting in front of both app and the deployed runner containers. All routing is done using Traefik labels, and we also maintain environment and branch aliases (e.g. `my-project-env-staging.devpush.app`) using Traefik config files.
 
 ## File structure
 
 - `app/`: The main FastAPI application (see README file).
 - `app/workers`: The workers (`jobs` and `monitor`)
-- `docker/`: Container definitions and entrypoint scripts. Includes local development specific files (e.g. `Dockerfile.app.dev`, `entrypoint.worker-jobs.dev.sh`).
+- `docker/`: Container definitions and entrypoint scripts for the app/workers and local development.
 - `scripts/`: Helper scripts for local (macOS) and production environments
 - `compose/`: Container orchestration with Docker Compose. Files: `base.yml`, `override.yml`, `override.dev.yml`, and SSL provider-specific files (`ssl-default.yml`, `ssl-cloudflare.yml`, etc.).
 
