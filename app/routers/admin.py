@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin")
 
-USERS_PER_PAGE = 1
-ALLOWLIST_PER_PAGE = 2
+USERS_PER_PAGE = 10
+ALLOWLIST_PER_PAGE = 10
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 DOMAIN_REGEX = re.compile(r"^(?!-)([a-z0-9-]+\.)+[a-z]{2,}$", re.IGNORECASE)
 
