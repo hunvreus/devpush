@@ -608,28 +608,27 @@ async def admin_settings(
         else None
     )
 
-    if not request.headers.get("HX-Request"):
-        return TemplateResponse(
-            request=request,
-            name="admin/pages/settings.html",
-            context={
-                "current_user": current_user,
-                "users": users_pagination["items"],
-                "users_pagination": users_pagination,
-                "users_search": users_search,
-                "delete_user_form": delete_user_form,
-                "version_info": version_info,
-                "allowlist_entries": allowlist_pagination["items"],
-                "allowlist_pagination": allowlist_pagination,
-                "allowlist_search": allowlist_search,
-                "add_allowlist_form": add_allowlist_form,
-                "allowlist_delete_form": delete_allowlist_form,
-                "import_allowlist_form": import_allowlist_form,
-                "registry_image_form": registry_image_form,
-                "registry_update_form": registry_update_form,
-                "runner_set_form": runner_set_form,
-                "preset_set_form": preset_set_form,
-                "registry_state": registry_state,
-                "registry_overrides_updated_at": registry_overrides_updated_at,
-            },
-        )
+    return TemplateResponse(
+        request=request,
+        name="admin/pages/settings.html",
+        context={
+            "current_user": current_user,
+            "users": users_pagination["items"],
+            "users_pagination": users_pagination,
+            "users_search": users_search,
+            "delete_user_form": delete_user_form,
+            "version_info": version_info,
+            "allowlist_entries": allowlist_pagination["items"],
+            "allowlist_pagination": allowlist_pagination,
+            "allowlist_search": allowlist_search,
+            "add_allowlist_form": add_allowlist_form,
+            "allowlist_delete_form": delete_allowlist_form,
+            "import_allowlist_form": import_allowlist_form,
+            "registry_image_form": registry_image_form,
+            "registry_update_form": registry_update_form,
+            "runner_set_form": runner_set_form,
+            "preset_set_form": preset_set_form,
+            "registry_state": registry_state,
+            "registry_overrides_updated_at": registry_overrides_updated_at,
+        },
+    )
