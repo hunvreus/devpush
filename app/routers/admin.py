@@ -32,14 +32,13 @@ from forms.admin import (
     RunnerToggleForm,
     PresetToggleForm,
 )
-from services.registry import CatalogSetting
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin")
 
-USERS_PER_PAGE = 10
-ALLOWLIST_PER_PAGE = 10
+USERS_PER_PAGE = 1
+ALLOWLIST_PER_PAGE = 2
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 DOMAIN_REGEX = re.compile(r"^(?!-)([a-z0-9-]+\.)+[a-z]{2,}$", re.IGNORECASE)
 
@@ -122,6 +121,7 @@ async def admin_settings(
         )
         return RedirectResponse("/", status_code=302)
 
+    # Registry
     runner_set_form = await RunnerToggleForm.from_formdata(request)
     preset_set_form = await PresetToggleForm.from_formdata(request)
     registry_image_form = await RegistryImageActionForm.from_formdata(request)
@@ -131,6 +131,83 @@ async def admin_settings(
     if request.method == "GET" and any(changed_keys.values()):
         flash(request, _("Registry reloaded from disk."), "success")
 
+    # Registry update
+    if fragment == "registry":
+        if request.method == "POST":
+            if await registry_update_form.validate_on_submit():
+                try:
+                    await settings._registry_service.update_catalog(
+                        settings.registry_catalog_url
+                    )
+                    registry_state = settings._registry_service.refresh()
+                    settings.runners = registry_state.runners
+                    settings.presets = registry_state.presets
+                    flash(
+                        request,
+                        _(
+                            "Catalog updated to %(version)s.",
+                            version=registry_state.catalog.meta.version,
+                        ),
+                        "success",
+                    )
+                except Exception as exc:
+                    flash(request, _("Failed to update catalog."), "error", str(exc))
+
+        if request.headers.get("HX-Request"):
+            registry_mtimes = (
+                settings._registry_service.mtimes
+                or settings._registry_service.get_mtimes()
+            )
+            registry_overrides_updated_at = (
+                datetime.fromtimestamp(registry_mtimes["overrides"], tz=timezone.utc)
+                if registry_mtimes.get("overrides")
+                else None
+            )
+            return TemplateResponse(
+                request=request,
+                name="admin/partials/_settings-registry.html",
+                context={
+                    "current_user": current_user,
+                    "registry_image_form": registry_image_form,
+                    "runner_set_form": runner_set_form,
+                    "preset_set_form": preset_set_form,
+                    "registry_state": registry_state,
+                    "registry_overrides_updated_at": registry_overrides_updated_at,
+                },
+            )
+
+    # Registry check
+    if request.headers.get("HX-Request") and fragment == "registry-check":
+        local_version = (
+            registry_state.catalog.meta.version if registry_state.catalog else None
+        )
+        remote_version = None
+        if settings.registry_catalog_url:
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get(settings.registry_catalog_url)
+                    response.raise_for_status()
+                    data = response.json()
+                    remote_version = data.get("meta", {}).get("version")
+            except Exception as exc:
+                flash(
+                    request,
+                    _("Failed to retrieve remote catalog."),
+                    "error",
+                    str(exc),
+                )
+        return TemplateResponse(
+            request=request,
+            name="admin/partials/_settings-registry-check.html",
+            context={
+                "current_user": current_user,
+                "registry_update_form": registry_update_form,
+                "registry_local_version": local_version,
+                "registry_remote_version": remote_version,
+            },
+        )
+
+    # Registry actions: set runner, set preset, pull image, clear image
     if action and action.startswith("registry-") and request.method == "POST":
         if action == "registry-set-runner":
             if not await runner_set_form.validate_on_submit():
@@ -202,52 +279,6 @@ async def admin_settings(
                     await queue.enqueue_job("clear_all_runner_images")
                     flash(request, _("Clearing all runner images."), "success")
 
-        elif action == "registry-update":
-            catalog_url = settings.registry_catalog_url
-            if not catalog_url:
-                flash(request, _("Registry catalog URL is not configured."), "error")
-            else:
-                try:
-                    await settings._registry_service.update_catalog(catalog_url)
-                    registry_state = settings._registry_service.refresh()
-                    settings.runners = registry_state.runners
-                    settings.presets = registry_state.presets
-                    flash(
-                        request,
-                        _(
-                            "Catalog updated to %(version)s.",
-                            version=registry_state.catalog.meta.version,
-                        ),
-                        "success",
-                    )
-                except Exception as exc:
-                    flash(request, _("Failed to update catalog."), "error", str(exc))
-
-            if request.headers.get("HX-Request"):
-                registry_mtimes = (
-                    settings._registry_service.mtimes
-                    or settings._registry_service.get_mtimes()
-                )
-                registry_overrides_updated_at = (
-                    datetime.fromtimestamp(
-                        registry_mtimes["overrides"], tz=timezone.utc
-                    )
-                    if registry_mtimes.get("overrides")
-                    else None
-                )
-                return TemplateResponse(
-                    request=request,
-                    name="admin/partials/_settings-registry.html",
-                    context={
-                        "current_user": current_user,
-                        "registry_image_form": registry_image_form,
-                        "runner_set_form": runner_set_form,
-                        "preset_set_form": preset_set_form,
-                        "registry_state": registry_state,
-                        "registry_overrides_updated_at": registry_overrides_updated_at,
-                    },
-                )
-
         if request.headers.get("HX-Request"):
             return TemplateResponse(
                 request=request,
@@ -257,13 +288,14 @@ async def admin_settings(
         else:
             return RedirectResponse("/admin#registry", status_code=303)
 
+    # Allowlist
     add_allowlist_form = await AllowlistAddForm.from_formdata(request)
     delete_allowlist_form = await AllowlistDeleteForm.from_formdata(request)
     import_allowlist_form = await AllowlistImportForm.from_formdata(request)
 
-    # Add allowlist rule
-    if action == "add_allowlist":
+    if fragment == "allowlist":
         if request.method == "POST":
+            # Add allowlist rule
             if await add_allowlist_form.validate_on_submit():
                 entry_type = add_allowlist_form.type.data
                 normalized_value = normalize_allowlist_value(
@@ -312,28 +344,7 @@ async def admin_settings(
             else:
                 flash(request, _("Invalid allowlist value."), "error")
 
-        allowlist_pagination = await get_allowlist_pagination(
-            db, allowlist_page, allowlist_search
-        )
-
-        if request.headers.get("HX-Request"):
-            return TemplateResponse(
-                request=request,
-                name="admin/partials/_settings-allowlist.html",
-                context={
-                    "current_user": current_user,
-                    "allowlist_entries": allowlist_pagination["items"],
-                    "allowlist_pagination": allowlist_pagination,
-                    "allowlist_search": allowlist_search,
-                    "add_allowlist_form": add_allowlist_form,
-                    "allowlist_delete_form": delete_allowlist_form,
-                    "import_allowlist_form": import_allowlist_form,
-                },
-            )
-
-    # Delete allowlist rule
-    if action == "delete_allowlist":
-        if request.method == "POST":
+            # Delete allowlist rule
             if await delete_allowlist_form.validate_on_submit():
                 try:
                     entry_id = int(delete_allowlist_form.entry_id.data)
@@ -357,28 +368,7 @@ async def admin_settings(
                         "error",
                     )
 
-        allowlist_pagination = await get_allowlist_pagination(
-            db, allowlist_page, allowlist_search
-        )
-
-        if request.headers.get("HX-Request"):
-            return TemplateResponse(
-                request=request,
-                name="admin/partials/_settings-allowlist.html",
-                context={
-                    "current_user": current_user,
-                    "allowlist_entries": allowlist_pagination["items"],
-                    "allowlist_pagination": allowlist_pagination,
-                    "allowlist_search": allowlist_search,
-                    "add_allowlist_form": add_allowlist_form,
-                    "allowlist_delete_form": delete_allowlist_form,
-                    "import_allowlist_form": import_allowlist_form,
-                },
-            )
-
-    # Import allowlist
-    if action == "import_allowlist":
-        if request.method == "POST":
+            # Import allowlist
             if await import_allowlist_form.validate_on_submit():
                 try:
                     emails_text = import_allowlist_form.emails.data or ""
@@ -430,30 +420,50 @@ async def admin_settings(
                         request, _("An error occurred while importing emails."), "error"
                     )
 
+            if request.headers.get("HX-Request"):
+                allowlist_pagination = await get_allowlist_pagination(
+                    db, allowlist_page, allowlist_search
+                )
+
+                return TemplateResponse(
+                    request=request,
+                    name="admin/partials/_settings-allowlist.html",
+                    context={
+                        "current_user": current_user,
+                        "allowlist_entries": allowlist_pagination["items"],
+                        "allowlist_pagination": allowlist_pagination,
+                        "allowlist_search": allowlist_search,
+                        "add_allowlist_form": add_allowlist_form,
+                        "allowlist_delete_form": delete_allowlist_form,
+                        "import_allowlist_form": import_allowlist_form,
+                    },
+                )
+
+    if request.headers.get("HX-Request") and fragment == "allowlist-content":
         allowlist_pagination = await get_allowlist_pagination(
             db, allowlist_page, allowlist_search
         )
 
-        if request.headers.get("HX-Request"):
-            return TemplateResponse(
-                request=request,
-                name="admin/partials/_settings-allowlist.html",
-                context={
-                    "current_user": current_user,
-                    "allowlist_entries": allowlist_pagination["items"],
-                    "allowlist_pagination": allowlist_pagination,
-                    "allowlist_search": allowlist_search,
-                    "add_allowlist_form": add_allowlist_form,
-                    "allowlist_delete_form": delete_allowlist_form,
-                    "import_allowlist_form": import_allowlist_form,
-                },
-            )
+        return TemplateResponse(
+            request=request,
+            name="admin/partials/_settings-allowlist-content.html",
+            context={
+                "current_user": current_user,
+                "allowlist_entries": allowlist_pagination["items"],
+                "allowlist_pagination": allowlist_pagination,
+                "allowlist_search": allowlist_search,
+                "add_allowlist_form": add_allowlist_form,
+                "allowlist_delete_form": delete_allowlist_form,
+                "import_allowlist_form": import_allowlist_form,
+            },
+        )
 
-    # Delete user
+    # Users
     delete_user_form = await AdminUserDeleteForm.from_formdata(request)
 
-    if action == "delete_user":
+    if fragment == "users":
         if request.method == "POST":
+            # Delete user
             if await delete_user_form.validate_on_submit():
                 try:
                     target_user = await db.get(User, int(delete_user_form.user_id.data))
@@ -490,25 +500,42 @@ async def admin_settings(
                         "error",
                     )
 
-            if not request.headers.get("HX-Request"):
-                return RedirectResponse("/admin", status_code=303)
+                if not request.headers.get("HX-Request"):
+                    return RedirectResponse("/admin", status_code=303)
 
+            if request.headers.get("HX-Request"):
+                users_pagination = await get_users_pagination(
+                    db, users_page, users_search
+                )
+
+                return TemplateResponse(
+                    request=request,
+                    name="admin/partials/_settings-users.html",
+                    context={
+                        "current_user": current_user,
+                        "users": users_pagination["items"],
+                        "users_pagination": users_pagination,
+                        "users_search": users_search,
+                        "delete_user_form": delete_user_form,
+                    },
+                )
+
+    if request.headers.get("HX-Request") and fragment == "users-content":
         users_pagination = await get_users_pagination(db, users_page, users_search)
 
-        if request.headers.get("HX-Request"):
-            return TemplateResponse(
-                request=request,
-                name="admin/partials/_settings-users.html",
-                context={
-                    "current_user": current_user,
-                    "users": users_pagination["items"],
-                    "users_pagination": users_pagination,
-                    "users_search": users_search,
-                    "delete_user_form": delete_user_form,
-                },
-            )
+        return TemplateResponse(
+            request=request,
+            name="admin/partials/_settings-users-content.html",
+            context={
+                "current_user": current_user,
+                "users": users_pagination["items"],
+                "users_pagination": users_pagination,
+                "users_search": users_search,
+                "delete_user_form": delete_user_form,
+            },
+        )
 
-    # System
+    # Installation
     version_info = None
     try:
         if os.path.exists(settings.version_file):
@@ -517,7 +544,8 @@ async def admin_settings(
     except Exception:
         version_info = None
 
-    if request.headers.get("HX-Request") and fragment == "system":
+    # Installation check
+    if request.headers.get("HX-Request") and fragment == "installation-check":
         latest_tag = None
         error = None
 
@@ -571,65 +599,6 @@ async def admin_settings(
         db, allowlist_page, allowlist_search
     )
     users_pagination = await get_users_pagination(db, users_page, users_search)
-
-    if request.headers.get("HX-Request"):
-        if fragment == "allowlist-content":
-            return TemplateResponse(
-                request=request,
-                name="admin/partials/_settings-allowlist-content.html",
-                context={
-                    "current_user": current_user,
-                    "allowlist_entries": allowlist_pagination["items"],
-                    "allowlist_pagination": allowlist_pagination,
-                    "allowlist_search": allowlist_search,
-                    "add_allowlist_form": add_allowlist_form,
-                    "allowlist_delete_form": delete_allowlist_form,
-                    "import_allowlist_form": import_allowlist_form,
-                },
-            )
-        elif fragment == "users-content":
-            return TemplateResponse(
-                request=request,
-                name="admin/partials/_settings-users-content.html",
-                context={
-                    "current_user": current_user,
-                    "users": users_pagination["items"],
-                    "users_pagination": users_pagination,
-                    "users_search": users_search,
-                    "delete_user_form": delete_user_form,
-                },
-            )
-        elif fragment == "registry-check":
-            local_version = (
-                registry_state.catalog.meta.version if registry_state.catalog else None
-            )
-            remote_version = None
-            if settings.registry_catalog_url:
-                try:
-                    async with httpx.AsyncClient(timeout=5.0) as client:
-                        response = await client.get(settings.registry_catalog_url)
-                        response.raise_for_status()
-                        raw = response.json()
-                    remote_catalog = CatalogSetting.model_validate(raw)
-                    remote_version = remote_catalog.meta.version
-                except Exception as exc:
-                    flash(
-                        request,
-                        _("Failed to retrieve remote catalog."),
-                        "error",
-                        str(exc),
-                    )
-            return TemplateResponse(
-                request=request,
-                name="admin/partials/_settings-registry-check.html",
-                context={
-                    "current_user": current_user,
-                    "registry_update_form": registry_update_form,
-                    "registry_local_version": local_version,
-                    "registry_remote_version": remote_version,
-                },
-            )
-
     registry_mtimes = (
         settings._registry_service.mtimes or settings._registry_service.get_mtimes()
     )
@@ -639,27 +608,28 @@ async def admin_settings(
         else None
     )
 
-    return TemplateResponse(
-        request=request,
-        name="admin/pages/settings.html",
-        context={
-            "current_user": current_user,
-            "users": users_pagination["items"],
-            "users_pagination": users_pagination,
-            "users_search": users_search,
-            "delete_user_form": delete_user_form,
-            "version_info": version_info,
-            "allowlist_entries": allowlist_pagination["items"],
-            "allowlist_pagination": allowlist_pagination,
-            "allowlist_search": allowlist_search,
-            "add_allowlist_form": add_allowlist_form,
-            "allowlist_delete_form": delete_allowlist_form,
-            "import_allowlist_form": import_allowlist_form,
-            "registry_image_form": registry_image_form,
-            "registry_update_form": registry_update_form,
-            "runner_set_form": runner_set_form,
-            "preset_set_form": preset_set_form,
-            "registry_state": registry_state,
-            "registry_overrides_updated_at": registry_overrides_updated_at,
-        },
-    )
+    if not request.headers.get("HX-Request"):
+        return TemplateResponse(
+            request=request,
+            name="admin/pages/settings.html",
+            context={
+                "current_user": current_user,
+                "users": users_pagination["items"],
+                "users_pagination": users_pagination,
+                "users_search": users_search,
+                "delete_user_form": delete_user_form,
+                "version_info": version_info,
+                "allowlist_entries": allowlist_pagination["items"],
+                "allowlist_pagination": allowlist_pagination,
+                "allowlist_search": allowlist_search,
+                "add_allowlist_form": add_allowlist_form,
+                "allowlist_delete_form": delete_allowlist_form,
+                "import_allowlist_form": import_allowlist_form,
+                "registry_image_form": registry_image_form,
+                "registry_update_form": registry_update_form,
+                "runner_set_form": runner_set_form,
+                "preset_set_form": preset_set_form,
+                "registry_state": registry_state,
+                "registry_overrides_updated_at": registry_overrides_updated_at,
+            },
+        )

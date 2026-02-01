@@ -68,8 +68,8 @@
                     <p>{{ _('To confirm, enter the email <b>"%(email)s"</b> below.', email=user.email) | safe }}</p>
                     <form
                       method="post"
-                      action="{{ url_for('admin_settings') }}"
-                      hx-post="{{ url_for('admin_settings') }}"
+                      action="{{ url_for('admin_settings').include_query_params(fragment='users') }}"
+                      hx-post="{{ url_for('admin_settings').include_query_params(fragment='users') }}"
                       hx-target="closest .card"
                       hx-swap="outerHTML"
                       hx-indicator="closest .card + .htmx-indicator"
