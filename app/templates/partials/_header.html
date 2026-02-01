@@ -120,7 +120,7 @@
 
 		<nav class="flex items-center gap-x-2" aria-label="User menu">
 			{% if current_user and is_superadmin(current_user) %}
-				<a href="{{ url_for('admin_settings') }}" class="btn-sm-ghost max-sm:hidden">
+				<a href="{{ url_for('admin_settings') }}" class="btn-sm-ghost max-sm:hidden" hx-boost="true">
 					{% include "icons/settings.svg" %}
 					Admin
 				</a>

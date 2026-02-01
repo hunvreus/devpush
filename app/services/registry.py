@@ -83,15 +83,26 @@ class RegistryService:
         self.catalog_path = self.registry_dir / "catalog.json"
         self.overrides_path = self.registry_dir / "overrides.json"
         self._catalog_adapter = TypeAdapter(CatalogSetting)
-        self._state = self._load_state()
+        self.state = self._load_state()
+        self.mtimes: dict[str, float | None] | None = self.get_mtimes()
 
-    @property
-    def state(self) -> RegistryState:
-        return self._state
+    def load(self) -> tuple[RegistryState, dict[str, float | None], dict[str, bool]]:
+        current = self.get_mtimes()
+        previous = self.mtimes
+        changed_keys = {
+            key: (current.get(key) != (previous or {}).get(key))
+            for key in current.keys()
+        }
+        changed = any(changed_keys.values())
+        if previous is None or changed:
+            self.state = self._load_state()
+            self.mtimes = current
+        return self.state, current, changed_keys
 
     def refresh(self) -> RegistryState:
-        self._state = self._load_state()
-        return self._state
+        self.state = self._load_state()
+        self.mtimes = self.get_mtimes()
+        return self.state
 
     def get_mtimes(self) -> dict[str, float | None]:
         return {
@@ -103,46 +114,27 @@ class RegistryService:
             else None,
         }
 
-    def refresh_if_stale(self, previous: dict | None) -> tuple[RegistryState, dict[str, float | None], bool]:
-        mtimes = self.get_mtimes()
-        if previous:
-            changed = any(mtimes.get(key) != previous.get(key) for key in mtimes.keys())
-        else:
-            changed = False
-        if changed:
-            return self.refresh(), mtimes, True
-        return self.state, mtimes, False
-
-    def save_overrides(self, overrides: dict) -> RegistryState:
-        catalog = self._state.catalog
-        cleaned = self._prune_overrides(catalog, overrides) if catalog else overrides
-        self.overrides_path.parent.mkdir(parents=True, exist_ok=True)
-        self.overrides_path.write_text(
-            json.dumps(cleaned, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        return self.refresh()
-
-    def toggle_runner(self, slug: str, enabled: bool) -> RegistryState:
-        overrides = copy.deepcopy(self._state.overrides)
+    def set_runner(self, slug: str, enabled: bool) -> RegistryState:
+        overrides = copy.deepcopy(self.state.overrides)
         current = overrides["runners"].get(slug)
         if isinstance(current, dict):
             current["enabled"] = enabled
             overrides["runners"][slug] = current
         else:
             overrides["runners"][slug] = {"enabled": enabled}
-        return self.save_overrides(overrides)
+        return self._write_overrides(overrides)
 
-    def toggle_preset(self, slug: str, enabled: bool) -> RegistryState:
-        overrides = copy.deepcopy(self._state.overrides)
+    def set_preset(self, slug: str, enabled: bool) -> RegistryState:
+        overrides = copy.deepcopy(self.state.overrides)
         current = overrides["presets"].get(slug)
         if isinstance(current, dict):
             current["enabled"] = enabled
             overrides["presets"][slug] = current
         else:
             overrides["presets"][slug] = {"enabled": enabled}
-        return self.save_overrides(overrides)
+        return self._write_overrides(overrides)
 
-    async def sync_catalog(self, url: str) -> RegistryState:
+    async def update_catalog(self, url: str) -> RegistryState:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(url)
             response.raise_for_status()
@@ -175,11 +167,18 @@ class RegistryService:
             presets=presets,
         )
 
+    def _write_overrides(self, overrides: dict) -> RegistryState:
+        catalog = self.state.catalog
+        cleaned = self._prune_overrides(catalog, overrides) if catalog else overrides
+        self.overrides_path.parent.mkdir(parents=True, exist_ok=True)
+        self.overrides_path.write_text(
+            json.dumps(cleaned, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return self.refresh()
+
     def _load_catalog(self) -> CatalogSetting | None:
         if not self.catalog_path.exists():
-            raise FileNotFoundError(
-                f"Missing registry catalog at {self.catalog_path}"
-            )
+            raise FileNotFoundError(f"Missing registry catalog at {self.catalog_path}")
         raw = self._read_json(self.catalog_path, "catalog")
         return self._validate_catalog(raw, self.catalog_path)
 
@@ -230,7 +229,9 @@ class RegistryService:
                 merged = {"slug": slug, **override}
                 if not required.issubset(set(merged.keys())):
                     continue
-            explicit_disable = "enabled" in override and override.get("enabled") is False
+            explicit_disable = (
+                "enabled" in override and override.get("enabled") is False
+            )
             entry = {k: v for k, v in override.items() if k != "slug"}
             if entry.get("enabled") is False:
                 entry.pop("enabled", None)
@@ -250,11 +251,23 @@ class RegistryService:
             base = base_presets.get(slug)
             if not base:
                 merged = {"slug": slug, **override}
-                config = merged.get("config") if isinstance(merged.get("config"), dict) else None
-                required_config = {"runner", "build_command", "pre_deploy_command", "start_command", "logo"}
+                config = (
+                    merged.get("config")
+                    if isinstance(merged.get("config"), dict)
+                    else None
+                )
+                required_config = {
+                    "runner",
+                    "build_command",
+                    "pre_deploy_command",
+                    "start_command",
+                    "logo",
+                }
                 if not config or not required_config.issubset(set(config.keys())):
                     continue
-            explicit_disable = "enabled" in override and override.get("enabled") is False
+            explicit_disable = (
+                "enabled" in override and override.get("enabled") is False
+            )
             entry = {k: v for k, v in override.items() if k != "slug"}
             if entry.get("enabled") is False:
                 entry.pop("enabled", None)
@@ -284,7 +297,9 @@ class RegistryService:
                 cleaned.pop(key, None)
         return cleaned
 
-    def _merge(self, catalog: CatalogSetting, overrides: dict) -> tuple[list[dict], list[dict]]:
+    def _merge(
+        self, catalog: CatalogSetting, overrides: dict
+    ) -> tuple[list[dict], list[dict]]:
         overrides = self._normalize_overrides(overrides)
         catalog_data = catalog.model_dump()
         merged = {
@@ -297,6 +312,8 @@ class RegistryService:
             ),
         }
         merged_catalog = CatalogSetting.model_validate(merged)
+        base_runner_slugs = {runner.slug for runner in catalog.runners}
+        base_preset_slugs = {preset.slug for preset in catalog.presets}
 
         enabled_runners = {
             runner.slug: runner
@@ -336,8 +353,24 @@ class RegistryService:
                 )
                 preset.enabled = False
 
-        runners = [runner.model_dump() for runner in merged_catalog.runners]
-        presets = [preset.model_dump() for preset in merged_catalog.presets]
+        runners = [
+            self._apply_override_meta(
+                runner.model_dump(),
+                slug=runner.slug,
+                base_slugs=base_runner_slugs,
+                override=overrides["runners"].get(runner.slug),
+            )
+            for runner in merged_catalog.runners
+        ]
+        presets = [
+            self._apply_override_meta(
+                preset.model_dump(),
+                slug=preset.slug,
+                base_slugs=base_preset_slugs,
+                override=overrides["presets"].get(preset.slug),
+            )
+            for preset in merged_catalog.presets
+        ]
         return runners, presets
 
     def _merge_by_slug(self, base_items: list[dict], overrides: dict) -> list[dict]:
@@ -363,12 +396,42 @@ class RegistryService:
         for slug, override in overrides.items():
             if slug in seen or not isinstance(override, dict):
                 continue
-            merged = {"slug": slug, **override} if "slug" not in override else dict(override)
+            merged = (
+                {"slug": slug, **override} if "slug" not in override else dict(override)
+            )
             if "enabled" not in merged or merged.get("enabled") is None:
                 merged["enabled"] = False
             merged_items.append(merged)
 
         return merged_items
+
+    def _apply_override_meta(
+        self,
+        item: dict,
+        *,
+        slug: str,
+        base_slugs: set[str],
+        override: dict | None,
+    ) -> dict:
+        source = "catalog"
+        has_non_enabled_override = False
+        if slug not in base_slugs:
+            source = "custom"
+        elif isinstance(override, dict):
+            source = "override"
+
+        if isinstance(override, dict):
+            for key, value in override.items():
+                if key in {"enabled", "slug"}:
+                    continue
+                if key == "config" and isinstance(value, dict) and not value:
+                    continue
+                has_non_enabled_override = True
+                break
+
+        item["source"] = source
+        item["has_non_enabled_override"] = has_non_enabled_override
+        return item
 
     def _deep_merge_dicts(self, base: dict, override: dict) -> dict:
         merged = dict(base)

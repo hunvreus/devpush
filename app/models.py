@@ -337,6 +337,7 @@ class Project(Base):
     config: Mapped[dict[str, object]] = mapped_column(
         JSON, nullable=False, default=dict
     )
+    image: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("user.id", use_alter=True, ondelete="SET NULL"), nullable=True
     )

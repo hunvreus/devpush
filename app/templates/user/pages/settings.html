@@ -3,7 +3,7 @@
 {% block app_content %}
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <h1 class="h1 flex items-center gap-x-3">
-    <a href="/" class="btn-sm-icon-outline" data-tooltip="{{ _('Back to home') }}" data-align="start">
+    <a href="/" class="btn-sm-icon-outline" data-tooltip="{{ _('Back to home') }}" data-align="start" hx-boost="true">
       {% include "icons/arrow-left.svg" %}
     </a>
     {{ _("Account settings") }}

@@ -3,13 +3,16 @@
 {% if true %}
   <form
     method="post"
-    action="{{ url_for('admin_settings').include_query_params(fragment='registry-check', action='registry-sync-catalog') }}"
+    action="{{ url_for('admin_settings').include_query_params(fragment='registry-check', action='registry-update') }}"
+    hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry-check', action='registry-update') }}"
+    hx-indicator="next .htmx-indicator"
+    hx-swap="outerHTML"
+    hx-target="closest .card"
   >
-    {{ registry_slug_form.csrf_token() }}
-    {{ registry_slug_form.slug(value="catalog", id="registry-sync-catalog") }}
-    <button type="submit" class="badge-outline text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20 transition-colors">
+    {{ registry_update_form.csrf_token() }}
+    <button type="submit" class="badge-secondary text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
       {{ _('Update to %(latest)s', latest=registry_remote_version) }}
-      {% include "icons/refresh-cw.svg" %}    
+      {% include "icons/refresh-cw.svg" %}
     </button>
   </form>
 {% else %}

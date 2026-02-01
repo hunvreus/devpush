@@ -64,7 +64,12 @@
       applyValue($refs.startCommandInput, preset?.config?.start_command);
     },
   }"
-  x-init="setPreset(selectedPreset, false, initValues)"
+  x-init="
+    setPreset(selectedPreset, false, initValues);
+    if ($refs.runnerInput.value !== '{{ form.runner.data or "" }}') {
+      $dispatch('change');
+    }
+  "
 >
   {# FRAMEWORK PRESET #}
   <div class="space-y-3">
@@ -119,7 +124,10 @@
   {# RUNNER #}
   <div class="space-y-3">
     {{ form.runner.label() }}
-    {{ form.runner(**{'x-ref': 'runnerInput'}) }}
+    {{ form.runner(**{
+      'x-ref': 'runnerInput',
+      'aria-invalid': 'true' if form.runner.errors or (is_runner_valid is defined and not is_runner_valid) else 'false'
+    }) }}
     {% for error in form.runner.errors %}
       <p class="text-sm text-destructive">{{ error }}</p>
     {% endfor %}

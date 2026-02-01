@@ -27,6 +27,7 @@
     class="space-y-4"
     hx-disabled-elt="find input, find button"
     hx-indicator="find .htmx-indicator"
+    hx-on::after-request="this.closest('dialog').close()"
   >
     {{ form.csrf_token }}
     <input type="hidden" name="environment_id" value="{{ request.query_params.get('environment_id') }}">

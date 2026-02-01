@@ -396,6 +396,26 @@ class DeploymentService:
         if not environment:
             raise ValueError("No environment found for this branch.")
 
+        config = project.config or {}
+        runner_slug = config.get("runner") or config.get("image")
+        if not runner_slug:
+            raise ValueError("Runner not set in project config.")
+        runner_entry = next(
+            (
+                runner
+                for runner in get_settings().runners
+                if runner.get("slug") == runner_slug
+            ),
+            None,
+        )
+        if not runner_entry:
+            raise ValueError(f"Runner '{runner_slug}' not found in registry.")
+        if runner_entry.get("enabled") is not True:
+            raise ValueError(f"Runner '{runner_slug}' is disabled.")
+        runner_image = runner_entry.get("image")
+        if not runner_image:
+            raise ValueError(f"Runner '{runner_slug}' has no image configured.")
+
         commit_user_author = commit.get("author") or {}
         commit_user_committer = commit.get("committer") or {}
         commit_payload = commit.get("commit") or {}
@@ -427,6 +447,7 @@ class DeploymentService:
                 "message": message,
                 "date": date,
             },
+            image=runner_image,
             trigger=trigger,
             created_by_user_id=current_user.id
             if trigger == "user" and current_user

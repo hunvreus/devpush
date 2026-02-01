@@ -3,12 +3,13 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import PrivateAttr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from services.registry import RegistryService
 
 logger = logging.getLogger(__name__)
+
 
 class Settings(BaseSettings):
     app_name: str = "/dev/push"
@@ -40,9 +41,7 @@ class Settings(BaseSettings):
     data_dir: str = "/data"
     host_data_dir: str | None = None
     app_dir: str = "/app"
-    registry_catalog_url: str = (
-        "https://raw.githubusercontent.com/devpushhq/registry/main/catalog/v1/catalog.json"
-    )
+    registry_catalog_url: str = "https://raw.githubusercontent.com/devpushhq/registry/main/catalog/v1/catalog.json"
     upload_dir: str = ""
     traefik_dir: str = ""
     env_file: str = ""
@@ -77,6 +76,7 @@ class Settings(BaseSettings):
     server_ip: str = "127.0.0.1"
 
     model_config = SettingsConfigDict(extra="ignore")
+    _registry_service: RegistryService | None = PrivateAttr(default=None)
 
     @property
     def allow_custom_cpu(self) -> bool:
@@ -158,8 +158,8 @@ def get_settings():
 
     registry_dir = Path(settings.data_dir) / "registry"
     registry_service = RegistryService(registry_dir)
-    registry_state = registry_service.refresh()
+    registry_state, _, _ = registry_service.load()
     settings.runners = registry_state.runners
     settings.presets = registry_state.presets
-
+    settings._registry_service = registry_service
     return settings

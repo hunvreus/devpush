@@ -82,6 +82,88 @@ router = APIRouter()
 DEPLOYMENTS_PER_PAGE = 25
 
 
+def _is_runner_valid(project: Project, settings: Settings, request: Request) -> bool:
+    project_runner_slug = project.config.get("runner")
+    if not project_runner_slug:
+        flash(
+            request=request,
+            title=_(
+                "The project's runner is not set. Please update the project settings."
+            ),
+            category="error",
+            action={
+                "label": _("Settings"),
+                "href": str(
+                    request.url_for(
+                        "project_settings",
+                        team_slug=project.team.slug,
+                        project_name=project.name,
+                    )
+                )
+                + "#build-and-deploy",
+            },
+            cancel={"label": _("Dismiss")},
+            attrs={"data-duration": "-1"},
+        )
+        return False
+
+    runner_entry = next(
+        (
+            runner
+            for runner in settings.runners
+            if runner.get("slug") == project_runner_slug
+        ),
+        None,
+    )
+    if not runner_entry:
+        flash(
+            request=request,
+            title=_(
+                "The project's runner cannot be found in the registry. Please update the project settings."
+            ),
+            category="error",
+            action={
+                "label": _("Settings"),
+                "href": str(
+                    request.url_for(
+                        "project_settings",
+                        team_slug=project.team.slug,
+                        project_name=project.name,
+                    )
+                )
+                + "#build-and-deploy",
+            },
+            cancel={"label": _("Dismiss")},
+            attrs={"data-duration": "-1"},
+        )
+        return False
+
+    if runner_entry.get("enabled") is not True:
+        flash(
+            request=request,
+            title=_(
+                "The project's runner is disabled. Please update the project settings."
+            ),
+            category="error",
+            action={
+                "label": _("Settings"),
+                "href": str(
+                    request.url_for(
+                        "project_settings",
+                        team_slug=project.team.slug,
+                        project_name=project.name,
+                    )
+                )
+                + "#build-and-deploy",
+            },
+            cancel={"label": _("Dismiss")},
+            attrs={"data-duration": "-1"},
+        )
+        return False
+
+    return True
+
+
 @router.get("/{team_slug}/new-project", name="new_project")
 async def new_project(
     request: Request,
@@ -333,6 +415,8 @@ async def project_index(
     settings: Settings = Depends(get_settings),
     role: str = Depends(get_role),
 ):
+    _is_runner_valid(project, settings, request)
+
     team, membership = team_and_membership
     fragment = request.query_params.get("fragment")
 
@@ -398,11 +482,14 @@ async def project_deployments(
     branch: str = Query(None),
     page: int = Query(1, ge=1),
     project: Project = Depends(get_project_by_name),
+    settings: Settings = Depends(get_settings),
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     db: AsyncSession = Depends(get_db),
 ):
+    _is_runner_valid(project, settings, request)
+
     team, membership = team_and_membership
     env_aliases = await project.get_environment_aliases(db=db)
 
@@ -533,9 +620,12 @@ async def project_storage(
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    settings: Settings = Depends(get_settings),
     queue: ArqRedis = Depends(get_queue),
     db: AsyncSession = Depends(get_db),
 ):
+    _is_runner_valid(project, settings, request)
+
     team, membership = team_and_membership
     project_name = project.name
 
@@ -1688,6 +1778,8 @@ async def project_settings(
             flash(request, _("Build & Deploy settings updated."), "success")
 
         if request.headers.get("HX-Request"):
+            is_runner_valid = _is_runner_valid(project, settings, request)
+
             return TemplateResponse(
                 request=request,
                 name="project/partials/_settings-build-and-deploy.html",
@@ -1698,6 +1790,7 @@ async def project_settings(
                     "build_and_deploy_form": build_and_deploy_form,
                     "presets": enabled_presets,
                     "runners": enabled_runners,
+                    "is_runner_valid": is_runner_valid,
                 },
             )
 
@@ -1927,6 +2020,7 @@ async def project_settings(
     latest_projects = await get_latest_projects(
         db=db, team=team, current_project=project
     )
+    is_runner_valid = _is_runner_valid(project, settings, request)
 
     return TemplateResponse(
         request=request,
@@ -1961,6 +2055,7 @@ async def project_settings(
             "runners": enabled_runners,
             "latest_projects": latest_projects,
             "latest_teams": latest_teams,
+            "is_runner_valid": is_runner_valid,
         },
     )
 
@@ -1978,9 +2073,12 @@ async def project_deployment(
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    settings: Settings = Depends(get_settings),
     db: AsyncSession = Depends(get_db),
     deployment: Deployment = Depends(get_deployment_by_id),
 ):
+    _is_runner_valid(project, settings, request)
+
     team, membership = team_and_membership
 
     cancel_form = None
@@ -2130,10 +2228,13 @@ async def project_logs(
     timezone_offset: int | None = Query(None),
     project: Project = Depends(get_project_by_name),
     current_user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
     db: AsyncSession = Depends(get_db),
 ):
+    _is_runner_valid(project, settings, request)
+
     team, membership = team_and_membership
 
     deployment = None

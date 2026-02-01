@@ -3,6 +3,7 @@ import aiodocker
 import logging
 from sqlalchemy import select, true
 from sqlalchemy.orm import joinedload
+from pathlib import Path
 import shlex
 
 from models import Alias, Deployment, Project
@@ -14,6 +15,7 @@ from dependencies import (
 from config import get_settings
 from arq.connections import ArqRedis
 from services.deployment import DeploymentService
+from services.registry import RegistryService
 from services.loki import LokiService
 
 logger = logging.getLogger(__name__)
@@ -198,19 +200,24 @@ async def start_deployment(ctx, deployment_id: str):
                         if override_memory_mb > 0:
                             memory_mb = min(override_memory_mb, max_memory_mb)
 
-                runner_slug = config.get("runner") or config.get("image")
-                if not runner_slug:
-                    raise ValueError("Runner not set in deployment config.")
-                runner_image = next(
-                    (
-                        runner.get("image")
-                        for runner in settings.runners
-                        if runner.get("slug") == runner_slug
-                    ),
-                    None,
-                )
+                runner_image = deployment.image
                 if not runner_image:
-                    raise ValueError(f"Runner '{runner_slug}' not found in settings.")
+                    runner_slug = config.get("runner") or config.get("image")
+                    if not runner_slug:
+                        raise ValueError("Runner not set in deployment config.")
+                    registry_state = RegistryService(
+                        Path(settings.data_dir) / "registry"
+                    ).refresh()
+                    runner_image = next(
+                        (
+                            runner.get("image")
+                            for runner in registry_state.runners
+                            if runner.get("slug") == runner_slug
+                        ),
+                        None,
+                    )
+                if not runner_image:
+                    raise ValueError("Runner image not found for deployment.")
 
                 await _push_loki_log(
                     loki,

@@ -3,7 +3,6 @@ import os
 import re
 import json
 import httpx
-from pathlib import Path
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, Depends, Query
 from starlette.responses import RedirectResponse
@@ -19,7 +18,6 @@ from dependencies import (
     get_current_user,
     is_superadmin,
     get_queue,
-    RedirectResponseX,
 )
 from db import get_db
 from models import User, Allowlist
@@ -29,11 +27,12 @@ from forms.admin import (
     AllowlistAddForm,
     AllowlistDeleteForm,
     AllowlistImportForm,
-    RegistrySlugForm,
+    RegistryImageActionForm,
+    RegistryUpdateForm,
     RunnerToggleForm,
     PresetToggleForm,
 )
-from services.registry import CatalogSetting, RegistryService
+from services.registry import CatalogSetting
 
 logger = logging.getLogger(__name__)
 
@@ -123,145 +122,144 @@ async def admin_settings(
         )
         return RedirectResponse("/", status_code=302)
 
-    add_allowlist_form = await AllowlistAddForm.from_formdata(request)
-    delete_allowlist_form = await AllowlistDeleteForm.from_formdata(request)
-    import_allowlist_form = await AllowlistImportForm.from_formdata(request)
+    runner_set_form = await RunnerToggleForm.from_formdata(request)
+    preset_set_form = await PresetToggleForm.from_formdata(request)
+    registry_image_form = await RegistryImageActionForm.from_formdata(request)
+    registry_update_form = await RegistryUpdateForm.from_formdata(request)
 
-    runner_toggle_form = await RunnerToggleForm.from_formdata(request)
-    preset_toggle_form = await PresetToggleForm.from_formdata(request)
-    registry_slug_form = await RegistrySlugForm.from_formdata(request)
-
-    registry_service = RegistryService(Path(settings.data_dir) / "registry")
-    last_registry_mtimes = request.session.get("registry_mtimes")
-    registry_state, registry_mtimes, registry_needs_reload = registry_service.refresh_if_stale(
-        last_registry_mtimes
-    )
-    registry_catalog = registry_state.catalog
-    registry_overrides = registry_state.overrides
-    registry_runners = registry_state.runners
-    registry_presets = registry_state.presets
-    registry_overrides_changed = (
-        registry_mtimes.get("overrides") != (last_registry_mtimes or {}).get("overrides")
-    )
-    if not last_registry_mtimes:
-        request.session["registry_mtimes"] = registry_mtimes
-    if request.method == "GET" and registry_needs_reload:
-        request.session["registry_mtimes"] = registry_mtimes
+    registry_state, registry_mtimes, changed_keys = settings._registry_service.load()
+    if request.method == "GET" and any(changed_keys.values()):
         flash(request, _("Registry reloaded from disk."), "success")
 
-    if action and action.startswith("registry-"):
-        if request.method == "POST":
-            if action == "registry-toggle-runner":
-                if not await runner_toggle_form.validate_on_submit():
-                    flash(request, _("Invalid runner update."), "error")
-                    return RedirectResponse("/admin", status_code=303)
-            elif action == "registry-toggle-preset":
-                if not await preset_toggle_form.validate_on_submit():
-                    flash(request, _("Invalid preset update."), "error")
-                    return RedirectResponse("/admin", status_code=303)
-            elif action in {
-                "registry-pull-runner",
-                "registry-remove-runner",
-                "registry-sync-catalog",
-                "registry-reload",
-            }:
-                if not await registry_slug_form.validate_on_submit():
-                    flash(request, _("Invalid registry action."), "error")
-                    return RedirectResponse("/admin", status_code=303)
+    if action and action.startswith("registry-") and request.method == "POST":
+        if action == "registry-set-runner":
+            if not await runner_set_form.validate_on_submit():
+                flash(request, _("Invalid runner update."), "error")
+            else:
+                slug = (runner_set_form.slug.data or "").strip()
+                enabled = bool(runner_set_form.enabled.data)
+                registry_state = settings._registry_service.set_runner(slug, enabled)
+                settings.runners = registry_state.runners
+                settings.presets = registry_state.presets
+                flash(
+                    request,
+                    _(
+                        "Runner %(slug)s %(enabled)s.",
+                        slug=slug,
+                        enabled=_("enabled") if enabled else _("disabled"),
+                    ),
+                    "success",
+                )
 
-            if action == "registry-sync-catalog":
-                catalog_url = settings.registry_catalog_url
-                if not catalog_url:
-                    flash(
-                        request,
-                        _("Registry catalog URL is not configured."),
-                        "error",
-                    )
-                    return RedirectResponse("/admin", status_code=303)
-                try:
-                    await registry_service.sync_catalog(catalog_url)
-                    registry_state = registry_service.state
-                    registry_catalog = registry_state.catalog
-                    registry_mtimes = registry_service.get_mtimes()
-                    request.session["registry_mtimes"] = registry_mtimes
-                    flash(request, _("Catalog synced successfully."), "success")
-                    return RedirectResponseX("/admin#registry", status_code=303, request=request)
-                except Exception as exc:
-                    flash(request, _("Failed to sync catalog."), "error", str(exc))
+        elif action == "registry-set-preset":
+            if not await preset_set_form.validate_on_submit():
+                flash(request, _("Invalid preset update."), "error")
+            else:
+                slug = (preset_set_form.slug.data or "").strip()
+                enabled = bool(preset_set_form.enabled.data)
+                registry_state = settings._registry_service.set_preset(slug, enabled)
+                settings.runners = registry_state.runners
+                settings.presets = registry_state.presets
+                flash(
+                    request,
+                    _(
+                        "Preset %(slug)s %(enabled)s.",
+                        slug=slug,
+                        enabled=_("enabled") if enabled else _("disabled"),
+                    ),
+                    "success",
+                )
 
-            elif action == "registry-toggle-runner":
-                slug = (runner_toggle_form.slug.data or "").strip()
-                enabled = bool(runner_toggle_form.enabled.data)
-                registry_state = registry_service.toggle_runner(slug, enabled)
-                registry_overrides = registry_state.overrides
-                registry_runners = registry_state.runners
-                registry_presets = registry_state.presets
-                registry_mtimes = registry_service.get_mtimes()
-                request.session["registry_mtimes"] = registry_mtimes
-                flash(request, _("Runner updated."), "success")
-
-            elif action == "registry-toggle-preset":
-                slug = (preset_toggle_form.slug.data or "").strip()
-                enabled = bool(preset_toggle_form.enabled.data)
-                registry_state = registry_service.toggle_preset(slug, enabled)
-                registry_overrides = registry_state.overrides
-                registry_runners = registry_state.runners
-                registry_presets = registry_state.presets
-                registry_mtimes = registry_service.get_mtimes()
-                request.session["registry_mtimes"] = registry_mtimes
-                flash(request, _("Preset updated."), "success")
-
-            elif action == "registry-pull-runner":
-                slug = (registry_slug_form.slug.data or "").strip()
+        elif action == "registry-pull":
+            if not await registry_image_form.validate_on_submit():
+                flash(request, _("Invalid registry action"), "error")
+            else:
+                slug = (registry_image_form.slug.data or "").strip()
                 if slug:
                     await queue.enqueue_job("pull_runner_image", slug)
-                    flash(request, _("Runner pull queued."), "success")
+                    flash(
+                        request,
+                        _("Pulling image for %(slug)s.", slug=slug),
+                        "success",
+                    )
+                else:
+                    await queue.enqueue_job("pull_all_runner_images")
+                    flash(request, _("Pulling all enabled runner images."), "success")
 
-            elif action == "registry-pull-all":
-                await queue.enqueue_job("pull_all_runner_images")
-                flash(request, _("Runner pull queued."), "success")
-
-            elif action == "registry-remove-runner":
-                slug = (registry_slug_form.slug.data or "").strip()
+        elif action == "registry-clear":
+            if not await registry_image_form.validate_on_submit():
+                flash(request, _("Invalid registry action"), "error")
+            else:
+                slug = (registry_image_form.slug.data or "").strip()
                 if slug:
-                    await queue.enqueue_job("remove_runner_image", slug)
-                    flash(request, _("Runner image removal queued."), "success")
+                    await queue.enqueue_job("clear_runner_image", slug)
+                    flash(
+                        request,
+                        _("Clearing image for %(slug)s.", slug=slug),
+                        "success",
+                    )
+                else:
+                    await queue.enqueue_job("clear_all_runner_images")
+                    flash(request, _("Clearing all runner images."), "success")
 
-            elif action == "registry-remove-all":
-                await queue.enqueue_job("remove_all_runner_images")
-                flash(request, _("Runner image removal queued."), "success")
-
-            elif action == "registry-reload":
-                request.session["registry_mtimes"] = registry_mtimes
-                registry_service.refresh()
-                flash(request, _("Registry reloaded."), "success")
+        elif action == "registry-update":
+            catalog_url = settings.registry_catalog_url
+            if not catalog_url:
+                flash(request, _("Registry catalog URL is not configured."), "error")
+            else:
+                try:
+                    await settings._registry_service.update_catalog(catalog_url)
+                    registry_state = settings._registry_service.refresh()
+                    settings.runners = registry_state.runners
+                    settings.presets = registry_state.presets
+                    flash(
+                        request,
+                        _(
+                            "Catalog updated to %(version)s.",
+                            version=registry_state.catalog.meta.version,
+                        ),
+                        "success",
+                    )
+                except Exception as exc:
+                    flash(request, _("Failed to update catalog."), "error", str(exc))
 
             if request.headers.get("HX-Request"):
+                registry_mtimes = (
+                    settings._registry_service.mtimes
+                    or settings._registry_service.get_mtimes()
+                )
+                registry_overrides_updated_at = (
+                    datetime.fromtimestamp(
+                        registry_mtimes["overrides"], tz=timezone.utc
+                    )
+                    if registry_mtimes.get("overrides")
+                    else None
+                )
                 return TemplateResponse(
                     request=request,
                     name="admin/partials/_settings-registry.html",
                     context={
                         "current_user": current_user,
-                        "registry_slug_form": registry_slug_form,
-                        "runner_toggle_form": runner_toggle_form,
-                        "preset_toggle_form": preset_toggle_form,
-                        "registry_catalog": registry_catalog,
-                        "registry_overrides": registry_overrides,
-                        "registry_runners": registry_runners,
-                        "registry_presets": registry_presets,
-                        "registry_catalog_url": settings.registry_catalog_url,
-                        "registry_needs_reload": registry_needs_reload,
-                        "registry_overrides_changed": registry_overrides_changed,
-                        "registry_overrides_updated_at": (
-                            datetime.fromtimestamp(
-                                registry_mtimes["overrides"], tz=timezone.utc
-                            )
-                            if registry_mtimes.get("overrides")
-                            else None
-                        ),
+                        "registry_image_form": registry_image_form,
+                        "runner_set_form": runner_set_form,
+                        "preset_set_form": preset_set_form,
+                        "registry_state": registry_state,
+                        "registry_overrides_updated_at": registry_overrides_updated_at,
                     },
                 )
-            return RedirectResponse("/admin", status_code=303)
+
+        if request.headers.get("HX-Request"):
+            return TemplateResponse(
+                request=request,
+                name="partials/_empty.html",
+                context={"current_user": current_user},
+            )
+        else:
+            return RedirectResponse("/admin#registry", status_code=303)
+
+    add_allowlist_form = await AllowlistAddForm.from_formdata(request)
+    delete_allowlist_form = await AllowlistDeleteForm.from_formdata(request)
+    import_allowlist_form = await AllowlistImportForm.from_formdata(request)
 
     # Add allowlist rule
     if action == "add_allowlist":
@@ -602,15 +600,10 @@ async def admin_settings(
                 },
             )
         elif fragment == "registry-check":
+            local_version = (
+                registry_state.catalog.meta.version if registry_state.catalog else None
+            )
             remote_version = None
-            remote_error = None
-            local_version = None
-            try:
-                if registry_catalog:
-                    local_version = registry_catalog.meta.version
-            except Exception as exc:
-                remote_error = str(exc)
-
             if settings.registry_catalog_url:
                 try:
                     async with httpx.AsyncClient(timeout=5.0) as client:
@@ -626,17 +619,25 @@ async def admin_settings(
                         "error",
                         str(exc),
                     )
-
             return TemplateResponse(
                 request=request,
                 name="admin/partials/_settings-registry-check.html",
                 context={
                     "current_user": current_user,
-                    "registry_slug_form": registry_slug_form,
+                    "registry_update_form": registry_update_form,
                     "registry_local_version": local_version,
                     "registry_remote_version": remote_version,
                 },
             )
+
+    registry_mtimes = (
+        settings._registry_service.mtimes or settings._registry_service.get_mtimes()
+    )
+    registry_overrides_updated_at = (
+        datetime.fromtimestamp(registry_mtimes["overrides"], tz=timezone.utc)
+        if registry_mtimes.get("overrides")
+        else None
+    )
 
     return TemplateResponse(
         request=request,
@@ -654,20 +655,11 @@ async def admin_settings(
             "add_allowlist_form": add_allowlist_form,
             "allowlist_delete_form": delete_allowlist_form,
             "import_allowlist_form": import_allowlist_form,
-            "registry_slug_form": registry_slug_form,
-            "runner_toggle_form": runner_toggle_form,
-            "preset_toggle_form": preset_toggle_form,
-            "registry_catalog": registry_catalog,
-            "registry_overrides": registry_overrides,
-            "registry_runners": registry_runners,
-            "registry_presets": registry_presets,
-            "registry_catalog_url": settings.registry_catalog_url,
-            "registry_needs_reload": registry_needs_reload,
-            "registry_overrides_changed": registry_overrides_changed,
-            "registry_overrides_updated_at": (
-                datetime.fromtimestamp(registry_mtimes["overrides"], tz=timezone.utc)
-                if registry_mtimes.get("overrides")
-                else None
-            ),
+            "registry_image_form": registry_image_form,
+            "registry_update_form": registry_update_form,
+            "runner_set_form": runner_set_form,
+            "preset_set_form": preset_set_form,
+            "registry_state": registry_state,
+            "registry_overrides_updated_at": registry_overrides_updated_at,
         },
     )

@@ -16,11 +16,11 @@
           <tr>
             <td class="pl-4">
               {% if entry.type == "email" %}
-                <span class="badge-outline">{{ _('Email') }}</span>
+                <span class="badge-secondary">{{ _('Email') }}</span>
               {% elif entry.type == "domain" %}
-                <span class="badge-outline">{{ _('Domain') }}</span>
+                <span class="badge-secondary">{{ _('Domain') }}</span>
               {% elif entry.type == "pattern" %}
-                <span class="badge-outline">{{ _('Pattern') }}</span>
+                <span class="badge-secondary">{{ _('Pattern') }}</span>
               {% endif %}
             </td>
             <td class="truncate font-medium w-full max-w-1">{{ entry.value }}</td>

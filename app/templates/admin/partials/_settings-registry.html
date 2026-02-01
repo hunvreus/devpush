@@ -4,7 +4,7 @@
 {% from "macros/popover.html" import popover %}
 {% from "macros/copy.html" import copy %}
 
-{% if not registry_catalog %}
+{% if not registry_state.catalog %}
   <div class="card">
     <header class="border-b">
       <h2>{{ _('Registry') }}</h2>
@@ -27,7 +27,7 @@
         <li>
           <div class="text-muted-foreground">{{ _('Catalog version') }}</div>
           <div class="flex items-center gap-x-2 h-5.5">
-            <span class="font-mono text-[13px]">{{ registry_catalog.meta.version }}</span>
+            <span class="font-mono text-[13px]">{{ registry_state.catalog.meta.version }}</span>
             <div
               hx-get="{{ url_for('admin_settings').include_query_params(fragment='registry-check') }}"
               hx-swap="outerHTML"
@@ -41,7 +41,7 @@
         </li>
         <li>
           <div class="text-muted-foreground">{{ _('Catalog source') }}</div>
-          <div class="h-5.5">{{ _('Bundled') if registry_catalog.meta.source == 'bundled' else _('Registry') }}</div>
+          <div class="h-5.5">{{ _('Bundled') if registry_state.catalog.meta.source == 'bundled' else _('Registry') }}</div>
         </li>
         <li>
           <div class="text-muted-foreground">{{ _('Overrides last updated') }}</div>
@@ -69,21 +69,21 @@
                 </tr>
               </thead>
               <tbody>
-                {% for runner in registry_runners %}
+                {% for runner in registry_state.runners %}
                   <tr x-data="{ isEnabled: {{ 'true' if runner.enabled else 'false' }} }" class="h-12.5">
                     <td class="text-center pl-4">
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-toggle-runner') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-toggle-runner') }}"
+                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-set-runner') }}"
+                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-set-runner') }}"
                         hx-trigger="change"
                         hx-target="#registry-flash"
                         hx-swap="innerHTML"
                         class="h-4.5 mx-auto"
                       >
-                        {{ runner_toggle_form.csrf_token() }}
-                        {{ runner_toggle_form.slug(value=runner.slug, id="runner-toggle-" ~ runner.slug) }}
-                        {{ runner_toggle_form.enabled(
+                        {{ runner_set_form.csrf_token() }}
+                        {{ runner_set_form.slug(value=runner.slug) }}
+                        {{ runner_set_form.enabled(
                           class_="input",
                           role="switch",
                           checked=runner.enabled,
@@ -105,14 +105,14 @@
                       <div class="flex items-center">
                         <form
                           method="post"
-                          action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull-runner') }}"
-                          hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull-runner') }}"
+                          action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull') }}"
+                          hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull') }}"
                           hx-target="#registry-flash"
                           hx-confirm="{{ _('This will pull the image for this runner. Are you sure?') }}"
                           hx-swap="innerHTML"
                         >
-                          {{ registry_slug_form.csrf_token() }}
-                          {{ registry_slug_form.slug(value=runner.slug, id="runner-pull-" ~ runner.slug) }}
+                          {{ registry_image_form.csrf_token() }}
+                          {{ registry_image_form.slug(value=runner.slug) }}
                           <button
                             type="submit"
                             role="menuitem"
@@ -125,14 +125,14 @@
                         </form>
                         <form
                           method="post"
-                          action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-remove-runner') }}"
-                          hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-remove-runner') }}"
+                          action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-clear') }}"
+                          hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-clear') }}"
                           hx-target="#registry-flash"
                           hx-confirm="{{ _('This will clear the image cache for this runner. Are you sure?') }}"
                           hx-swap="innerHTML"
                         >
-                          {{ registry_slug_form.csrf_token() }}
-                          {{ registry_slug_form.slug(value=runner.slug, id="runner-remove-" ~ runner.slug) }}
+                          {{ registry_image_form.csrf_token() }}
+                          {{ registry_image_form.slug(value=runner.slug) }}
                           <button
                             type="submit"
                             role="menuitem"
@@ -153,20 +153,21 @@
                 <tr class="h-12.5">
                   <td colspan="4" class="pl-4">
                     <div class="flex items-center justify-between">
-                      <div class="text-muted-foreground">{{ _('%(count)s runners', count=registry_runners | length) }}</div>
+                      <div class="text-muted-foreground">{{ _('%(count)s runners', count=registry_state.runners | length) }}</div>
                     </div>
                   </td>
                   <td>
                     <div class="flex items-center">
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull-all') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull-all') }}"
+                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull') }}"
+                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-pull') }}"
                         hx-target="#registry-flash"
                         hx-confirm="{{ _('This will pull all enabled images. Are you sure?') }}"
                         hx-swap="innerHTML"
                       >
-                        {{ registry_slug_form.csrf_token() }}
+                        {{ registry_image_form.csrf_token() }}
+                        {{ registry_image_form.slug(value='') }}
                         <button
                           type="submit"
                           class="btn-sm-icon-ghost"
@@ -179,13 +180,14 @@
                       </form>
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-remove-all') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-remove-all') }}"
+                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-clear') }}"
+                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-clear') }}"
                         hx-target="#registry-flash"
                         hx-confirm="{{ _('This will clear all cached images. Are you sure?') }}"
                         hx-swap="innerHTML"
                       >
-                        {{ registry_slug_form.csrf_token() }}
+                        {{ registry_image_form.csrf_token() }}
+                        {{ registry_image_form.slug(value='') }}
                         <button
                           type="submit"
                           class="btn-sm-icon-ghost"
@@ -219,25 +221,24 @@
                 </tr>
               </thead>
               <tbody>
-                {% for preset in registry_presets %}
+                {% for preset in registry_state.presets %}
                   <tr x-data="{ isEnabled: {{ 'true' if preset.enabled else 'false' }} }" class="h-12.5">
                     <td class="text-center pl-4">
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-toggle-preset') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-toggle-preset') }}"
+                        action="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-set-preset') }}"
+                        hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry', action='registry-set-preset') }}"
                         hx-trigger="change"
                         hx-target="#registry-flash"
                         hx-swap="innerHTML"
                         class="h-4.5 mx-auto"
                       >
-                        {{ preset_toggle_form.csrf_token() }}
-                        {{ preset_toggle_form.slug(value=preset.slug, id="preset-toggle-" ~ preset.slug) }}
-                        {{ preset_toggle_form.enabled(
+                        {{ preset_set_form.csrf_token() }}
+                        {{ preset_set_form.slug(value=preset.slug) }}
+                        {{ preset_set_form.enabled(
                           class_="input",
                           role="switch",
                           checked=preset.enabled,
-                          id="preset-toggle-enabled-" ~ preset.slug,
                           **{
                             'x-init': '',
                             '@change': 'isEnabled = event.target.checked'
@@ -260,7 +261,7 @@
                 <tr class="h-12.5">
                   <td colspan="5" class="pl-4">
                     <div class="flex items-center justify-between">
-                      <div class="text-muted-foreground">{{ _('%(count)s presets', count=registry_presets | length) }}</div>
+                      <div class="text-muted-foreground">{{ _('%(count)s presets', count=registry_state.presets | length) }}</div>
                     </div>
                   </td>
                 </tr>
@@ -289,5 +290,12 @@
         tablist_attrs={"class": "w-full"},
       ) }}
     </section>
+
+    <div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
+      <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+        {% include "icons/loader.svg" %}
+        {{ _('Updating') }}
+      </div>
+    </div>
   </div>
 {% endif %}
