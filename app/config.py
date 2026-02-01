@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     resend_api_key: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
     email_logo: str = ""
     email_sender_name: str = "/dev/push"
     email_sender_address: str = ""

@@ -9,7 +9,6 @@ from arq.connections import ArqRedis
 from typing import Any
 from authlib.jose import jwt
 from datetime import timedelta
-import resend
 import secrets
 
 from config import Settings, get_settings
@@ -32,6 +31,7 @@ from forms.user import (
     UserOAuthAccessRevokeForm,
 )
 from forms.team import TeamLeaveForm, TeamInviteAcceptForm
+from utils.email import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -209,37 +209,31 @@ async def user_settings(
                 )
             )
 
-            resend.api_key = settings.resend_api_key
-
             try:
                 await redis.setex(
                     f"magic_link:email_change:{jti}",
                     settings.magic_link_ttl_seconds,
                     "1",
                 )
-                resend.Emails.send(
-                    {
-                        "from": f"{settings.email_sender_name} <{settings.email_sender_address}>",
-                        "to": [new_email],
-                        "subject": _("Verify your new email address"),
-                        "html": templates.get_template(
-                            "email/email-change.html"
-                        ).render(
-                            {
-                                "request": request,
-                                "email": new_email,
-                                "verify_link": verify_link,
-                                "magic_link_ttl_minutes": max(
-                                    1, settings.magic_link_ttl_seconds // 60
-                                ),
-                                "email_logo": f"{settings.email_logo}"
-                                or request.url_for("assets", path="logo-email.png"),
-                                "app_name": settings.app_name,
-                                "app_description": settings.app_description,
-                                "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
-                            }
-                        ),
-                    }
+                send_email(
+                    recipients=[new_email],
+                    subject=_("Verify your new email address"),
+                    data=templates.get_template("email/email-change.html").render(
+                        {
+                            "request": request,
+                            "email": new_email,
+                            "verify_link": verify_link,
+                            "magic_link_ttl_minutes": max(
+                                1, settings.magic_link_ttl_seconds // 60
+                            ),
+                            "email_logo": settings.email_logo
+                            or request.url_for("assets", path="logo-email.png"),
+                            "app_name": settings.app_name,
+                            "app_description": settings.app_description,
+                            "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
+                        }
+                    ),
+                    settings=settings,
                 )
                 flash(
                     request,

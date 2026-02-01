@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
-import resend
 from datetime import timedelta
 from typing import Any
 import secrets
@@ -30,6 +29,7 @@ from dependencies import (
 from db import get_db
 from models import User, UserIdentity, TeamInvite, TeamMember, Team, utc_now
 from forms.auth import EmailLoginForm
+from utils.email import send_email
 from utils.user import sanitize_username, get_user_by_email, get_user_by_provider
 from utils.access import is_email_allowed, notify_denied
 
@@ -170,8 +170,6 @@ async def auth_login(
             )
         )
 
-        resend.api_key = settings.resend_api_key
-
         try:
             await redis.setex(
                 f"magic_link:email_login:{jti}",
@@ -192,27 +190,25 @@ async def auth_login(
             )
 
         try:
-            resend.Emails.send(
-                {
-                    "from": f"{settings.email_sender_name} <{settings.email_sender_address}>",
-                    "to": [email],
-                    "subject": _("Sign in to %(app_name)s", app_name=settings.app_name),
-                    "html": templates.get_template("email/login.html").render(
-                        {
-                            "request": request,
-                            "email": email,
-                            "verify_link": verify_link,
-                            "magic_link_ttl_minutes": max(
-                                1, settings.magic_link_ttl_seconds // 60
-                            ),
-                            "email_logo": settings.email_logo
-                            or request.url_for("assets", path="logo-email.png"),
-                            "app_name": settings.app_name,
-                            "app_description": settings.app_description,
-                            "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
-                        }
-                    ),
-                }
+            send_email(
+                recipients=[email],
+                subject=_("Sign in to %(app_name)s", app_name=settings.app_name),
+                data=templates.get_template("email/login.html").render(
+                    {
+                        "request": request,
+                        "email": email,
+                        "verify_link": verify_link,
+                        "magic_link_ttl_minutes": max(
+                            1, settings.magic_link_ttl_seconds // 60
+                        ),
+                        "email_logo": settings.email_logo
+                        or request.url_for("assets", path="logo-email.png"),
+                        "app_name": settings.app_name,
+                        "app_description": settings.app_description,
+                        "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
+                    }
+                ),
+                settings=settings,
             )
             flash(
                 request,

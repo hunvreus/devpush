@@ -27,7 +27,7 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 - **Server**: Ubuntu 20.04+ or Debian 11+ with SSH access and sudo privileges. A [Hetzner CPX31](https://devpu.sh/docs/guides/create-hetzner-server) works well.
 - **DNS**: We recommend [Cloudflare](https://cloudflare.com).
 - **GitHub account**: You'll create a GitHub App for login and repository access.
-- **Email provider**: A [Resend](https://resend.com) account for login emails and invitations.
+- **Email provider**: A [Resend](https://resend.com) account or SMTP credentials for login emails and invitations.
 
 ## Quickstart
 
@@ -128,7 +128,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | `DEPLOY_DOMAIN`                     | Domain for deployments (wildcard root). No default—set explicitly (e.g., `deploy.example.com`).                                          |
 | `LE_EMAIL`                          | Email for Let's Encrypt notifications.                                                                                                   |
 | `EMAIL_SENDER_ADDRESS`              | Email sender for invites/login.                                                                                                          |
-| `RESEND_API_KEY`                    | API key for [Resend](https://resend.com).                                                                                                |
+| `RESEND_API_KEY`                    | API key for [Resend](https://resend.com). Optional if SMTP is configured.                                                               |
+| `SMTP_HOST`                         | SMTP host. When set with username/password, SMTP is used instead of Resend.                                                             |
+| `SMTP_PORT`                         | SMTP port. Default: `587`.                                                                                                              |
+| `SMTP_USERNAME`                     | SMTP username. Required when using SMTP.                                                                                                |
+| `SMTP_PASSWORD`                     | SMTP password. Required when using SMTP.                                                                                                |
 | `GOOGLE_CLIENT_ID`                  | Google OAuth client ID (optional).                                                                                                       |
 | `GOOGLE_CLIENT_SECRET`              | Google OAuth client secret (optional).                                                                                                   |
 | `APP_NAME`                          | Display name. Default: `/dev/push`.                                                                                                      |
