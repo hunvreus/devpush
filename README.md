@@ -41,7 +41,7 @@ curl -fsSL https://install.devpu.sh | sudo bash
 
 2. **Create a GitHub App** at [devpu.sh/docs/guides/create-github-app](https://devpu.sh/docs/guides/create-github-app)
 
-3. **Configure** by editing `/var/lib/devpush/.env` with your GitHub App credentials and domains.
+3. **Configure** by editing `/var/lib/devpush/.env` with: `APP_HOSTNAME`, `DEPLOY_DOMAIN`, `LE_EMAIL`, `EMAIL_SENDER_ADDRESS`, `RESEND_API_KEY` (or SMTP settings), and your GitHub App credentials.
 
 4. **Set DNS**:
    - `A` `example.com` → server IP (app hostname)
