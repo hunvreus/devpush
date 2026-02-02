@@ -1,0 +1,4 @@
+{
+  "components": "app,worker-jobs,worker-monitor,traefik,loki,redis,docker-proxy,pgsql,alloy",
+  "reason": "Allowing docker-proxy to build/pull images"
+}

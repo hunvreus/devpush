@@ -106,7 +106,6 @@ services:
       - POST=1
       - EXEC=1
       - NETWORKS=1
-      - IMAGES=1
       - DISABLE_IPV6=1
     networks:
       - internal

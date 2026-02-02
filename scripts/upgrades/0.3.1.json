@@ -1,4 +1,4 @@
 {
-  "components": "alloy",
+  "components": "app,worker-jobs,worker-monitor,alloy",
   "reason": "Reload Alloy after reverting to Docker json-file logs"
 }
