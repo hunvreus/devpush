@@ -13,6 +13,7 @@ from dependencies import (
 )
 from models import User, UserIdentity
 from utils.user import get_user_by_provider
+from utils.urls import safe_redirect
 
 router = APIRouter(prefix="/api/google")
 
@@ -27,10 +28,18 @@ async def google_authorize(
     """Authorize Google OAuth for account linking"""
     if not oauth_client.google:
         flash(request, _("Google OAuth not configured."), "error")
-        redirect_url = next or request.headers.get("Referer", "/")
+        redirect_url = safe_redirect(
+            request,
+            next_value=next,
+            referer=request.headers.get("Referer"),
+        )
         return RedirectResponse(redirect_url, status_code=303)
 
-    redirect_url = next or request.headers.get("Referer", "/")
+    redirect_url = safe_redirect(
+        request,
+        next_value=next,
+        referer=request.headers.get("Referer"),
+    )
     request.session["redirect_after_google"] = redirect_url
 
     return await oauth_client.google.authorize_redirect(
@@ -47,7 +56,11 @@ async def google_authorize_callback(
 ):
     """Handle Google OAuth callback for account linking"""
 
-    redirect_url = request.session.pop("redirect_after_google", "/")
+    redirect_url = safe_redirect(
+        request,
+        next_value=request.session.pop("redirect_after_google", "/"),
+        referer=None,
+    )
 
     if not oauth_client.google:
         flash(request, _("Google OAuth not configured."), "error")

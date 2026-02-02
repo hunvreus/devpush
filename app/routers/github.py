@@ -25,6 +25,7 @@ from models import User, UserIdentity, GithubInstallation, Project
 from services.github import GitHubService
 from services.deployment import DeploymentService
 from utils.user import get_user_github_token, get_user_by_provider
+from utils.urls import safe_redirect
 from config import get_settings, Settings
 
 router = APIRouter(prefix="/api/github")
@@ -168,10 +169,18 @@ async def github_authorize(
     """Authorize GitHub OAuth for account linking"""
     if not oauth_client.github:
         flash(request, _("GitHub OAuth not configured."), "error")
-        redirect_url = next or request.headers.get("Referer", "/")
+        redirect_url = safe_redirect(
+            request,
+            next_value=next,
+            referer=request.headers.get("Referer"),
+        )
         return RedirectResponse(redirect_url, status_code=303)
 
-    redirect_url = next or request.headers.get("Referer", "/")
+    redirect_url = safe_redirect(
+        request,
+        next_value=next,
+        referer=request.headers.get("Referer"),
+    )
     request.session["redirect_after_github"] = redirect_url
 
     return await oauth_client.github.authorize_redirect(
@@ -189,7 +198,11 @@ async def github_authorize_callback(
 ):
     """Handle GitHub OAuth callback for account linking"""
 
-    redirect_url = request.session.pop("redirect_after_github", "/")
+    redirect_url = safe_redirect(
+        request,
+        next_value=request.session.pop("redirect_after_github", "/"),
+        referer=None,
+    )
 
     if not oauth_client.github:
         flash(request, _("GitHub OAuth not configured."), "error")
@@ -256,11 +269,17 @@ async def github_install(
 
     if not settings.github_app_id:
         flash(request, _("GitHub App not configured."), "error")
-        redirect_url = next or request.headers.get("Referer", "/")
+        redirect_url = safe_redirect(
+            request,
+            next_value=next,
+            referer=request.headers.get("Referer"),
+        )
         return RedirectResponse(redirect_url, status_code=303)
 
-    request.session["redirect_after_install"] = next or request.headers.get(
-        "Referer", "/"
+    request.session["redirect_after_install"] = safe_redirect(
+        request,
+        next_value=next,
+        referer=request.headers.get("Referer"),
     )
 
     return RedirectResponse(
@@ -279,7 +298,11 @@ async def github_install_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle GitHub App installation callback"""
-    redirect_url = request.session.pop("redirect_after_install", "/")
+    redirect_url = safe_redirect(
+        request,
+        next_value=request.session.pop("redirect_after_install", "/"),
+        referer=None,
+    )
 
     if setup_action != "install":
         flash(request, _("GitHub App installation was not completed."), "warning")
@@ -327,7 +350,11 @@ async def github_manage_authorization(
 
     if not settings.github_app_name:
         flash(request, _("GitHub App not configured."), "error")
-        redirect_url = next or request.headers.get("Referer", "/")
+        redirect_url = safe_redirect(
+            request,
+            next_value=next,
+            referer=request.headers.get("Referer"),
+        )
         return RedirectResponse(redirect_url, status_code=303)
 
     return RedirectResponse(
@@ -348,7 +375,11 @@ async def github_manage_installation(
 
     if not settings.github_app_name:
         flash(request, _("GitHub App not configured."), "error")
-        redirect_url = next or request.headers.get("Referer", "/")
+        redirect_url = safe_redirect(
+            request,
+            next_value=next,
+            referer=request.headers.get("Referer"),
+        )
         return RedirectResponse(redirect_url, status_code=303)
 
     if installation_id:
