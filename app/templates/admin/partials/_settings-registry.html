@@ -4,24 +4,16 @@
 {% from "macros/popover.html" import popover %}
 {% from "macros/copy.html" import copy %}
 
-{% if not registry_state.catalog %}
-  <div class="card">
-    <header class="border-b">
-      <h2>{{ _('Registry') }}</h2>
-      <p>{{ _('Manage runners and presets from the registry catalog.') }}</p>
-    </header>
-    <section>
-      <p class="text-muted-foreground">{{ _('Registry catalog not found.') }}</p>
-    </section>
-  </div>
-{% else %}
-  <div class="card">
-    <header class="border-b">
-      <h2>{{ _('Registry') }}</h2>
-      <p>{{ _('Manage runners and presets from the registry catalog.') }}</p>
-    </header>
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _('Registry') }}</h2>
+    <p>{{ _('Manage runners and presets from the registry catalog.') }}</p>
+  </header>
 
-    <section class="space-y-6">
+  <section class="space-y-6">
+    {% if not registry_state.catalog %}
+      <p class="text-muted-foreground">{{ _('Registry catalog not found.') }}</p>
+    {% else %}
       <div id="registry-flash" class="hidden"></div>
       <ul class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <li>
@@ -289,13 +281,13 @@
         main_attrs={"class": "w-full"},
         tablist_attrs={"class": "w-full"},
       ) }}
-    </section>
+    {% endif %}
+  </section>
 
-    <div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
-      <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
-        {% include "icons/loader.svg" %}
-        {{ _('Updating') }}
-      </div>
+  <div class="htmx-indicator flex items-center justify-center inset-0 absolute bg-background/80 rounded-xl">
+    <div class="flex items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:animate-spin">
+      {% include "icons/loader.svg" %}
+      {{ _('Updating') }}
     </div>
   </div>
-{% endif %}
+</div>

@@ -25,6 +25,7 @@ from dependencies import (
     get_google_user_info,
     decode_jwt_claims,
     get_redis_client,
+    get_queue,
 )
 from db import get_db
 from models import User, UserIdentity, TeamInvite, TeamMember, Team, utc_now
@@ -39,6 +40,7 @@ router = APIRouter(prefix="/auth")
 
 
 async def _create_user_with_team(
+    request: Request,
     db: AsyncSession,
     email: str,
     name: str | None = None,
@@ -82,6 +84,25 @@ async def _create_user_with_team(
 
     user.default_team_id = team.id
     db.add(TeamMember(team_id=team.id, user_id=user.id, role="owner"))
+
+    # For superadmin accounts, we pull all runner images and display a helper message
+    if user.id == 1:
+        queue = get_queue(request)
+        await queue.enqueue_job("pull_all_runner_images")
+        flash(request, _("Pulling all enabled runner images."), "success")
+        flash(
+            request=request,
+            title=_(
+                "You can manage access, users and runners/presets in the admin panel."
+            ),
+            category="warning",
+            action={
+                "label": _("Admin"),
+                "href": str(request.url_for("admin_settings")),
+            },
+            cancel={"label": _("Dismiss")},
+            attrs={"data-duration": "-1"},
+        )
 
     return user
 
@@ -311,7 +332,7 @@ async def auth_email_verify(
                     )
                     flash(request, _(settings.access_denied_message), "error")
                     return RedirectResponse("/auth/login", status_code=303)
-                user = await _create_user_with_team(db, email)
+                user = await _create_user_with_team(request, db, email)
                 await db.commit()
                 await db.refresh(user)
 
@@ -404,7 +425,7 @@ async def auth_email_verify(
             else:
                 user = await get_user_by_email(db, email)
                 if not user:
-                    user = await _create_user_with_team(db, email)
+                    user = await _create_user_with_team(request, db, email)
 
                 invite.status = "accepted"
                 db.add(
@@ -500,6 +521,7 @@ async def auth_github_callback(
                 flash(request, _(settings.access_denied_message), "error")
                 return RedirectResponse("/auth/login", status_code=303)
             user = await _create_user_with_team(
+                request,
                 db,
                 email=email or f"{gh_user['login']}@github.local",
                 name=gh_user.get("name"),
@@ -589,6 +611,7 @@ async def auth_google_callback(
                     flash(request, _(settings.access_denied_message), "error")
                     return RedirectResponse("/auth/login", status_code=303)
                 user = await _create_user_with_team(
+                    request,
                     db,
                     email=email,
                     name=google_user_info.get("name"),

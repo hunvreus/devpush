@@ -105,8 +105,26 @@ if ((keep_docker==0)); then
 
   # Images
   compose_images="$(docker images --filter "reference=devpush*" -q 2>/dev/null || true)"
-  runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || true)"
-  images="$(printf "%s\n%s" "$compose_images" "$runner_images" | grep -v '^\s*$' | sort -u || true)"
+  legacy_runner_images="$(docker images --filter "reference=runner-*" -q 2>/dev/null || true)"
+  runner_images="$(docker images --filter "reference=ghcr.io/devpushhq/runner-*" -q 2>/dev/null || true)"
+  override_images=""
+  if [[ -f "$DATA_DIR/registry/overrides.json" ]]; then
+    override_refs="$(
+      jq -r '.. | objects | .image? // empty' "$DATA_DIR/registry/overrides.json" 2>/dev/null \
+        | grep -v '^ghcr.io/devpushhq/runner-' \
+        | sort -u || true
+    )"
+    if [[ -n "$override_refs" ]]; then
+      while IFS= read -r ref; do
+        [[ -n "$ref" ]] || continue
+        ref_images="$(docker images --filter "reference=$ref" -q 2>/dev/null || true)"
+        if [[ -n "$ref_images" ]]; then
+          override_images="$(printf "%s\n%s" "$override_images" "$ref_images")"
+        fi
+      done <<< "$override_refs"
+    fi
+  fi
+  images="$(printf "%s\n%s\n%s\n%s" "$compose_images" "$legacy_runner_images" "$runner_images" "$override_images" | grep -v '^\s*$' | sort -u || true)"
   if [[ -n "$images" ]]; then
     count=$(printf '%s\n' "$images" | wc -l | tr -d ' ')
     run_cmd --try "${CHILD_MARK} Removing images ($count found)" docker rmi -f $images
