@@ -46,18 +46,58 @@ async def github_repo_select(
     has_github_oauth_token = False
 
     try:
-        github_oauth_token = await get_user_github_token(db, current_user)
-        if not github_oauth_token:
-            has_github_oauth_token = False
-        else:
-            has_github_oauth_token = True
-            installations = await github_service.get_user_installations(
-                github_oauth_token
+        github_identity = await db.scalar(
+            select(UserIdentity).where(
+                UserIdentity.user_id == current_user.id,
+                UserIdentity.provider == "github",
             )
-            accounts = [
-                installation["account"]["login"] for installation in installations
-            ]
-            selected_account = account or (accounts[0] if accounts else None)
+        )
+        if not github_identity:
+            has_github_oauth_token = False
+            logger.info(
+                "GitHub OAuth identity missing",
+                extra={"user_id": current_user.id, "user_email": current_user.email},
+            )
+        else:
+            try:
+                github_oauth_token = github_identity.access_token
+            except Exception:
+                github_oauth_token = None
+                logger.exception(
+                    "Failed to decrypt GitHub OAuth token",
+                    extra={
+                        "user_id": current_user.id,
+                        "user_email": current_user.email,
+                    },
+                )
+            if not github_oauth_token:
+                has_github_oauth_token = False
+                logger.info(
+                    "GitHub OAuth token missing",
+                    extra={
+                        "user_id": current_user.id,
+                        "user_email": current_user.email,
+                    },
+                )
+            else:
+                has_github_oauth_token = True
+                installations = await github_service.get_user_installations(
+                    github_oauth_token
+                )
+                accounts = [
+                    installation["account"]["login"]
+                    for installation in installations
+                ]
+                selected_account = account or (accounts[0] if accounts else None)
+                logger.info(
+                    "GitHub installations fetched",
+                    extra={
+                        "user_id": current_user.id,
+                        "user_email": current_user.email,
+                        "installation_count": len(installations),
+                        "accounts": accounts,
+                    },
+                )
 
     except Exception as e:
         if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in [
