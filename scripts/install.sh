@@ -183,42 +183,41 @@ apt_install() {
   return 1
 }
 
-# --- FIX: Docker install with containerd.io fallback (handles repo/CDN 404) ---
+# Installs Docker packages (apt-get first, then fallback to containerd.io version)
 install_docker_packages() {
-  # First try the normal install
   if apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
     return 0
   fi
 
-  echo "Docker install failed; trying containerd.io version fallback..." >&2
+  printf "  ${DIM}${CHILD_MARK} Docker install failed; starting containerd.io fallback.${NC}\n" >&2
 
-  # Force refresh lists (helps if repo was mid-sync)
-  rm -rf /var/lib/apt/lists/*
-  apt-get update -yq || true
+  rm -rf /var/lib/apt/lists/* || true
+  if apt-get update -yq >/dev/null 2>&1; then
+    printf "  ${DIM}${CHILD_MARK} Apt lists refreshed.${NC}\n"
+  else
+    printf "  ${DIM}${CHILD_MARK} Apt list refresh failed (continuing).${NC}\n" >&2
+  fi
 
   # Get all available containerd.io versions, newest first (madison output is usually already newest-first,
   # but we don't assume; we just iterate in listed order).
   mapfile -t versions < <(apt-cache madison containerd.io | awk '{print $3}' | sed '/^$/d')
 
   if [[ "${#versions[@]}" -eq 0 ]]; then
-    echo "No containerd.io versions found via apt-cache madison." >&2
+    printf "  ${DIM}${CHILD_MARK} No containerd.io versions found via apt-cache madison.${NC}\n" >&2
     return 1
   fi
 
   for v in "${versions[@]}"; do
-    echo "Trying containerd.io=$v ..." >&2
-    if apt-get install -yq \
-        -o Dpkg::Options::=--force-confdef \
-        -o Dpkg::Options::=--force-confold \
-        "containerd.io=$v" docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin; then
+    if apt_install "containerd.io=$v" docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin; then
+      printf "  ${DIM}${CHILD_MARK} containerd.io=%s succeeded.${NC}\n" "$v"
       return 0
     fi
+    printf "  ${DIM}${CHILD_MARK} containerd.io=%s failed.${NC}\n" "$v" >&2
   done
 
-  echo "All containerd.io fallback versions failed." >&2
+  printf "  ${DIM}${CHILD_MARK} All containerd.io fallback versions failed.${NC}\n" >&2
   return 1
 }
-# --- END FIX ---
 
 # Adds the Docker repository to the system
 add_docker_repo() {
@@ -288,7 +287,7 @@ run_cmd "${CHILD_MARK} Installing Docker packages" install_docker_packages
 
 # Ensure Docker service is running
 run_cmd "${CHILD_MARK} Enabling Docker service" systemctl enable --now docker
-run_cmd "${CHILD_MARK} Waiting for Docker daemon" bash -lc 'for i in $(seq 1 15); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+run_cmd "${CHILD_MARK} Waiting for Docker daemon" bash -lc 'for i in $(seq 1 30); do docker info >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1'
 
 # Create user
 if ! id -u "$service_user" >/dev/null 2>&1; then
