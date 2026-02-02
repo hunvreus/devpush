@@ -83,7 +83,7 @@ DEPLOYMENTS_PER_PAGE = 25
 
 
 def _is_runner_valid(project: Project, settings: Settings, request: Request) -> bool:
-    project_runner_slug = project.config.get("runner")
+    project_runner_slug = project.config.get("runner") or project.config.get("image")
     if not project_runner_slug:
         flash(
             request=request,

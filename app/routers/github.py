@@ -46,58 +46,22 @@ async def github_repo_select(
     has_github_oauth_token = False
 
     try:
-        github_identity = await db.scalar(
-            select(UserIdentity).where(
-                UserIdentity.user_id == current_user.id,
-                UserIdentity.provider == "github",
-            )
-        )
-        if not github_identity:
+        github_oauth_token = await get_user_github_token(db, current_user)
+        if not github_oauth_token:
             has_github_oauth_token = False
             logger.info(
-                "GitHub OAuth identity missing",
+                "GitHub OAuth token missing",
                 extra={"user_id": current_user.id, "user_email": current_user.email},
             )
         else:
-            try:
-                github_oauth_token = github_identity.access_token
-            except Exception:
-                github_oauth_token = None
-                logger.exception(
-                    "Failed to decrypt GitHub OAuth token",
-                    extra={
-                        "user_id": current_user.id,
-                        "user_email": current_user.email,
-                    },
-                )
-            if not github_oauth_token:
-                has_github_oauth_token = False
-                logger.info(
-                    "GitHub OAuth token missing",
-                    extra={
-                        "user_id": current_user.id,
-                        "user_email": current_user.email,
-                    },
-                )
-            else:
-                has_github_oauth_token = True
-                installations = await github_service.get_user_installations(
-                    github_oauth_token
-                )
-                accounts = [
-                    installation["account"]["login"]
-                    for installation in installations
-                ]
-                selected_account = account or (accounts[0] if accounts else None)
-                logger.info(
-                    "GitHub installations fetched",
-                    extra={
-                        "user_id": current_user.id,
-                        "user_email": current_user.email,
-                        "installation_count": len(installations),
-                        "accounts": accounts,
-                    },
-                )
+            has_github_oauth_token = True
+            installations = await github_service.get_user_installations(
+                github_oauth_token
+            )
+            accounts = [
+                installation["account"]["login"] for installation in installations
+            ]
+            selected_account = account or (accounts[0] if accounts else None)
 
     except Exception as e:
         if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in [
@@ -105,8 +69,20 @@ async def github_repo_select(
             403,
         ]:
             has_github_oauth_token = False
+            logger.warning(
+                "GitHub OAuth token rejected",
+                extra={
+                    "user_id": current_user.id,
+                    "user_email": current_user.email,
+                    "status_code": e.response.status_code,
+                },
+            )
         else:
-            logger.error("Error fetching installations from GitHub", exc_info=True)
+            logger.error(
+                "Error fetching installations from GitHub",
+                exc_info=True,
+                extra={"user_id": current_user.id, "user_email": current_user.email},
+            )
             flash(request, _("Error fetching installations from GitHub."), "error")
 
     return TemplateResponse(
@@ -607,9 +583,7 @@ async def github_webhook(
                             redis_client=redis_client,
                             trigger="webhook",
                         )
-                        job = await queue.enqueue_job(
-                            "start_deployment", deployment.id
-                        )
+                        job = await queue.enqueue_job("start_deployment", deployment.id)
                         deployment.job_id = job.job_id
                         await db.commit()
 
