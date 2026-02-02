@@ -256,20 +256,23 @@ async def new_project_details(
                         if preset_entry:
                             preset_config = preset_entry.get("config", {})
                             form.preset.data = detection["preset"]
-                            form.runner.data = preset_config.get("runner")
-                            if preset_config.get("root_directory"):
-                                form.root_directory.data = preset_config.get(
-                                    "root_directory"
-                                )
+                            form.runner.data = detection.get(
+                                "runner"
+                            ) or preset_config.get("runner")
+                            root_directory = detection.get(
+                                "root_directory"
+                            ) or preset_config.get("root_directory")
+                            if root_directory:
+                                form.root_directory.data = root_directory
                             form.build_command.data = detection.get(
                                 "build_command"
                             ) or preset_config.get("build_command")
                             form.start_command.data = detection.get(
                                 "start_command"
                             ) or preset_config.get("start_command")
-                            form.pre_deploy_command.data = preset_config.get(
+                            form.pre_deploy_command.data = detection.get(
                                 "pre_deploy_command"
-                            )
+                            ) or preset_config.get("pre_deploy_command")
 
             except asyncio.TimeoutError:
                 logger.warning(f"Framework detection timed out for repo {repo_id}")

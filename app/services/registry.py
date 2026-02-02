@@ -10,6 +10,30 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 logger = logging.getLogger(__name__)
 
 
+class PresetVariantConfigSetting(BaseModel):
+    runner: str | None = None
+    build_command: str | None = None
+    pre_deploy_command: str | None = None
+    start_command: str | None = None
+    root_directory: str | None = None
+    logo: str | None = None
+    beta: bool | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+class DetectionVariantSetting(BaseModel):
+    priority: int = 0
+    any_files: list[str] = []
+    all_files: list[str] = []
+    any_paths: list[str] = []
+    none_files: list[str] = []
+    package_check: str | None = None
+    config: PresetVariantConfigSetting | None = None
+
+    model_config = {"extra": "ignore"}
+
+
 class DetectionSetting(BaseModel):
     priority: int = 0
     any_files: list[str] = []
@@ -17,6 +41,7 @@ class DetectionSetting(BaseModel):
     any_paths: list[str] = []
     none_files: list[str] = []
     package_check: str | None = None
+    variants: list[DetectionVariantSetting] = []
 
     model_config = {"extra": "ignore"}
 

@@ -24,23 +24,45 @@ class PresetDetector:
             presets: List of preset dictionaries from settings.presets
         """
         self.patterns = []
+        self.presets_by_slug = {
+            preset.get("slug"): preset for preset in presets if preset.get("slug")
+        }
         for preset in presets:
             if preset.get("enabled") is not True:
                 continue
             config = preset.get("config", {})
             detection = config.get("detection")
             if detection:
-                self.patterns.append(
-                    {
-                        "preset": preset["slug"],
-                        "priority": detection.get("priority", 0),
-                        "any_files": detection.get("any_files", []),
-                        "all_files": detection.get("all_files", []),
-                        "any_paths": detection.get("any_paths", []),
-                        "none_files": detection.get("none_files", []),
-                        "package_check": detection.get("package_check"),
-                    }
-                )
+                base_pattern = {
+                    "preset": preset["slug"],
+                    "priority": detection.get("priority", 0),
+                    "any_files": detection.get("any_files", []),
+                    "all_files": detection.get("all_files", []),
+                    "any_paths": detection.get("any_paths", []),
+                    "none_files": detection.get("none_files", []),
+                    "package_check": detection.get("package_check"),
+                    "config_overrides": {},
+                }
+                self.patterns.append(base_pattern)
+
+                variants = detection.get("variants", []) or []
+                for variant in variants:
+                    if not isinstance(variant, dict):
+                        continue
+                    self.patterns.append(
+                        {
+                            "preset": preset["slug"],
+                            "priority": variant.get(
+                                "priority", detection.get("priority", 0)
+                            ),
+                            "any_files": variant.get("any_files", []),
+                            "all_files": variant.get("all_files", []),
+                            "any_paths": variant.get("any_paths", []),
+                            "none_files": variant.get("none_files", []),
+                            "package_check": variant.get("package_check"),
+                            "config_overrides": variant.get("config") or {},
+                        }
+                    )
 
     async def detect(
         self,
@@ -48,8 +70,8 @@ class PresetDetector:
         user_access_token: str,
         repo_id: int,
         default_branch: str,
-    ) -> Optional[str]:
-        """Detect preset from repository.
+    ) -> Optional[dict]:
+        """Detect preset from repository and return merged config.
 
         Args:
             github_service: GitHubService instance
@@ -58,7 +80,7 @@ class PresetDetector:
             default_branch: Default branch name
 
         Returns:
-            Preset slug (e.g., 'django', 'nodejs') or None if no match
+            Dict with preset slug + merged config, or None if no match
         """
         if not self.patterns:
             logger.warning("No detection patterns configured")
@@ -98,9 +120,16 @@ class PresetDetector:
 
             matches.sort(key=lambda p: p["priority"], reverse=True)
             best_match = matches[0]
+            preset_slug = best_match["preset"]
+            preset = self.presets_by_slug.get(preset_slug, {})
+            base_config = dict(preset.get("config", {}))
+            base_config.pop("detection", None)
+            merged_config = self._merge_config(
+                base_config, best_match.get("config_overrides") or {}
+            )
 
-            logger.info(f"Detected preset: {best_match['preset']}")
-            return best_match["preset"]
+            logger.info(f"Detected preset: {preset_slug}")
+            return {"preset": preset_slug, "config": merged_config}
 
         except Exception as e:
             logger.exception(f"Preset detection failed: {e}")
@@ -181,21 +210,31 @@ class PresetDetector:
         """Detect preset and extract build/start commands from package.json.
 
         Returns:
-            Dictionary with preset, build_command, start_command
+            Dictionary with preset + merged config fields
         """
         result = {
             "preset": None,
+            "runner": None,
             "build_command": None,
+            "pre_deploy_command": None,
             "start_command": None,
+            "root_directory": None,
         }
 
-        preset = await self.detect(
+        detection = await self.detect(
             github_service, user_access_token, repo_id, default_branch
         )
-        result["preset"] = preset
-
-        if not preset:
+        if not detection:
             return result
+
+        preset = detection.get("preset")
+        config = detection.get("config") or {}
+        result["preset"] = preset
+        result["runner"] = config.get("runner")
+        result["build_command"] = config.get("build_command")
+        result["pre_deploy_command"] = config.get("pre_deploy_command")
+        result["start_command"] = config.get("start_command")
+        result["root_directory"] = config.get("root_directory")
 
         if preset in ("nodejs", "bun"):
             try:
@@ -223,3 +262,11 @@ class PresetDetector:
                 logger.debug(f"Failed to extract commands from package.json: {e}")
 
         return result
+
+    def _merge_config(self, base: dict, overrides: dict) -> dict:
+        merged = dict(base)
+        for key, value in overrides.items():
+            if value is None:
+                continue
+            merged[key] = value
+        return merged

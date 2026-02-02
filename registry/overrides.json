@@ -2,8 +2,9 @@
   "runners": {
     "python-3.12": { "enabled": true },
     "node-20": { "enabled": true },
-    "php-fpm-8.3": { "enabled": true },
-    "php-fpm-node-8.3": { "enabled": true }
+    "frankenphp-8.3": { "enabled": true },
+    "frankenphp-node-8.3": { "enabled": true },
+    "frankenphp-node-worker-8.3": { "enabled": true }
   },
   "presets": {
     "python": { "enabled": true },
