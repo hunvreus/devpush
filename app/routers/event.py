@@ -52,12 +52,13 @@ async def deployment_event(
         if last_event_id:
             # Reconnect: resume exactly from the last event id (no padding)
             logs_start_timestamp = int(last_event_id)
+        elif start_timestamp:
+            # Initial connect with client start timestamp: honor it exactly
+            logs_start_timestamp = int(start_timestamp)
         else:
-            # Initial connect: start from the earlier of client start and (now - grace)
+            # Initial connect without client start timestamp: pad with grace
             grace_ns = settings.log_stream_grace_seconds * 1_000_000_000
-            pad_cutoff = max(0, now_ns - grace_ns)
-            base_start = int(start_timestamp) if start_timestamp else now_ns
-            logs_start_timestamp = min(base_start, pad_cutoff)
+            logs_start_timestamp = max(0, now_ns - grace_ns)
 
         logs_template = templates.get_template("deployment/macros/log-list.html")
 
