@@ -122,7 +122,11 @@ affected_resources=()
 IFS=', '; affected_list="${affected_resources[*]}"; unset IFS
 
 printf '\n'
-printf "${YEL}WARNING: This will stop the stack, replace data from your current stack ($affected_list) with the data from the backup and start the stack again. A safety backup of your current stack will be created before restoring.${NC}\n"
+if (( restart_stack == 1 )); then
+  printf "${YEL}WARNING: This will stop the stack, replace data from your current stack ($affected_list) with the data from the backup and start the stack again. A safety backup of your current stack will be created before restoring.${NC}\n"
+else
+  printf "${YEL}WARNING: This will stop the stack and replace data from your current stack ($affected_list) with the data from the backup. A safety backup of your current stack will be created before restoring.${NC}\n"
+fi
 
 printf '\n'
 printf "Restore from:\n"
@@ -162,7 +166,7 @@ fi
 
 # Stop the stack
 printf '\n'
-run_cmd "Stopping stack" bash "$SCRIPT_DIR/stop.sh"
+run_cmd "Stopping stack" bash "$SCRIPT_DIR/stop.sh" --hard
 
 # Restore data directory
 if (( restore_data == 1 )); then
@@ -176,6 +180,9 @@ if (( restore_data == 1 )); then
   if [[ -n "${SERVICE_USER:-}" ]]; then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" >/dev/null 2>&1 || true
   fi
+  ensure_acme_json
+fi
+if (( restore_data == 0 )); then
   ensure_acme_json
 fi
 
