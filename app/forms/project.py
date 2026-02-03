@@ -23,10 +23,12 @@ from wtforms.validators import (
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
+from pathlib import Path
 from starlette.datastructures import FormData
 
 from dependencies import get_translation as _, get_lazy_translation as _l
 from config import get_settings
+from services.registry import RegistryService
 from models import Project, Team, Domain
 from utils.color import COLORS
 
@@ -429,8 +431,9 @@ class ProjectBuildAndDeployForm(StarletteForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         settings = get_settings()
-        self._runners = settings.runners
-        self._presets = settings.presets
+        registry_state = RegistryService(Path(settings.data_dir) / "registry").state
+        self._runners = registry_state.runners
+        self._presets = registry_state.presets
         self.preset.choices = [("", _l("None"))] + [
             (preset["slug"], preset["name"])
             for preset in self._presets
@@ -558,8 +561,9 @@ class ProjectCreateForm(StarletteForm):
         self.db = db
         self.team = team
         settings = get_settings()
-        self._runners = settings.runners
-        self._presets = settings.presets
+        registry_state = RegistryService(Path(settings.data_dir) / "registry").state
+        self._runners = registry_state.runners
+        self._presets = registry_state.presets
         self.preset.choices = [("", _l("None"))] + [
             (preset["slug"], preset["name"])
             for preset in self._presets

@@ -109,35 +109,6 @@ class RegistryService:
         self.overrides_path = self.registry_dir / "overrides.json"
         self._catalog_adapter = TypeAdapter(CatalogSetting)
         self.state = self._load_state()
-        self.mtimes: dict[str, float | None] | None = self.get_mtimes()
-
-    def load(self) -> tuple[RegistryState, dict[str, float | None], dict[str, bool]]:
-        current = self.get_mtimes()
-        previous = self.mtimes
-        changed_keys = {
-            key: (current.get(key) != (previous or {}).get(key))
-            for key in current.keys()
-        }
-        changed = any(changed_keys.values())
-        if previous is None or changed:
-            self.state = self._load_state()
-            self.mtimes = current
-        return self.state, current, changed_keys
-
-    def refresh(self) -> RegistryState:
-        self.state = self._load_state()
-        self.mtimes = self.get_mtimes()
-        return self.state
-
-    def get_mtimes(self) -> dict[str, float | None]:
-        return {
-            "catalog": self.catalog_path.stat().st_mtime
-            if self.catalog_path.exists()
-            else None,
-            "overrides": self.overrides_path.stat().st_mtime
-            if self.overrides_path.exists()
-            else None,
-        }
 
     def set_runner(self, slug: str, enabled: bool) -> RegistryState:
         overrides = copy.deepcopy(self.state.overrides)
@@ -172,7 +143,8 @@ class RegistryService:
             json.dumps(catalog.model_dump(), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        return self.refresh()
+        self.state = self._load_state()
+        return self.state
 
     def _load_state(self) -> RegistryState:
         catalog = self._load_catalog()
@@ -199,7 +171,8 @@ class RegistryService:
         self.overrides_path.write_text(
             json.dumps(cleaned, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-        return self.refresh()
+        self.state = self._load_state()
+        return self.state
 
     def _load_catalog(self) -> CatalogSetting | None:
         if not self.catalog_path.exists():

@@ -9,6 +9,7 @@ from starlette.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from arq.connections import ArqRedis
+from pathlib import Path
 
 from config import Settings, get_settings
 from dependencies import (
@@ -22,6 +23,7 @@ from dependencies import (
 from db import get_db
 from models import User, Allowlist
 from utils.pagination import paginate
+from services.registry import RegistryService
 from forms.admin import (
     AdminUserDeleteForm,
     AllowlistAddForm,
@@ -127,21 +129,17 @@ async def admin_settings(
     registry_image_form = await RegistryImageActionForm.from_formdata(request)
     registry_update_form = await RegistryUpdateForm.from_formdata(request)
 
-    registry_state, registry_mtimes, changed_keys = settings._registry_service.load()
-    if request.method == "GET" and any(changed_keys.values()):
-        flash(request, _("Registry reloaded from disk."), "success")
+    registry_service = RegistryService(Path(settings.data_dir) / "registry")
+    registry_state = registry_service.state
 
     # Registry update
     if fragment == "registry":
         if request.method == "POST":
             if await registry_update_form.validate_on_submit():
                 try:
-                    await settings._registry_service.update_catalog(
+                    registry_state = await registry_service.update_catalog(
                         settings.registry_catalog_url
                     )
-                    registry_state = settings._registry_service.refresh()
-                    settings.runners = registry_state.runners
-                    settings.presets = registry_state.presets
                     flash(
                         request,
                         _(
@@ -154,13 +152,14 @@ async def admin_settings(
                     flash(request, _("Failed to update catalog."), "error", str(exc))
 
         if request.headers.get("HX-Request"):
-            registry_mtimes = (
-                settings._registry_service.mtimes
-                or settings._registry_service.get_mtimes()
+            overrides_mtime = (
+                registry_service.overrides_path.stat().st_mtime
+                if registry_service.overrides_path.exists()
+                else None
             )
             registry_overrides_updated_at = (
-                datetime.fromtimestamp(registry_mtimes["overrides"], tz=timezone.utc)
-                if registry_mtimes.get("overrides")
+                datetime.fromtimestamp(overrides_mtime, tz=timezone.utc)
+                if overrides_mtime
                 else None
             )
             return TemplateResponse(
@@ -215,9 +214,7 @@ async def admin_settings(
             else:
                 slug = (runner_set_form.slug.data or "").strip()
                 enabled = bool(runner_set_form.enabled.data)
-                registry_state = settings._registry_service.set_runner(slug, enabled)
-                settings.runners = registry_state.runners
-                settings.presets = registry_state.presets
+                registry_state = registry_service.set_runner(slug, enabled)
                 flash(
                     request,
                     _(
@@ -234,9 +231,7 @@ async def admin_settings(
             else:
                 slug = (preset_set_form.slug.data or "").strip()
                 enabled = bool(preset_set_form.enabled.data)
-                registry_state = settings._registry_service.set_preset(slug, enabled)
-                settings.runners = registry_state.runners
-                settings.presets = registry_state.presets
+                registry_state = registry_service.set_preset(slug, enabled)
                 flash(
                     request,
                     _(
@@ -599,12 +594,14 @@ async def admin_settings(
         db, allowlist_page, allowlist_search
     )
     users_pagination = await get_users_pagination(db, users_page, users_search)
-    registry_mtimes = (
-        settings._registry_service.mtimes or settings._registry_service.get_mtimes()
+    overrides_mtime = (
+        registry_service.overrides_path.stat().st_mtime
+        if registry_service.overrides_path.exists()
+        else None
     )
     registry_overrides_updated_at = (
-        datetime.fromtimestamp(registry_mtimes["overrides"], tz=timezone.utc)
-        if registry_mtimes.get("overrides")
+        datetime.fromtimestamp(overrides_mtime, tz=timezone.utc)
+        if overrides_mtime
         else None
     )
 

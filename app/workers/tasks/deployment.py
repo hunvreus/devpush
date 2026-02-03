@@ -207,7 +207,7 @@ async def start_deployment(ctx, deployment_id: str):
                         raise ValueError("Runner not set in deployment config.")
                     registry_state = RegistryService(
                         Path(settings.data_dir) / "registry"
-                    ).refresh()
+                    ).state
                     runner_image = next(
                         (
                             runner.get("image")

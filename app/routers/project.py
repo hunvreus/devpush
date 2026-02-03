@@ -68,6 +68,8 @@ from services.github_installation import GitHubInstallationService
 from services.deployment import DeploymentService
 from services.domain import DomainService
 from services.preset_detector import PresetDetector
+from services.registry import RegistryService
+from pathlib import Path
 from utils.project import get_latest_projects, get_latest_deployments
 from utils.team import get_latest_teams
 from utils.pagination import paginate
@@ -107,10 +109,11 @@ def _is_runner_valid(project: Project, settings: Settings, request: Request) -> 
         )
         return False
 
+    registry_state = RegistryService(Path(settings.data_dir) / "registry").state
     runner_entry = next(
         (
             runner
-            for runner in settings.runners
+            for runner in registry_state.runners
             if runner.get("slug") == project_runner_slug
         ),
         None,
@@ -212,11 +215,12 @@ async def new_project_details(
         )
 
     form: Any = await ProjectCreateForm.from_formdata(request, db=db, team=team)
+    registry_state = RegistryService(Path(settings.data_dir) / "registry").state
     enabled_presets = [
-        preset for preset in settings.presets if preset.get("enabled") is True
+        preset for preset in registry_state.presets if preset.get("enabled") is True
     ]
     enabled_runners = [
-        runner for runner in settings.runners if runner.get("enabled") is True
+        runner for runner in registry_state.runners if runner.get("enabled") is True
     ]
 
     if request.method == "GET":
@@ -1455,11 +1459,12 @@ async def project_settings(
             status_code=302,
         )
 
+    registry_state = RegistryService(Path(settings.data_dir) / "registry").state
     enabled_presets = [
-        preset for preset in settings.presets if preset.get("enabled") is True
+        preset for preset in registry_state.presets if preset.get("enabled") is True
     ]
     enabled_runners = [
-        runner for runner in settings.runners if runner.get("enabled") is True
+        runner for runner in registry_state.runners if runner.get("enabled") is True
     ]
 
     # Delete

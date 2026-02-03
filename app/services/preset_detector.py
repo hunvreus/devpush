@@ -18,10 +18,10 @@ class PresetDetector:
     """
 
     def __init__(self, presets: list[dict]):
-        """Initialize detector with presets from settings.
+        """Initialize detector with a presets list.
 
         Args:
-            presets: List of preset dictionaries from settings.presets
+            presets: List of preset dictionaries
         """
         self.patterns = []
         self.presets_by_slug = {

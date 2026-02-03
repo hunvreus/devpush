@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 async def pull_runner_image(ctx, runner_slug: str):
     settings = get_settings()
     registry_service = RegistryService(Path(settings.data_dir) / "registry")
-    registry_state = registry_service.refresh()
+    registry_state = registry_service.state
     runner_image = next(
         (
             runner.get("image")
@@ -34,7 +34,7 @@ async def pull_runner_image(ctx, runner_slug: str):
 
 async def pull_all_runner_images(ctx):
     settings = get_settings()
-    registry_state = RegistryService(Path(settings.data_dir) / "registry").refresh()
+    registry_state = RegistryService(Path(settings.data_dir) / "registry").state
     runner_images = [
         runner.get("image")
         for runner in registry_state.runners
@@ -56,7 +56,7 @@ async def pull_all_runner_images(ctx):
 async def clear_runner_image(ctx, runner_slug: str):
     settings = get_settings()
     registry_service = RegistryService(Path(settings.data_dir) / "registry")
-    registry_state = registry_service.refresh()
+    registry_state = registry_service.state
     runner_image = next(
         (
             runner.get("image")
@@ -79,7 +79,7 @@ async def clear_runner_image(ctx, runner_slug: str):
 
 async def clear_all_runner_images(ctx):
     settings = get_settings()
-    registry_state = RegistryService(Path(settings.data_dir) / "registry").refresh()
+    registry_state = RegistryService(Path(settings.data_dir) / "registry").state
     runner_images = [
         runner.get("image") for runner in registry_state.runners if runner.get("image")
     ]

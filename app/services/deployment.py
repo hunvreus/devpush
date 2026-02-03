@@ -5,6 +5,7 @@ import yaml
 import aiodocker
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
@@ -14,6 +15,7 @@ from arq.jobs import Job
 from models import Deployment, Alias, Project, User, Domain, Storage, StorageProject
 from utils.environment import get_environment_for_branch
 from config import Settings, get_settings
+from services.registry import RegistryService
 
 logger = logging.getLogger(__name__)
 
@@ -402,10 +404,11 @@ class DeploymentService:
         runner_slug = config.get("runner") or config.get("image")
         if not runner_slug:
             raise ValueError("Runner not set in project config.")
+        registry_state = RegistryService(Path(get_settings().data_dir) / "registry").state
         runner_entry = next(
             (
                 runner
-                for runner in get_settings().runners
+                for runner in registry_state.runners
                 if runner.get("slug") == runner_slug
             ),
             None,
