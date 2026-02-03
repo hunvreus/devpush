@@ -13,6 +13,7 @@
     "fastapi": { "enabled": true },
     "nodejs": { "enabled": true },
     "php": { "enabled": true },
-    "laravel": { "enabled": true }
+    "laravel": { "enabled": true },
+    "drupal": { "enabled": true }
   }
 }
