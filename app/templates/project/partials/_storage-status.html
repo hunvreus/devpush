@@ -3,6 +3,16 @@
     {% include "icons/circle-x.svg" %}
     {{ _('Error') }}
   </span>
+{% elif storage.status == "resetting" %}
+  <span
+    class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1"
+    hx-get="{{ url_for('project_storage_status', team_slug=team.slug, project_name=project.name, storage_id=storage.id) }}"
+    hx-swap="outerHTML"
+    hx-trigger="every 1s"
+  >
+    {% include "icons/loader.svg" %}
+    {{ _('Resetting') }}
+  </span>
 {% elif storage.status == "pending" %}
   <span
     class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1"

@@ -32,7 +32,10 @@
           <div class="text-muted-foreground">{{ _('Install ID') }}</div>
           <div class="flex items-center gap-x-2 h-5.5">
             <span class="font-mono truncate max-w-full flex-1 text-[13px]">{{ version_info.get('install_id', '-') }}</span>
-            {{ copy(value=version_info.get('install_id'), class="size-3 [&_svg]:size-3") }}
+            {{ copy(
+              value=version_info.get('install_id'),
+              class="btn-icon-ghost text-muted-foreground hover:text-accent-foreground size-3 [&_svg]:size-3"
+            ) }}
           </div>
         </li>
       </ul>

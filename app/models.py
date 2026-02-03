@@ -640,7 +640,7 @@ class Storage(Base):
         nullable=False,
     )
     status: Mapped[str] = mapped_column(
-        SQLAEnum("pending", "active", "deleted", name="storage_status"),
+        SQLAEnum("pending", "active", "resetting", "deleted", name="storage_status"),
         nullable=False,
         default="pending",
     )

@@ -82,7 +82,7 @@
       </summary>
       <section class="p-4 border-t">
         {% from "project/macros/env-vars.html" import render_env_vars %}
-        {{ render_env_vars(form, environments) }}
+        {{ render_env_vars(form, environments, storages) }}
       </section>
     </details>
   </div>

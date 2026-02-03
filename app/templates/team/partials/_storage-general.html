@@ -34,7 +34,10 @@
           value="{{ storage.id }}"
           readonly
         />
-        {{ copy(value=storage.id, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
+        {{ copy(
+          value=storage.id,
+          class="btn-icon-ghost text-muted-foreground hover:text-accent-foreground absolute right-1.5 top-1/2 -translate-y-1/2 size-6"
+        ) }}
       </div>
     </div>
   </section>

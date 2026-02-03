@@ -90,16 +90,6 @@
             {{ _("Volumes") }}
             <input type="radio" name="storage_type" value="volume" class="hidden" {% if storage_type == 'volume' %}checked{% endif %}/>
           </label>
-          {# <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
-            {{ icon_avatar(type="kv", size="xs") }}
-            {{ _("KV") }}
-            <input type="radio" name="storage_type" value="kv" class="hidden" {% if storage_type == 'kv' %}checked{% endif %}/>
-          </label>
-          <label class="btn-sm-outline has-checked:bg-accent has-checked:text-accent-foreground has-checked:dark:bg-accent/50">
-            {{ icon_avatar(type="queue", size="xs") }}
-            {{ _("Queues") }}
-            <input type="radio" name="storage_type" value="queue" class="hidden" {% if storage_type == 'queue' %}checked{% endif %}/>
-          </label> #}
         </div>
         <button
           type="button"

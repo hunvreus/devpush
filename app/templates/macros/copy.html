@@ -12,10 +12,10 @@
 ) %}
 <button
   type="button"
-  class="group btn-icon-ghost text-muted-foreground hover:text-accent-foreground {{ class }}"
-  data-tooltip="{{ _('Copy') }}"
+  class="group {{ class }}"
+  data-tooltip="{{ attrs.tooltip if attrs.tooltip else _('Copy') }}"
   {% for key, value in attrs.items() %}
-    {{ key }}="{{ value }}"
+    {% if key != 'tooltip' %}{{ key }}="{{ value }}"{% endif %}
   {% endfor %}
   onclick='
     const button = this;
@@ -23,7 +23,7 @@
       button.dataset.tooltip = "{{ _('Copied') }}";
       button.dataset.copied = "true";
       setTimeout(() => {
-        button.dataset.tooltip = "{{ _('Copy') }}";
+        button.dataset.tooltip = "{{ attrs.tooltip if attrs.tooltip else _('Copy') }}";
         delete button.dataset.copied;
       }, 2000);
     }).catch(err => {

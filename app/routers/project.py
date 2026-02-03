@@ -407,6 +407,7 @@ async def new_project_details(
             "environments": [
                 {"color": "blue", "name": "Production", "slug": "production"}
             ],
+            "storages": [],
         },
     )
 
@@ -1610,6 +1611,18 @@ async def project_settings(
             )
 
     # Environment variables
+    storages_result = await db.execute(
+        select(Storage)
+        .join(StorageProject, StorageProject.storage_id == Storage.id)
+        .where(
+            StorageProject.project_id == project.id,
+            Storage.type.in_(["database", "volume"]),
+            Storage.status != "deleted",
+        )
+        .order_by(Storage.name.asc())
+    )
+    project_storages = storages_result.scalars().all()
+
     env_vars_form: Any = await ProjectEnvVarsForm.from_formdata(
         request,
         data={
@@ -1653,6 +1666,7 @@ async def project_settings(
                     "team": team,
                     "env_vars_form": env_vars_form,
                     "project": project,
+                    "storages": project_storages,
                 },
             )
 
@@ -2064,6 +2078,7 @@ async def project_settings(
             "latest_projects": latest_projects,
             "latest_teams": latest_teams,
             "is_runner_valid": is_runner_valid,
+            "storages": project_storages,
         },
     )
 

@@ -24,7 +24,7 @@
 
     <section class=" space-y-6">
       {% from "project/macros/env-vars.html" import render_env_vars %}
-      {{ render_env_vars(env_vars_form, project.active_environments) }}
+      {{ render_env_vars(env_vars_form, project.active_environments, storages) }}
     </section>
 
     <footer class="flex justify-end gap-x-2">

@@ -270,7 +270,10 @@
                             {{ env_id_hostname }}
                           </td>
                           <td>
-                            {{ copy(value=env_id_hostname) }}
+                            {{ copy(
+                              value=env_id_hostname,
+                              class="btn-icon-ghost text-muted-foreground hover:text-accent-foreground"
+                            ) }}
                           </td>
                         </tr>
                       </tbody>

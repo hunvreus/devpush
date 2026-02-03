@@ -1,5 +1,7 @@
-{% macro render_env_vars(form, environments) %}
+{% macro render_env_vars(form, environments, storages) %}
 {% from "macros/select.html" import select %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
+{% from "macros/dropdown-menu.html" import dropdown_menu %}
 {% from "project/macros/environment-label.html" import environment_label %}
 {% from "macros/dialog.html" import dialog %}
 {% set footer %}
@@ -209,10 +211,38 @@
     </div>
   </template>
   <div class="flex gap-x-2">
-    <button type="button" class="btn-sm-outline" @click="newEnvVars.push({ key: '', value: '' })">
-      {% include "icons/plus.svg" %}
-      {{ _('Add variable') }}
-    </button>
+    <div role="group" class="button-group">
+      <button type="button" class="btn-sm-outline" @click="newEnvVars.push({ key: '', value: '' })">
+        {% include "icons/plus.svg" %}
+        {{ _('Add variable') }}
+      </button>
+      {% if storages %}
+        {% set trigger %}
+          {% include "icons/chevron-down.svg" %}
+        {% endset %}
+        {% call dropdown_menu(
+          trigger=trigger,
+          trigger_attrs={"class": "btn-sm-icon-outline"},
+        ) %}
+          {% for storage in storages %}
+            {% if storage.type == "database" %}
+              {% set storage_path = "/data/database/" ~ storage.name ~ "/db.sqlite" %}
+              {% set key = 'DB_PATH' %}
+            {% else %}
+              {% set storage_path = "/data/volume/" ~ storage.name %}
+              {% set key = 'VOLUME_PATH' %}
+            {% endif %}
+            <div
+              role="menuitem"
+              @click="newEnvVars.push({ key: '{{ key }}', value: '{{ storage_path }}' })"
+            >
+              {{ icon_avatar(type=storage.type, size="xs") }}
+              <span class="truncate">{{ storage.name }}</span>
+            </div>
+          {% endfor %}
+        {% endcall %}
+      {% endif %}
+    </div>
     <button
       type="button"
       class="btn-sm-icon-outline"

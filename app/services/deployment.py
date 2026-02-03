@@ -184,7 +184,7 @@ class DeploymentService:
             .join(Storage, StorageProject.storage_id == Storage.id)
             .where(
                 StorageProject.project_id == deployment.project_id,
-                Storage.status == "active",
+                Storage.status.notin_(["pending", "deleted"]),
                 Storage.type.in_(["database", "volume"]),
             )
         )

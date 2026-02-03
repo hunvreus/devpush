@@ -1,4 +1,5 @@
 {% from "macros/icon-avatar.html" import icon_avatar %}
+{% from "macros/copy.html" import copy %}
 
 {% set current_type = storage_type or "all" %}
 
@@ -27,6 +28,19 @@
         {% include "team/partials/_storage-status.html" %}
 
         <div class="flex items-center ml-auto">
+          {% if storage.type == "volume" %}
+            {{ copy(
+              value="/data/volume/" ~ storage.name,
+              attrs={"tooltip": _('Copy volume path')},
+              class="btn-sm-icon-ghost"
+            ) }}
+          {% else %}
+            {{ copy(
+              value="/data/database/" ~ storage.name ~ "/db.sqlite",
+              attrs={"tooltip": _('Copy database path')},
+              class="btn-sm-icon-ghost"
+            ) }}
+          {% endif %}
           <a
             href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
             class="btn-sm-icon-ghost"

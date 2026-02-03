@@ -149,7 +149,10 @@
           value="{{ project.id }}"
           readonly
         />
-        {{ copy(value=project.id, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
+        {{ copy(
+          value=project.id,
+          class="btn-icon-ghost text-muted-foreground hover:text-accent-foreground absolute right-1.5 top-1/2 -translate-y-1/2 size-6"
+        ) }}
       </div>
       <p class="text-muted-foreground text-sm">{{ _("A unique identifier used in API, environment variables, etc.") }}</p>
     </div>

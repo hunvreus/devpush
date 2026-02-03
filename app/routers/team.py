@@ -50,6 +50,7 @@ from forms.team import (
 from forms.storage import (
     StorageCreateForm,
     StorageDeleteForm,
+    StorageResetForm,
     StorageProjectForm,
     StorageProjectRemoveForm,
 )
@@ -329,15 +330,35 @@ async def team_storage_item(
         raise HTTPException(status_code=404, detail="Storage not found")
 
     delete_form: Any = await StorageDeleteForm.from_formdata(request)
+    reset_form: Any = await StorageResetForm.from_formdata(request)
 
     if request.method == "POST" and fragment == "danger":
+        form_data = await request.form()
         if not get_access(role, "admin"):
             flash(
                 request,
                 _("You don't have permission to delete storage."),
                 "warning",
             )
-        elif await delete_form.validate_on_submit():
+        elif "reset_storage" in form_data and await reset_form.validate_on_submit():
+            if storage.type in ("database", "volume"):
+                storage.status = "resetting"
+                storage.error = None
+                await db.commit()
+                try:
+                    await queue.enqueue_job("reset_storage", storage.id)
+                except Exception as exc:
+                    logger.error(
+                        "Failed to enqueue reset for storage %s: %s",
+                        storage.id,
+                        exc,
+                    )
+                    storage.status = "active"
+                    await db.commit()
+                    flash(request, _("Failed to reset storage."), "error")
+                else:
+                    flash(request, _("Storage reset queued."), "success")
+        elif "delete_storage" in form_data and await delete_form.validate_on_submit():
             storage.status = "deleted"
             await db.commit()
             if storage.type in ("database", "volume"):
@@ -631,6 +652,7 @@ async def team_storage_item(
             "role": role,
             "storage": storage,
             "delete_form": delete_form,
+            "reset_form": reset_form,
             "associations": associations,
             "association_form": association_form,
             "remove_association_form": remove_association_form,

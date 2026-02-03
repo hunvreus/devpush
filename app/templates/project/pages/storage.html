@@ -77,54 +77,19 @@
             {% include "project/partials/_storage-status.html" %}
 
             <div class="flex items-center ml-auto">
-              {% set trigger %}
-                {% include "icons/info.svg" %}
-              {% endset %}
-              {% call popover(
-                trigger=trigger,
-                trigger_attrs={
-                  "class": "btn-sm-icon-ghost",
-                  "aria-label": _('Usage'),
-                  "data-tooltip": _('Usage'),
-                },
-                popover_attrs={
-                  "data-align": "end",
-                  "class": "max-w-xs p-0"
-                }
-              ) %}
-                <div class="alert bg-transparent border-0">
-                  <h3>{{ _('Usage') }}</h3>
-                  <section>
-                  {% if association.storage.type == "database" %}
-                    <p>{{ _('You can access this SQLite database in any of the selected environments at:') }}</p>
-                    <div class="relative w-full mt-1">
-                      {% set database_path = "/data/database/" ~ association.storage.name ~ "/db.sqlite" %}
-                      <input
-                        type="text"
-                        class="input w-full font-mono text-[13px] pr-9 text-muted-foreground h-8"
-                        value="{{ database_path }}"
-                        readonly
-                      />
-                      {{ copy(value=database_path, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
-                    </div>
-                  {% elif association.storage.type == "volume" %}
-                    <p>{{ _('You can access this volume in any of the selected environments at:') }}</p>
-                    <div class="relative w-full mt-1">
-                      {% set volume_path = "/data/volume/" ~ association.storage.name ~ "/" %}
-                      <input
-                        type="text"
-                        class="input w-full font-mono text-[13px] pr-9 text-muted-foreground h-8"
-                        value="{{ volume_path }}"
-                        readonly
-                      />
-                      {{ copy(value=volume_path, class="absolute right-1.5 top-1/2 -translate-y-1/2 size-6") }}
-                    </div>
-                  {% else %}
-                    <p>{{ _('Use the connection details provided in this project’s settings.') }}</p>
-                  {% endif %}
-                  </section>
-                </div>
-              {% endcall %}
+              {% if storage.type == "volume" %}
+                {{ copy(
+                  value="/data/volume/" ~ storage.name,
+                  attrs={"tooltip": _('Copy volume path')},
+                  class="btn-sm-icon-ghost"
+                ) }}
+              {% else %}
+                {{ copy(
+                  value="/data/database/" ~ storage.name ~ "/db.sqlite",
+                  attrs={"tooltip": _('Copy database path')},
+                  class="btn-sm-icon-ghost"
+                ) }}
+              {% endif %}
 
               {% if get_access(role, "admin") or association.storage.created_by_user_id == current_user.id %}
                 {% set icon_unplug %}{% include "icons/unplug.svg" %}{% endset %}

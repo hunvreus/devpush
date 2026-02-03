@@ -109,6 +109,16 @@ class StorageDeleteForm(StarletteForm):
             raise ValidationError(_("Storage name confirmation did not match."))
 
 
+class StorageResetForm(StarletteForm):
+    name = HiddenField(_l("Storage name"), validators=[DataRequired()])
+    confirm = StringField(_l("Confirmation"), validators=[DataRequired()])
+    submit = SubmitField(_l("Reset"), name="reset_storage")
+
+    def validate_confirm(self, field):
+        if field.data != self.name.data:  # type: ignore
+            raise ValidationError(_("Storage name confirmation did not match."))
+
+
 class StorageProjectForm(StarletteForm):
     association_id = HiddenField()
     storage_id = HiddenField(_l("Storage"), validators=[DataRequired()])

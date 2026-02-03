@@ -8,7 +8,7 @@ from workers.tasks.deployment import (
     cleanup_inactive_containers,
 )
 from workers.tasks.project import delete_project
-from workers.tasks.storage import provision_storage, deprovision_storage
+from workers.tasks.storage import provision_storage, deprovision_storage, reset_storage
 from workers.tasks.team import delete_team
 from workers.tasks.user import delete_user
 from workers.tasks.registry import (
@@ -37,6 +37,7 @@ class WorkerSettings:
         delete_container,
         provision_storage,
         deprovision_storage,
+        reset_storage,
         pull_runner_image,
         pull_all_runner_images,
         clear_runner_image,
