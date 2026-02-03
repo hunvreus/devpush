@@ -1,19 +1,19 @@
-"""Add storage resetting status
+"""Resetting storage
 
-Revision ID: 6b54e5fbdcb1
-Revises: f45484bf96b0
-Create Date: 2026-02-03 10:58:00.000000
+Revision ID: 4fe4c96ad3dd
+Revises: d02fb88a3355
+Create Date: 2026-02-03 13:58:33.470435
 
 """
 from typing import Sequence, Union
 
-import sqlalchemy as sa
 from alembic import op
+import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "6b54e5fbdcb1"
-down_revision: Union[str, Sequence[str], None] = "f45484bf96b0"
+revision: str = "4fe4c96ad3dd"
+down_revision: Union[str, Sequence[str], None] = "d02fb88a3355"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
