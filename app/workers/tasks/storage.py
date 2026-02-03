@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import shutil
 import sqlite3
 from pathlib import Path
@@ -158,6 +159,7 @@ def _ensure_database_path(settings, storage: Storage) -> None:
         conn.execute("PRAGMA journal_mode=WAL;")
     finally:
         conn.close()
+    _apply_storage_permissions(settings, base_dir, db_path)
 
 
 def _ensure_volume_path(settings, storage: Storage) -> None:
@@ -169,6 +171,7 @@ def _ensure_volume_path(settings, storage: Storage) -> None:
         / storage.name
     )
     base_dir.mkdir(parents=True, exist_ok=True)
+    _apply_storage_permissions(settings, base_dir)
 
 
 def _remove_database_path(settings, storage: Storage) -> None:
@@ -222,3 +225,19 @@ def _reset_volume_path(settings, storage: Storage) -> None:
             shutil.rmtree(entry)
         else:
             entry.unlink()
+    _apply_storage_permissions(settings, base_dir)
+
+
+def _apply_storage_permissions(
+    settings, base_dir: Path, db_path: Path | None = None
+) -> None:
+    uid = int(settings.service_uid)
+    gid = int(settings.service_gid)
+    try:
+        os.chown(base_dir, uid, gid)
+        os.chmod(base_dir, 0o775)
+        if db_path and db_path.exists():
+            os.chown(db_path, uid, gid)
+            os.chmod(db_path, 0o664)
+    except Exception as exc:
+        logger.warning("Failed to set storage permissions: %s", exc)
