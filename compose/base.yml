@@ -18,6 +18,8 @@ services:
       - ${DATA_DIR:-../data}/.env
     environment:
       HOST_DATA_DIR: ${DATA_DIR:-../data}
+      SERVICE_UID: ${SERVICE_UID}
+      SERVICE_GID: ${SERVICE_GID}
     volumes:
       - ${DATA_DIR:-../data}:/data
     labels:
@@ -54,6 +56,8 @@ services:
       - ${DATA_DIR:-../data}/.env
     environment:
       HOST_DATA_DIR: ${DATA_DIR:-../data}
+      SERVICE_UID: ${SERVICE_UID}
+      SERVICE_GID: ${SERVICE_GID}
     volumes:
       - ${DATA_DIR:-../data}:/data
     healthcheck:
@@ -84,6 +88,8 @@ services:
       - ${DATA_DIR:-../data}/.env
     environment:
       HOST_DATA_DIR: ${DATA_DIR:-../data}
+      SERVICE_UID: ${SERVICE_UID}
+      SERVICE_GID: ${SERVICE_GID}
     volumes:
       - ${DATA_DIR:-../data}:/data
 

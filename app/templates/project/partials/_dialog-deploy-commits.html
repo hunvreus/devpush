@@ -21,11 +21,12 @@
   </div>
 {% else %}
   <form
+    id="deploy-dialog-commits-form"
     method="post"
     action="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='commit', environment_id=request.query_params.get('environment_id')) }}"
     hx-post="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='commit', environment_id=request.query_params.get('environment_id')) }}"
     class="space-y-4"
-    hx-disabled-elt="find input, find button"
+    hx-disabled-elt="#deploy-dialog-commits-form input, #deploy-dialog-commits-form button"
     hx-indicator="find .htmx-indicator"
     hx-on::after-request="this.closest('dialog').close()"
   >

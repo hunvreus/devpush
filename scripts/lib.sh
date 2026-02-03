@@ -550,20 +550,12 @@ default_service_user() {
 
 # Ensure service UID/GID are set
 set_service_ids() {
-  local env_uid env_gid
-  env_uid="$(read_env_value "$ENV_FILE" SERVICE_UID)"
-  env_gid="$(read_env_value "$ENV_FILE" SERVICE_GID)"
-
   local candidate="${SERVICE_USER:-${DEVPUSH_SERVICE_USER:-}}"
   if [[ -z "$candidate" ]]; then
     candidate="$(default_service_user)"
   fi
 
-  local uid="" gid=""
-  if [[ -n "$env_uid" && -n "$env_gid" ]]; then
-    uid="$env_uid"
-    gid="$env_gid"
-  fi
+  local uid="${SERVICE_UID:-}" gid="${SERVICE_GID:-}"
 
   if [[ -z "$uid" || -z "$gid" ]]; then
     if id -u "$candidate" >/dev/null 2>&1; then

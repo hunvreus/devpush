@@ -134,6 +134,8 @@ class DeploymentService:
             "DEVPUSH_GIT_REPO": deployment.repo_full_name,
             "DEVPUSH_GIT_REF": deployment.branch,
             "DEVPUSH_GIT_COMMIT_SHA": deployment.commit_sha,
+            "PUID": str(settings.service_uid),
+            "PGID": str(settings.service_gid),
         }
 
         if settings.server_ip:
