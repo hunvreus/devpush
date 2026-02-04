@@ -3,6 +3,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -146,6 +147,22 @@ class RegistryService:
         self.state = self._load_state()
         return self.state
 
+    async def resolve_catalog_url(self, url: str) -> str:
+        parsed = self._parse_raw_github_url(url)
+        if not parsed:
+            return url
+        owner, repo, ref, rest = parsed
+        if not rest:
+            return url
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                tag = await self._get_latest_github_tag(client, owner, repo)
+        except Exception:
+            return url
+        if not tag or tag == ref:
+            return url
+        return f"https://raw.githubusercontent.com/{owner}/{repo}/{tag}/{rest}"
+
     def _load_state(self) -> RegistryState:
         catalog = self._load_catalog()
         overrides = self._load_overrides(catalog)
@@ -163,6 +180,34 @@ class RegistryService:
             runners=runners,
             presets=presets,
         )
+
+    @staticmethod
+    def _parse_raw_github_url(url: str) -> tuple[str, str, str, str] | None:
+        parsed = urlparse(url)
+        if parsed.netloc != "raw.githubusercontent.com":
+            return None
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) < 4:
+            return None
+        owner, repo, ref = parts[0], parts[1], parts[2]
+        rest = "/".join(parts[3:])
+        return owner, repo, ref, rest
+
+    @staticmethod
+    async def _get_latest_github_tag(
+        client: httpx.AsyncClient, owner: str, repo: str
+    ) -> str | None:
+        response = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/tags",
+            params={"per_page": 1},
+        )
+        response.raise_for_status()
+        tags = response.json()
+        if isinstance(tags, list) and tags:
+            tag = tags[0].get("name")
+            if isinstance(tag, str) and tag.strip():
+                return tag.strip()
+        return None
 
     def _write_overrides(self, overrides: dict) -> RegistryState:
         catalog = self.state.catalog

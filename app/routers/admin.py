@@ -56,8 +56,7 @@ def is_valid_allowlist_value(entry_type: str, value: str) -> bool:
     if entry_type == "email":
         return bool(value and EMAIL_REGEX.match(value))
     if entry_type == "domain":
-        regex = re.compile(r"^(?!-)([a-z0-9-]+\.)+[a-z]{2,}$", re.IGNORECASE)
-        return bool(value and regex.match(value))
+        return bool(value and DOMAIN_REGEX.match(value))
     if entry_type == "pattern":
         if not value:
             return False
@@ -137,9 +136,10 @@ async def admin_settings(
         if request.method == "POST":
             if await registry_update_form.validate_on_submit():
                 try:
-                    registry_state = await registry_service.update_catalog(
+                    remote_url = await registry_service.resolve_catalog_url(
                         settings.registry_catalog_url
                     )
+                    registry_state = await registry_service.update_catalog(remote_url)
                     flash(
                         request,
                         _(
@@ -183,8 +183,11 @@ async def admin_settings(
         remote_version = None
         if settings.registry_catalog_url:
             try:
+                remote_url = await registry_service.resolve_catalog_url(
+                    settings.registry_catalog_url
+                )
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    response = await client.get(settings.registry_catalog_url)
+                    response = await client.get(remote_url)
                     response.raise_for_status()
                     data = response.json()
                     remote_version = data.get("meta", {}).get("version")

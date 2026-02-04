@@ -1,6 +1,6 @@
 {
   "meta": {
-    "version": "1.0.3",
+    "version": "1.0.5",
     "source": "bundled"
   },
   "runners": [
@@ -38,31 +38,31 @@
       "slug": "php-fpm-8.3",
       "name": "PHP-FPM 8.3 + Caddy",
       "category": "PHP",
-      "image": "ghcr.io/devpushhq/runner-php-fpm-8.3:1.0.3"
+      "image": "ghcr.io/devpushhq/runner-php-fpm-8.3:1.0.4"
     },
     {
       "slug": "php-fpm-node-8.3",
       "name": "PHP-FPM 8.3 + Caddy + Node 22",
       "category": "PHP",
-      "image": "ghcr.io/devpushhq/runner-php-fpm-node-8.3:1.0.3"
+      "image": "ghcr.io/devpushhq/runner-php-fpm-node-8.3:1.0.4"
     },
     {
       "slug": "frankenphp-8.3",
       "name": "FrankenPHP (PHP 8.3)",
       "category": "PHP",
-      "image": "ghcr.io/devpushhq/runner-frankenphp-8.3:1.0.1"
+      "image": "ghcr.io/devpushhq/runner-frankenphp-8.3:1.0.2"
     },
     {
       "slug": "frankenphp-node-8.3",
       "name": "FrankenPHP (PHP 8.3) + Node 22",
       "category": "PHP",
-      "image": "ghcr.io/devpushhq/runner-frankenphp-node-8.3:1.0.1"
+      "image": "ghcr.io/devpushhq/runner-frankenphp-node-8.3:1.0.2"
     },
     {
       "slug": "frankenphp-node-worker-8.3",
       "name": "FrankenPHP (PHP 8.3, Worker Mode) + Node 22",
       "category": "PHP",
-      "image": "ghcr.io/devpushhq/runner-frankenphp-node-worker-8.3:1.0.1"
+      "image": "ghcr.io/devpushhq/runner-frankenphp-node-worker-8.3:1.0.2"
     }
   ],
   "presets": [
@@ -288,6 +288,29 @@
           ]
         },
         "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" preserveAspectRatio=\"xMidYMid\" viewBox=\"0 0 256 264\"><path d=\"m255.9 59.6.1 1.1v56.6c0 1.4-.8 2.8-2 3.5l-47.6 27.4v54.2c0 1.4-.7 2.8-2 3.5l-99.1 57-.7.4-.3.1c-.7.2-1.4.2-2.1 0l-.4-.1-.6-.3L2 206c-1.3-.8-2.1-2.2-2.1-3.6V32.7l.1-1.1.2-.4.3-.6.2-.4.4-.5.4-.3c.2 0 .3-.2.5-.3L51.6.6c1.3-.8 2.9-.8 4.1 0L105.3 29c.2 0 .3.2.4.3l.5.3c0 .2.2.4.3.5l.3.4.3.6.1.4.2 1v106l41.2-23.7V60.7c0-.4 0-.7.2-1l.1-.4.3-.7.3-.3.3-.5.5-.3.4-.4 49.6-28.5c1.2-.7 2.8-.7 4 0L254 57l.5.4.4.3.4.5.2.3c.2.2.2.5.3.7l.2.3Zm-8.2 55.3v-47l-17.3 10-24 13.7v47l41.3-23.7Zm-49.5 85v-47l-23.6 13.5-67.2 38.4v47.5l90.8-52.3ZM8.2 39.9V200l90.9 52.3v-47.5l-47.5-26.9-.4-.4c-.2 0-.3-.1-.4-.3l-.4-.4-.3-.4-.2-.5-.2-.5v-.6l-.2-.5V63.6L25.6 49.8l-17.3-10Zm45.5-31L12.4 32.8l41.3 23.7 41.2-23.7L53.7 8.9ZM75 157.3l24-13.8V39.8l-17.3 10-24 13.8v103.6l17.3-10ZM202.3 36.9 161 60.7l41.3 23.8 41.3-23.8-41.3-23.8Zm-4.1 54.7-24-13.8-17.3-10v47l24 13.9 17.3 10v-47Zm-95 106 60.6-34.5 30.2-17.3-41.2-23.8-47.5 27.4L62 174.3l41.2 23.3Z\" fill=\"#FF2D20\"/></svg>",
+        "beta": true
+      }
+    },
+    {
+      "slug": "drupal",
+      "name": "Drupal",
+      "category": "PHP",
+      "config": {
+        "runner": "frankenphp-8.3",
+        "build_command": "composer install --no-dev --optimize-autoloader --no-interaction --no-progress",
+        "pre_deploy_command": "(./vendor/bin/drush status --field=bootstrap 2>/dev/null | grep -q Successful || ./vendor/bin/drush site:install -y) && ./vendor/bin/drush updatedb -y && ([ -f config/sync/core.extension.yml ] && ./vendor/bin/drush config:import -y || true) && ./vendor/bin/drush cache:rebuild",
+        "start_command": "DEVPUSH_APP_ROOT=/app/web frankenphp run --config /etc/caddy/Caddyfile --adapter caddyfile",
+        "detection": {
+          "priority": 90,
+          "any_files": [
+            "core/lib/Drupal.php",
+            "*/core/lib/Drupal.php"
+          ],
+          "none_files": [
+            "artisan"
+          ]
+        },
+        "logo": "<svg role=\"img\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\" fill=\"#009cde\"><title>Drupal</title><path d=\"M15.78 5.113C14.09 3.425 12.48 1.815 11.998 0c-.48 1.815-2.09 3.425-3.778 5.113-2.534 2.53-5.405 5.4-5.405 9.702a9.184 9.185 0 1018.368 0c0-4.303-2.871-7.171-5.405-9.702M6.72 16.954c-.563-.019-2.64-3.6 1.215-7.416l2.55 2.788a.218.218 0 01-.016.325c-.61.625-3.204 3.227-3.527 4.126-.066.186-.164.18-.222.177M12 21.677a3.158 3.158 0 01-3.158-3.159 3.291 3.291 0 01.787-2.087c.57-.696 2.37-2.655 2.37-2.655s1.774 1.988 2.367 2.649a3.09 3.09 0 01.792 2.093A3.158 3.158 0 0112 21.677m6.046-5.123c-.068.15-.223.398-.431.405-.371.014-.411-.177-.686-.583-.604-.892-5.864-6.39-6.848-7.455-.866-.935-.122-1.595.223-1.94C10.736 6.547 12 5.285 12 5.285s3.766 3.574 5.336 6.016c1.57 2.443 1.029 4.556.71 5.253\"/></svg>",
         "beta": true
       }
     }
