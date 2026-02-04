@@ -238,3 +238,9 @@ class StorageProjectRemoveForm(StarletteForm):
         project_name = self.association.project.name if self.association.project else ""
         if field.data != project_name:
             raise ValidationError(_("Project name confirmation did not match."))
+
+
+class StorageQueryForm(StarletteForm):
+    query = StringField(_l("SQL Query"), validators=[DataRequired()])
+    write_mode = HiddenField(_l("Write mode"), default="0")
+    submit = SubmitField(_l("Run"), name="run_query")

@@ -33,9 +33,7 @@ async def provision_storage(ctx, resource_id: str):
             elif storage.type == "volume":
                 await asyncio.to_thread(_ensure_volume_path, settings, storage)
             else:
-                logger.error(
-                    f"{log_prefix} Unsupported storage type: {storage.type}"
-                )
+                logger.error(f"{log_prefix} Unsupported storage type: {storage.type}")
                 return
 
             storage.status = "active"
@@ -74,15 +72,11 @@ async def deprovision_storage(ctx, resource_id: str):
             elif storage.type == "volume":
                 await asyncio.to_thread(_remove_volume_path, settings, storage)
             else:
-                logger.error(
-                    f"{log_prefix} Unsupported storage type: {storage.type}"
-                )
+                logger.error(f"{log_prefix} Unsupported storage type: {storage.type}")
                 return
 
             await db.execute(
-                delete(StorageProject).where(
-                    StorageProject.storage_id == storage.id
-                )
+                delete(StorageProject).where(StorageProject.storage_id == storage.id)
             )
             await db.execute(delete(Storage).where(Storage.id == storage.id))
             await db.commit()
@@ -164,11 +158,7 @@ def _ensure_database_path(settings, storage: Storage) -> None:
 
 def _ensure_volume_path(settings, storage: Storage) -> None:
     base_dir = (
-        Path(settings.data_dir)
-        / "storage"
-        / storage.team_id
-        / "volume"
-        / storage.name
+        Path(settings.data_dir) / "storage" / storage.team_id / "volume" / storage.name
     )
     base_dir.mkdir(parents=True, exist_ok=True)
     _apply_storage_permissions(settings, base_dir)
@@ -188,11 +178,7 @@ def _remove_database_path(settings, storage: Storage) -> None:
 
 def _remove_volume_path(settings, storage: Storage) -> None:
     base_dir = (
-        Path(settings.data_dir)
-        / "storage"
-        / storage.team_id
-        / "volume"
-        / storage.name
+        Path(settings.data_dir) / "storage" / storage.team_id / "volume" / storage.name
     )
     if base_dir.exists():
         shutil.rmtree(base_dir)
@@ -213,11 +199,7 @@ def _reset_database_path(settings, storage: Storage) -> None:
 
 def _reset_volume_path(settings, storage: Storage) -> None:
     base_dir = (
-        Path(settings.data_dir)
-        / "storage"
-        / storage.team_id
-        / "volume"
-        / storage.name
+        Path(settings.data_dir) / "storage" / storage.team_id / "volume" / storage.name
     )
     base_dir.mkdir(parents=True, exist_ok=True)
     for entry in base_dir.iterdir():

@@ -1,0 +1,245 @@
+{% extends "layouts/app.html" %}
+
+{% block app_content %}
+{% from "macros/avatar.html" import avatar with context %}
+
+<div class="container max-w-screen-2xl mx-auto p-8 space-y-6">
+  <header class="flex justify-between items-center">
+    <h1 class="h1 flex items-center gap-x-3">
+      <a href="{{ url_for('team_storage', team_slug=team.slug) }}" class="shrink-0">
+        {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
+      <a href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}">
+        {{ storage.name }}
+      </a>
+      <span class="text-muted-foreground/25 font-normal">/</span>
+      {{ _('Browser') }}
+    </h1>
+  </header>
+
+  <nav class="border-b" role="tablist">
+    <ul class="flex gap-x-1" role="presentation">
+      <li role="presentation">
+        <a
+          href="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name).include_query_params(tab='browse') }}"
+          role="tab"
+          aria-selected="{{ 'true' if tab == 'browse' else 'false' }}"
+          class="inline-flex items-center gap-x-2 px-4 py-2 border-b-2 -mb-px text-sm font-medium {{ 'border-primary text-primary' if tab == 'browse' else 'border-transparent text-muted-foreground hover:text-foreground' }}"
+          hx-boost="true"
+        >
+          {% include "icons/table.svg" %}
+          {{ _('Browse') }}
+        </a>
+      </li>
+      <li role="presentation">
+        <a
+          href="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name).include_query_params(tab='query') }}"
+          role="tab"
+          aria-selected="{{ 'true' if tab == 'query' else 'false' }}"
+          class="inline-flex items-center gap-x-2 px-4 py-2 border-b-2 -mb-px text-sm font-medium {{ 'border-primary text-primary' if tab == 'query' else 'border-transparent text-muted-foreground hover:text-foreground' }}"
+          hx-boost="true"
+        >
+          {% include "icons/terminal.svg" %}
+          {{ _('Query') }}
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  {% if query_error %}
+    <div class="alert alert-destructive">
+      {% include "icons/circle-x.svg" %}
+      <p>{{ query_error }}</p>
+    </div>
+  {% endif %}
+
+  {% if tab == 'browse' %}
+    <div class="flex gap-6">
+      <aside class="w-64 shrink-0">
+        <div class="sticky top-[122px] space-y-2">
+          <h3 class="text-sm font-medium text-muted-foreground mb-2">{{ _('Tables') }} ({{ tables | length }})</h3>
+          <ul class="space-y-1">
+            {% for table in tables %}
+              <li>
+                <details {% if selected_table == table %}open{% endif %}>
+                  <summary class="flex items-center gap-x-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted {{ 'bg-muted' if selected_table == table }}">
+                    <a
+                      href="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name).include_query_params(tab='browse', table=table) }}"
+                      class="flex-1 text-sm font-medium truncate"
+                      hx-boost="true"
+                    >
+                      {{ table }}
+                    </a>
+                  </summary>
+                  {% if table_schemas.get(table) %}
+                    <ul class="ml-4 mt-1 space-y-0.5 text-xs text-muted-foreground">
+                      {% for col in table_schemas[table] %}
+                        <li class="flex items-center gap-x-1 px-2 py-0.5">
+                          <span class="truncate">{{ col.name }}</span>
+                          <span class="text-muted-foreground/50">{{ col.type }}</span>
+                          {% if col.pk %}<span class="text-amber-500">PK</span>{% endif %}
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                </details>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </aside>
+
+      <main class="flex-1 min-w-0">
+        {% if selected_table and query_result %}
+          <div class="space-y-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-semibold">{{ selected_table }}</h2>
+              <span class="text-sm text-muted-foreground">
+                {{ query_result.total }} {{ _('rows') }} · {{ (query_result.time * 1000) | round(1) }}ms
+              </span>
+            </div>
+
+            <div class="border rounded-lg overflow-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-muted/50">
+                  <tr>
+                    {% for col in query_result.columns %}
+                      <th class="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap border-b">{{ col }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody class="divide-y">
+                  {% for row in query_result.rows %}
+                    <tr class="hover:bg-muted/30">
+                      {% for col in query_result.columns %}
+                        <td class="px-3 py-2 whitespace-nowrap max-w-xs truncate font-mono text-xs">{{ row[col] if row[col] is not none else '<null>' }}</td>
+                      {% endfor %}
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            {% if query_result.pages > 1 %}
+              <nav class="flex items-center justify-center gap-x-2">
+                {% if query_result.page > 1 %}
+                  <a
+                    href="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name).include_query_params(tab='browse', table=selected_table, page=query_result.page - 1) }}"
+                    class="btn-sm-ghost"
+                    hx-boost="true"
+                  >
+                    {{ _('Previous') }}
+                  </a>
+                {% endif %}
+                <span class="text-sm text-muted-foreground">
+                  {{ _('Page %(page)s of %(pages)s', page=query_result.page, pages=query_result.pages) }}
+                </span>
+                {% if query_result.page < query_result.pages %}
+                  <a
+                    href="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name).include_query_params(tab='browse', table=selected_table, page=query_result.page + 1) }}"
+                    class="btn-sm-ghost"
+                    hx-boost="true"
+                  >
+                    {{ _('Next') }}
+                  </a>
+                {% endif %}
+              </nav>
+            {% endif %}
+          </div>
+        {% elif not selected_table %}
+          <div class="flex items-center justify-center h-64 text-muted-foreground">
+            <p>{{ _('Select a table to view its data.') }}</p>
+          </div>
+        {% endif %}
+      </main>
+    </div>
+
+  {% elif tab == 'query' %}
+    <div class="space-y-4">
+      <form
+        method="POST"
+        action="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name).include_query_params(tab='query') }}"
+        class="space-y-4"
+        x-data="{ writeMode: false }"
+      >
+        {{ query_form.csrf_token(id=False) }}
+        <div class="space-y-2">
+          <label class="text-sm font-medium">{{ _('SQL Query') }}</label>
+          <textarea
+            name="query"
+            rows="6"
+            class="w-full input font-mono text-sm"
+            placeholder="SELECT * FROM users LIMIT 10"
+          >{{ query_form.query.data or '' }}</textarea>
+        </div>
+        <div class="flex items-center justify-between">
+          <label class="flex items-center gap-x-2 text-sm">
+            <input
+              type="checkbox"
+              name="write_mode"
+              value="1"
+              x-model="writeMode"
+              class="rounded border-input"
+              {% if not get_access(role, "creator") %}disabled{% endif %}
+            />
+            <span class="{{ 'text-muted-foreground' if not get_access(role, "creator") }}">
+              {{ _('Enable write mode') }}
+              {% if not get_access(role, "creator") %}
+                <span class="text-xs">({{ _('requires creator access') }})</span>
+              {% endif %}
+            </span>
+          </label>
+          <button type="submit" name="run_query" class="btn">
+            {% include "icons/play.svg" %}
+            {{ _('Run') }}
+          </button>
+        </div>
+        <template x-if="writeMode">
+          <div class="alert alert-warning">
+            {% include "icons/triangle-alert.svg" %}
+            <p>{{ _('Write mode enabled. Be careful - changes cannot be undone.') }}</p>
+          </div>
+        </template>
+      </form>
+
+      {% if query_result %}
+        <div class="space-y-4">
+          <div class="flex items-center gap-x-4 text-sm text-muted-foreground">
+            {% if query_result.columns %}
+              <span>{{ query_result.total }} {{ _('rows') }}</span>
+            {% endif %}
+            {% if query_result.affected %}
+              <span>{{ query_result.affected }} {{ _('rows affected') }}</span>
+            {% endif %}
+            <span>{{ (query_result.time * 1000) | round(1) }}ms</span>
+          </div>
+
+          {% if query_result.columns %}
+            <div class="border rounded-lg overflow-auto max-h-[60vh]">
+              <table class="w-full text-sm">
+                <thead class="bg-muted/50 sticky top-0">
+                  <tr>
+                    {% for col in query_result.columns %}
+                      <th class="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap border-b">{{ col }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody class="divide-y">
+                  {% for row in query_result.rows %}
+                    <tr class="hover:bg-muted/30">
+                      {% for col in query_result.columns %}
+                        <td class="px-3 py-2 whitespace-nowrap max-w-xs truncate font-mono text-xs">{{ row[col] if row[col] is not none else '<null>' }}</td>
+                      {% endfor %}
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

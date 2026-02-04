@@ -29,6 +29,12 @@
       <span class="text-muted-foreground/25 font-normal">/</span>
       {{ storage.name }}
     </h1>
+    {% if storage.type == "database" %}
+      <a href="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name) }}" class="btn">
+        {% include "icons/database.svg" %}
+        {{ _('Browse') }}
+      </a>
+    {% endif %}
   </header>
 
   <div class="flex flex-row-reverse gap-x-6">
