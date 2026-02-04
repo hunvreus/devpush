@@ -9,11 +9,12 @@ init_script_logging "reconcile"
 
 usage(){
   cat <<USG
-Usage: reconcile.sh [--deployment <id>] [-h|--help]
+Usage: reconcile.sh [--deployment <id>] [--full] [-h|--help]
 
 Run a one-off deployment reconciliation (observed state only).
 
   --deployment <id>  Reconcile a single deployment (optional)
+  --full             Reconcile all deployments (default: running/stopped)
   -h, --help         Show this help
 USG
   exit 0
@@ -21,9 +22,11 @@ USG
 
 # Parse CLI flags
 deployment_id=""
+full=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --deployment) deployment_id="$2"; shift 2 ;;
+    --full) full=1; shift ;;
     -h|--help) usage ;;
     *) err "Unknown option: $1"; usage ;;
   esac
@@ -79,7 +82,11 @@ async def main() -> None:
     settings = get_settings()
     async with AsyncSessionLocal() as db:
         async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-            counts = await reconcile_deployments(db, docker_client)
+            counts = await reconcile_deployments(
+                db,
+                docker_client,
+                full_scan=bool($full),
+            )
     print(f"processed={counts['processed']} observed={counts['observed']} missing={counts['missing']}")
 
 

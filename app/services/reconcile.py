@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 import aiodocker
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Deployment
@@ -17,6 +17,7 @@ async def reconcile_deployments(
     db: AsyncSession,
     docker_client: aiodocker.Docker,
     deployment_ids: list[str] | None = None,
+    full_scan: bool = False,
 ) -> dict[str, int]:
     now = datetime.now(timezone.utc)
     counts = {"processed": 0, "observed": 0, "missing": 0}
@@ -24,8 +25,15 @@ async def reconcile_deployments(
     query = select(Deployment)
     if deployment_ids:
         query = query.where(Deployment.id.in_(deployment_ids))
-    else:
+    elif full_scan:
         query = query.where(Deployment.container_id.isnot(None))
+    else:
+        query = query.where(
+            or_(
+                Deployment.container_status.in_(["running", "stopped"]),
+                Deployment.observed_status == "running",
+            )
+        )
 
     result = await db.execute(query)
     deployments = result.scalars().all()
