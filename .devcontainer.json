@@ -34,6 +34,12 @@
       ]
     }
   },
+  "forwardPorts": [
+    80
+  ],
   "remoteUser": "vscode",
-  "postCreateCommand": "mkdir -p data && cp .env.dev.example data/.env"
+  "containerEnv": {
+    "DEVPUSH_ENV": "development"
+  },
+  "postCreateCommand": "mkdir -p data && (test -f data/.env || cp .env.dev.example data/.env)"
 }
