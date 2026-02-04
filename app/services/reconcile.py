@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import aiodocker
 from sqlalchemy import select, or_
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Deployment
@@ -13,11 +14,31 @@ logger = logging.getLogger(__name__)
 OBSERVED_STATUSES = {"running", "exited", "dead", "paused", "not_found"}
 
 
+async def _emit_observed_update(
+    redis_client: Redis, deployment: Deployment, now: datetime
+) -> None:
+    fields = {
+        "event_type": "deployment_observed_update",
+        "project_id": deployment.project_id,
+        "deployment_id": deployment.id,
+        "observed_status": deployment.observed_status,
+        "observed_exit_code": deployment.observed_exit_code,
+        "computed_status": deployment.computed_status,
+        "timestamp": now.isoformat(),
+    }
+    await redis_client.xadd(
+        f"stream:project:{deployment.project_id}:deployment:{deployment.id}:status",
+        fields,
+    )
+    await redis_client.xadd(f"stream:project:{deployment.project_id}:updates", fields)
+
+
 async def reconcile_deployments(
     db: AsyncSession,
     docker_client: aiodocker.Docker,
     deployment_ids: list[str] | None = None,
     full_scan: bool = False,
+    redis_client: Redis | None = None,
 ) -> dict[str, int]:
     now = datetime.now(timezone.utc)
     counts = {"processed": 0, "observed": 0, "missing": 0}
@@ -51,6 +72,7 @@ async def reconcile_deployments(
 
     container_by_deployment: dict[str, str] = {}
     container_by_id: dict[str, str] = {}
+    changed_deployments: dict[str, Deployment] = {}
 
     for info in containers:
         container_id = None
@@ -81,6 +103,10 @@ async def reconcile_deployments(
         else:
             container_id = container_by_deployment.get(deployment.id)
 
+        prev_status = deployment.observed_status
+        prev_exit_code = deployment.observed_exit_code
+        prev_missing = deployment.observed_missing_count
+
         if not container_id:
             deployment.observed_status = "not_found"
             deployment.observed_at = now.replace(tzinfo=None)
@@ -91,6 +117,12 @@ async def reconcile_deployments(
                 deployment.id,
                 deployment.observed_missing_count,
             )
+            if (
+                prev_status != deployment.observed_status
+                or prev_exit_code != deployment.observed_exit_code
+                or prev_missing != deployment.observed_missing_count
+            ):
+                changed_deployments[deployment.id] = deployment
             continue
 
         try:
@@ -109,6 +141,12 @@ async def reconcile_deployments(
                     deployment.id,
                     deployment.observed_missing_count,
                 )
+                if (
+                    prev_status != deployment.observed_status
+                    or prev_exit_code != deployment.observed_exit_code
+                    or prev_missing != deployment.observed_missing_count
+                ):
+                    changed_deployments[deployment.id] = deployment
                 continue
             logger.warning("Failed to inspect container %s: %s", container_id, error)
             deployment.observed_status = "not_found"
@@ -120,6 +158,12 @@ async def reconcile_deployments(
                 deployment.id,
                 deployment.observed_missing_count,
             )
+            if (
+                prev_status != deployment.observed_status
+                or prev_exit_code != deployment.observed_exit_code
+                or prev_missing != deployment.observed_missing_count
+            ):
+                changed_deployments[deployment.id] = deployment
             continue
 
         state = details.get("State", {})
@@ -144,10 +188,19 @@ async def reconcile_deployments(
             deployment.observed_status,
             deployment.observed_exit_code,
         )
+        if (
+            prev_status != deployment.observed_status
+            or prev_exit_code != deployment.observed_exit_code
+            or prev_missing != deployment.observed_missing_count
+        ):
+            changed_deployments[deployment.id] = deployment
 
     await db.commit()
     logger.info(
         "Reconcile: updated observed state for %s deployment(s).",
         len(deployments),
     )
+    if redis_client and changed_deployments:
+        for deployment in changed_deployments.values():
+            await _emit_observed_update(redis_client, deployment, now)
     return counts

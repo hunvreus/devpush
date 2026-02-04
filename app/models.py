@@ -825,6 +825,31 @@ class Deployment(Base):
         self.env_vars = project.get_env_vars(environment["slug"]) if environment else []
 
     @property
+    def computed_status(self) -> str:
+        observed = self.observed_status
+        expected = self.container_status
+        if expected in {"stopped", "removed"}:
+            if observed == "running":
+                return "orphaned"
+            return expected
+
+        if expected == "running":
+            if observed == "not_found":
+                return "missing"
+            if observed == "exited":
+                return "stopped" if self.observed_exit_code == 0 else "crashed"
+            if observed in {"paused", "dead"}:
+                return observed
+            return "running"
+
+        if observed == "exited":
+            return "stopped" if self.observed_exit_code == 0 else "crashed"
+        if observed in {"running", "paused", "dead", "not_found"}:
+            return observed
+
+        return self.status
+
+    @property
     def environment(self) -> dict | None:
         """Get environment configuration"""
         return self.project.get_environment_by_id(self.environment_id)
