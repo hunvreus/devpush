@@ -2,9 +2,9 @@
   "name": "devpush",
   "image": "mcr.microsoft.com/devcontainers/python:3.13",
   "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
-      "enableNonRootDocker": "true"
+      "moby": false
     },
     "ghcr.io/devcontainers/features/git-lfs:1": {
       "version": "latest"
@@ -29,10 +29,11 @@
         "foxundermoon.shell-format",
         "redhat.vscode-yaml",
         "streetsidesoftware.code-spell-checker",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "ms-python.python"
       ]
     }
   },
   "remoteUser": "vscode",
-  "postCreateCommand": "docker --version"
+  "postCreateCommand": "mkdir -p data && cp .env.dev.example data/.env"
 }
