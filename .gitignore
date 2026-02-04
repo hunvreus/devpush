@@ -5,6 +5,7 @@
 !.env.example
 !.env.dev.example
 !.env.prod.example
+!.devcontainer.json
 
 # Python
 __pycache__/

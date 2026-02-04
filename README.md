@@ -57,6 +57,20 @@ For more information, including manual installation or updates, refer to [the do
 
 ## Development
 
+### Dev Container & Codespaces
+
+The easiest way to get started is using [Dev Containers](https://containers.dev) or [GitHub Codespaces](https://github.com/features/codespaces).
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/hunvreus/devpush)
+
+The [.devcontainer.json](.devcontainer.json) setup provides a pre-configured environment with:
+- **Python 3.13** development environment.
+- **Docker & Docker Compose v2+** support (via Docker-outside-Docker).
+- **GitHub CLI** and **Git LFS** integrated.
+- **VS Code Extensions**: ShellCheck, YAML support, Spell Checker, and Docker tools.
+
+### Manual Setup
+
 **Prerequisites**: Docker and Docker Compose v2+. On macOS, [Colima](https://github.com/abiosoft/colima) works well as an alternative to Docker Desktop.
 
 ```bash
@@ -66,6 +80,8 @@ mkdir -p data
 cp .env.dev.example data/.env
 # Edit data/.env with your GitHub App credentials
 ```
+
+### Running Locally
 
 Start the stack:
 
