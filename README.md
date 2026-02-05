@@ -150,6 +150,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | `MAX_MEMORY_MB`                     | Maximum allowed memory override per project. Used only when `DEFAULT_MEMORY_MB` is set. Required to let user customize memory.           |
 | `JOB_TIMEOUT_SECONDS`               | Job timeout (seconds). Default: `320`.                                                                                                   |
 | `JOB_MAX_TRIES`                     | Max retries per background job. Default: `3`.                                                                                            |
+| `RECONCILE_INTERVAL_SECONDS`        | Reconcile interval (seconds) for observed deployment state. Default: `60`.                                                               |
 | `DEPLOYMENT_TIMEOUT_SECONDS`        | Deployment timeout (seconds). Default: `300`.                                                                                            |
 | `DEPLOYMENT_RESTART_POLICY`         | Docker restart policy for deployment containers. Default: `on-failure`.                                                                   |
 | `DEPLOYMENT_RESTART_MAX_RETRIES`    | Max retries when restart policy is `on-failure`. Default: `5`.                                                                            |
