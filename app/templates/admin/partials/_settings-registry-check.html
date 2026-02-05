@@ -2,8 +2,8 @@
 {% if registry_remote_version and registry_local_version and registry_remote_version != registry_local_version %}
   <form
     method="post"
-    action="{{ url_for('admin_settings').include_query_params(fragment='registry') }}"
-    hx-post="{{ url_for('admin_settings').include_query_params(fragment='registry') }}"
+    action="{{ rel_url_for('admin_settings').include_query_params(fragment='registry') }}"
+    hx-post="{{ rel_url_for('admin_settings').include_query_params(fragment='registry') }}"
     hx-indicator="next .htmx-indicator"
     hx-swap="outerHTML"
     hx-target="closest .card"

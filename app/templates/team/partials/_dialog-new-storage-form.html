@@ -28,8 +28,8 @@
 
 <form
   method="post"
-  action="{{ url_for('team_storage', team_slug=team.slug) }}"
-  hx-post="{{ url_for('team_storage', team_slug=team.slug) }}"
+  action="{{ rel_url_for('team_storage', team_slug=team.slug) }}"
+  hx-post="{{ rel_url_for('team_storage', team_slug=team.slug) }}"
   hx-swap="outerHTML"
   hx-indicator="find .htmx-indicator"
   hx-disabled-elt="find button[type='submit']"

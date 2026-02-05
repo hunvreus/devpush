@@ -14,7 +14,7 @@
       <header class="flex justify-between items-center gap-x-4">
         <h2 class="h4">{{ _('Recent projects') }}</h2>
         {% if projects %}
-          <a href="{{ url_for('new_project', team_slug=team.slug) }}" class="btn-sm" hx-boost="true">
+          <a href="{{ rel_url_for('new_project', team_slug=team.slug) }}" class="btn-sm" hx-boost="true">
             {% include "icons/plus.svg" %}
             {{ _('New project') }}
           </a>
@@ -37,7 +37,7 @@
           <h2 class="h4">{{ _('Deploy your first project.') }}</h2>
           <p class="text-muted-foreground mt-1">{{ _('Add a new project from an existing GitHub repository.') }}
           </p>
-          <a class="btn-sm mt-4" href="{{ url_for('new_project', team_slug=team.slug) }}" hx-boost="true">
+          <a class="btn-sm mt-4" href="{{ rel_url_for('new_project', team_slug=team.slug) }}" hx-boost="true">
             {% include "icons/plus.svg" %}
             {{ _('New project') }}
           </a>

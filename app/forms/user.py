@@ -81,6 +81,7 @@ class UserEmailForm(StarletteForm):
             Length(max=320),
         ],
     )
+    client_origin = HiddenField(_l("Client Origin"))
     submit = SubmitField(_l("Save"), name="save_email")
 
 

@@ -1,11 +1,11 @@
 <div
   hx-ext="sse"
-  sse-connect="{{ url_for('project_event', team_id=team.id, project_id=project.id) }}"
+  sse-connect="{{ rel_url_for('project_event', team_id=team.id, project_id=project.id) }}"
   sse-close="sse:stream_closed"
 >
   <div
     hx-trigger="sse:deployment_creation, sse:deployment_status_update, sse:deployment_rollback, sse:deployment_promotion"
-    hx-get="{{ url_for('project_index', team_slug=team.slug, project_name=project.name).include_query_params(fragment='deployments') }}"
+    hx-get="{{ rel_url_for('project_index', team_slug=team.slug, project_name=project.name).include_query_params(fragment='deployments') }}"
     hx-target="#deployments"
   ></div>
 </div>

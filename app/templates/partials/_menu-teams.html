@@ -7,7 +7,7 @@
   </span>
 </span>
 {% for other_team in latest_teams %}
-<a href="{{ url_for('team_index', team_slug=other_team.slug) }}" role="menuitem" hx-boost="true">
+<a href="{{ rel_url_for('team_index', team_slug=other_team.slug) }}" role="menuitem" hx-boost="true">
   {{ avatar(item=other_team, prefix="team", name=other_team.name, size="xs") }}
   {{ other_team.name }}
   <span class="size-4 ml-auto"></span>

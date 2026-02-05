@@ -24,7 +24,7 @@
         <p>{{ _('To confirm, enter your email <b>"%(email)s"</b> below.', email=current_user.email) | safe }}</p>
         <form
           method="post"
-          action="{{ url_for('user_settings').include_query_params(fragment='danger') }}"
+          action="{{ rel_url_for('user_settings').include_query_params(fragment='danger') }}"
         >
           {{ delete_form.csrf_token() }}
           {{ delete_form.email(value=current_user.email) }}

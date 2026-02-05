@@ -9,8 +9,8 @@
   {% endif %}
   <form
     method="post"
-    action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
-    hx-post="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
+    action="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
+    hx-post="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
     hx-target="closest .card"
     hx-swap="outerHTML"
     hx-on::before-request="document.activeElement && document.activeElement.blur()"
@@ -177,8 +177,8 @@
                   </p>
                   <form
                     method="post"
-                    action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='delete_environment') }}"
-                    hx-post="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='delete_environment') }}"
+                    action="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='delete_environment') }}"
+                    hx-post="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='delete_environment') }}"
                     hx-swap="outerHTML"
                     hx-on::before-request="document.activeElement && document.activeElement.blur()"
                     hx-target="closest .card"

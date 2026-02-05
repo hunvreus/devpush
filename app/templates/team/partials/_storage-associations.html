@@ -32,8 +32,8 @@
   
   <form
     method="post"
-    action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
-    hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
+    action="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
+    hx-post="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
     hx-target="closest .card"
     hx-swap="outerHTML"
     hx-on::before-request="document.activeElement && document.activeElement.blur()"
@@ -48,7 +48,7 @@
     <div
       class="flex-1 space-y-2 min-w-0"
       {% if not association %}
-      hx-get="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='environment_select') }}"
+      hx-get="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='environment_select') }}"
       hx-trigger="change"
       hx-target="next [data-environments]"
       hx-swap="innerHTML"
@@ -120,7 +120,7 @@
 
 <div
   class="card"
-  hx-get="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
+  hx-get="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
   hx-trigger="environments:updated from:window"
   hx-swap="outerHTML"
   hx-indicator="next .htmx-indicator"
@@ -145,7 +145,7 @@
               class="flex items-center gap-x-2"
             >
               <div class="flex-1 font-medium min-w-0">
-                <a href="{{ url_for('project_index', team_slug=team.slug, project_name=association.project.name) }}" class="flex items-center gap-x-2">
+                <a href="{{ rel_url_for('project_index', team_slug=team.slug, project_name=association.project.name) }}" class="flex items-center gap-x-2">
                   {{ avatar(item=association.project, prefix="project", name=association.project.name, size="xs") }}
                   <span class="truncate">{{ association.project.name }}</span>
                 </a>
@@ -190,8 +190,8 @@
                     <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=association.project.name) | safe }}</p>
                     <form
                       method="post"
-                      action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
-                      hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
+                      action="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
+                      hx-post="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
                       hx-swap="outerHTML"
                       hx-on::before-request="document.activeElement && document.activeElement.blur()"
                       hx-target="closest .card"

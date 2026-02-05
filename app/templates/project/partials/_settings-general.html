@@ -12,7 +12,7 @@
     }
   ) %}
     <div
-      hx-get="{{ url_for('github_repo_select').include_query_params(account=repo_owner) }}"
+      hx-get="{{ rel_url_for('github_repo_select').include_query_params(account=repo_owner) }}"
       hx-trigger="dialog:opened from:closest dialog once"
       class="flex items-start justify-center h-[296px]"
     >
@@ -42,8 +42,8 @@
 <form
   method="post"
   enctype="multipart/form-data"
-  action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='general') }}"
-  hx-post="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='general') }}"
+  action="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='general') }}"
+  hx-post="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='general') }}"
   hx-indicator="next .htmx-indicator"
   hx-swap="outerHTML"
   hx-on::before-request="document.activeElement && document.activeElement.blur()"
@@ -162,7 +162,7 @@
     <button
       type="button"
       class="btn-sm-ghost"
-      hx-get="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='general') }}"
+      hx-get="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='general') }}"
       hx-target="closest form"
       hx-swap="outerHTML"
       :disabled="!changed"

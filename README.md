@@ -59,15 +59,20 @@ For more information, including manual installation or updates, refer to [the do
 
 ### Dev Container & Codespaces
 
-The easiest way to get started is using [Dev Containers](https://containers.dev) or [GitHub Codespaces](https://github.com/features/codespaces).
+The easiest way to get started is using [GitHub Codespaces](https://github.com/features/codespaces).
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/hunvreus/devpush)
 
-The [.devcontainer.json](.devcontainer.json) setup provides a pre-configured environment with:
-- **Python 3.13** development environment.
+The [.devcontainer.json](.devcontainer.json) in GitHub Codespaces setup provides a pre-configured environment with:
+- **Debian GNU/Linux 13 (trixie)** with pre-installed tools and a full bash shell.
+- **Python 3.13** pre-installed development environment.
 - **Docker & Docker Compose v2+** support (via Docker-outside-Docker).
-- **GitHub CLI** and **Git LFS** integrated.
-- **VS Code Extensions**: ShellCheck, YAML support, Spell Checker, and Docker tools.
+- **GitHub CLI** and **Git LFS** integrated with the devpush repository cloned and ready to use.
+- **VS Code Extensions** for ShellCheck, YAML support, Spell Checker, and Docker tools.
+- **Development Mode**: devpush automatically runs in development mode with hot-reload.
+- **devpush Setup**: A `data/.env` file ready to be edited (add your GitHub App credentials here).
+
+**Codespaces** can run entirely in your browser (simplest, zero-footprint) or connected to VS Code on your desktop for a native IDE experience. Both approaches use the same pre-configured environment.
 
 ### Manual Setup
 
@@ -89,7 +94,7 @@ Start the stack:
 ./scripts/start.sh
 ```
 
-The stack auto-detects development mode on macOS and enables hot reloading. Data is stored in `./data/`.
+The stack auto-detects development mode on macOS or Codespaces and enables hot reloading. Data is stored in `./data/`.
 
 ## Registry catalog
 

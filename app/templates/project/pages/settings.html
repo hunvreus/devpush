@@ -4,7 +4,7 @@
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
     <h1 class="h1 flex items-center gap-x-3">
-      <a href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
+      <a href="{{ rel_url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
         {% from "macros/avatar.html" import avatar with context %}
         {{ avatar(item=project, prefix="project", name=project.name, size="md") }}
       </a>

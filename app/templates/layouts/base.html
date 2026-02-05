@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   {# CSS #}
-  <link rel="stylesheet" href="{{ url_for('assets', path='/styles.css') }}">
+  <link rel="stylesheet" href="{{ rel_url_for('assets', path='/styles.css') }}">
 
   {# Theme switcher #}
   <script>
@@ -47,7 +47,7 @@
   <meta property="og:url" content="{{ request.url }}">
   <meta property="og:title" content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}">
   <meta property="og:description" content="{{ description or app_description }}">
-  <meta property="og:image" content="{{ url_for('assets', path='/social.png') }}">
+  <meta property="og:image" content="{{ rel_url_for('assets', path='/social.png') }}">
   <meta property="og:site_name" content="{{ app_name }}">
   <meta property="og:locale" content="en_US">
 
@@ -56,17 +56,17 @@
   <meta name="twitter:url" content="{{ request.url }}">
   <meta name="twitter:title" content="{% if title %}{{ title }} | {{ app_name }}{% else %}{{ app_name }}{% endif %}">
   <meta name="twitter:description" content="{{ description or app_description }}">
-  <meta name="twitter:image" content="{{ url_for('assets', path='/social.png') }}">
+  <meta name="twitter:image" content="{{ rel_url_for('assets', path='/social.png') }}">
 
   {# Favicon #}
-  <link rel="icon" type="image/svg+xml" href="{{ url_for('assets', path='/favicon.svg') }}" />
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('assets', path='/apple-touch-icon.png') }}" />
+  <link rel="icon" type="image/svg+xml" href="{{ rel_url_for('assets', path='/favicon.svg') }}" />
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ rel_url_for('assets', path='/apple-touch-icon.png') }}" />
 
   {# JS #}
-  <script src="{{ url_for('assets', path='/basecoat.min.js') }}" defer></script>
-  <script src="{{ url_for('assets', path='/alpine.min.js') }}" defer></script>
-  <script src="{{ url_for('assets', path='/htmx.min.js') }}" defer></script>
-  <script src="{{ url_for('assets', path='/htmx-sse.min.js') }}" defer></script>
+  <script src="{{ rel_url_for('assets', path='/basecoat.min.js') }}" defer></script>
+  <script src="{{ rel_url_for('assets', path='/alpine.min.js') }}" defer></script>
+  <script src="{{ rel_url_for('assets', path='/htmx.min.js') }}" defer></script>
+  <script src="{{ rel_url_for('assets', path='/htmx-sse.min.js') }}" defer></script>
   <script>
     document.addEventListener('htmx:historyRestore', () => {
       if (window.basecoat) window.basecoat.initAll();

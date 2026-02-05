@@ -14,6 +14,7 @@ from authlib.jose import jwt
 from functools import lru_cache
 import humanize
 from datetime import datetime, timezone, timedelta
+from typing import Any
 from redis.asyncio import Redis
 from arq.connections import ArqRedis
 
@@ -22,6 +23,7 @@ from db import get_db
 from models import User, Project, Deployment, Team, TeamMember, Storage, utc_now
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
+from utils.urls import get_relative_url, RelativeURL, get_app_base_url
 
 
 @lru_cache
@@ -497,7 +499,7 @@ def get_access(
 
 
 def RedirectResponseX(
-    url: str,
+    url: str | RelativeURL,
     status_code: int = status.HTTP_307_TEMPORARY_REDIRECT,
     headers: dict[str, str] | None = None,
     request: Request | None = None,
@@ -507,13 +509,14 @@ def RedirectResponseX(
     • If `request` is an HTMX call ⇒ send HX-Redirect header.
     • Otherwise ⇒ delegate to FastAPI's RedirectResponse.
     """
+    url_str = str(url)
 
     if request is not None and request.headers.get("HX-Request"):
         return FastAPIResponse(
             status_code=200,
-            headers={"HX-Redirect": str(url), **(headers or {})},
+            headers={"HX-Redirect": url_str, **(headers or {})},
         )
-    return FastAPIRedirect(url=url, status_code=status_code, headers=headers)
+    return FastAPIRedirect(url=url_str, status_code=status_code, headers=headers)
 
 
 def time_ago_filter(value):
@@ -521,6 +524,14 @@ def time_ago_filter(value):
     if isinstance(value, str):
         value = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return humanize.naturaltime(value)
+
+
+@pass_context
+def rel_url_for(context: dict, name: str, **path_params: Any) -> RelativeURL:
+    request = context.get("request")
+    if not request:
+        raise ValueError("Request not found in context")
+    return get_relative_url(request, name, **path_params)
 
 
 settings = get_settings()
@@ -537,6 +548,8 @@ templates.env.globals["toaster_header"] = settings.toaster_header
 templates.env.filters["time_ago"] = time_ago_filter
 templates.env.globals["get_access"] = get_access
 templates.env.globals["is_superadmin"] = is_superadmin
+templates.env.globals["rel_url_for"] = rel_url_for
+templates.env.globals["get_app_base_url"] = get_app_base_url
 
 
 def TemplateResponse(

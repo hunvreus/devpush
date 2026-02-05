@@ -118,6 +118,7 @@ class TeamMemberAddForm(StarletteForm):
         ],
         default="member",
     )
+    client_origin = HiddenField(_l("Client Origin"))
     submit = SubmitField(_l("Invite"))
 
     def __init__(self, *args, team: Team, db: AsyncSession, **kwargs):

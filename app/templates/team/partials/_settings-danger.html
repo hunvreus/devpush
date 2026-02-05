@@ -26,7 +26,7 @@
           <p>{{ _('To confirm, enter the team slug <b>"%(slug)s"</b> below.', slug=team.slug) | safe }}</p>
           <form
             method="POST"
-            action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='danger') }}"
+            action="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='danger') }}"
           >
             {{ delete_team_form.csrf_token() }}
             {{ delete_team_form.slug(value=team.slug) }}

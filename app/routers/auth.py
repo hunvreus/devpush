@@ -33,6 +33,7 @@ from forms.auth import EmailLoginForm
 from utils.email import send_email
 from utils.user import sanitize_username, get_user_by_email, get_user_by_provider
 from utils.access import is_email_allowed, notify_denied
+from utils.urls import get_relative_url, get_app_base_url, get_absolute_url, get_email_logo_url
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ async def _create_user_with_team(
             category="warning",
             action={
                 "label": _("Admin"),
-                "href": str(request.url_for("admin_settings")),
+                "href": str(get_relative_url(request, "admin_settings")),
             },
             cancel={"label": _("Dismiss")},
             attrs={"data-duration": "-1"},
@@ -165,7 +166,7 @@ async def auth_login(
             )
             flash(request, _(settings.access_denied_message), "error")
             return RedirectResponseX(
-                request.url_for("auth_login"),
+                get_relative_url(request, "auth_login"),
                 status_code=303,
                 request=request,
             )
@@ -186,9 +187,9 @@ async def auth_login(
         )
 
         verify_link = str(
-            request.url_for("auth_email_verify").include_query_params(
-                token=magic_token_str
-            )
+            get_absolute_url(
+                request, "auth_email_verify", client_origin=form.client_origin.data
+            ).include_query_params(token=magic_token_str)
         )
 
         try:
@@ -207,10 +208,12 @@ async def auth_login(
                 "error",
             )
             return RedirectResponseX(
-                request.url_for("auth_login"), status_code=303, request=request
+                get_relative_url(request, "auth_login"), status_code=303, request=request
             )
 
         try:
+            email_logo = get_email_logo_url(request, settings, client_origin=form.client_origin.data)
+
             send_email(
                 recipients=[email],
                 subject=_("Sign in to %(app_name)s", app_name=settings.app_name),
@@ -222,11 +225,10 @@ async def auth_login(
                         "magic_link_ttl_minutes": max(
                             1, settings.magic_link_ttl_seconds // 60
                         ),
-                        "email_logo": settings.email_logo
-                        or request.url_for("assets", path="logo-email.png"),
+                        "email_logo": email_logo,
                         "app_name": settings.app_name,
                         "app_description": settings.app_description,
-                        "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
+                        "app_url": get_app_base_url(request, client_origin=form.client_origin.data),
                     }
                 ),
                 settings=settings,
@@ -240,7 +242,7 @@ async def auth_login(
                 "success",
             )
             return RedirectResponseX(
-                request.url_for("auth_login"), status_code=303, request=request
+                get_relative_url(request, "auth_login"), status_code=303, request=request
             )
 
         except Exception as e:
@@ -470,7 +472,7 @@ async def auth_github_login(
             status_code=500, detail="GitHub OAuth client not configured"
         )
     return await oauth_client.github.authorize_redirect(
-        request, request.url_for("auth_github_callback")
+        request, str(get_absolute_url(request, 'auth_github_callback'))
     )
 
 
@@ -556,7 +558,7 @@ async def auth_google_login(
             status_code=500, detail="Google OAuth client not configured"
         )
     return await oauth_client.google.authorize_redirect(
-        request, request.url_for("auth_google_callback")
+        request, str(get_absolute_url(request, 'auth_google_callback'))
     )
 
 

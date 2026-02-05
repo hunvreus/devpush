@@ -7,7 +7,7 @@
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
     <h1 class="h1 flex items-center gap-x-3">
-      <a href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
+      <a href="{{ rel_url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
         {% from "macros/avatar.html" import avatar with context %}
         {{ avatar(item=project, prefix="project", name=project.name, size="md") }}
       </a>
@@ -41,8 +41,8 @@
     <form
       id="log-filters"
       class="flex justify-start items-center gap-x-2"
-      action="{{ url_for('project_logs', team_slug=team.slug, project_name=project.name) }}"
-      hx-get="{{ url_for('project_logs', team_slug=team.slug, project_name=project.name).include_query_params(fragment='logs') }}"
+      action="{{ rel_url_for('project_logs', team_slug=team.slug, project_name=project.name) }}"
+      hx-get="{{ rel_url_for('project_logs', team_slug=team.slug, project_name=project.name).include_query_params(fragment='logs') }}"
       hx-target="#logs"
       hx-indicator="next .htmx-indicator"
       hx-trigger="input delay:500ms, change from:[type='date'] from:[type='time'] from:div.select delay:10ms, logs:refresh from:document, load"

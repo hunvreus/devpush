@@ -34,8 +34,8 @@
   <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
   <form
     method="post"
-    action="{{ url_for('project_redeploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
-    hx-post="{{ url_for('project_redeploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+    action="{{ rel_url_for('project_redeploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+    hx-post="{{ rel_url_for('project_redeploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
     hx-disabled-elt="button"
     hx-swap="none"
     hx-indicator="find .htmx-indicator"

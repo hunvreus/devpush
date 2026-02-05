@@ -20,8 +20,8 @@
   
   <form
     method="post"
-    action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='domain') }}"
-    hx-post="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='domain') }}"
+    action="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='domain') }}"
+    hx-post="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='domain') }}"
     hx-target="closest .card"
     hx-swap="outerHTML"
     hx-on::before-request="document.activeElement && document.activeElement.blur()"
@@ -104,7 +104,7 @@
 
 <div
   class="card"
-  hx-get="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='domain') }}"
+  hx-get="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='domain') }}"
   hx-trigger="environments:updated from:window"
   hx-swap="outerHTML"
   hx-indicator="next .htmx-indicator"
@@ -179,8 +179,8 @@
                   <p>{{ _('To confirm, enter the domain name <b>"%(hostname)s"</b> below.', hostname=domain.hostname) | safe }}</p>
                   <form
                     method="post"
-                    action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='remove_domain') }}"
-                    hx-post="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='remove_domain') }}"
+                    action="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='remove_domain') }}"
+                    hx-post="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='remove_domain') }}"
                     hx-swap="outerHTML"
                     hx-on::before-request="document.activeElement && document.activeElement.blur()"
                     hx-target="closest .card"
@@ -286,8 +286,8 @@
                   <form
                     class="mt-2"
                     method="post"
-                    action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='verify_domain') }}"
-                    hx-post="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='verify_domain') }}"
+                    action="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='verify_domain') }}"
+                    hx-post="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='verify_domain') }}"
                     hx-swap="outerHTML"
                     hx-on::before-request="document.activeElement && document.activeElement.blur()"
                     hx-target="closest .card"

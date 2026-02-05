@@ -30,7 +30,7 @@
         <p>{{ _('To confirm, enter the storage name <b>"%(name)s"</b> below.', name=storage.name) | safe }}</p>
         <form
           method="POST"
-          action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='danger') }}"
+          action="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='danger') }}"
         >
           {{ reset_form.csrf_token(id=False) }}
           {{ reset_form.name(
@@ -69,7 +69,7 @@
         <p>{{ _('To confirm, enter the storage name <b>"%(name)s"</b> below.', name=storage.name) | safe }}</p>
         <form
           method="POST"
-          action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='danger') }}"
+          action="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='danger') }}"
         >
           {{ delete_form.csrf_token(id=False) }}
           {{ delete_form.name(

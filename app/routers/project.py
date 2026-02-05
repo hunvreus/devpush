@@ -76,6 +76,7 @@ from utils.pagination import paginate
 from utils.environment import group_branches_by_environment, get_environment_for_branch
 from utils.color import COLORS
 from utils.user import get_user_github_token
+from utils.urls import get_relative_url, RelativeURL
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,8 @@ def _is_runner_valid(project: Project, settings: Settings, request: Request) -> 
             action={
                 "label": _("Settings"),
                 "href": str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "project_settings",
                         team_slug=project.team.slug,
                         project_name=project.name,
@@ -128,7 +130,8 @@ def _is_runner_valid(project: Project, settings: Settings, request: Request) -> 
             action={
                 "label": _("Settings"),
                 "href": str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "project_settings",
                         team_slug=project.team.slug,
                         project_name=project.name,
@@ -151,7 +154,8 @@ def _is_runner_valid(project: Project, settings: Settings, request: Request) -> 
             action={
                 "label": _("Settings"),
                 "href": str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "project_settings",
                         team_slug=project.team.slug,
                         project_name=project.name,
@@ -211,7 +215,7 @@ async def new_project_details(
     if not all([repo_id, repo_owner, repo_name, repo_default_branch]):
         flash(request, _("Missing repository details."), "error")
         return RedirectResponse(
-            request.url_for("new_project", team_slug=team.slug), status_code=303
+            str(get_relative_url(request, "new_project", team_slug=team.slug)), status_code=303
         )
 
     form: Any = await ProjectCreateForm.from_formdata(request, db=db, team=team)
@@ -314,7 +318,7 @@ async def new_project_details(
         except Exception:
             flash(request, "You do not have access to this repository.", "error")
             return RedirectResponse(
-                request.url_for("new_project", team_slug=team.slug), status_code=303
+                str(get_relative_url(request, "new_project", team_slug=team.slug)), status_code=303
             )
 
         try:
@@ -332,7 +336,7 @@ async def new_project_details(
                     "error",
                 )
                 return RedirectResponse(
-                    request.url_for("new_project", team_slug=team.slug), status_code=303
+                    str(get_relative_url(request, "new_project", team_slug=team.slug)), status_code=303
                 )
             raise
 
@@ -385,7 +389,8 @@ async def new_project_details(
 
         return RedirectResponseX(
             url=str(
-                request.url_for(
+                get_relative_url(
+                    request,
                     "project_index", team_slug=team.slug, project_name=project.name
                 )
             ),
@@ -740,7 +745,8 @@ async def project_storage(
                 flash(request, _("Storage created and connected."), "success")
                 return RedirectResponseX(
                     url=str(
-                        request.url_for(
+                        get_relative_url(
+                            request,
                             "project_storage",
                             team_slug=team.slug,
                             project_name=project.name,
@@ -797,7 +803,8 @@ async def project_storage(
                 await db.commit()
                 return RedirectResponseX(
                     url=str(
-                        request.url_for(
+                        get_relative_url(
+                            request,
                             "project_storage",
                             team_slug=team.slug,
                             project_name=project.name,
@@ -845,7 +852,8 @@ async def project_storage(
                 flash(request, _("Storage connection updated."), "success")
                 return RedirectResponseX(
                     url=str(
-                        request.url_for(
+                        get_relative_url(
+                            request,
                             "project_storage",
                             team_slug=team.slug,
                             project_name=project.name,
@@ -884,7 +892,8 @@ async def project_storage(
             flash(request, _("Storage disconnected."), "success")
             return RedirectResponseX(
                 url=str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "project_storage",
                         team_slug=team.slug,
                         project_name=project.name,
@@ -1052,7 +1061,8 @@ async def project_deploy(
 
             return RedirectResponseX(
                 url=str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "project_deployment",
                         team_slug=team.slug,
                         project_name=project.name,
@@ -1206,7 +1216,8 @@ async def project_redeploy(
 
             return RedirectResponseX(
                 url=str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "project_deployment",
                         team_slug=team.slug,
                         project_name=project.name,
@@ -1287,7 +1298,8 @@ async def project_cancel_deploy(
 
     return RedirectResponseX(
         url=str(
-            request.url_for(
+            get_relative_url(
+                request,
                 "project_deployment",
                 team_slug=team.slug,
                 project_name=project.name,
@@ -1454,9 +1466,10 @@ async def project_settings(
             "warning",
         )
         return RedirectResponse(
-            request.url_for(
+            str(get_relative_url(
+                request,
                 "project_index", team_slug=team.slug, project_name=project.name
-            ),
+            )),
             status_code=302,
         )
 
@@ -1587,7 +1600,8 @@ async def project_settings(
 
             # Redirect if the name has changed
             if old_name != project.name:
-                new_url = request.url_for(
+                new_url = get_relative_url(
+                    request,
                     "project_settings", team_slug=team.slug, project_name=project.name
                 )
 
@@ -1596,7 +1610,7 @@ async def project_settings(
                         status_code=200, headers={"HX-Redirect": str(new_url)}
                     )
                 else:
-                    return RedirectResponse(new_url, status_code=303)
+                    return RedirectResponse(str(new_url), status_code=303)
 
         if request.headers.get("HX-Request"):
             return TemplateResponse(
@@ -2177,7 +2191,8 @@ async def project_deployment(
                 < get_settings().log_stream_grace_seconds
             )
         ):
-            sse_connect_url = request.url_for(
+            sse_connect_url = get_relative_url(
+                request,
                 "deployment_event",
                 team_id=team.id,
                 project_id=project.id,
@@ -2269,7 +2284,7 @@ async def project_logs(
         if not deployment:
             flash(request, _("Deployment not found."), "error")
             return RedirectResponseX(
-                url=str(request.url.include_query_params(deployment_id="")),
+                url=str(RelativeURL(request.url).include_query_params(deployment_id="")),
                 request=request,
             )
 
@@ -2278,7 +2293,7 @@ async def project_logs(
     ):
         return RedirectResponseX(
             url=str(
-                request.url.include_query_params(
+                RelativeURL(request.url).include_query_params(
                     **(
                         {"date-to": date_from}
                         if date_from > date_to

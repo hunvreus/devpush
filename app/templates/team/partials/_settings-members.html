@@ -56,8 +56,8 @@
               <td>
                 <form
                   method="post"
-                  action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='member_role') }}"
-                  hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='member_role') }}"
+                  action="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='member_role') }}"
+                  hx-post="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='member_role') }}"
                   hx-swap="outerHTML"
                   hx-target="closest .card"
                   hx-indicator="next .htmx-indicator"
@@ -123,8 +123,8 @@
                       <p>{{ _('To confirm, enter the member\'s email address <b>"%(email)s"</b> below.', email=member.user.email) | safe }}</p>
                       <form
                         method="post"
-                        action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
-                        hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
+                        action="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
+                        hx-post="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='delete_member') }}"
                         hx-swap="outerHTML"
                         hx-target="closest .card"
                         hx-indicator="next .htmx-indicator"
@@ -166,8 +166,8 @@
       <form
         class="space-y-2"
         method="post"
-        action="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
-        hx-post="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
+        action="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
+        hx-post="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='add_member') }}"
         hx-swap="outerHTML"
         hx-target="closest .card"
         hx-indicator="next .htmx-indicator"
@@ -181,6 +181,10 @@
         }"
       >
         {{ add_member_form.csrf_token() }}
+        {{ add_member_form.client_origin(id="client_origin_invite") }}
+        <script>
+          document.getElementById('client_origin_invite').value = window.location.origin;
+        </script>
         <div class="flex items-center gap-x-2">
           {{ add_member_form.email.label(class="sr-only") }}
           {{ add_member_form.email(class="flex-1 input", placeholder=_("Enter email to invite"), **{"x-model": "email"}) }}
@@ -228,7 +232,7 @@
                       aria-label="{{ _('Resend') }}"
                       data-tooltip="{{ _('Resend') }}"
                       hx-swap="none"
-                      hx-get="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='resend_member_invite', invite_id=invite.id) }}"
+                      hx-get="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='resend_member_invite', invite_id=invite.id) }}"
                     >
                       {% include "icons/refresh-cw.svg" %}
                     </button>
@@ -241,7 +245,7 @@
                       hx-target="closest .card"
                       hx-swap="outerHTML"
                       hx-indicator="next .htmx-indicator"
-                      hx-get="{{ url_for('team_settings', team_slug=team.slug).include_query_params(fragment='revoke_member_invite', invite_id=invite.id) }}"
+                      hx-get="{{ rel_url_for('team_settings', team_slug=team.slug).include_query_params(fragment='revoke_member_invite', invite_id=invite.id) }}"
                       hx-confirm="{{ _('Are you sure you want to revoke this invitation?') }}"
                     >
                       {% include "icons/trash-2.svg" %}

@@ -1,4 +1,4 @@
-{% from "deployment/macros/log-list.html" import log_list %}
+{% from "deployment/macros/log-list.html" import log_list with context %}
 
 {% if next_batch_url %}
   <div
@@ -35,7 +35,7 @@
       <div
         hx-trigger="sse:deployment_concluded"
         hx-target="#deployment-page-header"
-        hx-get="{{ url_for('project_deployment', team_slug=team.slug, project_name=deployment.project.name, deployment_id=deployment.id).include_query_params(fragment='header') }}"
+        hx-get="{{ rel_url_for('project_deployment', team_slug=team.slug, project_name=deployment.project.name, deployment_id=deployment.id).include_query_params(fragment='header') }}"
       ></div>
     </div>
   </div>

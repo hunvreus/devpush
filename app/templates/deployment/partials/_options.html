@@ -14,7 +14,7 @@
     ) | safe }}</p>
     <div
       class="space-y-4"
-      hx-get="{{ url_for('project_redeploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+      hx-get="{{ rel_url_for('project_redeploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
       hx-trigger="dialog:opened from:closest dialog"
     >
       <div class="space-y-2">
@@ -53,7 +53,7 @@
     ) | safe }}</p>
     <div
       class="space-y-4"
-      hx-get="{{ url_for('project_rollback', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+      hx-get="{{ rel_url_for('project_rollback', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
       hx-trigger="dialog:opened from:closest dialog"
     >
       <div class="flex gap-x-6 items-center border px-4 h-12 rounded-lg">

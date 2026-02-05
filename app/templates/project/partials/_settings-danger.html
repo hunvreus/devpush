@@ -24,7 +24,7 @@
         <p>{{ _('To confirm, enter the project name <b>"%(name)s"</b> below.', name=project.name) | safe }}</p>
         <form
           method="post"
-          action="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='danger') }}"
+          action="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name).include_query_params(fragment='danger') }}"
         >
           {{ delete_project_form.csrf_token(id=False) }}
           {{ delete_project_form.name(

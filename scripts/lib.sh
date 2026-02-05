@@ -33,7 +33,7 @@ CMD_LOG="${TMPDIR:-/tmp}/devpush-cmd.$$.log"
 # Detect environment (production or development)
 ENVIRONMENT="${DEVPUSH_ENV:-}"
 if [[ -z "$ENVIRONMENT" ]]; then
-  if [[ "$(uname)" == "Darwin" ]]; then
+  if [[ "$(uname)" == "Darwin" ]] || [[ -n "${CODESPACES:-}" ]]; then
     ENVIRONMENT="development"
   else
     ENVIRONMENT="production"

@@ -5,7 +5,7 @@
   class="container max-w-screen-md mx-auto p-8 space-y-6"
   x-init
   @repo-selected="
-    const url = new URL('{{ url_for('new_project_details', team_slug=team.slug) }}', '{{ request.base_url }}');
+    const url = new URL('{{ rel_url_for('new_project_details', team_slug=team.slug) }}', '{{ request.base_url }}');
     url.searchParams.set('repo_id', $event.detail.id);
     url.searchParams.set('repo_owner', $event.detail.owner);
     url.searchParams.set('repo_name', $event.detail.name);
@@ -39,7 +39,7 @@
   </ol>
 
   <div
-    hx-get="{{ url_for('github_repo_select').include_query_params(type='new_project') }}"
+    hx-get="{{ rel_url_for('github_repo_select').include_query_params(type='new_project') }}"
     hx-trigger="load"
     hx-swap="outerHTML"    
     class="flex items-center justify-center h-[292px] w-full"

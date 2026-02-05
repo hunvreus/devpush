@@ -18,7 +18,7 @@
     {% include "icons/git-commit-horizontal.svg" %}
     <span class="truncate">{{ deployment.commit_meta.message }}</span>
   </span>
-  <a href="{{ url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}" target="_blank" class="btn-sm-icon-ghost ml-auto" data-tooltip="{{ _('View deployment') }}">
+  <a href="{{ rel_url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}" target="_blank" class="btn-sm-icon-ghost ml-auto" data-tooltip="{{ _('View deployment') }}">
     {% include "icons/arrow-up-right.svg" %}
   </a>
 </div>
@@ -26,8 +26,8 @@
   <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
   <form
     method="post"
-    action="{{ url_for('project_rollback', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
-    hx-post="{{ url_for('project_rollback', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+    action="{{ rel_url_for('project_rollback', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+    hx-post="{{ rel_url_for('project_rollback', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
     hx-disabled-elt="button"
     hx-swap="none"
     hx-indicator="find .htmx-indicator"

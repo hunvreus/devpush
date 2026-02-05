@@ -9,8 +9,8 @@
 ) %}
   <form
     method="post"
-    action="{{ url_for('admin_settings').include_query_params(fragment='allowlist') }}"
-    hx-post="{{ url_for('admin_settings').include_query_params(fragment='allowlist') }}"
+    action="{{ rel_url_for('admin_settings').include_query_params(fragment='allowlist') }}"
+    hx-post="{{ rel_url_for('admin_settings').include_query_params(fragment='allowlist') }}"
     hx-target="#allowlist-card"
     hx-swap="outerHTML"
     hx-indicator="next .htmx-indicator"
@@ -46,8 +46,8 @@
   <form
     id="form-import-allowlist"
     method="post"
-    action="{{ url_for('admin_settings').include_query_params(fragment='allowlist') }}"
-    hx-post="{{ url_for('admin_settings').include_query_params(fragment='allowlist') }}"
+    action="{{ rel_url_for('admin_settings').include_query_params(fragment='allowlist') }}"
+    hx-post="{{ rel_url_for('admin_settings').include_query_params(fragment='allowlist') }}"
     hx-target="#allowlist-card"
     hx-swap="outerHTML"
     hx-indicator="next .htmx-indicator"
@@ -85,7 +85,7 @@
           placeholder="{{ _('Search...') }}"
           name="allowlist_search"
           value="{{ allowlist_search or '' }}"
-          hx-get="{{ url_for('admin_settings').include_query_params(fragment='allowlist-content') }}"
+          hx-get="{{ rel_url_for('admin_settings').include_query_params(fragment='allowlist-content') }}"
           hx-target="#allowlist-content"
           hx-trigger="input changed delay:300ms"
           hx-push-url="true"

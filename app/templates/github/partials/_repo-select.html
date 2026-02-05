@@ -8,7 +8,7 @@
       <p class="text-muted-foreground mt-1">
         {{ _('Connect your GitHub account to search for repositories.') }}
       </p>
-      <a class="btn-sm mt-4" href="{{ url_for('github_authorize') }}">
+      <a class="btn-sm mt-4" href="{{ rel_url_for('github_authorize') }}">
         {% include "icons/github.svg" %} {{ _('Connect account') }}
       </a>
     </div>
@@ -24,7 +24,7 @@
       change from:#account-select,
       load
     "
-    hx-get="{{ url_for('github_repo_list').include_query_params(type=request.query_params.get('type', '')) }}"
+    hx-get="{{ rel_url_for('github_repo_list').include_query_params(type=request.query_params.get('type', '')) }}"
     hx-target="next [role='listbox']"
     hx-indicator="next div > .htmx-indicator"
   >
@@ -43,7 +43,7 @@
     </div>
     {% endfor %}
     <hr role="separator" />
-    <a role="option" href="{{ url_for('github_install') }}">
+    <a role="option" href="{{ rel_url_for('github_install') }}">
       {{ _('Add account') }}
     </a>
     {% endcall %}
@@ -82,7 +82,7 @@
         {{ _('Install the GitHub application for the accounts you want to select
         repositories from.') }}
       </p>
-      <a class="btn-sm mt-4" href="{{ url_for('github_install') }}">
+      <a class="btn-sm mt-4" href="{{ rel_url_for('github_install') }}">
         {% include "icons/github.svg" %} {{ _('Install app') }}
       </a>
     </div>
