@@ -847,7 +847,7 @@ class Deployment(Base):
         if observed in {"running", "paused", "dead", "not_found"}:
             return observed
 
-        return self.status
+        return observed or expected
 
     @property
     def environment(self) -> dict | None:
