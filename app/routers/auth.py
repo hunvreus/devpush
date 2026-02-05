@@ -552,13 +552,22 @@ async def auth_google_login(
     request: Request,
     oauth_client=Depends(get_google_oauth_client),
     settings: Settings = Depends(get_settings),
+    client_origin: str | None = None,
 ):
     if not oauth_client.google:
         raise HTTPException(
             status_code=500, detail="Google OAuth client not configured"
         )
+    if client_origin:
+        request.session["google_client_origin"] = client_origin
+
     return await oauth_client.google.authorize_redirect(
-        request, str(get_absolute_url(request, 'auth_google_callback'))
+        request,
+        str(
+            get_absolute_url(
+                request, "auth_google_callback", client_origin=client_origin
+            )
+        ),
     )
 
 
@@ -575,7 +584,15 @@ async def auth_google_callback(
                 status_code=500, detail="Google OAuth client not configured"
             )
 
-        token = await oauth_client.google.authorize_access_token(request)
+        client_origin = request.session.pop("google_client_origin", None)
+        redirect_uri = str(
+            get_absolute_url(
+                request, "auth_google_callback", client_origin=client_origin
+            )
+        )
+        token = await oauth_client.google.authorize_access_token(
+            request, redirect_uri=redirect_uri
+        )
         google_user_info = await get_google_user_info(oauth_client, token)
 
         if not google_user_info:

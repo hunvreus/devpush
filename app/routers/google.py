@@ -13,7 +13,7 @@ from dependencies import (
 )
 from models import User, UserIdentity
 from utils.user import get_user_by_provider
-from utils.urls import safe_redirect, get_relative_url, get_app_base_url
+from utils.urls import safe_redirect, get_relative_url, get_app_base_url, get_absolute_url
 
 router = APIRouter(prefix="/api/google")
 
@@ -24,6 +24,7 @@ async def google_authorize(
     next: str | None = None,
     current_user: User = Depends(get_current_user),
     oauth_client=Depends(get_google_oauth_client),
+    client_origin: str | None = None,
 ):
     """Authorize Google OAuth for account linking"""
     if not oauth_client or not oauth_client.google:
@@ -41,9 +42,16 @@ async def google_authorize(
         referer=request.headers.get("Referer"),
     )
     request.session["redirect_after_google"] = redirect_url
+    if client_origin:
+        request.session["google_link_client_origin"] = client_origin
 
     return await oauth_client.google.authorize_redirect(
-        request, f"{get_app_base_url(request)}{get_relative_url(request, 'google_authorize_callback')}"
+        request,
+        str(
+            get_absolute_url(
+                request, "google_authorize_callback", client_origin=client_origin
+            )
+        ),
     )
 
 
@@ -67,7 +75,15 @@ async def google_authorize_callback(
         return RedirectResponse(redirect_url, status_code=303)
 
     try:
-        token = await oauth_client.google.authorize_access_token(request)
+        client_origin = request.session.pop("google_link_client_origin", None)
+        redirect_uri = str(
+            get_absolute_url(
+                request, "google_authorize_callback", client_origin=client_origin
+            )
+        )
+        token = await oauth_client.google.authorize_access_token(
+            request, redirect_uri=redirect_uri
+        )
         google_user_info = await get_google_user_info(oauth_client, token)
 
         if not google_user_info:
