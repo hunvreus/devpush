@@ -1,7 +1,7 @@
 """Deployment observed state
 
 Revision ID: 6b0c7d2a9e1f
-Revises: f45484bf96b0
+Revises: 4fe4c96ad3dd
 Create Date: 2026-01-29 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "6b0c7d2a9e1f"
-down_revision: Union[str, Sequence[str], None] = "f45484bf96b0"
+down_revision: Union[str, Sequence[str], None] = "4fe4c96ad3dd"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
