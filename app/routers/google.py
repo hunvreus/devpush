@@ -75,15 +75,8 @@ async def google_authorize_callback(
         return RedirectResponse(redirect_url, status_code=303)
 
     try:
-        client_origin = request.session.pop("google_link_client_origin", None)
-        redirect_uri = str(
-            get_absolute_url(
-                request, "google_authorize_callback", client_origin=client_origin
-            )
-        )
-        token = await oauth_client.google.authorize_access_token(
-            request, redirect_uri=redirect_uri
-        )
+        request.session.pop("google_link_client_origin", None)
+        token = await oauth_client.google.authorize_access_token(request)
         google_user_info = await get_google_user_info(oauth_client, token)
 
         if not google_user_info:
@@ -131,7 +124,7 @@ async def google_authorize_callback(
         await db.commit()
         flash(request, _("Google account connected successfully!"), "success")
 
-    except Exception:
+    except Exception as e:
         flash(request, _("Error connecting Google account."), "error")
 
     return RedirectResponse(redirect_url, status_code=303)

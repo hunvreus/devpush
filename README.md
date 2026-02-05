@@ -96,6 +96,22 @@ Start the stack:
 
 The stack auto-detects development mode on macOS or Codespaces and enables hot reloading. Data is stored in `./data/`.
 
+### Debugging
+
+To enable interactive debugging with VS Code:
+
+1.  Set the environment variable `DEBUG=true`. You can add this to `data/.env` or export it before running the start script.
+2.  Launch the stack:
+    ```bash
+    ./scripts/start.sh
+    ```
+    The app service will start with `debugpy` listening on port 5678.
+3.  In VS Code, go to the **Run and Debug** view.
+4.  Select **Python: Remote Attach** from the dropdown configuration list.
+5.  Press **F5** or click the play button to attach the debugger.
+
+You can now set breakpoints in the `/app` directory and inspect variables, call stacks, etc.
+
 ## Registry catalog
 
 Default runner/preset definitions ship in `registry/` and are copied to `DATA_DIR/registry/` during install/update.

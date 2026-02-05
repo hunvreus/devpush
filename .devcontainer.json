@@ -30,12 +30,15 @@
         "redhat.vscode-yaml",
         "streetsidesoftware.code-spell-checker",
         "ms-azuretools.vscode-docker",
-        "ms-python.python"
+        "ms-python.python",
+        "ms-python.debugpy"
       ]
     }
   },
   "forwardPorts": [
-    80
+    80,
+    5678,
+    8000
   ],
   "remoteUser": "vscode",
   "containerEnv": {
