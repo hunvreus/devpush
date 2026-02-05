@@ -212,7 +212,14 @@
   </template>
   <div class="flex gap-x-2">
     <div role="group" class="button-group">
-      <button type="button" class="btn-sm-outline" @click="newEnvVars.push({ key: '', value: '' })">
+      <button
+        type="button"
+        class="btn-sm-outline"
+        @click="
+          newEnvVars.push({ key: '', value: '' });
+          $el.closest('form').dispatchEvent(new Event('change'));
+        "
+      >
         {% include "icons/plus.svg" %}
         {{ _('Add variable') }}
       </button>
@@ -234,7 +241,10 @@
             {% endif %}
             <div
               role="menuitem"
-              @click="newEnvVars.push({ key: '{{ key }}', value: '{{ storage_path }}' })"
+              @click="
+                newEnvVars.push({ key: '{{ key }}', value: '{{ storage_path }}' });
+                $el.closest('form').dispatchEvent(new Event('change'));
+              "
             >
               {{ icon_avatar(type=storage.type, size="xs") }}
               <span class="truncate">{{ storage.name }}</span>
