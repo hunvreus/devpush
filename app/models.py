@@ -3,6 +3,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Enum as SQLAEnum,
+    Integer,
     JSON,
     String,
     Text,
@@ -756,6 +757,24 @@ class Deployment(Base):
         SQLAEnum("running", "stopped", "removed", name="deployment_container_status"),
         nullable=True,
     )
+    observed_status: Mapped[str | None] = mapped_column(
+        SQLAEnum(
+            "running",
+            "exited",
+            "dead",
+            "paused",
+            "not_found",
+            name="deployment_observed_status",
+        ),
+        nullable=True,
+    )
+    observed_exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    observed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    observed_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observed_last_seen_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    observed_missing_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
     status: Mapped[str] = mapped_column(
         SQLAEnum(
             "prepare",
@@ -804,6 +823,31 @@ class Deployment(Base):
         self.config = project.config
         environment = project.get_environment_by_id(environment_id)
         self.env_vars = project.get_env_vars(environment["slug"]) if environment else []
+
+    @property
+    def computed_status(self) -> str:
+        observed = self.observed_status
+        expected = self.container_status
+        if expected in {"stopped", "removed"}:
+            if observed == "running":
+                return "orphaned"
+            return expected
+
+        if expected == "running":
+            if observed == "not_found":
+                return "missing"
+            if observed == "exited":
+                return "stopped" if self.observed_exit_code == 0 else "crashed"
+            if observed in {"paused", "dead"}:
+                return observed
+            return "running"
+
+        if observed == "exited":
+            return "stopped" if self.observed_exit_code == 0 else "crashed"
+        if observed in {"running", "paused", "dead", "not_found"}:
+            return observed
+
+        return observed or expected
 
     @property
     def environment(self) -> dict | None:
