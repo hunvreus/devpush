@@ -53,7 +53,7 @@
             </form>
           {% endcall %}
         {% else %}
-          <a class="btn-sm-outline ml-auto" href="{{ rel_url_for('github_authorize').include_query_params(next='/user/settings#authentication') }}">
+          <a class="btn-sm-outline ml-auto" href="#" onclick="window.location.href='{{ rel_url_for('github_authorize').include_query_params(next='/user/settings#authentication') }}' + '&client_origin=' + encodeURIComponent(window.location.origin); return false;">
             {{ _('Connect') }}
           </a>
         {% endif %}

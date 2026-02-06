@@ -8,7 +8,7 @@
       <p class="text-muted-foreground mt-1">
         {{ _('Connect your GitHub account to search for repositories.') }}
       </p>
-      <a class="btn-sm mt-4" href="{{ rel_url_for('github_authorize') }}">
+      <a class="btn-sm mt-4" href="#" onclick="window.location.href='{{ rel_url_for('github_authorize') }}' + '?client_origin=' + encodeURIComponent(window.location.origin); return false;">
         {% include "icons/github.svg" %} {{ _('Connect account') }}
       </a>
     </div>
