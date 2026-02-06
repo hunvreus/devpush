@@ -1,4 +1,4 @@
-{% from "deployment/macros/log-list.html" import log_list %}
+{% from "deployment/macros/log-list.html" import log_list with context %}
 
 {% if not logs and fragment == "logs" %}
   <section class="flex items-center justify-center min-h-60 bg-card text-card-foreground shadow-sm rounded-lg p-4 absolute inset-0">

@@ -3,7 +3,7 @@
 {% block app_content %}
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <h1 class="h1 flex items-center gap-x-3">
-    <a href="{{ url_for('team_index', team_slug=team.slug) }}">
+    <a href="{{ rel_url_for('team_index', team_slug=team.slug) }}">
       {% from "macros/avatar.html" import avatar with context %}
       {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
     </a>

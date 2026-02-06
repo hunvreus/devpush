@@ -39,6 +39,7 @@ from db import get_db
 from utils.pagination import paginate
 from utils.email import send_email
 from utils.team import get_latest_teams
+from utils.urls import get_relative_url, get_app_base_url, get_absolute_url, get_email_logo_url
 from forms.team import (
     TeamDeleteForm,
     TeamGeneralForm,
@@ -77,7 +78,7 @@ async def new_team(
         return Response(
             status_code=200,
             headers={
-                "HX-Redirect": str(request.url_for("team_index", team_slug=team.slug))
+                "HX-Redirect": str(get_relative_url(request, "team_index", team_slug=team.slug))
             },
         )
 
@@ -212,7 +213,7 @@ async def team_storage(
             flash(request, _("Storage created."), "success")
 
             return RedirectResponseX(
-                request.url_for("team_storage", team_slug=team.slug),
+                get_relative_url(request, "team_storage", team_slug=team.slug),
                 status_code=200,
                 request=request,
             )
@@ -372,7 +373,7 @@ async def team_storage_item(
                     )
             flash(request, _("Storage deleted."), "success")
             return RedirectResponse(
-                url=str(request.url_for("team_storage", team_slug=team.slug)),
+                url=str(get_relative_url(request, "team_storage", team_slug=team.slug)),
                 status_code=303,
             )
 
@@ -537,7 +538,8 @@ async def team_storage_item(
                 )
             return RedirectResponse(
                 url=str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "team_storage_item",
                         team_slug=team.slug,
                         storage_name=storage.name,
@@ -613,7 +615,8 @@ async def team_storage_item(
                 )
             return RedirectResponse(
                 url=str(
-                    request.url_for(
+                    get_relative_url(
+                        request,
                         "team_storage_item",
                         team_slug=team.slug,
                         storage_name=storage.name,
@@ -726,7 +729,7 @@ async def team_settings(
             "warning",
         )
         return RedirectResponse(
-            url=str(request.url_for("team_index", team_slug=team.slug)),
+            url=str(get_relative_url(request, "team_index", team_slug=team.slug)),
             status_code=302,
         )
 
@@ -841,11 +844,11 @@ async def team_settings(
 
             # Redirect if the name has changed
             if old_slug != team.slug:
-                new_url = request.url_for("team_settings", team_slug=team.slug)
+                new_url = str(get_relative_url(request, "team_settings", team_slug=team.slug))
 
                 if request.headers.get("HX-Request"):
                     return Response(
-                        status_code=200, headers={"HX-Redirect": str(new_url)}
+                        status_code=200, headers={"HX-Redirect": new_url}
                     )
                 else:
                     return RedirectResponse(new_url, status_code=303)
@@ -876,7 +879,14 @@ async def team_settings(
             )
             db.add(invite)
             await db.commit()
-            _send_member_invite(request, invite, team, current_user, settings)
+            _send_member_invite(
+                request,
+                invite,
+                team,
+                current_user,
+                settings,
+                client_origin=add_member_form.client_origin.data,
+            )
 
     remove_member_form: Any = await TeamMemberRemoveForm.from_formdata(request)
 
@@ -1039,6 +1049,7 @@ def _send_member_invite(
     team: Team,
     current_user: User,
     settings: Settings,
+    client_origin: str | None = None,
 ):
     expires_at = utc_now() + timedelta(days=30)
     token_payload = {
@@ -1056,12 +1067,16 @@ def _send_member_invite(
         else invite_token
     )
     invite_link = str(
-        request.url_for("auth_email_verify").include_query_params(
-            token=invite_token_str
-        )
+        get_absolute_url(
+            request,
+            "auth_email_verify",
+            client_origin=client_origin,
+        ).include_query_params(token=invite_token_str)
     )
 
     try:
+        email_logo = get_email_logo_url(request, settings, client_origin=client_origin)
+
         send_email(
             recipients=[invite.email],
             subject=_(
@@ -1075,11 +1090,10 @@ def _send_member_invite(
                     "invite_link": invite_link,
                     "inviter_name": current_user.name,
                     "team_name": team.name,
-                    "email_logo": settings.email_logo
-                    or request.url_for("assets", path="logo-email.png"),
+                    "email_logo": email_logo,
                     "app_name": settings.app_name,
                     "app_description": settings.app_description,
-                    "app_url": f"{settings.url_scheme}://{settings.app_hostname}",
+                    "app_url": get_app_base_url(request, client_origin=client_origin),
                 }
             ),
             settings=settings,

@@ -17,7 +17,7 @@
           placeholder="{{ _('Search...') }}"
           name="users_search"
           value="{{ users_search or '' }}"
-          hx-get="{{ url_for('admin_settings').include_query_params(fragment='users-content') }}"
+          hx-get="{{ rel_url_for('admin_settings').include_query_params(fragment='users-content') }}"
           hx-target="#users-content"
           hx-trigger="input changed delay:300ms"
           hx-push-url="true"

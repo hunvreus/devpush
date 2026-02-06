@@ -15,7 +15,7 @@
       {% set footer %}
         <button type="button" class="btn-ghost" onclick="this.closest('dialog').close()">{{ _('Cancel') }}</button>
         <form
-          hx-post="{{ url_for('user_notifications').include_query_params(fragment='accept_invite') }}"
+          hx-post="{{ rel_url_for('user_notifications').include_query_params(fragment='accept_invite') }}"
           hx-swap="none"
           hx-disabled-elt="button"
           hx-indicator="find .htmx-indicator"

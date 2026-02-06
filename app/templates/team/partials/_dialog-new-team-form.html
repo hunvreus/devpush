@@ -1,7 +1,7 @@
 <form
   method="post"
-  action="{{ url_for('new_team') }}"
-  hx-post="{{ url_for('new_team') }}"
+  action="{{ rel_url_for('new_team') }}"
+  hx-post="{{ rel_url_for('new_team') }}"
   hx-swap="outerHTML"
   class="space-y-4"
   x-data="{ name: '' }"

@@ -6,7 +6,7 @@
 {% elif storage.status == "resetting" %}
   <span
     class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1"
-    hx-get="{{ url_for('team_storage_status', team_slug=team.slug, storage_id=storage.id) }}"
+    hx-get="{{ rel_url_for('team_storage_status', team_slug=team.slug, storage_id=storage.id) }}"
     hx-swap="outerHTML"
     hx-trigger="every 1s"
   >
@@ -16,7 +16,7 @@
 {% elif storage.status == "pending" %}
   <span
     class="badge-secondary text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:animate-spin [&>svg]:-ml-1"
-    hx-get="{{ url_for('team_storage_status', team_slug=team.slug, storage_id=storage.id) }}"
+    hx-get="{{ rel_url_for('team_storage_status', team_slug=team.slug, storage_id=storage.id) }}"
     hx-swap="outerHTML"
     hx-trigger="every 1s"
   >

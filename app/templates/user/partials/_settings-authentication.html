@@ -30,7 +30,7 @@
             trigger_attrs={"class": "btn-sm-icon-ghost"},
             popover_attrs={"data-align": "end"}
           ) %}
-            <a role="menuitem" href="{{ url_for('github_manage_authorization') }}" target="_blank">
+            <a role="menuitem" href="{{ rel_url_for('github_manage_authorization') }}" target="_blank">
               {{ _('Manage on GitHub') }}
               <span class="text-muted-foreground ml-auto text-xs tracking-widest [&>svg]:size-3">
                 {% include "icons/external-link.svg" %}
@@ -38,8 +38,8 @@
             </a>
             <form
               method="post"
-              action="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
-              hx-post="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
+              action="{{ rel_url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
+              hx-post="{{ rel_url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
               hx-target="closest .card"
               hx-swap="outerHTML"
               hx-indicator="next .htmx-indicator"
@@ -53,7 +53,7 @@
             </form>
           {% endcall %}
         {% else %}
-          <a class="btn-sm-outline ml-auto" href="{{ url_for('github_authorize').include_query_params(next='/settings#authentication') }}">
+          <a class="btn-sm-outline ml-auto" href="#" onclick="window.location.href='{{ rel_url_for('github_authorize').include_query_params(next='/user/settings#authentication') }}' + '&client_origin=' + encodeURIComponent(window.location.origin); return false;">
             {{ _('Connect') }}
           </a>
         {% endif %}
@@ -74,7 +74,7 @@
             trigger_attrs={"class": "btn-sm-icon-ghost"},
             popover_attrs={"data-align": "end"}
           ) %}
-            <a role="menuitem" href="{{ url_for('google_manage_authorization') }}" target="_blank">
+            <a role="menuitem" href="{{ rel_url_for('google_manage_authorization') }}" target="_blank">
               {{ _('Manage on Google') }}
               <span class="text-muted-foreground ml-auto text-xs tracking-widest [&>svg]:size-3">
                 {% include "icons/external-link.svg" %}
@@ -82,8 +82,8 @@
             </a>
             <form
               method="post"
-              action="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
-              hx-post="{{ url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
+              action="{{ rel_url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
+              hx-post="{{ rel_url_for('user_settings').include_query_params(fragment='revoke_oauth_access') }}"
               hx-target="closest .card"
               hx-swap="outerHTML"
               hx-indicator="next .htmx-indicator"
@@ -97,7 +97,7 @@
             </form>
           {% endcall %}
         {% else %}
-          <a class="btn-sm-outline ml-auto" href="{{ url_for('google_authorize').include_query_params(next='/settings#authentication') }}">
+          <a class="btn-sm-outline ml-auto" href="#" onclick="window.location.href='{{ rel_url_for('google_authorize').include_query_params(next='/user/settings#authentication') }}' + '&client_origin=' + encodeURIComponent(window.location.origin); return false;">
             {{ _('Connect') }}
           </a>
         {% endif %}

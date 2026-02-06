@@ -1,7 +1,7 @@
 <form
   method="post"
-  action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='update_storage_env') }}"
-  hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='update_storage_env') }}"
+  action="{{ rel_url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='update_storage_env') }}"
+  hx-post="{{ rel_url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='update_storage_env') }}"
   hx-swap="outerHTML"
   hx-indicator="find .htmx-indicator"
   hx-disabled-elt="find button[type='submit']"

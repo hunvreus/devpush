@@ -88,7 +88,7 @@
   </div>
 
   <footer class="flex justify-between gap-x-2">
-    <a href="{{ url_for('new_project', team_slug=team.slug) }}" class="btn-ghost flex-1" hx-boost="true">
+    <a href="{{ rel_url_for('new_project', team_slug=team.slug) }}" class="btn-ghost flex-1" hx-boost="true">
       {% include "icons/arrow-left.svg" %}
       {{ _('Back') }}
     </a>

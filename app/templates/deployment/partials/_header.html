@@ -13,13 +13,13 @@
 <header class="flex items-center gap-x-4 justify-between">
   <h1 class="h1 flex items-center gap-x-3">
     <a
-      href="{{ url_for('project_index', team_slug=team.slug, project_name=deployment.project.name) }}"
+      href="{{ rel_url_for('project_index', team_slug=team.slug, project_name=deployment.project.name) }}"
       class="shrink-0"
     >
       {{ avatar(item=deployment.project, prefix="project", name=deployment.project.name, size="md") }}
     </a>
     <span class="text-muted-foreground/25 font-normal">/</span>
-    <a href="{{ url_for('project_deployments', team_slug=team.slug, project_name=project.name) }}">
+    <a href="{{ rel_url_for('project_deployments', team_slug=team.slug, project_name=project.name) }}">
       {{ _('Deployments') }}
     </a>
     <span class="text-muted-foreground/25 font-normal">/</span>
@@ -30,8 +30,8 @@
     {% if cancel_form %}
       <form
         method="post"
-        action="{{ url_for('project_cancel_deploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
-        hx-post="{{ url_for('project_cancel_deploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+        action="{{ rel_url_for('project_cancel_deploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
+        hx-post="{{ rel_url_for('project_cancel_deploy', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id) }}"
         hx-disabled-elt="find button"
         hx-indicator="find .htmx-indicator"
         hx-confirm="{{ _('Are you sure you want to cancel this deployment?') }}"
@@ -152,7 +152,7 @@
   <ul class="flex gap-x-6 items-start">
     <li>
       <a
-        href="{{ url_for('project_deployments', team_slug=team.slug, project_name=deployment.project.name).include_query_params(environment=deployment.environment.slug) }}"
+        href="{{ rel_url_for('project_deployments', team_slug=team.slug, project_name=deployment.project.name).include_query_params(environment=deployment.environment.slug) }}"
         class="flex items-center gap-x-2 text-muted-foreground hover:text-foreground transition-colors"
         data-tooltip="{{ _('Environment') }}"
         hx-boost="true"

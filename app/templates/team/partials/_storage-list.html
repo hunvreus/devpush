@@ -8,7 +8,7 @@
     {% for storage in storages %}
       <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
         <a
-          href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
+          href="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
           class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
           hx-boost="true"
           data-tooltip="{{ _('%(type)s name', type=storage.type|capitalize) }}"
@@ -42,7 +42,7 @@
             ) }}
           {% endif %}
           <a
-            href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
+            href="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
             class="btn-sm-icon-ghost"
             data-tooltip="{{ _('Settings') }}"
           >
@@ -59,7 +59,7 @@
       <div class="text-center">
         <h2 class="h4">{{ _('No results found.') }}</h2>
         <p class="text-muted-foreground mt-1">{{ _('Try different search terms or filters.') }}</p>
-        <a class="btn-sm mt-4" href="{{ url_for('team_storage', team_slug=team.slug) }}">
+        <a class="btn-sm mt-4" href="{{ rel_url_for('team_storage', team_slug=team.slug) }}">
           {{ _('Reset filters') }}
         </a>
       </div>

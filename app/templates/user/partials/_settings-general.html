@@ -1,8 +1,8 @@
 <form
   method="post"
   enctype="multipart/form-data"
-  action="{{ url_for('user_settings').include_query_params(fragment='general') }}"
-  hx-post="{{ url_for('user_settings').include_query_params(fragment='general') }}" hx-indicator="next .htmx-indicator"
+  action="{{ rel_url_for('user_settings').include_query_params(fragment='general') }}"
+  hx-post="{{ rel_url_for('user_settings').include_query_params(fragment='general') }}" hx-indicator="next .htmx-indicator"
   hx-swap="outerHTML"
   x-data="{
     changed: false,
@@ -74,7 +74,7 @@
     <button
       type="button"
       class="btn-sm-ghost"
-      hx-get="{{ url_for('user_settings').include_query_params(fragment='general') }}" hx-target="closest form"
+      hx-get="{{ rel_url_for('user_settings').include_query_params(fragment='general') }}" hx-target="closest form"
       hx-swap="outerHTML"
       :disabled="!changed"
     >{{ _('Cancel') }}</button>

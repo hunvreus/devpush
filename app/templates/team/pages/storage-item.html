@@ -15,15 +15,15 @@
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
     <h1 class="h1 flex items-center gap-x-3">
-      <a href="{{ url_for('team_storage', team_slug=team.slug) }}" class="shrink-0">
+      <a href="{{ rel_url_for('team_storage', team_slug=team.slug) }}" class="shrink-0">
         {{ avatar(item=team, prefix="team", name=team.name, size="md") }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
-      <a href="{{ url_for('team_storage', team_slug=team.slug) }}">
+      <a href="{{ rel_url_for('team_storage', team_slug=team.slug) }}">
         {{ _('Storage') }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
-      <a href="{{ request.url_for('team_storage', team_slug=team.slug).include_query_params(storage_type=storage.type) }}">
+      <a href="{{ rel_url_for('team_storage', team_slug=team.slug).include_query_params(storage_type=storage.type) }}">
         {{ storage_types[storage.type] }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>

@@ -13,7 +13,7 @@ from dependencies import (
 )
 from models import User, UserIdentity
 from utils.user import get_user_by_provider
-from utils.urls import safe_redirect
+from utils.urls import safe_redirect, get_relative_url, get_app_base_url, get_absolute_url
 
 router = APIRouter(prefix="/api/google")
 
@@ -24,9 +24,10 @@ async def google_authorize(
     next: str | None = None,
     current_user: User = Depends(get_current_user),
     oauth_client=Depends(get_google_oauth_client),
+    client_origin: str | None = None,
 ):
     """Authorize Google OAuth for account linking"""
-    if not oauth_client.google:
+    if not oauth_client or not oauth_client.google:
         flash(request, _("Google OAuth not configured."), "error")
         redirect_url = safe_redirect(
             request,
@@ -41,9 +42,16 @@ async def google_authorize(
         referer=request.headers.get("Referer"),
     )
     request.session["redirect_after_google"] = redirect_url
+    if client_origin:
+        request.session["google_link_client_origin"] = client_origin
 
     return await oauth_client.google.authorize_redirect(
-        request, request.url_for("google_authorize_callback")
+        request,
+        str(
+            get_absolute_url(
+                request, "google_authorize_callback", client_origin=client_origin
+            )
+        ),
     )
 
 
@@ -62,11 +70,12 @@ async def google_authorize_callback(
         referer=None,
     )
 
-    if not oauth_client.google:
+    if not oauth_client or not oauth_client.google:
         flash(request, _("Google OAuth not configured."), "error")
         return RedirectResponse(redirect_url, status_code=303)
 
     try:
+        request.session.pop("google_link_client_origin", None)
         token = await oauth_client.google.authorize_access_token(request)
         google_user_info = await get_google_user_info(oauth_client, token)
 
@@ -115,7 +124,7 @@ async def google_authorize_callback(
         await db.commit()
         flash(request, _("Google account connected successfully!"), "success")
 
-    except Exception:
+    except Exception as e:
         flash(request, _("Error connecting Google account."), "error")
 
     return RedirectResponse(redirect_url, status_code=303)

@@ -23,7 +23,7 @@
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
     <h1 class="h1 flex items-center gap-x-3">
-      <a href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
+      <a href="{{ rel_url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
         {{ avatar(item=project, prefix="project", name=project.name, size="md") }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
@@ -48,7 +48,7 @@
         {% for association in associations %}
           <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
             <a
-              href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name) }}"
+              href="{{ rel_url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
               data-tooltip="{{ _('%(type)s name', type=storage_types[association.storage.type]) }}"
               aria-label="{{ _('%(type)s name', type=storage_types[association.storage.type]) }}"
@@ -113,7 +113,7 @@
                     {
                       "icon": icon_settings,
                       "label": _("Settings"),
-                      "url": url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name),
+                      "url": rel_url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name),
                     },
                     {"type": "separator"},
                     {
@@ -151,8 +151,8 @@
                   <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=project.name) | safe }}</p>
                   <form
                     method="post"
-                    action="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
-                    hx-post="{{ url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
+                    action="{{ rel_url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
+                    hx-post="{{ rel_url_for('project_storage', team_slug=team.slug, project_name=project.name).include_query_params(fragment='disconnect_storage') }}"
                     hx-swap="outerHTML"
                     hx-indicator="find .htmx-indicator"
                     hx-disabled-elt="find button[type='submit']"

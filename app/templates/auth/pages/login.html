@@ -19,7 +19,7 @@
         class="btn-outline w-full"
         @click="
           loading = 'github';
-          window.location.href = '{{ url_for('auth_github_login') }}';
+          window.location.href = '{{ rel_url_for('auth_github_login') }}';
         "
         :disabled="loading"
       >
@@ -34,7 +34,7 @@
           class="btn-outline w-full"
           @click="
             loading = 'google';
-            window.location.href = '{{ url_for('auth_google_login') }}';
+            window.location.href = '{{ rel_url_for('auth_google_login') }}' + '?client_origin=' + encodeURIComponent(window.location.origin);
           "
           :disabled="loading"
         >

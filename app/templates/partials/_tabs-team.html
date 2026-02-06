@@ -2,39 +2,39 @@
   <ul role="tablist" class="flex items-center gap-x-1">
     <li
       role="presentation"
-      class="pb-1.5 border-b-2 {{ 'border-primary' if request.path == url_for('team_index', team_slug=team.slug).path else 'border-transparent' }}"
+      class="pb-1.5 border-b-2 {{ 'border-primary' if request.path == rel_url_for('team_index', team_slug=team.slug).path else 'border-transparent' }}"
     >
       <a
-        href="{{ url_for('team_index', team_slug=team.slug) }}"
+        href="{{ rel_url_for('team_index', team_slug=team.slug) }}"
         role="tab"
         data-turbo="false"
-        aria-selected="{{ 'true' if request.path == url_for('team_index', team_slug=team.slug).path else 'false' }}"
+        aria-selected="{{ 'true' if request.path == rel_url_for('team_index', team_slug=team.slug).path else 'false' }}"
         class="btn-sm-ghost text-muted-foreground hover:text-foreground [&[aria-selected=true]]:text-foreground"
         hx-boost="true"
       >{{ _('Overview') }}</a>
     </li>
     <li
       role="presentation"
-      class="pb-1.5 border-b-2 {{ 'border-primary' if request.path.startswith(url_for('team_projects', team_slug=team.slug).path) else 'border-transparent' }}"
+      class="pb-1.5 border-b-2 {{ 'border-primary' if request.path.startswith (rel_url_for('team_projects', team_slug=team.slug).path) else 'border-transparent' }}"
     >
       <a
-        href="{{ url_for('team_projects', team_slug=team.slug) }}"
+        href="{{ rel_url_for('team_projects', team_slug=team.slug) }}"
         role="tab"
         data-turbo="false"
-        aria-selected="{{ 'true' if request.path.startswith(url_for('team_projects', team_slug=team.slug).path) else 'false' }}"
+        aria-selected="{{ 'true' if request.path.startswith (rel_url_for('team_projects', team_slug=team.slug).path) else 'false' }}"
         class="btn-sm-ghost text-muted-foreground hover:text-foreground [&[aria-selected=true]]:text-foreground"
         hx-boost="true"
       >{{ _('Projects') }}</a>
     </li>
     <li
       role="presentation"
-      class="pb-1.5 border-b-2 {{ 'border-primary' if request.path.startswith(url_for('team_storage', team_slug=team.slug).path) else 'border-transparent' }}"
+      class="pb-1.5 border-b-2 {{ 'border-primary' if request.path.startswith (rel_url_for('team_storage', team_slug=team.slug).path) else 'border-transparent' }}"
     >
       <a
-        href="{{ url_for('team_storage', team_slug=team.slug) }}"
+        href="{{ rel_url_for('team_storage', team_slug=team.slug) }}"
         role="tab"
         data-turbo="false"
-        aria-selected="{{ 'true' if request.path.startswith(url_for('team_storage', team_slug=team.slug).path) else 'false' }}"
+        aria-selected="{{ 'true' if request.path.startswith (rel_url_for('team_storage', team_slug=team.slug).path) else 'false' }}"
         class="btn-sm-ghost text-muted-foreground hover:text-foreground [&[aria-selected=true]]:text-foreground"
         hx-boost="true"
       >{{ _('Storage') }}</a>
@@ -43,13 +43,13 @@
     {% if get_access(role, "admin") %}
       <li
         role="presentation"
-        class="pb-1.5 border-b-2 {{ 'border-primary' if request.path.startswith(url_for('team_settings', team_slug=team.slug).path) else 'border-transparent' }}"
+        class="pb-1.5 border-b-2 {{ 'border-primary' if request.path.startswith (rel_url_for('team_settings', team_slug=team.slug).path) else 'border-transparent' }}"
       >
         <a
-          href="{{ url_for('team_settings', team_slug=team.slug) }}"
+          href="{{ rel_url_for('team_settings', team_slug=team.slug) }}"
           role="tab"
           data-turbo="false"
-          aria-selected="{{ 'true' if request.path.startswith(url_for('team_settings', team_slug=team.slug).path) else 'false' }}"
+          aria-selected="{{ 'true' if request.path.startswith (rel_url_for('team_settings', team_slug=team.slug).path) else 'false' }}"
           class="btn-sm-ghost text-muted-foreground hover:text-foreground [&[aria-selected=true]]:text-foreground"
           hx-boost="true"
         >{{ _('Settings') }}</a>

@@ -12,7 +12,7 @@
 </span>
 {% for other_deployment in latest_deployments %}
 <a
-  href="{{ url_for('project_deployment', team_slug=team.slug, project_name=other_deployment.project.name, deployment_id=other_deployment.id) }}"
+  href="{{ rel_url_for('project_deployment', team_slug=team.slug, project_name=other_deployment.project.name, deployment_id=other_deployment.id) }}"
   role="menuitem"
   data-deployment-status="{{ other_deployment.id }}"
   hx-boost="true"
@@ -28,7 +28,7 @@
 </a>
 {% endfor %}
 <hr role="separator" />
-<a href="{{ url_for('project_deployments', team_slug=team.slug, project_name=deployment.project.name) }}"
+<a href="{{ rel_url_for('project_deployments', team_slug=team.slug, project_name=deployment.project.name) }}"
   role="menuitem" hx-boost="true">
   {{ _('All deployments') }}
 </a>

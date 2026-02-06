@@ -19,6 +19,7 @@ from dependencies import get_current_user, TemplateResponse
 from models import User, Team, Deployment, Project
 from routers import auth, project, github, google, team, user, event, admin
 from services.loki import LokiService
+from utils.urls import get_relative_url
 
 settings = get_settings()
 
@@ -135,7 +136,8 @@ async def catch_all_missing_container(
                         status_code=404,
                         context={
                             "current_user": current_user,
-                            "deployment_url": request.url_for(
+                            "deployment_url": get_relative_url(
+                                request,
                                 "project_deployment",
                                 team_slug=team.slug,
                                 project_name=project.name,

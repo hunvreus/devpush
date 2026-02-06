@@ -1,5 +1,5 @@
 from starlette_wtf import StarletteForm
-from wtforms import StringField, SubmitField
+from wtforms import StringField, SubmitField, HiddenField
 from wtforms.validators import DataRequired, Email, Length
 
 from dependencies import get_lazy_translation as _l
@@ -15,4 +15,5 @@ class EmailLoginForm(StarletteForm):
             Length(max=320),
         ],
     )
+    client_origin = HiddenField(_l("Client Origin"))
     submit = SubmitField(_l("Continue with email"))

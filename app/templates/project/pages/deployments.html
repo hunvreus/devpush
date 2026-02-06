@@ -4,7 +4,7 @@
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
     <h1 class="h1 flex items-center gap-x-3">
-      <a href="{{ url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
+      <a href="{{ rel_url_for('project_index', team_slug=team.slug, project_name=project.name) }}" class="shrink-0">
         {% from "macros/avatar.html" import avatar with context %}
         {{ avatar(item=project, prefix="project", name=project.name, size="md") }}
       </a>
@@ -33,8 +33,8 @@
   <section class="space-y-4">
     <form
       class="flex items-center gap-x-2"
-      action="{{ url_for('project_deployments', team_slug=team.slug, project_name=project.name) }}"
-      hx-get="{{ url_for('project_deployments', team_slug=team.slug, project_name=project.name).include_query_params(fragment='deployments') }}"
+      action="{{ rel_url_for('project_deployments', team_slug=team.slug, project_name=project.name) }}"
+      hx-get="{{ rel_url_for('project_deployments', team_slug=team.slug, project_name=project.name).include_query_params(fragment='deployments') }}"
       hx-target="#deployments"
       hx-indicator="next .htmx-indicator"
       hx-trigger="change delay:10ms, reset delay:10ms"

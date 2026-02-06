@@ -1,0 +1,48 @@
+{
+  "name": "devpush",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": false
+    },
+    "ghcr.io/devcontainers/features/git-lfs:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "latest"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.rulers": [
+          80,
+          120
+        ],
+        "files.insertFinalNewline": true,
+        "files.trimTrailingWhitespace": true,
+        "yaml.format.enable": true
+      },
+      "extensions": [
+        "timonwong.shellcheck",
+        "foxundermoon.shell-format",
+        "redhat.vscode-yaml",
+        "streetsidesoftware.code-spell-checker",
+        "ms-azuretools.vscode-docker",
+        "ms-python.python",
+        "ms-python.debugpy"
+      ]
+    }
+  },
+  "forwardPorts": [
+    80,
+    5678,
+    8000
+  ],
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "DEVPUSH_ENV": "development"
+  },
+  "postCreateCommand": "mkdir -p data && (test -f data/.env || cp .env.dev.example data/.env)"
+}

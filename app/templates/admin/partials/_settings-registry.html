@@ -21,7 +21,7 @@
           <div class="flex items-center gap-x-2 h-5.5">
             <span class="font-mono text-[13px]">{{ registry_state.catalog.meta.version }}</span>
             <div
-              hx-get="{{ url_for('admin_settings').include_query_params(fragment='registry-check') }}"
+              hx-get="{{ rel_url_for('admin_settings').include_query_params(fragment='registry-check') }}"
               hx-swap="outerHTML"
               hx-trigger="load"
               class="badge-secondary [&>svg]:animate-spin"
@@ -66,8 +66,8 @@
                     <td class="text-center pl-4">
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(action='registry-set-runner') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(action='registry-set-runner') }}"
+                        action="{{ rel_url_for('admin_settings').include_query_params(action='registry-set-runner') }}"
+                        hx-post="{{ rel_url_for('admin_settings').include_query_params(action='registry-set-runner') }}"
                         hx-trigger="change"
                         hx-target="#registry-flash"
                         hx-swap="innerHTML"
@@ -97,8 +97,8 @@
                       <div class="flex items-center">
                         <form
                           method="post"
-                          action="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
-                          hx-post="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
+                          action="{{ rel_url_for('admin_settings').include_query_params(action='registry-pull') }}"
+                          hx-post="{{ rel_url_for('admin_settings').include_query_params(action='registry-pull') }}"
                           hx-target="#registry-flash"
                           hx-confirm="{{ _('This will pull the image for this runner. Are you sure?') }}"
                           hx-swap="innerHTML"
@@ -117,8 +117,8 @@
                         </form>
                         <form
                           method="post"
-                          action="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
-                          hx-post="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
+                          action="{{ rel_url_for('admin_settings').include_query_params(action='registry-clear') }}"
+                          hx-post="{{ rel_url_for('admin_settings').include_query_params(action='registry-clear') }}"
                           hx-target="#registry-flash"
                           hx-confirm="{{ _('This will clear the image cache for this runner. Are you sure?') }}"
                           hx-swap="innerHTML"
@@ -152,8 +152,8 @@
                     <div class="flex items-center">
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
+                        action="{{ rel_url_for('admin_settings').include_query_params(action='registry-pull') }}"
+                        hx-post="{{ rel_url_for('admin_settings').include_query_params(action='registry-pull') }}"
                         hx-target="#registry-flash"
                         hx-confirm="{{ _('This will pull all enabled images. Are you sure?') }}"
                         hx-swap="innerHTML"
@@ -172,8 +172,8 @@
                       </form>
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
+                        action="{{ rel_url_for('admin_settings').include_query_params(action='registry-clear') }}"
+                        hx-post="{{ rel_url_for('admin_settings').include_query_params(action='registry-clear') }}"
                         hx-target="#registry-flash"
                         hx-confirm="{{ _('This will clear all cached images. Are you sure?') }}"
                         hx-swap="innerHTML"
@@ -218,8 +218,8 @@
                     <td class="text-center pl-4">
                       <form
                         method="post"
-                        action="{{ url_for('admin_settings').include_query_params(action='registry-set-preset') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(action='registry-set-preset') }}"
+                        action="{{ rel_url_for('admin_settings').include_query_params(action='registry-set-preset') }}"
+                        hx-post="{{ rel_url_for('admin_settings').include_query_params(action='registry-set-preset') }}"
                         hx-trigger="change"
                         hx-target="#registry-flash"
                         hx-swap="innerHTML"

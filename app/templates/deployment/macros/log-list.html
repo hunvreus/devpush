@@ -11,7 +11,7 @@
   </time>
   {% if team and project and log.labels and log.labels.deployment_id %}
     <a
-      href="{{ request.url_for('project_logs', team_slug=team.slug, project_name=project.name).include_query_params(deployment_id=log.labels.deployment_id) }}"
+      href="{{ rel_url_for('project_logs', team_slug=team.slug, project_name=project.name).include_query_params(deployment_id=log.labels.deployment_id) }}"
       class="font-sans"
       data-tooltip="{{ _('Deployment') }}"
       aria-label="{{ _('Deployment') }}"

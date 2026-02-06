@@ -8,8 +8,8 @@
 ) %}
   <form
     method="get"
-    action="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
-    hx-get="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
+    action="{{ rel_url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
+    hx-get="{{ rel_url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='environment') }}"
     hx-trigger="change, dialog:opened from:closest dialog"
     hx-indicator="#deploy-dialog-commits-skeleton"
     hx-target="#deploy-dialog-commits"

@@ -25,7 +25,7 @@
         ) }}
 
         <a
-          href="{{ url_for('project_deployment', team_slug=team.slug, project_name=deployment.project.name, deployment_id=deployment.id) }}"
+          href="{{ rel_url_for('project_deployment', team_slug=team.slug, project_name=deployment.project.name, deployment_id=deployment.id) }}"
           data-tooltip="{{ _('Deployment ID') }}"
           hx-boost="true"
         >
@@ -34,7 +34,7 @@
 
         {% if display_project %}
           <a
-            href="{{ url_for('project_index', team_slug=team.slug, project_name=deployment.project.name) }}"
+            href="{{ rel_url_for('project_index', team_slug=team.slug, project_name=deployment.project.name) }}"
             class="flex items-center gap-x-2 text-muted-foreground hover:text-foreground transition-colors min-w-0"
             data-tooltip="{{ _('Project') }}"
             hx-boost="true"
@@ -45,7 +45,7 @@
         {% endif %}
 
         <a
-          href="{{ url_for('project_deployments', team_slug=team.slug, project_name=deployment.project.name).include_query_params(environment=deployment.environment.slug) }}"
+          href="{{ rel_url_for('project_deployments', team_slug=team.slug, project_name=deployment.project.name).include_query_params(environment=deployment.environment.slug) }}"
           class="flex items-center gap-x-2 hover:text-foreground transition-colors text-muted-foreground max-sm:truncate"
           data-tooltip="{{ _('Environment') }}"
           hx-boost="true"

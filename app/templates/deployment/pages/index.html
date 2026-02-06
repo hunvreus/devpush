@@ -10,7 +10,7 @@
     <header class="px-4 h-10 w-full flex items-center gap-x-2">
       {{ _('Logs') }}
       <a
-        href="{{ url_for('project_logs', team_slug=team.slug, project_name=project.name).include_query_params(deployment_id=deployment.id) }}"
+        href="{{ rel_url_for('project_logs', team_slug=team.slug, project_name=project.name).include_query_params(deployment_id=deployment.id) }}"
         class="btn-sm-icon-ghost ml-auto"
         data-tooltip="{{ _('All logs') }}"
         data-alight="end"
@@ -24,7 +24,7 @@
       id="deployment-logs"
       class="overflow-y-auto h-[500px] relative p-2 border-t scrollbar-thin scrollbar"
       hx-trigger="load"
-      hx-get="{{ url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id).include_query_params(fragment='logs') }}"
+      hx-get="{{ rel_url_for('project_deployment', team_slug=team.slug, project_name=project.name, deployment_id=deployment.id).include_query_params(fragment='logs') }}"
       hx-swap="beforeend"
       x-init="$el.scrollTop = $el.scrollHeight"
       hx-on::before-swap="

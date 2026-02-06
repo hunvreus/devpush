@@ -1,8 +1,8 @@
 <form
   method="post"
-  action="{{ url_for('auth_login') }}"
+  action="{{ rel_url_for('auth_login') }}"
   class="form grid gap-4"
-  hx-post="{{ url_for('auth_login') }}"
+  hx-post="{{ rel_url_for('auth_login') }}"
   hx-swap="outerHTML"
   hx-indicator="find .htmx-indicator"
   hx-swap="outerHTML"
@@ -11,6 +11,10 @@
   @htmx:after-request="loading = null"
 >
   {{ form.csrf_token }}
+  {{ form.client_origin(id="client_origin") }}
+  <script>
+    document.getElementById('client_origin').value = window.location.origin;
+  </script>
   <div class="grid gap-2">
     {{ form.email.label(class="sr-only") }}
     {{ form.email(

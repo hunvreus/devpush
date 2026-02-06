@@ -6,7 +6,7 @@
         <p class="text-muted-foreground mt-1">{{ _('This environment does not have any matching commits yet.') }}</p>
         <a
           class="btn-sm mt-4"
-          href="{{ url_for('project_settings', team_slug=team.slug, project_name=project.name) }}#environments"
+          href="{{ rel_url_for('project_settings', team_slug=team.slug, project_name=project.name) }}#environments"
         >
           {{ _('Manage environments') }}
         </a>
@@ -23,8 +23,8 @@
   <form
     id="deploy-dialog-commits-form"
     method="post"
-    action="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='commit', environment_id=request.query_params.get('environment_id')) }}"
-    hx-post="{{ url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='commit', environment_id=request.query_params.get('environment_id')) }}"
+    action="{{ rel_url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='commit', environment_id=request.query_params.get('environment_id')) }}"
+    hx-post="{{ rel_url_for('project_deploy', team_slug=team.slug, project_name=project.name).include_query_params(fragment='commit', environment_id=request.query_params.get('environment_id')) }}"
     class="space-y-4"
     hx-disabled-elt="#deploy-dialog-commits-form input, #deploy-dialog-commits-form button"
     hx-indicator="find .htmx-indicator"

@@ -25,7 +25,7 @@ from models import User, UserIdentity, GithubInstallation, Project
 from services.github import GitHubService
 from services.deployment import DeploymentService
 from utils.user import get_user_github_token, get_user_by_provider
-from utils.urls import safe_redirect
+from utils.urls import safe_redirect, get_relative_url, get_app_base_url, get_absolute_url
 from config import get_settings, Settings
 
 router = APIRouter(prefix="/api/github")
@@ -181,9 +181,10 @@ async def github_authorize(
     next: str | None = None,
     current_user: User = Depends(get_current_user),
     oauth_client=Depends(get_github_oauth_client),
+    client_origin: str | None = None,
 ):
     """Authorize GitHub OAuth for account linking"""
-    if not oauth_client.github:
+    if not oauth_client or not oauth_client.github:
         flash(request, _("GitHub OAuth not configured."), "error")
         redirect_url = safe_redirect(
             request,
@@ -198,9 +199,16 @@ async def github_authorize(
         referer=request.headers.get("Referer"),
     )
     request.session["redirect_after_github"] = redirect_url
+    if client_origin:
+        request.session["github_link_client_origin"] = client_origin
 
     return await oauth_client.github.authorize_redirect(
-        request, request.url_for("github_authorize_callback")
+        request,
+        str(
+            get_absolute_url(
+                request, "github_authorize_callback", client_origin=client_origin
+            )
+        ),
     )
 
 
@@ -220,7 +228,7 @@ async def github_authorize_callback(
         referer=None,
     )
 
-    if not oauth_client.github:
+    if not oauth_client or not oauth_client.github:
         flash(request, _("GitHub OAuth not configured."), "error")
         return RedirectResponse(redirect_url, status_code=303)
 

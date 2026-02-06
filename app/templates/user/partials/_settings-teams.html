@@ -29,7 +29,7 @@
                 {{ avatar(item=team, prefix="team", name=team.name, size="sm") }}
               </td>
               <td>
-                  <a href="{{ url_for('team_index', team_slug=team.slug) }}" class="font-medium">
+                  <a href="{{ rel_url_for('team_index', team_slug=team.slug) }}" class="font-medium">
                     {{ team.name }}
                   </a>
                   {% if team.id == current_user.default_team_id %}
@@ -41,8 +41,8 @@
                 {% if team.id != current_user.default_team_id %}
                   <form
                       method="post"
-                      action="{{ url_for('user_settings').include_query_params(fragment='teams') }}"
-                      hx-post="{{ url_for('user_settings').include_query_params(fragment='teams') }}"
+                      action="{{ rel_url_for('user_settings').include_query_params(fragment='teams') }}"
+                      hx-post="{{ rel_url_for('user_settings').include_query_params(fragment='teams') }}"
                       hx-swap="outerHTML"
                       hx-target="closest .card"
                       hx-indicator="next .htmx-indicator"
