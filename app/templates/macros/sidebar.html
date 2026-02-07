@@ -1,0 +1,144 @@
+{#
+  Renders a sidebar component.
+
+  @param id {string} [optional] - Unique identifier for the sidebar component.
+  @param label {string} [optional] - Label for the sidebar navigation.
+  @param open {boolean} [optional] - Whether the sidebar is open.
+  @param side {string} [optional] - Side of the sidebar to display.
+  @param header {string} [optional] - Header content for the sidebar.
+  @param footer {string} [optional] - Footer content for the sidebar.
+  @param menu {array} [optional] - Array of menu items for the sidebar.
+  @param main_attrs {object} [optional] - Additional HTML attributes for the main container div.
+  @param header_attrs {object} [optional] - Additional HTML attributes for the header div.
+  @param content_attrs {object} [optional] - Additional HTML attributes for the content div.
+  @param footer_attrs {object} [optional] - Additional HTML attributes for the footer div.
+#}
+{% macro sidebar(
+  id=None,
+  label="Sidebar navigation",
+  open=true,
+  side=None,
+  header=None,
+  footer=None,
+  menu=None,
+  main_attrs={},
+  header_attrs={},
+  content_attrs={},
+  footer_attrs={}
+) %}
+<aside
+  {% if id %}id="{{ id }}"{% endif %}
+  class="sidebar {{ main_attrs.class }}"
+  data-side="{{ side if side else "left" }}"
+  aria-hidden="{{ "true" if not open else "false" }}"
+  {{ "inert" if not open }}
+  {% for key, value in main_attrs.items() %}
+    {% if key != "class" %}{{ key }}="{{ value }}"{% endif %}
+  {% endfor %}
+>
+  <nav
+    aria-label="{{ label }}"
+  >
+    {% if header %}
+    <header
+      {% for key, value in header_attrs.items() %}
+        {{ key }}="{{ value }}"
+      {% endfor %}
+    >
+      {{ header | safe }}
+    </header>
+    {% endif %}
+
+    <section
+      {% for key, value in content_attrs.items() %}
+        {{ key }}="{{ value }}"
+      {% endfor %}
+    >
+      {% if menu %}
+        {{ render_sidebar_content(menu, id ~ "-content" if id else "content") }}
+      {% else %}
+        {{ caller() if caller }}
+      {% endif %}
+    </section>
+
+    {% if footer %}
+    <footer
+      {% for key, value in footer_attrs.items() %}
+        {{ key }}="{{ value }}"
+      {% endfor %}
+    >
+      {{ footer | safe }}
+    </footer>
+    {% endif %}
+  </nav>
+</aside>
+{% endmacro %}
+
+{#
+  Renders sidebar content recursively (groups, items, submenus, separators).
+
+  @param items {array} - The array of items to render.
+  @param parent_id_prefix {string} [optional] - Prefix for generating element IDs.
+#}
+{% macro render_sidebar_content(items, parent_id_prefix="content") %}
+  {% for item in items %}
+    {% set item_id = parent_id_prefix ~ "-" ~ loop.index %}
+
+    {% if item.type == "group" %}
+      {% set group_label_id = item.id if item.id else "group-label-" + item_id %}
+      <div
+        role="group"
+        {% if item.label %}aria-labelledby="{{ group_label_id }}"{% endif %}
+        {% if item.attrs %}
+          {% for key, value in item.attrs.items() %}
+            {{ key }}="{{ value }}"
+          {% endfor %}
+        {% endif %}
+      >
+        {% if item.label %}
+          <h3 id="{{ group_label_id }}">{{ item.label }}</h3>
+        {% endif %}
+        <ul>
+          {{ render_sidebar_content(item["items"], item_id) if item["items"] }}
+        </ul>
+      </div>
+    {% elif item.type == "separator" %}
+      <hr role="separator"/>
+    {% elif item.type == "submenu" %}
+      <li>
+        <details
+          id="submenu-{{ item_id }}"
+          {{ "open" if item.open }}
+          {% if item.attrs %}
+            {% for key, value in item.attrs.items() %}
+              {% if key != "open" %}{{ key }}="{{ value }}"{% endif %}
+            {% endfor %}
+          {% endif %}
+        >
+          <summary aria-controls="submenu-{{ item_id }}-content">
+            {% if item.icon %}{{ item.icon | safe }}{% endif %}
+            {{ item.label | safe }}
+          </summary>
+          <ul id="submenu-{{ item_id }}-content">
+            {{ render_sidebar_content(item["items"], item_id) if item["items"] }}
+          </ul>
+        </details>
+      </li>
+    {% elif item.type == "item" or not item.type %}
+       <li>
+        <a
+          href="{{ item.url }}"
+          {% if item.current %}aria-current="page"{% endif %}
+          {% if item.attrs %}
+            {% for key, value in item.attrs.items() %}
+              {% if key != "href" and key != "aria-current" %}{{ key }}="{{ value }}"{% endif %}
+            {% endfor %}
+          {% endif %}
+        >
+          {% if item.icon %}{{ item.icon | safe }}{% endif %}
+          <span>{{ item.label | safe }}</span>
+        </a>
+       </li>
+    {% endif %}
+  {% endfor %}
+{% endmacro %}

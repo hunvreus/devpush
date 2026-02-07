@@ -1,0 +1,65 @@
+{% extends "team/layouts/storage-browse.html" %}
+
+{% block content %}
+<div class="shrink-0 border-b p-4">
+  <form
+    method="POST"
+    action="{{ url_for('team_storage_admin_sql', team_slug=team.slug, storage_name=storage.name) }}"
+    hx-post="{{ url_for('team_storage_admin_sql', team_slug=team.slug, storage_name=storage.name) }}"
+    hx-target="#query-result"
+    hx-select="#query-result"
+    hx-swap="innerHTML"
+    hx-indicator="find .htmx-indicator"
+    hx-disabled-elt="find button, input, textarea"
+    hx-on::after-request="document.getElementById('query')?.focus()"
+    class=" flex flex-col"
+  >
+    {{ query_form.csrf_token(id=False) }}
+    {{ query_form.query(
+      placeholder="SELECT * FROM table_name LIMIT 50",
+      rows="3",
+      class="appearance-none resize-none outline-none font-mono text-[13px]",
+      **{
+        "x-init": "",
+        "@keydown.ctrl.enter.prevent": "$el.closest('form').requestSubmit()",
+        "@keydown.meta.enter.prevent": "$el.closest('form').requestSubmit()"
+      }
+    ) }}
+    <div class="flex items-center justify-between gap-y-2">
+      <label class="label">
+        {{ query_form.write_mode(
+          class="input",
+          disabled=(not can_write),
+        ) }}
+        {{ _('Write mode') }}
+      </label>
+      <button type="submit" class="btn-sm">
+        {% include "icons/play.svg" %}
+        {{ _('Run') }}
+        <span class="htmx-indicator [&>svg]:animate-spin">
+          {% include "icons/loader.svg" %}
+        </span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<div id="query-result" class="flex-1 flex flex-col">
+  {% if query_error %}
+    <div class="flex items-center gap-x-2 text-destructive p-4 [&>svg]:size-4">
+      {% include "icons/triangle-alert.svg" %}
+      {{ query_error }}
+    </div>
+  {% endif %}
+
+  {% if query_result %}
+    {% if query_result.columns %}
+      {% include "team/partials/_storage-table.html" %}
+    {% else %}
+      <header class="flex items-center justify-between px-4 py-2 h-12.5">  
+        <span><span class="text-green-600 dark:text-green-400">{{ _('Query OK') }}</span> · {{ query_result.affected or 0 }} {{ _('row(s) affected') }} · {{ (query_result.time * 1000) | round(1) }}ms</span>
+      </header>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

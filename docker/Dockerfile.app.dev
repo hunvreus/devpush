@@ -1,5 +1,12 @@
 FROM python:3.13-slim
 
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+# Create non-root user (keep dev/prod parity)
+RUN if ! getent group "${APP_GID}" >/dev/null; then addgroup --gid "${APP_GID}" appgroup; fi \
+    && adduser --uid "${APP_UID}" --gid "${APP_GID}" --system --home /app appuser
+
 # System dependencies
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
@@ -11,6 +18,12 @@ WORKDIR /app
 # Set UV cache directory and home
 ENV UV_CACHE_DIR=/tmp/uv
 ENV HOME=/app
+
+# Ensure venv path is writable by appuser
+RUN mkdir -p /opt/venv && chown -R "${APP_UID}:${APP_GID}" /opt/venv
+
+# Switch to non-root user
+USER appuser
 
 EXPOSE 8000
 

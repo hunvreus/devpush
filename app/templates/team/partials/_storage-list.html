@@ -8,7 +8,7 @@
     {% for storage in storages %}
       <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
         <a
-          href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
+          href="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name) }}"
           class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
           hx-boost="true"
           data-tooltip="{{ _('%(type)s name', type=storage.type|capitalize) }}"
@@ -41,13 +41,15 @@
               class="btn-sm-icon-ghost"
             ) }}
           {% endif %}
-          <a
-            href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name) }}"
-            class="btn-sm-icon-ghost"
-            data-tooltip="{{ _('Settings') }}"
-          >
-            {% include "icons/settings.svg" %}
-          </a>
+          {% if get_access(role, "creator") %}
+            <a
+              href="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name) }}"
+              class="btn-sm-icon-ghost"
+              data-tooltip="{{ _('Settings') }}"
+            >
+              {% include "icons/settings.svg" %}
+            </a>
+          {% endif %}
         </div>
       </li>
     {% endfor %}

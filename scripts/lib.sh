@@ -550,9 +550,15 @@ default_service_user() {
 
 # Ensure service UID/GID are set
 set_service_ids() {
-  local candidate="${SERVICE_USER:-${DEVPUSH_SERVICE_USER:-}}"
-  if [[ -z "$candidate" ]]; then
-    candidate="$(default_service_user)"
+  local candidate=""
+  if [[ -n "${SERVICE_USER:-}" ]]; then
+    candidate="$SERVICE_USER"
+  elif [[ -n "${DEVPUSH_SERVICE_USER:-}" ]]; then
+    candidate="$DEVPUSH_SERVICE_USER"
+  elif [[ "$ENVIRONMENT" == "production" ]]; then
+    candidate="devpush"
+  else
+    candidate="$(id -un)"
   fi
 
   local uid="${SERVICE_UID:-}" gid="${SERVICE_GID:-}"

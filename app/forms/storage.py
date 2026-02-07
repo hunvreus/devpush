@@ -1,7 +1,14 @@
 import json
 from starlette.requests import Request
 from starlette_wtf import StarletteForm
-from wtforms import HiddenField, StringField, SubmitField, SelectField
+from wtforms import (
+    HiddenField,
+    StringField,
+    SubmitField,
+    SelectField,
+    TextAreaField,
+    BooleanField,
+)
 from wtforms.validators import DataRequired, Length, Regexp, ValidationError, Optional
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -241,6 +248,6 @@ class StorageProjectRemoveForm(StarletteForm):
 
 
 class StorageQueryForm(StarletteForm):
-    query = StringField(_l("SQL Query"), validators=[DataRequired()])
-    write_mode = HiddenField(_l("Write mode"), default="0")
+    query = TextAreaField(_l("SQL Query"), validators=[DataRequired()])
+    write_mode = BooleanField(_l("Write mode"), default=False)
     submit = SubmitField(_l("Run"), name="run_query")

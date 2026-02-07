@@ -1,0 +1,23 @@
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _('Database administration') }}</h2>
+    <p>{{ _('Browse data and run SQL queries against the database.') }}</p>
+  </header>
+
+  <section class="flex items-start gap-x-4">
+  <a href="{{ url_for('team_storage_admin_data', team_slug=team.slug, storage_name=storage.name) }}" class="btn-outline" target="_blank">
+      {% include "icons/table.svg" %}
+      {{ _('Browse data') }}
+      <span class="opacity-50 [&>svg]:size-3">
+        {% include "icons/external-link.svg" %}
+      </span>
+    </a>
+  <a href="{{ url_for('team_storage_admin_sql', team_slug=team.slug, storage_name=storage.name) }}" class="btn-outline" target="_blank">
+      {% include "icons/square-terminal.svg" %}
+      {{ _('Run SQL queries') }}
+      <span class="opacity-50 [&>svg]:size-3">
+        {% include "icons/external-link.svg" %}
+      </span>
+    </a>
+  </section>
+</div>

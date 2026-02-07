@@ -119,13 +119,13 @@
 		</nav>
 
 		<nav class="flex items-center gap-x-2" aria-label="User menu">
-			{% if current_user and is_superadmin(current_user) %}
+		  {% if current_user and is_superadmin(current_user) %}
 				<a href="{{ url_for('admin_settings') }}" class="btn-sm-ghost max-sm:hidden" hx-boost="true">
 					{% include "icons/settings.svg" %}
 					Admin
 				</a>
 			{% endif %}
-			
+
 			{% set trigger %}
 				{% include "icons/circle-question-mark.svg" %}
 			{% endset %}
@@ -147,7 +147,7 @@
 					</span>
 				</a>
 			{% endcall %}
-			
+
 			{% if current_user %}
 				<div
 					hx-get="{{ url_for('user_notifications') }}"
@@ -172,49 +172,7 @@
 					trigger_attrs={"class": "btn-icon-sm-ghost rounded-full shrink-0 p-0 border-0"},
 					popover_attrs={"data-align": "end"}
 				) %}
-					<header class="px-2.5 py-1.5">
-						<div class="font-medium">{{ current_user.name if current_user.name else current_user.username }}</div>
-						<div class="text-muted-foreground">{{ current_user.email }}</div>
-					</header>
-					
-					<hr role="separator" />
-					
-					<a href="{{ url_for('user_settings') }}" role="menuitem" hx-boost="true">{{ _('Account settings') }}</a>
-					<a href="/" role="menuitem" hx-boost="true">{{ _('Default team') }}</a>
-					
-					<hr role="separator" />
-
-					<button
-						type="button"
-						role="menuitem"
-						onclick="document.dispatchEvent(new CustomEvent('basecoat:theme'))"
-					>
-						<span class="hidden dark:block">{{ _('Theme: Light') }}</span>
-						<span class="block dark:hidden">{{ _('Theme: Dark') }}</span>
-						<span class="hidden dark:block ml-auto text-muted-foreground">{% include "icons/sun.svg" %}</span>
-						<span class="block dark:hidden ml-auto text-muted-foreground">{% include "icons/moon.svg" %}</span>
-					</button>
-
-					<hr role="separator" class="sm:hidden" />
-
-					<a href="https://devpu.sh/docs" target="_blank" role="menuitem" class="sm:hidden">
-						{{ _('Documentation') }}
-						<span class="ml-auto text-muted-foreground [&>svg]:size-3">
-							{% include "icons/external-link.svg" %}
-						</span>
-					</a>
-					<a href="https://devpu.sh/chat" target="_blank" role="menuitem" class="sm:hidden">
-						{{ _('Chat') }}
-						<span class="ml-auto text-muted-foreground [&>svg]:size-3">
-							{% include "icons/external-link.svg" %}
-						</span>
-					</a>
-
-					<hr role="separator" />
-					
-					<a href="{{ url_for('auth_logout') }}" role="menuitem">
-						{{ _('Sign out') }}
-					</a>
+				  {% include "partials/_menu-user.html" %}
 				{% endcall %}
 			{% endif %}
 		</nav>

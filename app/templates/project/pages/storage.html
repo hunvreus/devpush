@@ -48,7 +48,7 @@
         {% for association in associations %}
           <li class="flex gap-x-6 items-center border border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors min-w-0">
             <a
-              href="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name) }}"
+              href="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=association.storage.name) }}"
               class="flex items-center gap-x-2 font-medium [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
               data-tooltip="{{ _('%(type)s name', type=storage_types[association.storage.type]) }}"
               aria-label="{{ _('%(type)s name', type=storage_types[association.storage.type]) }}"
@@ -113,7 +113,7 @@
                     {
                       "icon": icon_settings,
                       "label": _("Settings"),
-                      "url": url_for('team_storage_item', team_slug=team.slug, storage_name=association.storage.name),
+                      "url": url_for('team_storage_settings', team_slug=team.slug, storage_name=association.storage.name),
                     },
                     {"type": "separator"},
                     {

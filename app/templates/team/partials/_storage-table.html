@@ -1,0 +1,154 @@
+{% from "macros/dialog.html" import dialog %}
+
+<header class="flex items-center justify-between px-4 py-2 h-12.5">
+  <span>
+    {{ _('Returned') }} {{ query_result.total }} {{ _('rows') }} · {{ (query_result.time * 1000) | round(1) }}ms
+  </span>
+
+  <div class="flex items-center gap-x-2">
+    {% if query_result.pages and query_result.pages > 1 %}
+      <nav class="flex items-center gap-x-2">
+        {% if query_result.page > 1 %}
+          <a
+            href="{{ url_for('team_storage_admin_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=request.query_params.get('table'), page=query_result.page - 1) }}"
+            class="btn-sm-icon-outline size-7"
+            hx-boost="true"
+          >
+            {% include "icons/chevron-left.svg" %}
+          </a>
+        {% else %}
+          <button class="btn-sm-icon-outline size-7" disabled>
+            {% include "icons/chevron-left.svg" %}
+          </button>
+        {% endif %}
+        <span>
+          {{ query_result.page }} of {{ query_result.pages }}
+        </span>
+        {% if query_result.page < query_result.pages %}
+          <a
+            href="{{ url_for('team_storage_admin_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=request.query_params.get('table'), page=query_result.page + 1) }}"
+            class="btn-sm-icon-outline size-7"
+            hx-boost="true"
+          >
+            {% include "icons/chevron-right.svg" %}
+          </a>
+        {% else %}
+          <button class="btn-sm-icon-outline size-7" disabled>
+            {% include "icons/chevron-right.svg" %}
+          </button>
+        {% endif %}
+      </nav>  
+    {% endif %}
+
+    {% if table_structure %}
+      {% set trigger %}{% include "icons/info.svg" %}{% endset %}
+      {% call dialog(
+        id="dialog-table-structure",
+        trigger=trigger,
+        title=_('Table structure'),
+        description=_('Columns, indexes and DDL for the "%(table)s" table.', table=request.query_params.get('table')),
+        trigger_attrs={
+          "class": "btn-sm-icon-outline h-7",
+          "aria-label": _('Structure'),
+          "data-tooltip": _('Structure'),
+          "data-side": "bottom",
+          "data-align": "end",
+        },
+        dialog_attrs={"class": "max-w-fit w-full"},
+        body_attrs={"class": "space-y-4 max-h-[70vh] overflow-y-auto scrollbar"},
+      ) %}
+        <div>
+          <h4 class="text-sm font-medium mb-2">{{ _('Columns') }}</h4>
+          <div class="rounded-xl border relative overflow-x-auto">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="pl-4">{{ _('Name') }}</th>
+                  <th>{{ _('Type') }}</th>
+                  <th>{{ _('Not null') }}</th>
+                  <th class="pr-4">{{ _('PK') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for column in table_structure.columns %}
+                  <tr>
+                    <td class="font-mono text-[13px] text-purple-600 dark:text-purple-400 pl-4">{{ column.name }}</td>
+                    <td class="font-mono text-[13px]">{{ column.type }}</td>
+                    <td>{{ _('Yes') if column.notnull else _('No') }}</td>
+                    <td class="pr-4">{{ _('Yes') if column.pk else _('No') }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="text-sm font-medium mb-2">{{ _('Indexes') }}</h4>
+          {% if table_structure.indexes %}
+            <div class="rounded-xl border relative overflow-x-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th class="pl-4">{{ _('Name') }}</th>
+                    <th>{{ _('Unique') }}</th>
+                    <th class="pr-4">{{ _('Columns') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for index in table_structure.indexes %}
+                    <tr>
+                      <td class="font-mono text-[13px] text-purple-600 dark:text-purple-400 pl-4">{{ index.name }}</td>
+                      <td>{{ _('Yes') if index.unique else _('No') }}</td>
+                      <td class="font-mono text-[13px] pr-4">{{ index.columns | join(', ') }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-sm text-muted-foreground">{{ _('No indexes') }}</p>
+          {% endif %}
+        </div>
+
+        {% if table_structure.ddl %}
+          <div>
+            <h4 class="text-sm font-medium mb-2">{{ _('DDL') }}</h4>
+            <pre class="text-[12px] bg-muted/50 rounded p-3 overflow-x-auto"><code>{{ table_structure.ddl }}</code></pre>
+          </div>
+        {% endif %}
+      {% endcall %}
+    {% endif %}
+  </div>
+</header>
+{% if query_result %}
+  <div class="overflow-y-auto flex-1 scrollbar">
+    <table class="table border-y">
+      <thead class="sticky top-0 bg-background">
+        <tr>
+          {% for column in query_result.columns %}
+            <th class="max-w-xs truncate first:pl-4 last:pr-4 border-r last:border-r-0">{{ column }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      {% if query_result.rows %}
+        <tbody>
+          {% for row in query_result.rows %}
+            <tr>
+              {% for column in query_result.columns %}
+                <td class="max-w-xs truncate font-mono text-[13px] first:pl-4 last:pr-4 border-r last:border-r-0">{{ row[column] if row[column] is not none else '<null>' }}</td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      {% endif %}
+    </table>
+  </div>
+{% else %}
+  <div class="flex-1 flex items-center justify-center">
+    <div class="text-muted-foreground flex items-center gap-x-2 [&>svg]:size-4">
+      {% include "icons/ban.svg" %}
+      {{ _('No data') }}
+    </div>
+  </div>
+{% endif %}

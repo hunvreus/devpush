@@ -1,0 +1,150 @@
+{% extends "layouts/base.html" %}
+
+{% block base_content %}
+{% from "macros/icon-avatar.html" import icon_avatar %}
+{% from "macros/dropdown-menu.html" import dropdown_menu %}
+{% from "macros/avatar.html" import avatar %}
+{% from "macros/sidebar.html" import sidebar %}
+
+{% set header %}
+  <div class="flex items-center gap-x-1">
+    <a
+      href="{{ url_for('team_index', team_slug=team.slug) }}"
+      class="btn-sm-icon-ghost"
+      hx-boost="true"
+    >
+      {{ avatar(item=team, prefix="team", name=team.name, size="xs") }}
+    </a>
+    <div class="text-muted-foreground/25 text-xl">/</div>
+    <a
+      href="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name) }}"
+      class="btn-sm-ghost pl-2"
+      hx-boost="true"
+    >
+      {{ icon_avatar(type=storage.type, size="xs") }}
+      <span class="truncate max-w-3xs">{{ storage.name }}</span>
+    </a>
+  </div>
+{% endset %}
+
+{% set footer %}
+  {% set trigger %}
+    {% set fallback %}
+      <img
+        src="https://unavatar.io/{{ current_user.email }}?fallback=https://avatar.vercel.sh/{{ current_user.email }}?size=120"
+        alt="{{ current_user.email }}"
+        class="size-6 rounded-full shrink-0"
+      >
+    {% endset %}
+    {{ avatar(item=current_user, prefix="user", name=current_user.name if current_user.name else current_user.username, class="!rounded-full", fallback=fallback) }}
+  {% endset %}
+  {% call dropdown_menu(
+    trigger=trigger,
+    trigger_attrs={"class": "btn-icon-sm-ghost rounded-full shrink-0 p-0 ml-3"},
+    popover_attrs={"data-align": "start", "data-side": "top"},
+  ) %}
+    {% include "partials/_menu-user.html" %}
+  {% endcall %}
+{% endset %}
+
+{% set icon_square_terminal %}{% include "icons/square-terminal.svg" %}{% endset %}
+{% set icon_table %}{% include "icons/table.svg" %}{% endset %}
+
+{% set table_items = [] %}
+{% for table in tables %}
+  {% set _ = table_items.append({
+    "label": table,
+    "url": url_for('team_storage_admin_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=table),
+    "current": request.scope.get('route').name == "team_storage_admin_data" and request.query_params.get('table') == table,
+    "attrs": {
+      "class": "[&>svg]:text-muted-foreground aria-[current='page']:[&>svg]:dark:text-sky-400 aria-[current='page']:[&>svg]:text-sky-600",
+      "hx-boost": "true",
+      "hx-target": "#content",
+      "hx-select": "#content",
+    },
+    "icon": icon_table
+  }) %}
+{% endfor %}
+
+{% set menu = [
+  {
+    "type": "group",
+    "items": [
+      {
+        "label": _("SQL"),
+        "url": url_for('team_storage_admin_sql', team_slug=team.slug, storage_name=storage.name),
+        "current": request.scope.route.name == "team_storage_admin_sql",
+        "attrs": {
+          "class": "[&>svg]:text-muted-foreground aria-[current='page']:[&>svg]:dark:text-green-400 aria-[current='page']:[&>svg]:text-green-600",
+          "hx-boost": "true",
+          "hx-target": "#content",
+          "hx-select": "#content",
+        },
+        "icon": icon_square_terminal
+      }
+    ]
+  },
+  {
+    "type": "group",
+    "label": _("Tables") ~ " (" ~ tables|length ~ ")",
+    "items": table_items
+  }
+] %}
+
+
+{{ sidebar(
+  id="sidebar",
+  header=header,
+  footer=footer,
+  menu=menu,
+  header_attrs={"class": "border-b h-12.5"},
+  content_attrs={"class": "scrollbar"},
+  footer_attrs={"class": "border-t"}
+) }}
+
+<main id="content" class="h-screen flex flex-col">
+  {% block content %}{% endblock %}
+</main>
+
+<script>
+  (() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const sidebar = document.getElementById('sidebar');
+      if (!sidebar) return;
+
+      const updateCurrentLinks = () => {
+        const currentPath = window.location.pathname.replace(/\/$/, '');
+        const currentSearch = window.location.search;
+        const currentKey = `${currentPath}${currentSearch}`;
+
+        sidebar.querySelectorAll('a, button').forEach((item) => {
+          const href = item.getAttribute('href');
+          if (!href) {
+            item.removeAttribute('aria-current');
+            return;
+          }
+
+          const url = new URL(href, window.location.origin);
+          const itemPath = url.pathname.replace(/\/$/, '');
+          const itemKey = `${itemPath}${url.search}`;
+
+          if (itemKey === currentKey) {
+            item.setAttribute('aria-current', 'page');
+          } else {
+            item.removeAttribute('aria-current');
+          }
+        });
+      };
+
+      document.addEventListener('htmx:afterSettle', updateCurrentLinks);
+      window.addEventListener('popstate', updateCurrentLinks);
+      updateCurrentLinks();
+    });
+  })();
+</script>
+
+{% from "macros/toast.html" import toaster %}
+{% call toaster(toasts=get_flashed_messages()) %}
+{{ toaster_header | safe }}
+{% endcall %}
+{% endblock %}

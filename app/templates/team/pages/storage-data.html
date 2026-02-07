@@ -1,0 +1,18 @@
+{% extends "team/layouts/storage-browse.html" %}
+
+{% block content %}
+{% if query_error %}
+  <div class="p-4 bg-destructive/10 text-destructive text-sm border-b">
+    {{ query_error }}
+  </div>
+{% elif not tables %}
+  <div class="flex-1 flex items-center justify-center">
+    <div class="text-center text-muted-foreground">
+      {% include "icons/database.svg" %}
+      <p class="mt-2">{{ _('No tables in this database') }}</p>
+    </div>
+  </div>
+{% elif query_result %}
+  {% include "team/partials/_storage-table.html" %}
+{% endif %}
+{% endblock %}

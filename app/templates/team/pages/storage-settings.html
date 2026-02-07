@@ -5,13 +5,6 @@
 {% from "macros/icon-avatar.html" import icon_avatar %}
 {% from "macros/copy.html" import copy %}
 
-{% set storage_types = {
-  "database": _("Database"),
-  "volume": _("Volume"),
-  "kv": _("KV"),
-  "queue": _("Queue")
-} %}
-
 <div class="container max-w-screen-xl mx-auto p-8 space-y-6">
   <header class="flex justify-between items-center">
     <h1 class="h1 flex items-center gap-x-3">
@@ -24,17 +17,11 @@
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
       <a href="{{ request.url_for('team_storage', team_slug=team.slug).include_query_params(storage_type=storage.type) }}">
-        {{ storage_types[storage.type] }}
+        {{ _('Databases') if storage.type == 'database' else _('Volumes') }}
       </a>
       <span class="text-muted-foreground/25 font-normal">/</span>
       {{ storage.name }}
     </h1>
-    {% if storage.type == "database" %}
-      <a href="{{ url_for('team_storage_browse', team_slug=team.slug, storage_name=storage.name) }}" class="btn">
-        {% include "icons/database.svg" %}
-        {{ _('Browse') }}
-      </a>
-    {% endif %}
   </header>
 
   <div class="flex flex-row-reverse gap-x-6">
@@ -42,6 +29,9 @@
       <a href="#usage" class="btn-sm-ghost justify-start">{{ _('Usage') }}</a>
       <a href="#general" class="btn-sm-ghost justify-start">{{ _('General') }}</a>
       <a href="#projects" class="btn-sm-ghost justify-start">{{ _('Projects') }}</a>
+      {% if storage.type == "database" %}
+        <a href="#db-admin" class="btn-sm-ghost justify-start">{{ _('Administration') }}</a>
+      {% endif %}
       {% if get_access(role, "admin") %}
         <a href="#danger" class="btn-sm-ghost justify-start text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20">{{ _('Danger') }}</a>
       {% endif %}
@@ -76,16 +66,22 @@
       </section>
 
       <section class="relative rounded-xl scroll-mt-[101px]" id="general">
-        {% include "team/partials/_storage-general.html" %}
+        {% include "team/partials/_storage-settings-general.html" %}
       </section>
 
       <section class="relative rounded-xl scroll-mt-[101px]" id="projects">
-        {% include "team/partials/_storage-associations.html" %}
+        {% include "team/partials/_storage-settings-associations.html" %}
       </section>
+
+      {% if storage.type == "database" %}
+        <section class="relative rounded-xl scroll-mt-[101px]" id="general">
+          {% include "team/partials/_storage-settings-db-admin.html" %}
+        </section>
+      {% endif %}
 
       {% if get_access(role, "admin") %}
         <section class="relative rounded-xl scroll-mt-[101px]" id="danger">
-          {% include "team/partials/_storage-danger.html" %}
+          {% include "team/partials/_storage-settings-danger.html" %}
         </section>
       {% endif %}
     </div>

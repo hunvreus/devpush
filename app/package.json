@@ -12,7 +12,7 @@
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.18",
     "alpinejs": "^3.15.3",
-    "basecoat-css": "^0.3.10",
+    "basecoat-css": "^0.3.11",
     "htmx-ext-sse": "^2.2.4",
     "htmx.org": "^2.0.8",
     "mjml": "^4.18.0",

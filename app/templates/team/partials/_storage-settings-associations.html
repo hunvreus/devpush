@@ -32,8 +32,8 @@
   
   <form
     method="post"
-    action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
-    hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
+    action="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
+    hx-post="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
     hx-target="closest .card"
     hx-swap="outerHTML"
     hx-on::before-request="document.activeElement && document.activeElement.blur()"
@@ -48,7 +48,7 @@
     <div
       class="flex-1 space-y-2 min-w-0"
       {% if not association %}
-      hx-get="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='environment_select') }}"
+      hx-get="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='environment_select') }}"
       hx-trigger="change"
       hx-target="next [data-environments]"
       hx-swap="innerHTML"
@@ -120,7 +120,7 @@
 
 <div
   class="card"
-  hx-get="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
+  hx-get="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='association') }}"
   hx-trigger="environments:updated from:window"
   hx-swap="outerHTML"
   hx-indicator="next .htmx-indicator"
@@ -190,8 +190,8 @@
                     <p>{{ _('To confirm, enter the project name <b>"%(project)s"</b> below.', project=association.project.name) | safe }}</p>
                     <form
                       method="post"
-                      action="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
-                      hx-post="{{ url_for('team_storage_item', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
+                      action="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
+                      hx-post="{{ url_for('team_storage_settings', team_slug=team.slug, storage_name=storage.name).include_query_params(fragment='delete_association') }}"
                       hx-swap="outerHTML"
                       hx-on::before-request="document.activeElement && document.activeElement.blur()"
                       hx-target="closest .card"

@@ -1,14 +1,17 @@
 import os
+import logging
+from typing import Any
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, Request, Query, HTTPException
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from arq.connections import ArqRedis
-import logging
-from typing import Any
 from authlib.jose import jwt
-from datetime import timedelta
+
+from utils import storage as storage_utils
 
 from models import (
     Project,
@@ -311,9 +314,9 @@ async def team_storage(
 @router.api_route(
     "/{team_slug}/storage/{storage_name}",
     methods=["GET", "POST"],
-    name="team_storage_item",
+    name="team_storage_settings",
 )
-async def team_storage_item(
+async def team_storage_settings(
     request: Request,
     fragment: str | None = Query(None),
     current_user: User = Depends(get_current_user),
@@ -522,7 +525,7 @@ async def team_storage_item(
             if request.headers.get("HX-Request"):
                 return TemplateResponse(
                     request=request,
-                    name="team/partials/_storage-associations.html",
+                    name="team/partials/_storage-settings-associations.html",
                     context={
                         "current_user": current_user,
                         "team": team,
@@ -539,7 +542,7 @@ async def team_storage_item(
             return RedirectResponse(
                 url=str(
                     request.url_for(
-                        "team_storage_item",
+                        "team_storage_settings",
                         team_slug=team.slug,
                         storage_name=storage.name,
                     )
@@ -549,7 +552,7 @@ async def team_storage_item(
         if request.headers.get("HX-Request"):
             return TemplateResponse(
                 request=request,
-                name="team/partials/_storage-associations.html",
+                name="team/partials/_storage-settings-associations.html",
                 context={
                     "current_user": current_user,
                     "team": team,
@@ -598,7 +601,7 @@ async def team_storage_item(
             if request.headers.get("HX-Request"):
                 return TemplateResponse(
                     request=request,
-                    name="team/partials/_storage-associations.html",
+                    name="team/partials/_storage-settings-associations.html",
                     context={
                         "current_user": current_user,
                         "team": team,
@@ -615,7 +618,7 @@ async def team_storage_item(
             return RedirectResponse(
                 url=str(
                     request.url_for(
-                        "team_storage_item",
+                        "team_storage_settings",
                         team_slug=team.slug,
                         storage_name=storage.name,
                     )
@@ -625,7 +628,7 @@ async def team_storage_item(
         if request.headers.get("HX-Request"):
             return TemplateResponse(
                 request=request,
-                name="team/partials/_storage-associations.html",
+                name="team/partials/_storage-settings-associations.html",
                 context={
                     "current_user": current_user,
                     "team": team,
@@ -646,7 +649,7 @@ async def team_storage_item(
 
     return TemplateResponse(
         request=request,
-        name="team/pages/storage-item.html",
+        name="team/pages/storage-settings.html",
         context={
             "current_user": current_user,
             "team": team,
@@ -665,14 +668,32 @@ async def team_storage_item(
     )
 
 
-@router.api_route(
-    "/{team_slug}/storage/{storage_name}/browse",
-    methods=["GET", "POST"],
-    name="team_storage_browse",
-)
-async def team_storage_browse(
+@router.get("/{team_slug}/storage/{storage_name}/admin", name="team_storage_admin")
+async def team_storage_admin(
     request: Request,
-    tab: str = Query("browse"),
+    team_slug: str,
+    storage_name: str,
+):
+    return RedirectResponse(
+        url=str(
+            request.url_for(
+                "team_storage_admin_sql",
+                team_slug=team_slug,
+                storage_name=storage_name,
+            )
+        ),
+        status_code=302,
+    )
+
+
+@router.get(
+    "/{team_slug}/storage/{storage_name}/admin/data",
+    name="team_storage_admin_data",
+)
+async def team_storage_admin_data(
+    request: Request,
+    table: str | None = Query(None),
+    page: int = Query(1),
     current_user: User = Depends(get_current_user),
     role: str = Depends(get_role),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
@@ -680,136 +701,109 @@ async def team_storage_browse(
     db: AsyncSession = Depends(get_db),
 ):
     team, membership = team_and_membership
-    settings = get_settings()
-
-    is_admin = get_access(role, "admin")
-    is_storage_creator = storage.created_by_user_id == current_user.id
-    if not is_admin and not is_storage_creator:
-        raise HTTPException(status_code=404, detail="Storage not found")
-
+    if not get_access(role, "creator"):
+        raise HTTPException(status_code=403, detail="Forbidden")
     if storage.type != "database":
-        raise HTTPException(status_code=400, detail="Browser only available for databases")
-
-    query_form: Any = await StorageQueryForm.from_formdata(request)
-    query_result = None
-    query_error = None
-    query_columns = []
-    query_rows = []
-    query_time = 0
-
-    db_path = (
-        f"{settings.data_dir}/storage/{storage.team_id}/database/{storage.name}/db.sqlite"
-    )
-
-    import sqlite3
-    import time
-
-    def nocase_collation(a, b):
-        return (a.lower() > b.lower()) - (a.lower() < b.lower())
-
-    def open_db(path):
-        conn = sqlite3.connect(path, timeout=5)
-        conn.row_factory = sqlite3.Row
-        conn.create_collation("NOCASE_UTF8", nocase_collation)
-        conn.create_collation("LIKE", nocase_collation)
-        return conn
+        raise HTTPException(status_code=400, detail="Only available for databases")
+    settings = get_settings()
+    db_path = f"{settings.data_dir}/storage/{storage.team_id}/database/{storage.name}/db.sqlite"
 
     tables = []
-    table_schemas = {}
+    query_result = None
+    query_error = None
+    table_structure = None
 
     try:
-        conn = open_db(db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        tables = [row[0] for row in cursor.fetchall() if not row[0].startswith("sqlite_")]
-
-        for table in tables:
-            cursor.execute(f"PRAGMA table_info({table})")
-            table_schemas[table] = [
-                {"name": row[1], "type": row[2], "notnull": row[3], "pk": row[5]}
-                for row in cursor.fetchall()
-            ]
-
-        conn.close()
+        tables, _schemas = storage_utils.get_tables(db_path)
     except Exception as e:
         query_error = str(e)
 
-    selected_table = request.query_params.get("table")
-    if selected_table and selected_table in tables and tab == "browse":
+    if not table and tables:
+        return RedirectResponse(
+            url=str(
+                request.url_for(
+                    "team_storage_admin_data",
+                    team_slug=team.slug,
+                    storage_name=storage.name,
+                ).include_query_params(table=tables[0])
+            ),
+            status_code=302,
+        )
+
+    if table and table not in tables:
+        raise HTTPException(status_code=404, detail="Table not found")
+
+    if table:
         try:
-            conn = open_db(db_path)
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA query_only = ON")
-
-            page = int(request.query_params.get("page", 1))
-            per_page = 50
-            offset = (page - 1) * per_page
-
-            cursor.execute(f"SELECT COUNT(*) FROM [{selected_table}]")
-            total_rows = cursor.fetchone()[0]
-
-            start = time.time()
-            cursor.execute(f"SELECT * FROM [{selected_table}] LIMIT {per_page} OFFSET {offset}")
-            query_rows = [dict(row) for row in cursor.fetchall()]
-            query_time = time.time() - start
-
-            if query_rows:
-                query_columns = list(query_rows[0].keys())
-
-            conn.close()
-
-            query_result = {
-                "columns": query_columns,
-                "rows": query_rows,
-                "total": total_rows,
-                "page": page,
-                "per_page": per_page,
-                "pages": (total_rows + per_page - 1) // per_page,
-                "time": query_time,
-            }
+            query_result = storage_utils.read_table(db_path, table, page)
+            table_structure = storage_utils.get_table_structure(db_path, table)
         except Exception as e:
             query_error = str(e)
 
-    if request.method == "POST" and tab == "query":
-        form_data = await request.form()
-        if "run_query" in form_data and await query_form.validate_on_submit():
-            sql = query_form.query.data.strip()
-            write_mode = query_form.write_mode.data == "1"
+    latest_teams = await get_latest_teams(
+        db=db, current_user=current_user, current_team=team
+    )
 
-            if write_mode and not get_access(role, "creator"):
+    return TemplateResponse(
+        request=request,
+        name="team/pages/storage-data.html",
+        context={
+            "current_user": current_user,
+            "team": team,
+            "role": role,
+            "storage": storage,
+            "tables": tables,
+            "query_result": query_result,
+            "query_error": query_error,
+            "table_structure": table_structure,
+            "latest_teams": latest_teams,
+        },
+    )
+
+
+@router.api_route(
+    "/{team_slug}/storage/{storage_name}/admin/sql",
+    methods=["GET", "POST"],
+    name="team_storage_admin_sql",
+)
+async def team_storage_sql(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    storage: Storage = Depends(get_storage_by_name),
+    db: AsyncSession = Depends(get_db),
+):
+    team, membership = team_and_membership
+    if not get_access(role, "creator"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if storage.type != "database":
+        raise HTTPException(status_code=400, detail="Only available for databases")
+    settings = get_settings()
+    db_path = f"{settings.data_dir}/storage/{storage.team_id}/database/{storage.name}/db.sqlite"
+
+    tables = []
+    query_form: Any = await StorageQueryForm.from_formdata(request)
+    query_result = None
+    query_error = None
+    can_write = get_access(role, "admin")
+
+    try:
+        tables, _schemas = storage_utils.get_tables(db_path)
+    except Exception as e:
+        query_error = str(e)
+
+    if request.method == "POST":
+        if await query_form.validate_on_submit():
+            sql = query_form.query.data.strip()
+            write_mode = query_form.write_mode.data
+            if write_mode and not can_write:
                 query_error = _("You don't have permission to run write queries.")
+            elif not write_mode and storage_utils.is_write_query(sql):
+                query_error = _("Write mode is disabled. Enable it to run this query.")
             else:
                 try:
-                    conn = open_db(db_path)
-                    cursor = conn.cursor()
-
-                    if not write_mode:
-                        cursor.execute("PRAGMA query_only = ON")
-
-                    start = time.time()
-                    cursor.execute(sql)
-                    query_time = time.time() - start
-
-                    if cursor.description:
-                        query_columns = [desc[0] for desc in cursor.description]
-                        query_rows = [dict(row) for row in cursor.fetchmany(1000)]
-                    else:
-                        query_columns = []
-                        query_rows = []
-
-                    if write_mode:
-                        conn.commit()
-
-                    conn.close()
-
-                    query_result = {
-                        "columns": query_columns,
-                        "rows": query_rows,
-                        "total": len(query_rows),
-                        "time": query_time,
-                        "affected": cursor.rowcount if not cursor.description else 0,
-                    }
+                    query_result = storage_utils.execute_query(db_path, sql, write_mode)
                 except Exception as e:
                     query_error = str(e)
 
@@ -819,22 +813,22 @@ async def team_storage_browse(
 
     return TemplateResponse(
         request=request,
-        name="team/pages/storage-browse.html",
+        name="team/pages/storage-sql.html",
         context={
             "current_user": current_user,
             "team": team,
             "role": role,
             "storage": storage,
-            "tab": tab,
             "tables": tables,
-            "table_schemas": table_schemas,
-            "selected_table": selected_table,
             "query_form": query_form,
             "query_result": query_result,
             "query_error": query_error,
+            "can_write": can_write,
             "latest_teams": latest_teams,
         },
     )
+
+
 
 
 @router.get(
