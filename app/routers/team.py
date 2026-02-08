@@ -668,29 +668,11 @@ async def team_storage_settings(
     )
 
 
-@router.get("/{team_slug}/storage/{storage_name}/admin", name="team_storage_admin")
-async def team_storage_admin(
-    request: Request,
-    team_slug: str,
-    storage_name: str,
-):
-    return RedirectResponse(
-        url=str(
-            request.url_for(
-                "team_storage_admin_sql",
-                team_slug=team_slug,
-                storage_name=storage_name,
-            )
-        ),
-        status_code=302,
-    )
-
-
 @router.get(
-    "/{team_slug}/storage/{storage_name}/admin/data",
-    name="team_storage_admin_data",
+    "/{team_slug}/storage/{storage_name}/data",
+    name="team_storage_data",
 )
-async def team_storage_admin_data(
+async def team_storage_data(
     request: Request,
     table: str | None = Query(None),
     page: int = Query(1),
@@ -722,7 +704,7 @@ async def team_storage_admin_data(
         return RedirectResponse(
             url=str(
                 request.url_for(
-                    "team_storage_admin_data",
+                    "team_storage_data",
                     team_slug=team.slug,
                     storage_name=storage.name,
                 ).include_query_params(table=tables[0])
@@ -762,9 +744,9 @@ async def team_storage_admin_data(
 
 
 @router.api_route(
-    "/{team_slug}/storage/{storage_name}/admin/sql",
+    "/{team_slug}/storage/{storage_name}/sql",
     methods=["GET", "POST"],
-    name="team_storage_admin_sql",
+    name="team_storage_sql",
 )
 async def team_storage_sql(
     request: Request,

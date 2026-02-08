@@ -54,8 +54,8 @@
 {% for table in tables %}
   {% set _ = table_items.append({
     "label": table,
-    "url": url_for('team_storage_admin_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=table),
-    "current": request.scope.get('route').name == "team_storage_admin_data" and request.query_params.get('table') == table,
+    "url": url_for('team_storage_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=table),
+    "current": request.scope.get('route').name == "team_storage_data" and request.query_params.get('table') == table,
     "attrs": {
       "class": "[&>svg]:text-muted-foreground aria-[current='page']:[&>svg]:dark:text-sky-400 aria-[current='page']:[&>svg]:text-sky-600",
       "hx-boost": "true",
@@ -72,8 +72,8 @@
     "items": [
       {
         "label": _("SQL"),
-        "url": url_for('team_storage_admin_sql', team_slug=team.slug, storage_name=storage.name),
-        "current": request.scope.route.name == "team_storage_admin_sql",
+        "url": url_for('team_storage_sql', team_slug=team.slug, storage_name=storage.name),
+        "current": request.scope.route.name == "team_storage_sql",
         "attrs": {
           "class": "[&>svg]:text-muted-foreground aria-[current='page']:[&>svg]:dark:text-green-400 aria-[current='page']:[&>svg]:text-green-600",
           "hx-boost": "true",

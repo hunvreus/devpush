@@ -10,7 +10,7 @@
       <nav class="flex items-center gap-x-2">
         {% if query_result.page > 1 %}
           <a
-            href="{{ url_for('team_storage_admin_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=request.query_params.get('table'), page=query_result.page - 1) }}"
+          href="{{ url_for('team_storage_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=request.query_params.get('table'), page=query_result.page - 1) }}"
             class="btn-sm-icon-outline size-7"
             hx-boost="true"
           >
@@ -26,7 +26,7 @@
         </span>
         {% if query_result.page < query_result.pages %}
           <a
-            href="{{ url_for('team_storage_admin_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=request.query_params.get('table'), page=query_result.page + 1) }}"
+          href="{{ url_for('team_storage_data', team_slug=team.slug, storage_name=storage.name).include_query_params(table=request.query_params.get('table'), page=query_result.page + 1) }}"
             class="btn-sm-icon-outline size-7"
             hx-boost="true"
           >

@@ -1,11 +1,11 @@
-{% extends "team/layouts/storage-browse.html" %}
+{% extends "team/layouts/storage-admin.html" %}
 
 {% block content %}
 <div class="shrink-0 border-b p-4">
   <form
     method="POST"
-    action="{{ url_for('team_storage_admin_sql', team_slug=team.slug, storage_name=storage.name) }}"
-    hx-post="{{ url_for('team_storage_admin_sql', team_slug=team.slug, storage_name=storage.name) }}"
+    action="{{ url_for('team_storage_sql', team_slug=team.slug, storage_name=storage.name) }}"
+    hx-post="{{ url_for('team_storage_sql', team_slug=team.slug, storage_name=storage.name) }}"
     hx-target="#query-result"
     hx-select="#query-result"
     hx-swap="innerHTML"
