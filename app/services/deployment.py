@@ -331,7 +331,8 @@ class DeploymentService:
                     else ["web"],
                 }
                 if settings.url_scheme == "https":
-                    router_config["tls"] = {"certResolver": "le"}
+                    # Force HTTP-0.1 ACME challenge
+                    router_config["tls"] = {"certResolver": "lehttp"}
                 routers[f"router-domain-{domain.id}"] = router_config
 
             elif domain.type in ["301", "302", "307", "308"]:
@@ -345,6 +346,9 @@ class DeploymentService:
                     if settings.url_scheme == "https"
                     else ["web"],
                 }
+                if settings.url_scheme == "https":
+                    # Force HTTP-0.1 ACME challenge
+                    router_cfg["tls"] = {"certResolver": "lehttp"}
                 routers[f"router-redirect-{domain.id}"] = router_cfg
 
                 middlewares[middleware_name] = {
@@ -404,7 +408,9 @@ class DeploymentService:
         runner_slug = config.get("runner") or config.get("image")
         if not runner_slug:
             raise ValueError("Runner not set in project config.")
-        registry_state = RegistryService(Path(get_settings().data_dir) / "registry").state
+        registry_state = RegistryService(
+            Path(get_settings().data_dir) / "registry"
+        ).state
         runner_entry = next(
             (
                 runner

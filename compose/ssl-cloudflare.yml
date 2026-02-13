@@ -13,6 +13,9 @@ services:
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
       - "--certificatesresolvers.le.acme.email=${LE_EMAIL}"
       - "--certificatesresolvers.le.acme.storage=/etc/traefik/dynamic_conf/acme.json"
+      - "--certificatesresolvers.lehttp.acme.email=${LE_EMAIL}"
+      - "--certificatesresolvers.lehttp.acme.storage=/etc/traefik/dynamic_conf/acme.json"
+      - "--certificatesresolvers.lehttp.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.le.acme.dnschallenge=true"
       - "--certificatesresolvers.le.acme.dnschallenge.provider=cloudflare"
     environment:

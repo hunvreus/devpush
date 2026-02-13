@@ -15,7 +15,7 @@
   class="group {{ class }}"
   data-tooltip="{{ attrs.tooltip if attrs.tooltip else _('Copy') }}"
   {% for key, value in attrs.items() %}
-    {% if key != 'tooltip' %}{{ key }}="{{ value }}"{% endif %}
+    {% if key != 'data-tooltip' %}{{ key }}="{{ value }}"{% endif %}
   {% endfor %}
   onclick='
     const button = this;

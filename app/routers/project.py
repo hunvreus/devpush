@@ -1956,6 +1956,8 @@ async def project_settings(
             verified, message, details = await DomainService(settings).verify_domain(
                 hostname=domain.hostname,
                 project_id=project.id,
+                environment_id=domain.environment_id,
+                db=db,
             )
             if verified:
                 domain.status = "active"

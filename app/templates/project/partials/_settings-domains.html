@@ -272,7 +272,8 @@
                           <td>
                             {{ copy(
                               value=env_id_hostname,
-                              class="btn-icon-ghost text-muted-foreground hover:text-accent-foreground"
+                              class="btn-icon-ghost text-muted-foreground hover:text-accent-foreground",
+                              attrs={"data-align": "end"}
                             ) }}
                           </td>
                         </tr>
@@ -282,6 +283,7 @@
                   {% if domain.is_apex %}
                     <p>{{ _('If your DNS provider does not support ANAME or ALIAS records, use an A record pointing to <code>%(server_ip)s</code>', server_ip=server_ip) | safe }}</p>
                   {% endif %}
+                  <p>{{ _('If your DNS provider supports CDN/proxy mode (for example Cloudflare), disable it while verifying this domain.') }}</p>
                   <p>{{ _('After changing the records, click "Verify" to check status.') }}</p>
                   <form
                     class="mt-2"

@@ -1,6 +1,9 @@
 import dns.resolver
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Settings
+from models import Deployment
 
 
 class DomainService:
@@ -14,9 +17,29 @@ class DomainService:
         return len(parts) == 2
 
     async def verify_domain(
-        self, hostname: str, project_id: str
+        self,
+        hostname: str,
+        project_id: str,
+        environment_id: str,
+        db: AsyncSession,
     ) -> tuple[bool, str, str | None]:
         try:
+            has_succeeded_deployment = (
+                await db.execute(
+                    select(Deployment.id).where(
+                        Deployment.project_id == project_id,
+                        Deployment.environment_id == environment_id,
+                        Deployment.conclusion == "succeeded",
+                    )
+                )
+            ).scalars().first() is not None
+            if not has_succeeded_deployment:
+                return (
+                    False,
+                    "Deployment required",
+                    f'No successful deployment found for environment "{environment_id}". Deploy this environment first, then verify again.',
+                )
+
             if self._is_apex_domain(hostname):
                 # Apex domain: check A record points to server IP
                 a_records = dns.resolver.resolve(hostname, "A")
