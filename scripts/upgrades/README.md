@@ -9,6 +9,7 @@ This directory contains versioned upgrade hooks and optional update metadata.
 ## Update Metadata
 - File format: `X.Y.Z.json`
 - Purpose: Declarative update scope defaults and user-facing reason.
+- Note: without metadata or CLI overrides, `update.sh` defaults to updating `app` only.
 - Keys:
   - `full` (boolean) to force a full stack update (equivalent to `--full`)
   - `components` (string) to default to a component set

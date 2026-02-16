@@ -32,6 +32,10 @@ This document describes the high‑level architecture of /dev/push, how the main
 - `scripts/`: Helper scripts for local (macOS) and production environments
 - `compose/`: Container orchestration with Docker Compose. Files: `base.yml`, `override.yml`, `override.dev.yml`, and SSL provider-specific files (`ssl-default.yml`, `ssl-cloudflare.yml`, etc.).
 
+Operational script notes:
+- `start.sh`, `stop.sh`, and `restart.sh` support component-scoped operations via `--components <csv>`.
+- `update.sh` defaults to updating `app` only; use `--all`, `--components`, `--full`, or `scripts/upgrades/*.json` metadata to widen update scope.
+
 ## System Diagram
 
 ```mermaid

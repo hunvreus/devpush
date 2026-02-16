@@ -16,6 +16,7 @@ Usage: update-apply.sh [--ref <tag>] [--all | --components <csv> | --full] [--no
 Apply a fetched update: validate, pull images, rollout, migrate, and record version.
 
   --ref <tag>       Git tag to record (best-effort if omitted)
+                    Default update scope is app only unless overridden by flags or upgrade metadata
   --all             Update app and workers (app,worker-jobs,worker-monitor)
   --components <csv>
                     Comma-separated list of services to update (${VALID_COMPONENTS//|/, })
@@ -106,7 +107,7 @@ ver_lte() {
 }
 
 # Versioned file helper
-default_components="app,worker-jobs,worker-monitor"
+default_components="app"
 meta_full=0
 meta_components=""
 meta_reason=""
@@ -298,7 +299,7 @@ if ((do_full==1)); then
   full_update
 fi
 
-# Option2: Components update (no downtime for app and workers)
+# Option2: Components update
 if ((do_full==0)); then
   if [[ -z "$comps" ]]; then
     if ((do_all==1)); then
@@ -315,7 +316,7 @@ if ((do_full==0)); then
     if [[ -n "$meta_reason" ]]; then
       printf "${YEL}Update reason: %s${NC}\n" "$meta_reason"
     fi
-    printf "${YEL}This will update and blue-green restart: %s${NC}\n" "${comps//,/ }"
+    printf "${YEL}This will update and restart components: %s${NC}\n" "${comps//,/ }"
     if [[ ! -t 0 ]]; then
       err "Non-interactive mode: pass --yes to proceed with component update"
       exit 1

@@ -9,10 +9,12 @@ init_script_logging "start"
 
 usage(){
   cat <<USG
-Usage: start.sh [--no-migrate] [--timeout <sec>] [-v|--verbose] [-h|--help]
+Usage: start.sh [--components <csv>] [--no-migrate] [--timeout <sec>] [-v|--verbose] [-h|--help]
 
 Start the /dev/push stack (dev or prod auto-detected).
 
+  --components <csv>
+                    Comma-separated list of services to start (${VALID_COMPONENTS//|/, })
   --no-migrate      Skip running database migrations after start
   --timeout <sec>   Max seconds to wait for app to become healthy (default: 60)
   -v, --verbose     Enable verbose output
@@ -23,8 +25,21 @@ USG
 
 run_migrations=1
 timeout=60
+comps=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --components)
+      comps="$2"
+      IFS=',' read -ra _st_secs <<< "$comps"
+      for comp in "${_st_secs[@]}"; do
+        comp="${comp// /}"
+        [[ -z "$comp" ]] && continue
+        if ! validate_component "$comp"; then
+          exit 1
+        fi
+      done
+      shift 2
+      ;;
     --timeout) timeout="$2"; shift 2 ;;
     --no-migrate) run_migrations=0; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
@@ -95,18 +110,39 @@ set_compose_base
 
 # Start stack
 printf '\n'
-if is_stack_running; then
+component_in_target() {
+  local target="$1"
+  [[ -z "$comps" ]] && return 0
+  IFS=',' read -ra _target_secs <<< "$comps"
+  for sec in "${_target_secs[@]}"; do
+    sec="${sec// /}"
+    [[ "$sec" == "$target" ]] && return 0
+  done
+  return 1
+}
+
+if [[ -n "$comps" ]]; then
+  IFS=',' read -ra _selected_services <<< "$comps"
+  selected_services=()
+  for service in "${_selected_services[@]}"; do
+    service="${service// /}"
+    [[ -n "$service" ]] && selected_services+=("$service")
+  done
+  run_cmd "Starting selected services" "${COMPOSE_BASE[@]}" up -d "${selected_services[@]}"
+elif is_stack_running; then
   run_cmd "Ensuring services are running" "${COMPOSE_BASE[@]}" up -d --remove-orphans
 else
   run_cmd "Starting services" "${COMPOSE_BASE[@]}" up -d --remove-orphans
 fi
 
 # Wait for app container to be healthy
-printf '\n'
-run_cmd "Waiting for app to be ready" wait_for_app_health "$timeout"
+if component_in_target "app"; then
+  printf '\n'
+  run_cmd "Waiting for app to be ready" wait_for_app_health "$timeout"
+fi
 
 # Run migrations when appropriate
-if ((run_migrations==1)); then
+if ((run_migrations==1)) && component_in_target "app"; then
   run_cmd "${CHILD_MARK} Running database migrations" bash "$SCRIPT_DIR/db-migrate.sh"
 fi
 

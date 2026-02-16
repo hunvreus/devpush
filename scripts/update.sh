@@ -21,6 +21,7 @@ Usage: update.sh [--ref <tag>] [--all | --components <csv> | --full] [--no-migra
 Update /dev/push by Git tag; performs rollouts (blue-green rollouts or simple restarts).
 
   --ref <tag>       Git tag to update to (default: latest stable tag)
+                    Default update scope is app only unless overridden by flags or upgrade metadata
   --all             Update app and workers (app,worker-jobs,worker-monitor)
   --components <csv>
                     Comma-separated list of services (${VALID_COMPONENTS//|/, })

@@ -82,10 +82,11 @@ See `registry/README.md` for the catalog format and override rules.
 
 **Key scripts**:
 
-- `./scripts/start.sh` / `stop.sh` / `restart.sh` — manage the stack
+- `./scripts/start.sh` / `stop.sh` / `restart.sh` — manage the full stack or selected components (`--components <csv>`)
 - `./scripts/compose.sh logs -f app` — view logs
 - `./scripts/db-generate.sh` — create database migration
 - `./scripts/clean.sh` — remove all Docker resources and data
+- `./scripts/update.sh` — update by ref (defaults to `app` only; use `--all` / `--components` / `--full` to expand scope)
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 
@@ -99,13 +100,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | `scripts/db-generate.sh`   | Generate Alembic migration (prompts for message)                                                                                                                                  |
 | `scripts/db-migrate.sh`    | Apply Alembic migrations (`--timeout <sec>`)                                                                                                                                      |
 | `scripts/install.sh`       | Server setup: Docker, user, clone repo, .env, systemd (`--repo <url>`, `--ref <ref>`, `--yes`, `--no-telemetry`, `--verbose`)                                                     |
-| `scripts/restart.sh`       | Restart services (`--no-migrate`)                                                                                                                                                 |
+| `scripts/restart.sh`       | Restart services (`--components <csv>`, `--no-migrate`)                                                                                                                            |
 | `scripts/restore.sh`       | Restore from backup archive (`--archive <file>`, `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--remove-runners`, `--timeout <sec>`, `--yes`, `--verbose`) |
-| `scripts/start.sh`         | Start stack (`--no-migrate`, `--timeout <sec>`, `--verbose`)                                                                                                                      |
+| `scripts/start.sh`         | Start stack (`--components <csv>`, `--no-migrate`, `--timeout <sec>`, `--verbose`)                                                                                                 |
 | `scripts/status.sh`        | Show stack status                                                                                                                                                                 |
-| `scripts/stop.sh`          | Stop services (`--hard`)                                                                                                                                                          |
+| `scripts/stop.sh`          | Stop services (`--components <csv>`, `--hard`)                                                                                                                                     |
 | `scripts/uninstall.sh`     | Uninstall from server (`--yes`, `--skip-backup`, `--no-telemetry`, `--verbose`)                                                                                                   |
-| `scripts/update.sh`        | Update by tag (`--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--verbose`)                                                    |
+| `scripts/update.sh`        | Update by tag (default updates `app` only; use `--all`, `--full`, or `--components <csv>` to expand scope) (`--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--verbose`) |
 
 ## Environment variables
 

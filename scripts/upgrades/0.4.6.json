@@ -1,0 +1,4 @@
+{
+  "components": "app,traefik",
+  "reason": "Reload Traefik static config for custom-domain HTTP-01 resolver (lehttp)"
+}
