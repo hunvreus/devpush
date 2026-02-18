@@ -1890,13 +1890,25 @@ async def project_settings(
                         raise ValueError(_("Domain not found."))
 
                     submitted_hostname = domain_form.hostname.data.lower()
-                    if domain.hostname != submitted_hostname:
+                    submitted_type = domain_form.type.data
+                    submitted_environment_id = domain_form.environment_id.data
+                    hostname_changed = domain.hostname != submitted_hostname
+                    type_changed = domain.type != submitted_type
+                    environment_changed = (
+                        domain.environment_id != submitted_environment_id
+                    )
+
+                    if hostname_changed:
                         domain.hostname = submitted_hostname
+                    if type_changed:
+                        domain.type = submitted_type
+                    if environment_changed:
+                        domain.environment_id = submitted_environment_id
+
+                    if hostname_changed or type_changed or environment_changed:
                         domain.status = "pending"
                         domain.message = None
                         domain.last_checked_at = None
-
-                    domain.environment_id = domain_form.environment_id.data
 
                     await db.commit()
                     flash(request, _("Domain updated."), "success")
