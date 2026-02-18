@@ -242,7 +242,7 @@
                   {% if domain.is_apex %}
                     <p>{{ _('Add a <code>ANAME</code> or <code>ALIAS</code> record at your domain provider:') | safe }}</p>
                   {% else %}
-                    <p>{{ _('Add a <code>CNAME</code> record at your domain provider:') | safe }}</p>
+                    <p>{{ _('Add a <code>CNAME</code> record (recommended), or an <code>A</code> record if needed:') | safe }}</p>
                   {% endif %}
                   <div class="overflow-y-auto w-full">
                     <table class="table w-full">
@@ -277,11 +277,33 @@
                             ) }}
                           </td>
                         </tr>
+                        {% if not domain.is_apex and server_ip %}
+                          <tr>
+                            <td>
+                              <code>A</code>
+                            </td>
+                            <td>
+                              <code>{{ domain.hostname.split(".")[0] }}</code>
+                            </td>
+                            <td class="truncate w-full max-w-1">
+                              {{ server_ip }}
+                            </td>
+                            <td>
+                              {{ copy(
+                                value=server_ip,
+                                class="btn-icon-ghost text-muted-foreground hover:text-accent-foreground",
+                                attrs={"data-align": "end"}
+                              ) }}
+                            </td>
+                          </tr>
+                        {% endif %}
                       </tbody>
                     </table>
                   </div>
                   {% if domain.is_apex %}
                     <p>{{ _('If your DNS provider does not support ANAME or ALIAS records, use an A record pointing to <code>%(server_ip)s</code>', server_ip=server_ip) | safe }}</p>
+                  {% elif server_ip %}
+                    <p>{{ _('If you use an A record instead of CNAME, point it to <code>%(server_ip)s</code>.', server_ip=server_ip) | safe }}</p>
                   {% endif %}
                   <p>{{ _('If your DNS provider supports CDN/proxy mode (for example Cloudflare), disable it while verifying this domain.') }}</p>
                   <p>{{ _('After changing the records, click "Verify" to check status.') }}</p>

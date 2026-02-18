@@ -43,17 +43,17 @@ class DomainService:
             if self._is_apex_domain(hostname):
                 # Apex domain: check A record points to server IP
                 a_records = dns.resolver.resolve(hostname, "A")
-                a_record_ip = str(a_records[0])
+                a_record_ips = [str(record) for record in a_records]
 
-                if a_record_ip != self.server_ip:
+                if self.server_ip not in a_record_ips:
                     return (
                         False,
                         "A record mismatch",
-                        f"A record points to {a_record_ip}, expected {self.server_ip}. "
+                        f"A record points to {', '.join(a_record_ips)}, expected {self.server_ip}. "
                         f"Add an A record pointing to {self.server_ip} or use ANAME/ALIAS if your DNS provider supports it.",
                     )
             else:
-                # Subdomain: check CNAME points to environment alias
+                # Subdomain: allow CNAME to deploy domain or A record to server IP.
                 try:
                     cname_records = dns.resolver.resolve(hostname, "CNAME")
                     cname_target = str(cname_records[0]).rstrip(".")
@@ -64,22 +64,27 @@ class DomainService:
                             False,
                             "CNAME target mismatch",
                             f"CNAME points to {cname_target}, expected to point to a subdomain of {self.deploy_domain}. "
-                            f"Add a CNAME record pointing to your environment alias.",
+                            f"Use a CNAME record pointing to your environment alias or an A record to {self.server_ip}.",
                         )
-                except dns.resolver.NXDOMAIN:
-                    return (
-                        False,
-                        "CNAME record not found",
-                        f"No CNAME record found for {hostname}. "
-                        f"Add a CNAME record pointing to your environment alias.",
-                    )
-                except dns.resolver.NoAnswer:
-                    return (
-                        False,
-                        "CNAME record not found",
-                        f"No CNAME record found for {hostname}. "
-                        f"Add a CNAME record pointing to your environment alias.",
-                    )
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+                    try:
+                        a_records = dns.resolver.resolve(hostname, "A")
+                        a_record_ips = [str(record) for record in a_records]
+                        if self.server_ip in a_record_ips:
+                            return True, "Domain verified successfully", None
+                        return (
+                            False,
+                            "A record mismatch",
+                            f"A record points to {', '.join(a_record_ips)}, expected {self.server_ip}. "
+                            f"Use a CNAME record pointing to your environment alias or an A record to {self.server_ip}.",
+                        )
+                    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+                        return (
+                            False,
+                            "DNS record not found",
+                            f"No CNAME or A record found for {hostname}. "
+                            f"Use a CNAME record pointing to your environment alias or an A record to {self.server_ip}.",
+                        )
 
             return True, "Domain verified successfully", None
 
