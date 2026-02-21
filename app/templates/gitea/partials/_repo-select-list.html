@@ -1,0 +1,46 @@
+{% if repos %}
+<ul>
+  {% for repo in repos %}
+    <li class="flex gap-x-2 items-center border border-b-0 last:border-b first:rounded-t-lg last:rounded-b-lg px-4 h-12 text-sm hover:bg-muted/50 transition-colors">
+      <a
+        href="{{ repo.html_url }}"
+        target="_blank"
+        class="truncate font-medium hover:underline"
+      >{{ repo.name }}</a>
+      {% if repo.private %}
+        <span class="text-muted-foreground [&>svg]:size-4">
+          {% include "icons/lock.svg" %}
+        </span>
+      {% endif %}
+      {% if repo.updated_at %}
+        <p class="text-muted-foreground truncate">{{ repo.updated_at | time_ago }}</p>
+      {% endif %}
+      {% if request.query_params.get('type') == 'new_project' %}
+        <a href="./new-project/details?provider=gitea&connection_id={{ connection_id }}&repo_id={{ repo.id }}&repo_owner={{ repo.owner.login }}&repo_name={{ repo.name }}&repo_default_branch={{ repo.default_branch }}" class="btn-sm ml-auto" hx-boost="true">
+          {{ _('Select') }}
+        </a>
+      {% else %}
+        <button
+          @click="$dispatch('repo-selected', {
+            id: {{ repo.id }},
+            owner: '{{ repo.owner.login }}',
+            name: '{{ repo.name }}',
+            defaultBranch: '{{ repo.default_branch }}',
+            fullName: '{{ repo.full_name }}',
+            provider: 'gitea',
+            connectionId: {{ connection_id }},
+            baseUrl: '{{ base_url }}'
+          })"
+          class="btn-sm ml-auto"
+        >
+          {{ _('Select') }}
+        </button>
+      {% endif %}
+    </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="bg-muted px-4 h-12 rounded-lg text-muted-foreground flex items-center justify-center">
+  {{ _('No repositories found') }}
+</p>
+{% endif %}

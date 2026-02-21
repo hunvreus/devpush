@@ -68,10 +68,10 @@
           </span>
 
           <a
-            href="https://github.com/{{ project.repo_full_name }}/commit/{{ commit['sha'] }}"
+            href="{{ project.repo_base_url }}/{{ project.repo_full_name }}/commit/{{ commit['sha'] }}"
             target="_blank"
             class="btn-sm-icon-ghost ml-auto [&>svg]:shrink-0"
-            data-tooltip="{{ _('View on GitHub') }}"
+            data-tooltip="{{ _('View commit') }}"
           >
             {% include "icons/arrow-up-right.svg" %}
           </a>

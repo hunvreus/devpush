@@ -463,6 +463,10 @@ class ProjectGeneralForm(StarletteForm):
     avatar = FileField(_l("Avatar"))
     delete_avatar = BooleanField(_l("Delete avatar"), default=False)
     repo_id = IntegerField(_l("Repo ID"), validators=[DataRequired()])
+    repo_full_name = HiddenField()
+    repo_provider = HiddenField()
+    repo_base_url = HiddenField()
+    connection_id = HiddenField()
 
     def validate_avatar(self, field):
         if field.data:

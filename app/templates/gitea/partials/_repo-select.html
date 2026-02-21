@@ -1,0 +1,75 @@
+{% if not connections %}
+<section
+  class="flex items-center justify-center min-h-60 bg-card text-card-foreground border shadow-sm rounded-xl p-4"
+>
+  <div class="max-w-sm">
+    <div class="text-center">
+      <h2 class="h4">{{ _('Connect a Gitea instance') }}</h2>
+      <p class="text-muted-foreground mt-1">
+        {{ _('Add a Gitea instance in your account settings to select repositories.') }}
+      </p>
+      <a class="btn-sm mt-4" href="{{ url_for('user_settings') }}#authentication">
+        {% include "icons/gitea.svg" %} {{ _('Go to settings') }}
+      </a>
+    </div>
+  </div>
+</section>
+{% else %}
+<section class="space-y-4 w-full">
+  <form
+    class="form flex gap-x-2 items-center"
+    hx-trigger="
+      keyup changed delay:500ms from:input[name='query'],
+      search from:input[name='query'],
+      change from:#gitea-connection-select
+    "
+    hx-get="{{ url_for('gitea_repo_list').include_query_params(type=request.query_params.get('type', '')) }}"
+    hx-target="next [role='listbox']"
+    hx-indicator="next div > .htmx-indicator"
+  >
+    <input type="hidden" name="connection_id" value="{{ selected_connection.id }}">
+    {% from "macros/select.html" import select %}
+    {% call select(
+      id="gitea-connection-select",
+      selected=selected_connection.id|string if selected_connection else '',
+      main_attrs={"@change": "
+        $el.closest('form').querySelector('input[name=connection_id]').value = $event.detail?.value || '';
+      "}
+    ) %}
+      {% for conn in connections %}
+      <div role="option" data-value="{{ conn.id }}">
+        <span class="flex items-center gap-x-2">
+          <span class="[&>svg]:size-4">{% include "icons/gitea.svg" %}</span>
+          {{ conn.base_url | replace('https://', '') | replace('http://', '') }}
+          <span class="text-muted-foreground text-xs">({{ conn.username }})</span>
+        </span>
+      </div>
+      {% endfor %}
+    {% endcall %}
+
+    <div class="relative flex-1">
+      <input
+        name="query"
+        type="search"
+        class="w-full !pl-9"
+        placeholder="{{ _('Search by name') }}"
+      />
+      <span
+        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-50 [&>svg]:size-4"
+      >
+        {% include "icons/search.svg" %}
+      </span>
+    </div>
+  </form>
+
+  <div class="relative">
+    <div class="h-60 htmx-indicator absolute inset-0 bg-background">
+      {% include "github/partials/_repo-select-list-skeleton.html" %}
+    </div>
+
+    <div role="listbox" aria-label="Repository list" aria-live="polite">
+      {% include "gitea/partials/_repo-select-list.html" %}
+    </div>
+  </div>
+</section>
+{% endif %}

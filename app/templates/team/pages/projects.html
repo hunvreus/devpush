@@ -41,10 +41,14 @@
               <span class="truncate">{{ project.hostname }}</span>
             </a>
 
-            <a href="https://github.com/{{ project.repo_full_name }}" target="_blank"
+            <a href="{{ project.repo_base_url }}/{{ project.repo_full_name }}" target="_blank"
               class="flex items-center gap-x-2 hover:text-foreground transition-colors text-muted-foreground [&>svg]:opacity-50 [&>svg]:dark:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0 min-w-0"
-              data-tooltip="{{ _('GitHub') }}">
-              {% include "icons/github.svg" %}
+              data-tooltip="{{ _('Repository') }}">
+              {% if project.repo_provider == 'gitea' %}
+                {% include "icons/gitea.svg" %}
+              {% else %}
+                {% include "icons/github.svg" %}
+              {% endif %}
               <span class="truncate">{{ project.repo_full_name }}</span>
             </a>
 

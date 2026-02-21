@@ -25,7 +25,7 @@
       {% include "icons/git-commit-horizontal.svg" %}
       <span class="truncate">{{ deployment.commit_meta.message }}</span>
     </span>
-    <a href="https://github.com/{{ deployment.repo_full_name }}/commit/{{ deployment.commit_sha }}" target="_blank" class="btn-sm-icon-ghost ml-auto" data-tooltip="{{ _('View on GitHub') }}">
+    <a href="{{ deployment.repo_base_url }}/{{ deployment.repo_full_name }}/commit/{{ deployment.commit_sha }}" target="_blank" class="btn-sm-icon-ghost ml-auto" data-tooltip="{{ _('View commit') }}">
       {% include "icons/arrow-up-right.svg" %}
     </a>
   </div>

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     github_app_webhook_secret: str = ""
     github_app_client_id: str = ""
     github_app_client_secret: str = ""
+    gitea_webhook_secret: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
     resend_api_key: str = ""

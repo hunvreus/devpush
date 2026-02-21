@@ -5,8 +5,6 @@ import json
 import logging
 from typing import Optional
 
-from services.github import GitHubService
-
 logger = logging.getLogger(__name__)
 
 
@@ -66,21 +64,18 @@ class PresetDetector:
 
     async def detect(
         self,
-        github_service: GitHubService,
-        user_access_token: str,
+        service,
+        user_access_token: str | None,
         repo_id: int,
         default_branch: str,
+        *,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
     ) -> Optional[dict]:
         """Detect preset from repository and return merged config.
 
-        Args:
-            github_service: GitHubService instance
-            user_access_token: User's GitHub OAuth token
-            repo_id: Repository ID
-            default_branch: Default branch name
-
-        Returns:
-            Dict with preset slug + merged config, or None if no match
+        For GitHub, pass the GitHubService + user_access_token + repo_id.
+        For Gitea, pass the GiteaService (token embedded) + repo_owner + repo_name.
         """
         if not self.patterns:
             logger.warning("No detection patterns configured")
@@ -88,9 +83,14 @@ class PresetDetector:
 
         try:
             logger.info(f"Fetching git tree for repo {repo_id}")
-            tree = await github_service.get_git_tree(
-                user_access_token, repo_id, sha=default_branch, recursive=True
-            )
+            if repo_owner and repo_name:
+                tree = await service.get_git_tree(
+                    repo_owner, repo_name, sha=default_branch, recursive=True
+                )
+            else:
+                tree = await service.get_git_tree(
+                    user_access_token, repo_id, sha=default_branch, recursive=True
+                )
 
             paths = {
                 item["path"] for item in tree.get("tree", []) if item["type"] == "blob"
@@ -106,10 +106,12 @@ class PresetDetector:
                 if await self._matches_pattern(
                     paths,
                     pattern,
-                    github_service,
+                    service,
                     user_access_token,
                     repo_id,
                     default_branch,
+                    repo_owner=repo_owner,
+                    repo_name=repo_name,
                 ):
                     matches.append(pattern)
                     logger.debug(f"Pattern matched: {pattern['preset']}")
@@ -139,10 +141,13 @@ class PresetDetector:
         self,
         paths: set[str],
         pattern: dict,
-        github_service: GitHubService,
-        user_access_token: str,
+        service,
+        user_access_token: str | None,
         repo_id: int,
         default_branch: str,
+        *,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
     ) -> bool:
         """Check if paths match a detection pattern."""
         if pattern.get("any_files"):
@@ -170,8 +175,9 @@ class PresetDetector:
             ]
             for py_file in py_files:
                 try:
-                    content = await github_service.get_file_content(
-                        user_access_token, repo_id, py_file, ref=default_branch
+                    content = await self._get_file(
+                        service, user_access_token, repo_id, py_file,
+                        default_branch, repo_owner, repo_name,
                     )
                     if content and pkg_check.lower() in content.lower():
                         found = True
@@ -181,8 +187,9 @@ class PresetDetector:
 
             if not found and "package.json" in paths:
                 try:
-                    content = await github_service.get_file_content(
-                        user_access_token, repo_id, "package.json", ref=default_branch
+                    content = await self._get_file(
+                        service, user_access_token, repo_id, "package.json",
+                        default_branch, repo_owner, repo_name,
                     )
                     if content and pkg_check.lower() in content.lower():
                         found = True
@@ -194,6 +201,20 @@ class PresetDetector:
 
         return True
 
+    async def _get_file(
+        self,
+        service,
+        user_access_token: str | None,
+        repo_id: int,
+        filepath: str,
+        ref: str,
+        repo_owner: str | None,
+        repo_name: str | None,
+    ) -> str | None:
+        if repo_owner and repo_name:
+            return await service.get_file_content(repo_owner, repo_name, filepath, ref=ref)
+        return await service.get_file_content(user_access_token, repo_id, filepath, ref=ref)
+
     def _path_matches(self, paths: set[str], pattern: str) -> bool:
         """Check if pattern matches any path (supports globs)."""
         if "*" in pattern or "?" in pattern:
@@ -202,15 +223,18 @@ class PresetDetector:
 
     async def detect_with_commands(
         self,
-        github_service: GitHubService,
-        user_access_token: str,
+        service,
+        user_access_token: str | None,
         repo_id: int,
         default_branch: str,
+        *,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
     ) -> dict:
         """Detect preset and extract build/start commands from package.json.
 
-        Returns:
-            Dictionary with preset + merged config fields
+        For GitHub, pass the GitHubService + user_access_token + repo_id.
+        For Gitea, pass the GiteaService (token embedded) + repo_owner + repo_name.
         """
         result = {
             "preset": None,
@@ -222,7 +246,8 @@ class PresetDetector:
         }
 
         detection = await self.detect(
-            github_service, user_access_token, repo_id, default_branch
+            service, user_access_token, repo_id, default_branch,
+            repo_owner=repo_owner, repo_name=repo_name,
         )
         if not detection:
             return result
@@ -238,8 +263,9 @@ class PresetDetector:
 
         if preset in ("nodejs", "bun"):
             try:
-                content = await github_service.get_file_content(
-                    user_access_token, repo_id, "package.json", ref=default_branch
+                content = await self._get_file(
+                    service, user_access_token, repo_id, "package.json",
+                    default_branch, repo_owner, repo_name,
                 )
 
                 if content:

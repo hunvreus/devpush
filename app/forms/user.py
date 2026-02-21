@@ -101,3 +101,20 @@ class UserOAuthAccessRevokeForm(StarletteForm):
         choices=["github", "google"],
     )
     submit = SubmitField(_l("Disconnect"))
+
+
+class GiteaConnectionCreateForm(StarletteForm):
+    base_url = StringField(
+        _l("Instance URL"),
+        validators=[DataRequired(), Length(max=512)],
+    )
+    token = StringField(
+        _l("Personal access token"),
+        validators=[DataRequired(), Length(max=512)],
+    )
+    submit = SubmitField(_l("Connect"))
+
+
+class GiteaConnectionDeleteForm(StarletteForm):
+    connection_id = HiddenField(validators=[DataRequired()])
+    submit = SubmitField(_l("Remove"))

@@ -12,7 +12,7 @@
     }
   ) %}
     <div
-      hx-get="{{ url_for('github_repo_select').include_query_params(account=repo_owner) }}"
+      hx-get="{% if project.repo_provider == 'gitea' %}{{ url_for('gitea_repo_select') }}{% else %}{{ url_for('github_repo_select').include_query_params(account=repo_owner) }}{% endif %}"
       hx-trigger="dialog:opened from:closest dialog once"
       class="flex items-start justify-center h-[296px]"
     >
@@ -52,12 +52,18 @@
     repoId: {{ project.repo_id }},
     repoOwner: '{{ project.repo_full_name.split('/')[0] }}',
     repoFullName: '{{ project.repo_full_name }}',
+    repoProvider: '{{ project.repo_provider }}',
+    repoBaseUrl: '{{ project.repo_base_url }}',
+    connectionId: '{{ project.gitea_connection_id or '' }}',
     deleteAvatar: false
   }"
   @repo-selected.document="
     repoId = $event.detail.id;
     repoOwner = $event.detail.owner;
     repoFullName = $event.detail.fullName;
+    if ($event.detail.provider) repoProvider = $event.detail.provider;
+    if ($event.detail.baseUrl) repoBaseUrl = $event.detail.baseUrl;
+    if ($event.detail.connectionId) connectionId = $event.detail.connectionId;
     changed = true;
   "
   @input="changed = true"
@@ -109,6 +115,26 @@
         class_="hidden",
         **{":value": "repoId"}
       ) }}
+      {{ general_form.repo_full_name(
+        id=False,
+        class_="hidden",
+        **{":value": "repoFullName"}
+      ) }}
+      {{ general_form.repo_provider(
+        id=False,
+        class_="hidden",
+        **{":value": "repoProvider"}
+      ) }}
+      {{ general_form.repo_base_url(
+        id=False,
+        class_="hidden",
+        **{":value": "repoBaseUrl"}
+      ) }}
+      {{ general_form.connection_id(
+        id=False,
+        class_="hidden",
+        **{":value": "connectionId"}
+      ) }}
       <div role="group" class="button-group">
         <button
           type="button"
@@ -119,18 +145,23 @@
             dialog.showModal();
           "
         >
-          <img :src="`https://github.com/${repoOwner}.png`" :alt="`${repoOwner}'s avatar`" class="size-5 rounded">
+          <template x-if="repoProvider === 'github'">
+            <img :src="`https://github.com/${repoOwner}.png`" :alt="`${repoOwner}'s avatar`" class="size-5 rounded">
+          </template>
+          <template x-if="repoProvider === 'gitea'">
+            <span class="size-5 [&>svg]:size-5">{% include "icons/gitea.svg" %}</span>
+          </template>
           <span x-text="repoFullName"></span>
           <span class="text-muted-foreground">
             {% include "icons/chevrons-up-down.svg" %}
           </span>
         </button>
         <a
-          :href="`https://github.com/${repoFullName}`"
+          :href="`${repoBaseUrl}/${repoFullName}`"
           target="_blank"
           class="btn-icon-outline text-muted-foreground hover:text-foreground"
-          data-tooltip="{{ _('View on GitHub') }}"
-          aria-label="{{ _('View on GitHub') }}"
+          data-tooltip="{{ _('View repository') }}"
+          aria-label="{{ _('View repository') }}"
         >
           {% include "icons/arrow-up-right.svg" %}
         </a>
