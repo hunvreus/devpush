@@ -41,8 +41,11 @@ def get_github_installation_service() -> GitHubInstallationService:
 
 
 @lru_cache
-def get_github_oauth_client() -> OAuth:
+def get_github_oauth_client() -> OAuth | None:
     settings = get_settings()
+    if not settings.github_app_client_id or not settings.github_app_client_secret:
+        return None
+
     oauth = OAuth()
     oauth.register(
         "github",
@@ -534,6 +537,8 @@ templates.env.globals["app_name"] = settings.app_name
 templates.env.globals["app_description"] = settings.app_description
 templates.env.globals["get_flashed_messages"] = get_flashed_messages
 templates.env.globals["toaster_header"] = settings.toaster_header
+templates.env.globals["has_github"] = settings.has_github
+templates.env.globals["has_gitea"] = settings.has_gitea
 templates.env.filters["time_ago"] = time_ago_filter
 templates.env.globals["get_access"] = get_access
 templates.env.globals["is_superadmin"] = is_superadmin

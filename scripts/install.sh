@@ -327,6 +327,7 @@ LE_EMAIL=
 CERT_CHALLENGE_PROVIDER=default # default|cloudflare|route53|gcloud|digitalocean|azure
 # CF_DNS_API_TOKEN=
 
+# Git provider (at least one of GitHub or Gitea must be configured)
 # GitHub App (see https://devpu.sh/gh-app)
 GITHUB_APP_ID=
 GITHUB_APP_NAME=
@@ -335,6 +336,9 @@ GITHUB_APP_WEBHOOK_SECRET=
 GITHUB_APP_CLIENT_ID=
 GITHUB_APP_CLIENT_SECRET=
 
+# Gitea
+# GITEA_WEBHOOK_SECRET=
+
 # Email
 EMAIL_SENDER_ADDRESS=
 RESEND_API_KEY=
@@ -342,7 +346,6 @@ RESEND_API_KEY=
 # Optional
 # GOOGLE_CLIENT_ID=
 # GOOGLE_CLIENT_SECRET=
-# GITEA_WEBHOOK_SECRET=
 # APP_NAME=/dev/push
 # APP_DESCRIPTION=
 # EMAIL_SENDER_NAME=/dev/push
