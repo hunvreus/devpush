@@ -493,12 +493,11 @@ async def github_webhook(
 
             case "installation_repositories":
                 if data["action"] == "removed":
-                    # Repositories removed from installation
                     removed_repos = data["repositories_removed"]
                     repo_ids = [repo["id"] for repo in removed_repos]
                     await db.execute(
                         update(Project)
-                        .where(Project.repo_id.in_(repo_ids))
+                        .where(Project.repo_id.in_(repo_ids), Project.repo_provider == "github")
                         .values(repo_status="removed")
                     )
                     await db.commit()
@@ -507,12 +506,11 @@ async def github_webhook(
                     )
 
                 elif data["action"] == "added":
-                    # Repositories are added to installation
                     added_repos = data["repositories_added"]
                     repo_ids = [repo["id"] for repo in added_repos]
                     await db.execute(
                         update(Project)
-                        .where(Project.repo_id.in_(repo_ids))
+                        .where(Project.repo_id.in_(repo_ids), Project.repo_provider == "github")
                         .values(repo_status="active")
                     )
                     await db.commit()
@@ -522,20 +520,18 @@ async def github_webhook(
 
             case "repository":
                 if data["action"] in ["deleted", "transferred"]:
-                    # Repository is deleted or transferred
                     await db.execute(
                         update(Project)
-                        .where(Project.repo_id == data["repository"]["id"])
+                        .where(Project.repo_id == data["repository"]["id"], Project.repo_provider == "github")
                         .values(repo_status=data["action"])
                     )
                     await db.commit()
                     logger.info(f"Repo {data['repository']['id']} is {data['action']}")
 
                 if data["action"] == "renamed":
-                    # Repository is renamed
                     await db.execute(
                         update(Project)
-                        .where(Project.repo_id == data["repository"]["id"])
+                        .where(Project.repo_id == data["repository"]["id"], Project.repo_provider == "github")
                         .values(repo_full_name=data["repository"]["full_name"])
                     )
                     await db.commit()
@@ -544,10 +540,10 @@ async def github_webhook(
                     )
 
             case "push":
-                # Code pushed to a repository
                 result = await db.execute(
                     select(Project).where(
                         Project.repo_id == data["repository"]["id"],
+                        Project.repo_provider == "github",
                         Project.status == "active",
                     )
                 )

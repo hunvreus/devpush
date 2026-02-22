@@ -3,13 +3,19 @@
 {% block app_content %}
 <div
   class="container max-w-screen-md mx-auto p-8 space-y-6"
-  x-init
+  x-data="{ provider: '{{ 'github' if has_github else 'gitea' }}' }"
   @repo-selected="
     const url = new URL('{{ url_for('new_project_details', team_slug=team.slug) }}', '{{ request.base_url }}');
     url.searchParams.set('repo_id', $event.detail.id);
     url.searchParams.set('repo_owner', $event.detail.owner);
     url.searchParams.set('repo_name', $event.detail.name);
     url.searchParams.set('repo_default_branch', $event.detail.defaultBranch);
+    if ($event.detail.provider) {
+      url.searchParams.set('provider', $event.detail.provider);
+    }
+    if ($event.detail.connectionId) {
+      url.searchParams.set('connection_id', $event.detail.connectionId);
+    }
     window.location = url.toString();
   "
 >
@@ -38,13 +44,51 @@
     </li>
   </ol>
 
-  <div
-    hx-get="{{ url_for('github_repo_select').include_query_params(type='new_project') }}"
-    hx-trigger="load"
-    hx-swap="outerHTML"    
-    class="flex items-center justify-center h-[292px] w-full"
-  >
-    {% include "github/partials/_repo-select-skeleton.html" %}
+  {% if has_github and has_gitea %}
+  <div class="flex gap-x-1 border-b mb-4">
+    <button
+      class="px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-x-2 [&>svg]:size-4"
+      :class="provider === 'github' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+      @click="provider = 'github'"
+    >
+      {% include "icons/github.svg" %}
+      GitHub
+    </button>
+    <button
+      class="px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-x-2 [&>svg]:size-4"
+      :class="provider === 'gitea' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+      @click="provider = 'gitea'"
+    >
+      {% include "icons/gitea.svg" %}
+      Gitea
+    </button>
   </div>
+  {% endif %}
+
+  {% if has_github %}
+  <div x-show="provider === 'github'">
+    <div
+      hx-get="{{ url_for('github_repo_select').include_query_params(type='new_project') }}"
+      hx-trigger="load"
+      hx-swap="outerHTML"
+      class="flex items-center justify-center h-[292px] w-full"
+    >
+      {% include "github/partials/_repo-select-skeleton.html" %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if has_gitea %}
+  <div x-show="provider === 'gitea'" {% if has_github %}x-cloak{% endif %}>
+    <div
+      hx-get="{{ url_for('gitea_repo_select').include_query_params(type='new_project') }}"
+      hx-trigger="intersect once"
+      hx-swap="outerHTML"
+      class="flex items-center justify-center h-[292px] w-full"
+    >
+      {% include "github/partials/_repo-select-skeleton.html" %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

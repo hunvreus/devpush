@@ -407,12 +407,6 @@ validate_env(){
     APP_HOSTNAME
     DEPLOY_DOMAIN
     EMAIL_SENDER_ADDRESS
-    GITHUB_APP_ID
-    GITHUB_APP_NAME
-    GITHUB_APP_PRIVATE_KEY
-    GITHUB_APP_WEBHOOK_SECRET
-    GITHUB_APP_CLIENT_ID
-    GITHUB_APP_CLIENT_SECRET
     SECRET_KEY
     ENCRYPTION_KEY
     POSTGRES_PASSWORD
@@ -426,6 +420,20 @@ validate_env(){
     value="$(read_env_value "$env_file" "$key")"
     [[ -n "$value" ]] || missing+=("$key")
   done
+
+  # Git provider: at least one of GitHub or Gitea must be configured
+  local github_keys=(GITHUB_APP_ID GITHUB_APP_NAME GITHUB_APP_PRIVATE_KEY GITHUB_APP_WEBHOOK_SECRET GITHUB_APP_CLIENT_ID GITHUB_APP_CLIENT_SECRET)
+  local has_all_github=true
+  for key in "${github_keys[@]}"; do
+    [[ -n "$(read_env_value "$env_file" "$key")" ]] || { has_all_github=false; break; }
+  done
+
+  local has_gitea=false
+  [[ -n "$(read_env_value "$env_file" GITEA_WEBHOOK_SECRET)" ]] && has_gitea=true
+
+  if [[ "$has_all_github" == false && "$has_gitea" == false ]]; then
+    missing+=("GITHUB_APP_* or GITEA_WEBHOOK_SECRET (at least one git provider required)")
+  fi
 
   # Email configuration: RESEND_API_KEY or SMTP settings
   local resend_key smtp_host smtp_username smtp_password

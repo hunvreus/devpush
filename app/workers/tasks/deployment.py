@@ -6,13 +6,14 @@ from sqlalchemy.orm import joinedload
 from pathlib import Path
 import shlex
 
-from models import Alias, Deployment, Project
+from models import Alias, Deployment, GiteaConnection, Project
 from db import AsyncSessionLocal
 from dependencies import (
     get_redis_client,
     get_github_installation_service,
 )
 from config import get_settings
+from sqlalchemy.orm import selectinload
 from arq.connections import ArqRedis
 from services.deployment import DeploymentService
 from services.registry import RegistryService
@@ -84,29 +85,53 @@ async def start_deployment(ctx, deployment_id: str):
                 # Prepare commands
                 commands = []
 
-                # Step 1: Clone the repository
                 commands.append(
                     f"echo 'Cloning {deployment.repo_full_name} (Branch: {deployment.branch}, Commit: {deployment.commit_sha[:7]})'"
                 )
-                github_installation = (
-                    await github_installation_service.get_or_refresh_installation(
-                        deployment.project.github_installation_id, db
+
+                if deployment.repo_provider == "gitea":
+                    gitea_conn = await db.scalar(
+                        select(GiteaConnection).where(
+                            GiteaConnection.id == deployment.project.gitea_connection_id
+                        )
                     )
-                )
-                env_vars_dict["DEVPUSH_GITHUB_TOKEN"] = github_installation.token
-                commands.append(
-                    "git init -q && "
-                    "printf '%s\n' "
-                    "'#!/bin/sh' "
-                    '\'case "$1" in *Username*) echo "x-access-token";; *) echo "$DEVPUSH_GITHUB_TOKEN";; esac\' '
-                    "> /tmp/devpush-git-askpass && "
-                    "chmod 700 /tmp/devpush-git-askpass && "
-                    "export GIT_ASKPASS=/tmp/devpush-git-askpass GIT_TERMINAL_PROMPT=0 && "
-                    f"git fetch -q --depth 1 https://github.com/{deployment.repo_full_name}.git {deployment.commit_sha} && "
-                    "git checkout -q FETCH_HEAD && "
-                    "unset GIT_ASKPASS GIT_TERMINAL_PROMPT DEVPUSH_GITHUB_TOKEN && "
-                    "rm -f /tmp/devpush-git-askpass"
-                )
+                    if not gitea_conn:
+                        raise ValueError("Gitea connection not found for deployment.")
+                    env_vars_dict["DEVPUSH_GIT_TOKEN"] = gitea_conn.token
+                    clone_url = f"{deployment.repo_base_url}/{deployment.repo_full_name}.git"
+                    commands.append(
+                        "git init -q && "
+                        "printf '%s\\n' "
+                        "'#!/bin/sh' "
+                        "'case \"$1\" in *Username*) echo \"x-access-token\";; *) echo \"$DEVPUSH_GIT_TOKEN\";; esac' "
+                        "> /tmp/devpush-git-askpass && "
+                        "chmod 700 /tmp/devpush-git-askpass && "
+                        "export GIT_ASKPASS=/tmp/devpush-git-askpass GIT_TERMINAL_PROMPT=0 && "
+                        f"git fetch -q --depth 1 {clone_url} {deployment.commit_sha} && "
+                        "git checkout -q FETCH_HEAD && "
+                        "unset GIT_ASKPASS GIT_TERMINAL_PROMPT DEVPUSH_GIT_TOKEN && "
+                        "rm -f /tmp/devpush-git-askpass"
+                    )
+                else:
+                    github_installation = (
+                        await github_installation_service.get_or_refresh_installation(
+                            deployment.project.github_installation_id, db
+                        )
+                    )
+                    env_vars_dict["DEVPUSH_GITHUB_TOKEN"] = github_installation.token
+                    commands.append(
+                        "git init -q && "
+                        "printf '%s\\n' "
+                        "'#!/bin/sh' "
+                        "'case \"$1\" in *Username*) echo \"x-access-token\";; *) echo \"$DEVPUSH_GITHUB_TOKEN\";; esac' "
+                        "> /tmp/devpush-git-askpass && "
+                        "chmod 700 /tmp/devpush-git-askpass && "
+                        "export GIT_ASKPASS=/tmp/devpush-git-askpass GIT_TERMINAL_PROMPT=0 && "
+                        f"git fetch -q --depth 1 https://github.com/{deployment.repo_full_name}.git {deployment.commit_sha} && "
+                        "git checkout -q FETCH_HEAD && "
+                        "unset GIT_ASKPASS GIT_TERMINAL_PROMPT DEVPUSH_GITHUB_TOKEN && "
+                        "rm -f /tmp/devpush-git-askpass"
+                    )
 
                 # Step 2: Change root directory
                 normalized_root_directory = (

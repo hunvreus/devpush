@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     app_name: str = "/dev/push"
     app_description: str = (
-        "An open-source platform to build and deploy any app from GitHub."
+        "An open-source platform to build and deploy any app from a Git repository."
     )
     url_scheme: str = "https"
     app_hostname: str = ""
@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     github_app_webhook_secret: str = ""
     github_app_client_id: str = ""
     github_app_client_secret: str = ""
+    gitea_webhook_secret: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
     resend_api_key: str = ""
@@ -77,6 +78,21 @@ class Settings(BaseSettings):
     server_ip: str = "127.0.0.1"
 
     model_config = SettingsConfigDict(extra="ignore")
+
+    @property
+    def has_github(self) -> bool:
+        return bool(
+            self.github_app_id
+            and self.github_app_name
+            and self.github_app_private_key
+            and self.github_app_webhook_secret
+            and self.github_app_client_id
+            and self.github_app_client_secret
+        )
+
+    @property
+    def has_gitea(self) -> bool:
+        return bool(self.gitea_webhook_secret)
 
     @property
     def allow_custom_cpu(self) -> bool:

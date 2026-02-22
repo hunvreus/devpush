@@ -14,21 +14,25 @@
       }"
     >
       {% include "auth/partials/_form-email.html" %}
-      <hr>
-      <button
-        class="btn-outline w-full"
-        @click="
-          loading = 'github';
-          window.location.href = '{{ url_for('auth_github_login') }}';
-        "
-        :disabled="loading"
-      >
-        {% include "icons/github.svg" %}
-        {{ _("Continue with GitHub") }}
-        <span x-show="loading === 'github'" class="[&>svg]:size-4 [&>svg]:animate-spin">
-          {% include "icons/loader.svg" %}
-        </span>
-      </button>
+      {% if has_github_login or has_google_login %}
+        <hr>
+      {% endif %}
+      {% if has_github_login %}
+        <button
+          class="btn-outline w-full"
+          @click="
+            loading = 'github';
+            window.location.href = '{{ url_for('auth_github_login') }}';
+          "
+          :disabled="loading"
+        >
+          {% include "icons/github.svg" %}
+          {{ _("Continue with GitHub") }}
+          <span x-show="loading === 'github'" class="[&>svg]:size-4 [&>svg]:animate-spin">
+            {% include "icons/loader.svg" %}
+          </span>
+        </button>
+      {% endif %}
       {% if has_google_login %}
         <button
           class="btn-outline w-full"

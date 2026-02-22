@@ -14,6 +14,7 @@
           <div class="text-muted-foreground">{{ current_user.email }}</div>
         </form>
       </li>
+      {% if has_github %}
       <li class="flex items-center gap-x-6 border border-border/100 border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors bg-clip-padding [&>svg]:size-4 {% if not github_username %}[&>svg]:grayscale [&>svg]:opacity-50{% endif %}">
         {% include "icons/github.svg" %}
         <div class="font-medium {% if not github_username %}text-muted-foreground{% endif %}">{{ _('GitHub') }}</div>
@@ -58,6 +59,7 @@
           </a>
         {% endif %}
       </li>
+      {% endif %}
       <li class="flex items-center gap-x-6 border border-border/100 border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors bg-clip-padding [&>svg]:size-4 {% if not google_email %}[&>svg]:grayscale{% endif %}">
         {% include "icons/google.svg" %}
         <div class="font-medium {% if not google_email %}text-muted-foreground{% endif %}">{{ _('Google') }}</div>
@@ -103,6 +105,65 @@
         {% endif %}
       </li>
     </ul>
+  </section>
+</div>
+
+<div class="card">
+  <header class="border-b">
+    <h2>{{ _("Gitea instances") }}</h2>
+    <p>{{ _("Connect self-hosted Gitea instances using a personal access token.") }}</p>
+  </header>
+
+  <section>
+    {% if gitea_connections %}
+      <ul class="mb-4">
+        {% for conn in gitea_connections %}
+          <li class="flex items-center gap-x-4 border border-border/100 border-b-0 last:border-b first:rounded-t-xl last:rounded-b-xl px-4 h-12 text-sm hover:bg-muted/50 transition-colors bg-clip-padding [&>svg]:size-4">
+            {% include "icons/gitea.svg" %}
+            <div class="font-medium truncate">{{ conn.base_url }}</div>
+            <div class="text-muted-foreground text-xs">{{ conn.username }}</div>
+            <form
+              class="ml-auto"
+              method="post"
+              action="{{ url_for('user_settings').include_query_params(fragment='gitea_delete') }}"
+              hx-post="{{ url_for('user_settings').include_query_params(fragment='gitea_delete') }}"
+              hx-target="closest .card"
+              hx-swap="outerHTML"
+              hx-confirm="{{ _('Remove this Gitea instance?') }}"
+            >
+              {{ gitea_delete_form.csrf_token }}
+              <input type="hidden" name="connection_id" value="{{ conn.id }}">
+              <button class="btn-sm-ghost text-destructive">{{ _('Remove') }}</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    <form
+      method="post"
+      action="{{ url_for('user_settings').include_query_params(fragment='gitea_create') }}"
+      hx-post="{{ url_for('user_settings').include_query_params(fragment='gitea_create') }}"
+      hx-target="closest .card"
+      hx-swap="outerHTML"
+      class="flex flex-col gap-y-3"
+    >
+      {{ gitea_create_form.csrf_token }}
+      <div class="form-group">
+        <label for="base_url" class="label">{{ _('Instance URL') }}</label>
+        <input type="url" name="base_url" id="base_url" class="input" placeholder="https://gitea.example.com" value="{{ gitea_create_form.base_url.data or '' }}" required>
+      </div>
+      <div class="form-group">
+        <label for="token" class="label">{{ _('Personal access token') }}</label>
+        <input type="password" name="token" id="token" class="input" placeholder="giteatoken_..." required>
+      </div>
+      <div>
+        <button type="submit" class="btn-sm-outline">
+          {% include "icons/plus.svg" %}
+          {{ _('Add instance') }}
+        </button>
+      </div>
+    </form>
   </section>
 </div>
 

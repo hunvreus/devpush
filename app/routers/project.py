@@ -36,6 +36,7 @@ from models import (
     User,
     Team,
     TeamMember,
+    GiteaConnection,
     Storage,
     StorageProject,
     utc_now,
@@ -65,6 +66,7 @@ from config import get_settings, Settings
 from db import get_db
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
+from services.gitea import GiteaService
 from services.deployment import DeploymentService
 from services.domain import DomainService
 from services.preset_detector import PresetDetector
@@ -196,6 +198,8 @@ async def new_project_details(
     repo_owner: str = Query(None),
     repo_name: str = Query(None),
     repo_default_branch: str = Query(None),
+    provider: str = Query("github"),
+    connection_id: int | None = Query(None),
     fragment: str = Query(None),
     current_user: User = Depends(get_current_user),
     team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
@@ -228,55 +232,72 @@ async def new_project_details(
         form.name.data = repo_name
         form.production_branch.data = repo_default_branch
 
-        # Handle build_and_deploy fragment with framework detection
         if fragment == "build_and_deploy":
             try:
-                github_oauth_token = await get_user_github_token(db, current_user)
-                if github_oauth_token:
-                    detector = PresetDetector(enabled_presets)
-
-                    # Run detection with 5 second timeout
-                    detection = await asyncio.wait_for(
-                        detector.detect_with_commands(
-                            github_service,
-                            github_oauth_token,
-                            int(repo_id),
-                            repo_default_branch,
-                        ),
-                        timeout=5.0,
-                    )
-
-                    # If preset detected, get preset config and set all form fields
-                    if detection["preset"]:
-                        preset_entry = next(
-                            (
-                                p
-                                for p in enabled_presets
-                                if p["slug"] == detection["preset"]
-                            ),
-                            None,
+                if provider == "gitea" and connection_id:
+                    conn = await db.scalar(
+                        select(GiteaConnection).where(
+                            GiteaConnection.id == connection_id,
+                            GiteaConnection.user_id == current_user.id,
                         )
-
-                        if preset_entry:
-                            preset_config = preset_entry.get("config", {})
-                            form.preset.data = detection["preset"]
-                            form.runner.data = detection.get(
-                                "runner"
-                            ) or preset_config.get("runner")
-                            root_directory = detection.get(
-                                "root_directory"
-                            ) or preset_config.get("root_directory")
-                            if root_directory:
-                                form.root_directory.data = root_directory
-                            form.build_command.data = detection.get(
-                                "build_command"
-                            ) or preset_config.get("build_command")
-                            form.start_command.data = detection.get(
-                                "start_command"
-                            ) or preset_config.get("start_command")
-                            form.pre_deploy_command.data = detection.get(
-                                "pre_deploy_command"
-                            ) or preset_config.get("pre_deploy_command")
+                    )
+                    if conn:
+                        gitea_svc = GiteaService(conn.base_url, conn.token)
+                        detector = PresetDetector(enabled_presets)
+                        detection = await asyncio.wait_for(
+                            detector.detect_with_commands(
+                                gitea_svc,
+                                None,
+                                int(repo_id),
+                                repo_default_branch,
+                                repo_owner=repo_owner,
+                                repo_name=repo_name,
+                            ),
+                            timeout=5.0,
+                        )
+                        if detection["preset"]:
+                            preset_entry = next(
+                                (p for p in enabled_presets if p["slug"] == detection["preset"]),
+                                None,
+                            )
+                            if preset_entry:
+                                preset_config = preset_entry.get("config", {})
+                                form.preset.data = detection["preset"]
+                                form.runner.data = detection.get("runner") or preset_config.get("runner")
+                                root_directory = detection.get("root_directory") or preset_config.get("root_directory")
+                                if root_directory:
+                                    form.root_directory.data = root_directory
+                                form.build_command.data = detection.get("build_command") or preset_config.get("build_command")
+                                form.start_command.data = detection.get("start_command") or preset_config.get("start_command")
+                                form.pre_deploy_command.data = detection.get("pre_deploy_command") or preset_config.get("pre_deploy_command")
+                else:
+                    github_oauth_token = await get_user_github_token(db, current_user)
+                    if github_oauth_token:
+                        detector = PresetDetector(enabled_presets)
+                        detection = await asyncio.wait_for(
+                            detector.detect_with_commands(
+                                github_service,
+                                github_oauth_token,
+                                int(repo_id),
+                                repo_default_branch,
+                            ),
+                            timeout=5.0,
+                        )
+                        if detection["preset"]:
+                            preset_entry = next(
+                                (p for p in enabled_presets if p["slug"] == detection["preset"]),
+                                None,
+                            )
+                            if preset_entry:
+                                preset_config = preset_entry.get("config", {})
+                                form.preset.data = detection["preset"]
+                                form.runner.data = detection.get("runner") or preset_config.get("runner")
+                                root_directory = detection.get("root_directory") or preset_config.get("root_directory")
+                                if root_directory:
+                                    form.root_directory.data = root_directory
+                                form.build_command.data = detection.get("build_command") or preset_config.get("build_command")
+                                form.start_command.data = detection.get("start_command") or preset_config.get("start_command")
+                                form.pre_deploy_command.data = detection.get("pre_deploy_command") or preset_config.get("pre_deploy_command")
 
             except asyncio.TimeoutError:
                 logger.warning(f"Framework detection timed out for repo {repo_id}")
@@ -300,48 +321,6 @@ async def new_project_details(
             )
 
     if request.method == "POST" and await form.validate_on_submit():
-        try:
-            github_oauth_token = await get_user_github_token(db, current_user)
-            if not github_oauth_token:
-                raise ValueError("GitHub OAuth token missing.")
-
-            if not form.repo_id.data:
-                raise ValueError("Repository ID missing.")
-
-            repo = await github_service.get_repository(
-                github_oauth_token, int(form.repo_id.data)
-            )
-        except Exception:
-            flash(request, "You do not have access to this repository.", "error")
-            return RedirectResponse(
-                request.url_for("new_project", team_slug=team.slug), status_code=303
-            )
-
-        try:
-            installation = await github_service.get_repository_installation(
-                repo["full_name"]
-            )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                flash(
-                    request,
-                    _(
-                        "Install the GitHub app on %(repo)s to continue.",
-                        repo=repo["full_name"],
-                    ),
-                    "error",
-                )
-                return RedirectResponse(
-                    request.url_for("new_project", team_slug=team.slug), status_code=303
-                )
-            raise
-
-        github_installation = (
-            await github_installation_service.get_or_refresh_installation(
-                installation["id"], db
-            )
-        )
-
         env_vars = [
             {
                 "key": entry.key.data,
@@ -351,33 +330,126 @@ async def new_project_details(
             for entry in form.env_vars
         ]
 
-        project = Project(
-            name=form.name.data,
-            repo_id=form.repo_id.data,
-            repo_full_name=repo["full_name"],
-            github_installation=github_installation,
-            config={
-                "preset": form.preset.data,
-                "runner": form.runner.data,
-                "root_directory": form.root_directory.data,
-                "build_command": form.build_command.data,
-                "pre_deploy_command": form.pre_deploy_command.data,
-                "start_command": form.start_command.data,
-            },
-            env_vars=env_vars,
-            environments=[
-                {
-                    "id": "prod",
-                    "color": "blue",
-                    "name": "Production",
-                    "slug": "production",
-                    "branch": form.production_branch.data,
-                    "status": "active",
-                }
-            ],
-            team=team,
-            created_by_user_id=current_user.id,
-        )
+        if provider == "gitea" and connection_id:
+            conn = await db.scalar(
+                select(GiteaConnection).where(
+                    GiteaConnection.id == connection_id,
+                    GiteaConnection.user_id == current_user.id,
+                )
+            )
+            if not conn:
+                flash(request, _("Gitea connection not found."), "error")
+                return RedirectResponse(
+                    request.url_for("new_project", team_slug=team.slug), status_code=303
+                )
+            try:
+                gitea_svc = GiteaService(conn.base_url, conn.token)
+                repo = await gitea_svc.get_repo(repo_owner, repo_name)
+            except Exception:
+                flash(request, _("You do not have access to this repository."), "error")
+                return RedirectResponse(
+                    request.url_for("new_project", team_slug=team.slug), status_code=303
+                )
+
+            project = Project(
+                name=form.name.data,
+                repo_provider="gitea",
+                repo_id=repo["id"],
+                repo_full_name=repo["full_name"],
+                repo_base_url=conn.base_url,
+                gitea_connection_id=conn.id,
+                config={
+                    "preset": form.preset.data,
+                    "runner": form.runner.data,
+                    "root_directory": form.root_directory.data,
+                    "build_command": form.build_command.data,
+                    "pre_deploy_command": form.pre_deploy_command.data,
+                    "start_command": form.start_command.data,
+                },
+                env_vars=env_vars,
+                environments=[
+                    {
+                        "id": "prod",
+                        "color": "blue",
+                        "name": "Production",
+                        "slug": "production",
+                        "branch": form.production_branch.data,
+                        "status": "active",
+                    }
+                ],
+                team=team,
+                created_by_user_id=current_user.id,
+            )
+        else:
+            try:
+                github_oauth_token = await get_user_github_token(db, current_user)
+                if not github_oauth_token:
+                    raise ValueError("GitHub OAuth token missing.")
+                if not form.repo_id.data:
+                    raise ValueError("Repository ID missing.")
+                repo = await github_service.get_repository(
+                    github_oauth_token, int(form.repo_id.data)
+                )
+            except Exception:
+                flash(request, _("You do not have access to this repository."), "error")
+                return RedirectResponse(
+                    request.url_for("new_project", team_slug=team.slug), status_code=303
+                )
+
+            try:
+                installation = await github_service.get_repository_installation(
+                    repo["full_name"]
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    flash(
+                        request,
+                        _(
+                            "Install the GitHub app on %(repo)s to continue.",
+                            repo=repo["full_name"],
+                        ),
+                        "error",
+                    )
+                    return RedirectResponse(
+                        request.url_for("new_project", team_slug=team.slug), status_code=303
+                    )
+                raise
+
+            github_installation = (
+                await github_installation_service.get_or_refresh_installation(
+                    installation["id"], db
+                )
+            )
+
+            project = Project(
+                name=form.name.data,
+                repo_provider="github",
+                repo_id=form.repo_id.data,
+                repo_full_name=repo["full_name"],
+                repo_base_url="https://github.com",
+                github_installation=github_installation,
+                config={
+                    "preset": form.preset.data,
+                    "runner": form.runner.data,
+                    "root_directory": form.root_directory.data,
+                    "build_command": form.build_command.data,
+                    "pre_deploy_command": form.pre_deploy_command.data,
+                    "start_command": form.start_command.data,
+                },
+                env_vars=env_vars,
+                environments=[
+                    {
+                        "id": "prod",
+                        "color": "blue",
+                        "name": "Production",
+                        "slug": "production",
+                        "branch": form.production_branch.data,
+                        "status": "active",
+                    }
+                ],
+                team=team,
+                created_by_user_id=current_user.id,
+            )
 
         db.add(project)
         await db.commit()
@@ -1014,20 +1086,32 @@ async def project_deploy(
         try:
             branch, commit_sha = form.commit.data.split(":")
 
-            github_installation = (
-                await github_installation_service.get_or_refresh_installation(
-                    project.github_installation_id, db
+            if project.repo_provider == "gitea":
+                conn = await db.scalar(
+                    select(GiteaConnection).where(
+                        GiteaConnection.id == project.gitea_connection_id
+                    )
                 )
-            )
-            if not github_installation.token:
-                raise ValueError("GitHub installation token missing.")
-
-            commit = await github_service.get_repository_commit(
-                user_access_token=github_installation.token,
-                repo_id=project.repo_id,
-                commit_sha=commit_sha,
-                branch=branch,
-            )
+                if not conn:
+                    raise ValueError("Gitea connection not found.")
+                gitea_svc = GiteaService(conn.base_url, conn.token)
+                owner, repo_name_part = project.repo_full_name.split("/", 1)
+                raw_commit = await gitea_svc.get_commit(owner, repo_name_part, commit_sha)
+                commit = gitea_svc.normalize_commit(raw_commit)
+            else:
+                github_installation = (
+                    await github_installation_service.get_or_refresh_installation(
+                        project.github_installation_id, db
+                    )
+                )
+                if not github_installation.token:
+                    raise ValueError("GitHub installation token missing.")
+                commit = await github_service.get_repository_commit(
+                    user_access_token=github_installation.token,
+                    repo_id=project.repo_id,
+                    commit_sha=commit_sha,
+                    branch=branch,
+                )
 
             deployment = await DeploymentService().create(
                 project=project,
@@ -1070,28 +1154,39 @@ async def project_deploy(
             logger.error(error_message)
             flash(request, error_message, "error")
 
-    # Get the list of commits for the selected environment
     branch_names = []
     commits = []
-    try:
-        github_installation = (
-            await github_installation_service.get_or_refresh_installation(
-                project.github_installation_id, db
-            )
-        )
-        if not github_installation.token:
-            raise ValueError("GitHub installation token missing.")
 
-        branches = await github_service.get_repository_branches(
-            github_installation.token, project.repo_id
-        )
-        branch_names = [branch["name"] for branch in branches]
+    try:
+        if project.repo_provider == "gitea":
+            conn = await db.scalar(
+                select(GiteaConnection).where(
+                    GiteaConnection.id == project.gitea_connection_id
+                )
+            )
+            if not conn:
+                raise ValueError("Gitea connection not found.")
+            gitea_svc = GiteaService(conn.base_url, conn.token)
+            owner, repo_name_part = project.repo_full_name.split("/", 1)
+            branches_data = await gitea_svc.list_branches(owner, repo_name_part)
+            branch_names = [b["name"] for b in branches_data]
+        else:
+            github_installation = (
+                await github_installation_service.get_or_refresh_installation(
+                    project.github_installation_id, db
+                )
+            )
+            if not github_installation.token:
+                raise ValueError("GitHub installation token missing.")
+            branches_data = await github_service.get_repository_branches(
+                github_installation.token, project.repo_id
+            )
+            branch_names = [b["name"] for b in branches_data]
     except Exception as e:
         logger.error(f"Error fetching branches: {str(e)}")
-        flash(request, _("Error fetching branches from GitHub."), "error")
+        flash(request, _("Error fetching branches."), "error")
 
     if len(branch_names) > 0:
-        # Find branches that match this environment
         branches_by_environment = group_branches_by_environment(
             project.active_environments, branch_names
         )
@@ -1100,21 +1195,26 @@ async def project_deploy(
             raise ValueError("Environment not found.")
         matching_branches = branches_by_environment.get(environment["slug"])
 
-        # Get the latest 5 commits for each matching branch
         if matching_branches:
             for branch in matching_branches:
                 try:
-                    if not github_installation.token:
-                        raise ValueError("GitHub installation token missing.")
-
-                    branch_commits = await github_service.get_repository_commits(
-                        github_installation.token, project.repo_id, branch, per_page=5
-                    )
-
-                    # Add branch information to each commit
-                    for commit in branch_commits:
-                        commit["branch"] = branch
-                        commits.append(commit)
+                    if project.repo_provider == "gitea":
+                        raw_commits = await gitea_svc.list_commits(
+                            owner, repo_name_part, sha=branch, limit=5
+                        )
+                        for c in raw_commits:
+                            normalized = gitea_svc.normalize_commit(c)
+                            normalized["branch"] = branch
+                            commits.append(normalized)
+                    else:
+                        if not github_installation.token:
+                            raise ValueError("GitHub installation token missing.")
+                        branch_commits = await github_service.get_repository_commits(
+                            github_installation.token, project.repo_id, branch, per_page=5
+                        )
+                        for commit in branch_commits:
+                            commit["branch"] = branch
+                            commits.append(commit)
                 except Exception as e:
                     warning_message = _(
                         "Could not fetch commits for branch %(branch)s: %(error)s"
@@ -1123,7 +1223,6 @@ async def project_deploy(
                     flash(request, warning_message, "warning")
                     continue
 
-        # Sort commits by date (newest first)
         commits.sort(key=lambda x: x["commit"]["author"]["date"], reverse=True)
 
     return TemplateResponse(
@@ -1168,20 +1267,32 @@ async def project_redeploy(
 
     if environment and request.method == "POST" and await form.validate_on_submit():
         try:
-            github_installation = (
-                await github_installation_service.get_or_refresh_installation(
-                    project.github_installation_id, db
+            if project.repo_provider == "gitea":
+                conn = await db.scalar(
+                    select(GiteaConnection).where(
+                        GiteaConnection.id == project.gitea_connection_id
+                    )
                 )
-            )
-            if not github_installation.token:
-                raise ValueError("GitHub installation token missing.")
-
-            commit = await github_service.get_repository_commit(
-                user_access_token=github_installation.token,
-                repo_id=project.repo_id,
-                commit_sha=deployment.commit_sha,
-                branch=deployment.branch,
-            )
+                if not conn:
+                    raise ValueError("Gitea connection not found.")
+                gitea_svc = GiteaService(conn.base_url, conn.token)
+                owner, repo_name_part = project.repo_full_name.split("/", 1)
+                raw_commit = await gitea_svc.get_commit(owner, repo_name_part, deployment.commit_sha)
+                commit = gitea_svc.normalize_commit(raw_commit)
+            else:
+                github_installation = (
+                    await github_installation_service.get_or_refresh_installation(
+                        project.github_installation_id, db
+                    )
+                )
+                if not github_installation.token:
+                    raise ValueError("GitHub installation token missing.")
+                commit = await github_service.get_repository_commit(
+                    user_access_token=github_installation.token,
+                    repo_id=project.repo_id,
+                    commit_sha=deployment.commit_sha,
+                    branch=deployment.branch,
+                )
 
             new_deployment = await DeploymentService().create(
                 project=project,
@@ -1504,7 +1615,13 @@ async def project_settings(
     # General
     general_form: Any = await ProjectGeneralForm.from_formdata(
         request,
-        data={"name": project.name, "repo_id": project.repo_id},
+        data={
+            "name": project.name,
+            "repo_id": project.repo_id,
+            "repo_full_name": project.repo_full_name,
+            "repo_provider": project.repo_provider,
+            "repo_base_url": project.repo_base_url,
+        },
         db=db,
         team=team,
         project=project,
@@ -1518,20 +1635,52 @@ async def project_settings(
 
             # Repo
             if general_form.repo_id.data != project.repo_id:
-                try:
-                    github_service = get_github_service()
-                    github_oauth_token = await get_user_github_token(db, current_user)
-                    repo = await github_service.get_repository(
-                        github_oauth_token or "", general_form.repo_id.data
-                    )
-                except Exception:
-                    flash(
-                        request,
-                        _("You do not have access to this repository."),
-                        "error",
-                    )
-                project.repo_id = general_form.repo_id.data
-                project.repo_full_name = repo.get("full_name") or ""
+                new_provider = general_form.repo_provider.data or project.repo_provider
+                if new_provider == "gitea":
+                    conn_id = general_form.connection_id.data
+                    try:
+                        conn = await db.scalar(
+                            select(GiteaConnection).where(
+                                GiteaConnection.id == int(conn_id),
+                                GiteaConnection.user_id == current_user.id,
+                            )
+                        )
+                        if not conn:
+                            raise ValueError("Connection not found")
+                        gitea_svc = GiteaService(conn.base_url, conn.token)
+                        full_name = general_form.repo_full_name.data or ""
+                        owner, repo_name_part = full_name.split("/", 1)
+                        repo = await gitea_svc.get_repo(owner, repo_name_part)
+                    except Exception:
+                        flash(
+                            request,
+                            _("You do not have access to this repository."),
+                            "error",
+                        )
+                    project.repo_provider = "gitea"
+                    project.repo_id = general_form.repo_id.data
+                    project.repo_full_name = repo.get("full_name") or full_name
+                    project.repo_base_url = conn.base_url
+                    project.github_installation_id = None
+                    project.gitea_connection_id = conn.id
+                else:
+                    try:
+                        github_service = get_github_service()
+                        github_oauth_token = await get_user_github_token(db, current_user)
+                        repo = await github_service.get_repository(
+                            github_oauth_token or "", general_form.repo_id.data
+                        )
+                    except Exception:
+                        flash(
+                            request,
+                            _("You do not have access to this repository."),
+                            "error",
+                        )
+                    project.repo_provider = "github"
+                    project.repo_id = general_form.repo_id.data
+                    project.repo_full_name = repo.get("full_name") or ""
+                    project.repo_base_url = "https://github.com"
+                    project.gitea_connection_id = None
 
             # Avatar upload
             avatar_file = general_form.avatar.data

@@ -41,10 +41,14 @@
               <span class="truncate">{{ project.hostname }}</span>
             </a>
 
-            <a href="https://github.com/{{ project.repo_full_name }}" target="_blank"
+            <a href="{{ project.repo_base_url }}/{{ project.repo_full_name }}" target="_blank"
               class="flex items-center gap-x-2 hover:text-foreground transition-colors text-muted-foreground [&>svg]:opacity-50 [&>svg]:dark:opacity-60 [&>svg]:size-4 [&>svg]:shrink-0 min-w-0"
-              data-tooltip="{{ _('GitHub') }}">
-              {% include "icons/github.svg" %}
+              data-tooltip="{{ _('Repository') }}">
+              {% if project.repo_provider == 'gitea' %}
+                {% include "icons/gitea.svg" %}
+              {% else %}
+                {% include "icons/github.svg" %}
+              {% endif %}
               <span class="truncate">{{ project.repo_full_name }}</span>
             </a>
 
@@ -64,7 +68,7 @@
       <div class="max-w-sm">
         <div class="text-center">
           <h2 class="h4">{{ _('No projects yet.') }}</h2>
-          <p class="text-muted-foreground mt-1">{{ _('Create a new project from a GitHub repository.') }}
+          <p class="text-muted-foreground mt-1">{{ _('Create a new project from a Git repository.') }}
           </p>
           <a class="btn-sm mt-4" href="{{ url_for('new_project', team_slug=team.slug) }}" hx-boost="true">
             {% include "icons/plus.svg" %}

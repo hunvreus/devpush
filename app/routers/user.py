@@ -23,14 +23,17 @@ from dependencies import (
     get_redis_client,
 )
 from db import get_db
-from models import User, UserIdentity, Team, TeamMember, TeamInvite, utc_now
+from models import User, UserIdentity, GiteaConnection, Team, TeamMember, TeamInvite, utc_now
 from forms.user import (
     UserDeleteForm,
     UserGeneralForm,
     UserEmailForm,
     UserOAuthAccessRevokeForm,
+    GiteaConnectionCreateForm,
+    GiteaConnectionDeleteForm,
 )
 from forms.team import TeamLeaveForm, TeamInviteAcceptForm
+from services.gitea import GiteaService
 from utils.email import send_email
 
 logger = logging.getLogger(__name__)
@@ -376,7 +379,6 @@ async def user_settings(
                         ),
                         "success",
                     )
-                    # Update the appropriate variable
                     if provider == "github":
                         github_username = None
                     else:
@@ -398,6 +400,14 @@ async def user_settings(
                 )
 
         if request.headers.get("HX-Request"):
+            gitea_connections_result = await db.execute(
+                select(GiteaConnection)
+                .where(GiteaConnection.user_id == current_user.id)
+                .order_by(GiteaConnection.created_at.desc())
+            )
+            gitea_connections = gitea_connections_result.scalars().all()
+            gitea_create_form = await GiteaConnectionCreateForm.from_formdata(request)
+            gitea_delete_form = await GiteaConnectionDeleteForm.from_formdata(request)
             return TemplateResponse(
                 request=request,
                 name="user/partials/_settings-authentication.html",
@@ -406,8 +416,97 @@ async def user_settings(
                     "current_user": current_user,
                     "github_username": github_username,
                     "google_email": google_email,
+                    "gitea_connections": gitea_connections,
+                    "gitea_create_form": gitea_create_form,
+                    "gitea_delete_form": gitea_delete_form,
                 },
             )
+
+    # Gitea connections
+    gitea_create_form: Any = await GiteaConnectionCreateForm.from_formdata(request)
+    gitea_delete_form: Any = await GiteaConnectionDeleteForm.from_formdata(request)
+
+    if request.method == "POST" and fragment == "gitea_create":
+        if await gitea_create_form.validate_on_submit():
+            base_url = gitea_create_form.base_url.data.rstrip("/")
+            token = gitea_create_form.token.data
+
+            try:
+                svc = GiteaService(base_url, token)
+                user_info = await svc.get_current_user()
+                username = user_info.get("login", "")
+
+                existing = await db.scalar(
+                    select(GiteaConnection).where(
+                        GiteaConnection.user_id == current_user.id,
+                        GiteaConnection.base_url == base_url,
+                    )
+                )
+                if existing:
+                    flash(request, _("This Gitea instance is already connected."), "warning")
+                else:
+                    conn = GiteaConnection(
+                        user_id=current_user.id,
+                        base_url=base_url,
+                        username=username,
+                    )
+                    conn.token = token
+                    db.add(conn)
+                    await db.commit()
+                    flash(
+                        request,
+                        _("Gitea instance %(url)s connected.", url=base_url),
+                        "success",
+                    )
+            except Exception as e:
+                logger.error(f"Error connecting Gitea instance: {e}")
+                flash(
+                    request,
+                    _("Could not connect to Gitea instance. Please check the URL and token."),
+                    "error",
+                )
+
+    if request.method == "POST" and fragment == "gitea_delete":
+        if await gitea_delete_form.validate_on_submit():
+            conn_id = gitea_delete_form.connection_id.data
+            try:
+                conn = await db.scalar(
+                    select(GiteaConnection).where(
+                        GiteaConnection.id == int(conn_id),
+                        GiteaConnection.user_id == current_user.id,
+                    )
+                )
+                if conn:
+                    await db.delete(conn)
+                    await db.commit()
+                    flash(request, _("Gitea instance removed."), "success")
+                else:
+                    flash(request, _("Gitea instance not found."), "warning")
+            except Exception as e:
+                logger.error(f"Error removing Gitea connection: {e}")
+                flash(request, _("Error removing Gitea instance."), "error")
+
+    gitea_connections_result = await db.execute(
+        select(GiteaConnection)
+        .where(GiteaConnection.user_id == current_user.id)
+        .order_by(GiteaConnection.created_at.desc())
+    )
+    gitea_connections = gitea_connections_result.scalars().all()
+
+    if request.headers.get("HX-Request") and fragment in ("gitea_create", "gitea_delete"):
+        return TemplateResponse(
+            request=request,
+            name="user/partials/_settings-authentication.html",
+            context={
+                "revoke_oauth_access_form": revoke_oauth_access_form,
+                "current_user": current_user,
+                "github_username": github_username,
+                "google_email": google_email,
+                "gitea_connections": gitea_connections,
+                "gitea_create_form": gitea_create_form,
+                "gitea_delete_form": gitea_delete_form,
+            },
+        )
 
     return TemplateResponse(
         request=request,
@@ -422,6 +521,9 @@ async def user_settings(
             "teams_and_roles": teams_and_roles,
             "leave_team_form": leave_team_form,
             "revoke_oauth_access_form": revoke_oauth_access_form,
+            "gitea_connections": gitea_connections,
+            "gitea_create_form": gitea_create_form,
+            "gitea_delete_form": gitea_delete_form,
         },
     )
 

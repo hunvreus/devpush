@@ -10,7 +10,7 @@ An open-source and self-hostable alternative to Vercel, Render, Netlify and the 
 
 ## Key features
 
-- **Git-based deployments**: Push to deploy from GitHub with zero-downtime rollouts and instant rollback.
+- **Git-based deployments**: Push to deploy from GitHub or Gitea with zero-downtime rollouts and instant rollback.
 - **Multi-language support**: Python, Node.js, PHP... basically anything that can run on Docker.
 - **Environment management**: Multiple environments with branch mapping and encrypted environment variables.
 - **Real-time monitoring**: Live and searchable build and runtime logs.
@@ -26,7 +26,7 @@ See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and 
 
 - **Server**: Ubuntu 20.04+ or Debian 11+ with SSH access and sudo privileges. A [Hetzner CPX31](https://devpu.sh/docs/guides/create-hetzner-server) works well.
 - **DNS**: We recommend [Cloudflare](https://cloudflare.com).
-- **GitHub account**: You'll create a GitHub App for login and repository access.
+- **GitHub account**: You'll create a GitHub App for login and repository access. Gitea instances can also be connected via Personal Access Tokens.
 - **Email provider**: A [Resend](https://resend.com) account or SMTP credentials for login emails and invitations.
 
 ## Quickstart
@@ -125,6 +125,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
 | `GITHUB_APP_WEBHOOK_SECRET`         | GitHub webhook secret.                                                                                                                   |
 | `GITHUB_APP_CLIENT_ID`              | GitHub OAuth client ID.                                                                                                                  |
 | `GITHUB_APP_CLIENT_SECRET`          | GitHub OAuth client secret.                                                                                                              |
+| `GITEA_WEBHOOK_SECRET`              | Shared secret for verifying Gitea webhook payloads (optional, required if using Gitea).                                                  |
 | `APP_HOSTNAME`                      | Domain for the app (e.g., `example.com`).                                                                                                |
 | `DEPLOY_DOMAIN`                     | Domain for deployments (wildcard root). No default—set explicitly (e.g., `deploy.example.com`).                                          |
 | `LE_EMAIL`                          | Email for Let's Encrypt notifications.                                                                                                   |

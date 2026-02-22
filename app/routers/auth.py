@@ -261,6 +261,7 @@ async def auth_login(
         else "auth/pages/login.html",
         context={
             "form": form,
+            "has_github_login": settings.has_github,
             "has_google_login": bool(
                 settings.google_client_id and settings.google_client_secret
             ),

@@ -272,6 +272,42 @@ class TeamInvite(Base):
     inviter: Mapped[User] = relationship()
 
 
+class GiteaConnection(Base):
+    __tablename__: str = "gitea_connection"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    username: Mapped[str] = mapped_column(String(255), nullable=False)
+    _token: Mapped[str] = mapped_column("token", String(2048), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    user: Mapped[User] = relationship()
+    projects: Mapped[list["Project"]] = relationship(
+        back_populates="gitea_connection"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "base_url", name="uq_gitea_connection_user_url"),
+    )
+
+    @property
+    def token(self) -> str:
+        fernet = get_fernet()
+        return fernet.decrypt(self._token.encode()).decode()
+
+    @token.setter
+    def token(self, value: str):
+        fernet = get_fernet()
+        self._token = fernet.encrypt(value.encode()).decode()
+
+    @override
+    def __repr__(self):
+        return f"<GiteaConnection {self.base_url}>"
+
+
 class GithubInstallation(Base):
     __tablename__: str = "github_installation"
 
@@ -317,8 +353,16 @@ class Project(Base):
     )
     name: Mapped[str] = mapped_column(String(100), index=True)
     has_avatar: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    repo_provider: Mapped[str] = mapped_column(
+        SQLAEnum("github", "gitea", name="repo_provider"),
+        nullable=False,
+        default="github",
+    )
     repo_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    repo_base_url: Mapped[str] = mapped_column(
+        String(512), nullable=False, default="https://github.com"
+    )
     repo_status: Mapped[str] = mapped_column(
         SQLAEnum(
             "active", "deleted", "removed", "transferred", name="project_github_status"
@@ -326,8 +370,11 @@ class Project(Base):
         nullable=False,
         default="active",
     )
-    github_installation_id: Mapped[int] = mapped_column(
-        ForeignKey("github_installation.installation_id"), nullable=False, index=True
+    github_installation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("github_installation.installation_id"), nullable=True, index=True
+    )
+    gitea_connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("gitea_connection.id"), nullable=True, index=True
     )
     environments: Mapped[list[dict[str, str]]] = mapped_column(
         JSON, nullable=False, default=list
@@ -354,7 +401,10 @@ class Project(Base):
     team_id: Mapped[str] = mapped_column(ForeignKey("team.id"), index=True)
 
     # Relationships
-    github_installation: Mapped[GithubInstallation] = relationship(
+    github_installation: Mapped[GithubInstallation | None] = relationship(
+        back_populates="projects"
+    )
+    gitea_connection: Mapped[GiteaConnection | None] = relationship(
         back_populates="projects"
     )
     deployments: Mapped[list["Deployment"]] = relationship(back_populates="project")
@@ -736,8 +786,16 @@ class Deployment(Base):
         String(32), primary_key=True, default=lambda: token_hex(16)
     )
     project_id: Mapped[str] = mapped_column(ForeignKey("project.id"), index=True)
+    repo_provider: Mapped[str] = mapped_column(
+        SQLAEnum("github", "gitea", name="repo_provider", create_type=False),
+        nullable=False,
+        default="github",
+    )
     repo_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    repo_base_url: Mapped[str] = mapped_column(
+        String(512), nullable=False, default="https://github.com"
+    )
     environment_id: Mapped[str] = mapped_column(String(8), nullable=False)
     branch: Mapped[str] = mapped_column(String(255), index=True)
     commit_sha: Mapped[str] = mapped_column(String(40), index=True)
@@ -798,9 +856,10 @@ class Deployment(Base):
 
     def __init__(self, *args, project: "Project", environment_id: str, **kwargs):
         super().__init__(project=project, environment_id=environment_id, **kwargs)
-        # Snapshot repo, config, environments and env_vars from project at time of creation
+        self.repo_provider = project.repo_provider
         self.repo_id = project.repo_id
         self.repo_full_name = project.repo_full_name
+        self.repo_base_url = project.repo_base_url
         self.config = project.config
         environment = project.get_environment_by_id(environment_id)
         self.env_vars = project.get_env_vars(environment["slug"]) if environment else []
