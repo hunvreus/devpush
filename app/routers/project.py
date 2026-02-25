@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Query, HTTPException
 import httpx
+import aiodocker
 from fastapi.responses import Response, RedirectResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +67,7 @@ from db import get_db
 from services.github import GitHubService
 from services.github_installation import GitHubInstallationService
 from services.deployment import DeploymentService
+from services.reconcile import reconcile_deployments
 from services.domain import DomainService
 from services.preset_detector import PresetDetector
 from services.registry import RegistryService
@@ -2243,6 +2245,46 @@ async def project_deployment(
             "cancel_form": cancel_form,
         },
     )
+
+
+@router.post(
+    "/{team_slug}/projects/{project_name}/deployments/{deployment_id}/reconcile",
+    name="project_deployment_reconcile",
+)
+async def project_deployment_reconcile(
+    project: Project = Depends(get_project_by_name),
+    current_user: User = Depends(get_current_user),
+    role: str = Depends(get_role),
+    team_and_membership: tuple[Team, TeamMember] = Depends(get_team_by_slug),
+    db: AsyncSession = Depends(get_db),
+    deployment: Deployment = Depends(get_deployment_by_id),
+    settings: Settings = Depends(get_settings),
+):
+    team, membership = team_and_membership
+
+    if deployment.project_id != project.id:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    async with aiodocker.Docker(url=settings.docker_host) as docker_client:
+        await reconcile_deployments(db, docker_client, deployment_ids=[deployment.id])
+    await db.refresh(deployment)
+
+    def _dt(value: datetime | None) -> str | None:
+        if not value:
+            return None
+        return value.replace(tzinfo=timezone.utc).isoformat()
+
+    return {
+        "deployment_id": deployment.id,
+        "status": deployment.status,
+        "container_status": deployment.container_status,
+        "observed_status": deployment.observed_status,
+        "observed_exit_code": deployment.observed_exit_code,
+        "observed_at": _dt(deployment.observed_at),
+        "observed_last_seen_at": _dt(deployment.observed_last_seen_at),
+        "observed_missing_count": deployment.observed_missing_count,
+        "computed_status": deployment.computed_status,
+    }
 
 
 @router.get(

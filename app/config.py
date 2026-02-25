@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     job_timeout_seconds: int = 320
     job_completion_wait_seconds: int = 300
     deployment_timeout_seconds: int = 300
+    reconcile_interval_seconds: int = 60
+    deployment_restart_policy: str = "on-failure"
+    deployment_restart_max_retries: int = 5
     container_delete_grace_seconds: int = 15
     log_stream_grace_seconds: int = 5
     service_uid: int = 1000
