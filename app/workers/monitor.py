@@ -10,10 +10,18 @@ from config import get_settings
 from db import AsyncSessionLocal
 from models import Deployment
 from services.deployment import DeploymentService
+from utils.docker_network import (
+    connect_container_to_network,
+    disconnect_container_from_network,
+    get_service_container_id,
+    network_has_deployments,
+    remove_network_if_empty,
+)
 
 logger = logging.getLogger(__name__)
 
 deployment_probe_state = {}  # deployment_id -> {"container": container_obj, "probe_active": bool}
+WORKSPACE_NETWORK_PREFIX = "devpush_workspace_"
 
 
 async def _http_probe(ip: str, port: int, timeout: float = 5) -> bool:
@@ -26,11 +34,45 @@ async def _http_probe(ip: str, port: int, timeout: float = 5) -> bool:
         return False
 
 
+async def _ensure_probe_on_network(
+    docker_client: aiodocker.Docker, probe_id: str | None, network_name: str | None
+):
+    await connect_container_to_network(docker_client, probe_id, network_name)
+
+
+async def _detach_probe_from_unused_networks(
+    docker_client: aiodocker.Docker,
+    probe_id: str | None,
+):
+    if not probe_id:
+        return
+
+    try:
+        container = await docker_client.containers.get(probe_id)
+        info = await container.show()
+    except Exception:
+        return
+
+    networks = info.get("NetworkSettings", {}).get("Networks", {}) or {}
+    for network_name in networks.keys():
+        if not network_name.startswith(WORKSPACE_NETWORK_PREFIX):
+            continue
+        if await network_has_deployments(docker_client, network_name):
+            continue
+
+        await disconnect_container_from_network(
+            docker_client, probe_id, network_name
+        )
+        if not await network_has_deployments(docker_client, network_name):
+            await remove_network_if_empty(docker_client, network_name)
+
+
 async def _check_status(
     deployment: Deployment,
     docker_client: aiodocker.Docker,
     redis_pool: ArqRedis,
     db,
+    probe_id: str | None,
 ):
     """Checks the status of a single deployment's container."""
     if deployment.status == "completed":
@@ -40,7 +82,7 @@ async def _check_status(
         deployment.id in deployment_probe_state
         and deployment_probe_state[deployment.id]["probe_active"]
     ):
-        return
+        return None
 
     log_prefix = f"[DeployMonitor:{deployment.id}]"
 
@@ -62,7 +104,7 @@ async def _check_status(
             )
             logger.warning(f"{log_prefix} Deployment timed out; failure job enqueued.")
             await _cleanup_deployment(deployment.id)
-            return
+            return None
     except Exception:
         logger.error(f"{log_prefix} Error while evaluating timeout.", exc_info=True)
 
@@ -116,7 +158,17 @@ async def _check_status(
 
         elif status == "running":
             networks = container_info.get("NetworkSettings", {}).get("Networks", {})
-            container_ip = networks.get("devpush_runner", {}).get("IPAddress")
+            labels = container_info.get("Config", {}).get("Labels", {}) or {}
+            workspace_network = labels.get("devpush.workspace_network")
+            container_ip = None
+            if workspace_network:
+                await _ensure_probe_on_network(
+                    docker_client, probe_id, workspace_network
+                )
+                container_ip = networks.get(workspace_network, {}).get("IPAddress")
+            if not container_ip:
+                # LEGACY(network): fallback for deployments created before edge/workspace networks.
+                container_ip = networks.get("devpush_runner", {}).get("IPAddress")
             if container_ip and await _http_probe(container_ip, 8000):
                 await DeploymentService.update_status(
                     db,
@@ -129,6 +181,7 @@ async def _check_status(
                     f"{log_prefix} Deployment ready (finalization job enqueued)."
                 )
                 await _cleanup_deployment(deployment.id)
+            return workspace_network
 
     except Exception as e:
         logger.error(
@@ -141,9 +194,11 @@ async def _check_status(
             f"Unexpected error while monitoring deployment: {e}",
         )
         await _cleanup_deployment(deployment.id)
+        return None
     finally:
         if deployment.id in deployment_probe_state:
             deployment_probe_state[deployment.id]["probe_active"] = False
+    return None
 
 
 # Cleanup function
@@ -188,11 +243,26 @@ async def monitor():
                     deployments_to_check = result.scalars().all()
 
                     if deployments_to_check:
+                        probe_id = await get_service_container_id(
+                            docker_client, "worker-monitor"
+                        )
                         tasks = [
-                            _check_status(deployment, docker_client, redis_pool, db)
+                            _check_status(
+                                deployment, docker_client, redis_pool, db, probe_id
+                            )
                             for deployment in deployments_to_check
                         ]
                         await asyncio.gather(*tasks)
+                        await _detach_probe_from_unused_networks(
+                            docker_client, probe_id
+                        )
+                    else:
+                        probe_id = await get_service_container_id(
+                            docker_client, "worker-monitor"
+                        )
+                        await _detach_probe_from_unused_networks(
+                            docker_client, probe_id
+                        )
 
                 except exc.SQLAlchemyError as e:
                     logger.error(f"Database error in monitor loop: {e}. Reconnecting.")
