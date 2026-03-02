@@ -33,7 +33,6 @@ done
 require_cmd kubectl
 require_cmd helm
 select_context
-stop_port_forward
 
 if (( clean_all == 0 )); then
   kubectl -n "$NAMESPACE" delete jobs -l app.kubernetes.io/component=migrate --ignore-not-found >/dev/null 2>&1 || true

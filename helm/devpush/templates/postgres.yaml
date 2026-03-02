@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pgsql-data
+  labels:
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgres.storage.size }}
+  {{- if .Values.postgres.storage.className }}
+  storageClassName: {{ .Values.postgres.storage.className | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgsql
+  labels:
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/component: pgsql
+    {{- include "devpush.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "devpush.fullname" . }}-pgsql
+  labels:
+    app.kubernetes.io/component: pgsql
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: pgsql
+      {{- include "devpush.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: pgsql
+        {{- include "devpush.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.dataPlaneName | quote }}
+      automountServiceAccountToken: false
+      containers:
+        - name: pgsql
+          image: {{ .Values.postgres.image }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-lc"]
+          args:
+            - >-
+              export PATH="/usr/lib/postgresql/${PG_MAJOR:-16}/bin:$PATH";
+              export POSTGRES_DB="${POSTGRES_DB:-{{ .Values.env.POSTGRES_DB }}}";
+              export POSTGRES_USER="${POSTGRES_USER:-{{ .Values.env.POSTGRES_USER }}}";
+              export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-{{ .Values.env.POSTGRES_PASSWORD }}}";
+              exec /usr/local/bin/docker-entrypoint.sh postgres
+          env:
+            - name: LANG
+              value: en_US.UTF-8
+            - name: LC_ALL
+              value: en_US.UTF-8
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "devpush.envSecretName" . }}
+                  key: POSTGRES_DB
+                  optional: true
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "devpush.envSecretName" . }}
+                  key: POSTGRES_USER
+                  optional: true
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "devpush.envSecretName" . }}
+                  key: POSTGRES_PASSWORD
+                  optional: true
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: pgsql-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+      volumes:
+        - name: pgsql-data
+          persistentVolumeClaim:
+            claimName: pgsql-data

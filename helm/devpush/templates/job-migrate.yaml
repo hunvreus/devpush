@@ -1,0 +1,44 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "devpush.fullname" . }}-migrate
+  labels:
+    app.kubernetes.io/component: migrate
+    {{- include "devpush.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: migrate
+        {{- include "devpush.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uv", "run", "alembic", "-c", "alembic.ini", "upgrade", "head"]
+          envFrom:
+            - secretRef:
+                name: {{ include "devpush.envSecretName" . }}
+          env:
+            - name: SERVICE_UID
+              value: {{ .Values.service.uid | quote }}
+            - name: SERVICE_GID
+              value: {{ .Values.service.gid | quote }}
+            - name: HOST_DATA_DIR
+              value: {{ .Values.data.mountPath | quote }}
+          volumeMounts:
+            - name: devpush-data
+              mountPath: {{ .Values.data.mountPath }}
+      volumes:
+        - name: devpush-data
+          persistentVolumeClaim:
+            claimName: {{ include "devpush.fullname" . }}-data
+{{- end }}

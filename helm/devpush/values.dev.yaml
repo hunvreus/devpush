@@ -1,0 +1,15 @@
+devSource:
+  enabled: true
+  hostPathType: Directory
+
+traefik:
+  exposureMode: hostport
+  externalPort: 80
+
+app:
+  ingress:
+    enabled: true
+    className: traefik
+    host: localhost
+    path: /
+    pathType: Prefix

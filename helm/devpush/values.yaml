@@ -1,0 +1,113 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/devpushhq/devpush-app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+environment: development
+
+traefik:
+  image: traefik:v3.1
+  exposureMode: loadbalancer
+  externalPort: 80
+  service:
+    loadBalancerIP: ""
+    port: 80
+  resources: {}
+
+app:
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8000
+  ingress:
+    enabled: false
+    className: traefik
+    host: devpush.local
+    path: /
+    pathType: Prefix
+  resources: {}
+
+workerJobs:
+  replicas: 1
+  resources: {}
+
+workerMonitor:
+  replicas: 1
+  resources: {}
+
+migration:
+  enabled: false
+  backoffLimit: 2
+
+redis:
+  image: valkey/valkey:9.0.3-alpine
+  resources: {}
+
+postgres:
+  image: postgres:16
+  storage:
+    enabled: true
+    size: 10Gi
+    className: ""
+  resources: {}
+
+loki:
+  image: grafana/loki:3.5.8
+  storage:
+    size: 10Gi
+    className: ""
+  resources: {}
+
+alloy:
+  image: grafana/alloy:v1.11.3
+  resources: {}
+
+env:
+  existingSecretName: ""
+  APP_HOSTNAME: ""
+  DEPLOY_DOMAIN: ""
+  POSTGRES_DB: devpush
+  POSTGRES_USER: devpush-app
+  POSTGRES_PASSWORD: ""
+  REDIS_URL: redis://redis:6379
+  SECRET_KEY: change-me
+  ENCRYPTION_KEY: ""
+  GITHUB_APP_ID: ""
+  GITHUB_APP_NAME: ""
+  GITHUB_APP_PRIVATE_KEY: ""
+  GITHUB_APP_WEBHOOK_SECRET: ""
+  GITHUB_APP_CLIENT_ID: ""
+  GITHUB_APP_CLIENT_SECRET: ""
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+  RESEND_API_KEY: ""
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USERNAME: ""
+  SMTP_PASSWORD: ""
+  EMAIL_SENDER_ADDRESS: ""
+  URL_SCHEME: http
+  ENV: development
+  LOG_LEVEL: WARNING
+
+service:
+  uid: "1000"
+  gid: "1000"
+
+serviceAccount:
+  controlPlaneName: devpush-control-plane
+  workloadName: devpush-workload
+  dataPlaneName: devpush-data-plane
+  alloyName: devpush-alloy
+
+data:
+  mountPath: /data
+
+devSource:
+  enabled: false
+  hostPath: ""
+  mountPath: /app
+  hostPathType: Directory

@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "devpush.fullname" . }}-worker-jobs
+  labels:
+    app.kubernetes.io/component: worker-jobs
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.workerJobs.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: worker-jobs
+      {{- include "devpush.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: worker-jobs
+        {{- include "devpush.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.controlPlaneName | quote }}
+      containers:
+        - name: worker-jobs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.devSource.enabled }}
+          command: ["uv", "run", "arq", "--watch", "/app", "workers.jobs.WorkerSettings"]
+          {{- else }}
+          command: ["uv", "run", "arq", "workers.jobs.WorkerSettings"]
+          {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "devpush.envSecretName" . }}
+          env:
+            - name: SERVICE_UID
+              value: {{ .Values.service.uid | quote }}
+            - name: SERVICE_GID
+              value: {{ .Values.service.gid | quote }}
+            - name: HOST_DATA_DIR
+              value: {{ .Values.data.mountPath | quote }}
+            {{- if .Values.devSource.enabled }}
+            - name: UV_PROJECT_ENVIRONMENT
+              value: /opt/venv
+            {{- end }}
+          volumeMounts:
+            - name: devpush-data
+              mountPath: {{ .Values.data.mountPath }}
+            {{- if .Values.devSource.enabled }}
+            - name: dev-source
+              mountPath: {{ .Values.devSource.mountPath | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.workerJobs.resources | nindent 12 }}
+      volumes:
+        - name: devpush-data
+          persistentVolumeClaim:
+            claimName: {{ include "devpush.fullname" . }}-data
+        {{- if .Values.devSource.enabled }}
+        - name: dev-source
+          hostPath:
+            path: {{ required "devSource.hostPath is required when devSource.enabled=true" .Values.devSource.hostPath | quote }}
+            type: {{ .Values.devSource.hostPathType | quote }}
+        {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "devpush.fullname" . }}-worker-monitor
+  labels:
+    app.kubernetes.io/component: worker-monitor
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.workerMonitor.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: worker-monitor
+      {{- include "devpush.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: worker-monitor
+        {{- include "devpush.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.controlPlaneName | quote }}
+      containers:
+        - name: worker-monitor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uv", "run", "python", "-u", "-m", "workers.monitor"]
+          envFrom:
+            - secretRef:
+                name: {{ include "devpush.envSecretName" . }}
+          env:
+            - name: SERVICE_UID
+              value: {{ .Values.service.uid | quote }}
+            - name: SERVICE_GID
+              value: {{ .Values.service.gid | quote }}
+            - name: HOST_DATA_DIR
+              value: {{ .Values.data.mountPath | quote }}
+            {{- if .Values.devSource.enabled }}
+            - name: UV_PROJECT_ENVIRONMENT
+              value: /opt/venv
+            {{- end }}
+          volumeMounts:
+            - name: devpush-data
+              mountPath: {{ .Values.data.mountPath }}
+            {{- if .Values.devSource.enabled }}
+            - name: dev-source
+              mountPath: {{ .Values.devSource.mountPath | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.workerMonitor.resources | nindent 12 }}
+      volumes:
+        - name: devpush-data
+          persistentVolumeClaim:
+            claimName: {{ include "devpush.fullname" . }}-data
+        {{- if .Values.devSource.enabled }}
+        - name: dev-source
+          hostPath:
+            path: {{ required "devSource.hostPath is required when devSource.enabled=true" .Values.devSource.hostPath | quote }}
+            type: {{ .Values.devSource.hostPathType | quote }}
+        {{- end }}

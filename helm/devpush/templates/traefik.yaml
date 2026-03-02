@@ -1,0 +1,153 @@
+{{- $mode := .Values.traefik.exposureMode | default "nodeport" | lower -}}
+{{- $externalPort := int (.Values.traefik.externalPort | default 32500) -}}
+{{- $serviceType := "NodePort" -}}
+{{- if eq $mode "loadbalancer" -}}
+{{- $serviceType = "LoadBalancer" -}}
+{{- else if eq $mode "hostport" -}}
+{{- $serviceType = "ClusterIP" -}}
+{{- end -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "devpush.fullname" . }}-traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "devpush.fullname" . }}-traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "devpush.fullname" . }}-traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "devpush.fullname" . }}-traefik
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "devpush.fullname" . }}-traefik
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "devpush.fullname" . }}-traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "devpush.fullname" . }}-traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "devpush.fullname" . }}-traefik
+    namespace: {{ .Release.Namespace | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "devpush.fullname" . }}-traefik
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  controller: traefik.io/ingress-controller
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  type: {{ $serviceType | quote }}
+  ports:
+    - name: web
+      port: {{ .Values.traefik.service.port }}
+      targetPort: 8000
+      {{- if eq $serviceType "NodePort" }}
+      nodePort: {{ $externalPort }}
+      {{- end }}
+  {{- if and (eq $serviceType "LoadBalancer") .Values.traefik.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.traefik.service.loadBalancerIP | quote }}
+  {{- end }}
+  selector:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "devpush.fullname" . }}-traefik
+  labels:
+    app.kubernetes.io/component: traefik
+    {{- include "devpush.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: traefik
+      {{- include "devpush.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: traefik
+        {{- include "devpush.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "devpush.fullname" . }}-traefik
+      containers:
+        - name: traefik
+          image: {{ .Values.traefik.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --entrypoints.web.address=:8000
+            - --providers.kubernetesingress=true
+            - --providers.kubernetesingress.namespaces={{ .Release.Namespace }}
+            - --api.dashboard=false
+            - --accesslog=true
+          ports:
+            - name: web
+              containerPort: 8000
+              {{- if eq $mode "hostport" }}
+              hostPort: {{ $externalPort }}
+              {{- end }}
+          resources:
+            {{- toYaml .Values.traefik.resources | nindent 12 }}

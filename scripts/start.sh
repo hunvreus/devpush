@@ -41,11 +41,24 @@ require_cmd helm
 
 # Select context
 select_context
-kubectl cluster-info --request-timeout=20s >/dev/null
+ensure_kube_api
+
+provider="$(get_kube_provider)"
+if [[ "$provider" == "k3d" ]]; then
+  require_cmd k3d
+fi
 
 # Build image
 printf "Building image %s:%s...\n" "$IMAGE_REPOSITORY" "$IMAGE_TAG"
 docker build -t "${IMAGE_REPOSITORY}:${IMAGE_TAG}" -f "$APP_DIR/docker/Dockerfile.app.dev" "$APP_DIR"
+
+if [[ "$provider" == "k3d" ]]; then
+  k3d_cluster_name="$(get_k3d_cluster_name)"
+  if [[ -n "$k3d_cluster_name" ]]; then
+    printf "Importing image into k3d cluster %s...\n" "$k3d_cluster_name"
+    k3d image import "${IMAGE_REPOSITORY}:${IMAGE_TAG}" -c "$k3d_cluster_name"
+  fi
+fi
 
 # Apply namespace and env secret
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -112,25 +125,24 @@ rm -f "$secret_manifest_file"
 
 # Deploy Helm release
 printf "Deploying Helm release %s...\n" "$RELEASE_NAME"
-helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
-  --namespace "$NAMESPACE" \
-  --create-namespace \
-  -f "$CHART_DIR/values.yaml" \
-  -f "$CHART_DIR/values.dev.yaml" \
-  --set image.repository="$IMAGE_REPOSITORY" \
-  --set image.tag="$IMAGE_TAG" \
-  --set env.existingSecretName="${RELEASE_NAME}-env" \
-  --set migration.enabled=false \
-  --set devSource.enabled=true \
+helm_args=(
+  upgrade --install "$RELEASE_NAME" "$CHART_DIR"
+  --namespace "$NAMESPACE"
+  --create-namespace
+  -f "$CHART_DIR/values.yaml"
+  -f "$CHART_DIR/values.dev.yaml"
+  --set image.repository="$IMAGE_REPOSITORY"
+  --set image.tag="$IMAGE_TAG"
+  --set env.existingSecretName="${RELEASE_NAME}-env"
+  --set migration.enabled=false
+  --set devSource.enabled=true
   --set devSource.hostPath="$APP_DIR/app"
+)
+if [[ "$provider" == "k3d" ]]; then
+  helm_args+=(--set traefik.exposureMode=loadbalancer)
+fi
 
-# Ensure Python processes reload mounted source changes in local dev.
-kubectl -n "$NAMESPACE" rollout restart "deployment/${RELEASE_NAME}-app" >/dev/null
-kubectl -n "$NAMESPACE" rollout restart "deployment/${RELEASE_NAME}-worker-jobs" >/dev/null
-kubectl -n "$NAMESPACE" rollout restart "deployment/${RELEASE_NAME}-worker-monitor" >/dev/null
-kubectl -n "$NAMESPACE" rollout restart "deployment/${RELEASE_NAME}-traefik" >/dev/null
-kubectl -n "$NAMESPACE" rollout restart "deployment/${RELEASE_NAME}-loki" >/dev/null 2>&1 || true
-kubectl -n "$NAMESPACE" rollout restart "deployment/${RELEASE_NAME}-alloy" >/dev/null 2>&1 || true
+helm "${helm_args[@]}"
 
 # Wait for app dependencies and app rollout
 kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-pgsql" --timeout="${WAIT_TIMEOUT_SECONDS}s"
@@ -178,10 +190,4 @@ if (( RUN_MIGRATIONS == 1 )); then
   "$SCRIPT_DIR/db-migrate.sh"
 fi
 
-# Show local access URL(s) through Traefik NodePort
-traefik_node_port="$(kubectl -n "$NAMESPACE" get svc traefik -o jsonpath='{.spec.ports[?(@.name=="web")].nodePort}')"
-traefik_node_ip="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')"
-
-printf "Traefik NodePort: %s\n" "$traefik_node_port"
-printf "App URL (host): http://localhost:%s\n" "$traefik_node_port"
-printf "App URL (node): http://%s:%s\n" "$traefik_node_ip" "$traefik_node_port"
+print_access_urls
