@@ -25,7 +25,6 @@ from dependencies import (
     get_google_user_info,
     decode_jwt_claims,
     get_redis_client,
-    get_queue,
 )
 from db import get_db
 from models import User, UserIdentity, TeamInvite, TeamMember, Team, utc_now
@@ -85,11 +84,8 @@ async def _create_user_with_team(
     user.default_team_id = team.id
     db.add(TeamMember(team_id=team.id, user_id=user.id, role="owner"))
 
-    # For superadmin accounts, we pull all runner images and display a helper message
+    # For superadmin accounts, display a helper message
     if user.id == 1:
-        queue = get_queue(request)
-        await queue.enqueue_job("pull_all_runner_images")
-        flash(request, _("Pulling all enabled runner images."), "success")
         flash(
             request=request,
             title=_(

@@ -3,18 +3,6 @@ revision = 3
 requires-python = "==3.13.*"
 
 [[package]]
-name = "aiodocker"
-version = "0.24.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "aiohttp" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f2/d7/30104dfac550ae6570d4dce24c2cbf2ddefd4937c9e861641314abfd8abb/aiodocker-0.24.0.tar.gz", hash = "sha256:661a6f9a479951f11f793031dcd5d55337e232c4ceaee69d51ceb885e5f16fac", size = 135482, upload-time = "2024-11-21T02:23:59.642Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/5b/2bb8b632041e314a0a917ade80382ca6a8f331f12c7eb409e59cd0485cc9/aiodocker-0.24.0-py3-none-any.whl", hash = "sha256:2199b7b01f8ce68f9cabab7910ecb26192f6f3494163f1ccffe527b4c3875689", size = 34849, upload-time = "2024-11-21T02:23:58.053Z" },
-]
-
-[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -289,7 +277,6 @@ name = "devpush-app"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "aiodocker" },
     { name = "alembic" },
     { name = "arq" },
     { name = "asyncpg" },
@@ -304,6 +291,7 @@ dependencies = [
     { name = "humanize" },
     { name = "itsdangerous" },
     { name = "jinja2" },
+    { name = "kubernetes-asyncio" },
     { name = "pillow" },
     { name = "psycopg2-binary" },
     { name = "pydantic-settings" },
@@ -321,7 +309,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiodocker", specifier = ">=0.24.0" },
     { name = "alembic", specifier = ">=1.16.2" },
     { name = "arq", specifier = ">=0.25.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
@@ -336,6 +323,7 @@ requires-dist = [
     { name = "humanize", specifier = ">=4.12.3" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "kubernetes-asyncio", specifier = ">=33.3.0" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
@@ -575,6 +563,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c72f3e33cef02e048281fec7ecec5f032d4aac52226b/jinja2-3.1.6.tar.gz", hash = "sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d", size = 245115, upload-time = "2025-03-05T20:05:02.478Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl", hash = "sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67", size = 134899, upload-time = "2025-03-05T20:05:00.369Z" },
+]
+
+[[package]]
+name = "kubernetes-asyncio"
+version = "35.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "certifi" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "six" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/30/64/15fe503534746573252dee4a5d7714b24d1b4a536fcf6a84bc522e175cef/kubernetes_asyncio-35.0.0.tar.gz", hash = "sha256:9921d93838fae33993d5b563c7a5e591e9934826e5dcd6556d4adcf9fa600b40", size = 1320166, upload-time = "2026-02-13T19:52:01.322Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/d5/9816fc74aaa873b1138877835722250f6575e8cf5d4c13fd66c96aab5da5/kubernetes_asyncio-35.0.0-py3-none-any.whl", hash = "sha256:cea90dfc93f63a79314c164f3d6e0fb3f1fa41e6fa2fb7ab472f95c1eead97eb", size = 2868438, upload-time = "2026-02-13T19:51:59.302Z" },
 ]
 
 [[package]]
@@ -858,6 +863,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-dateutil"
+version = "2.9.0.post0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
 name = "python-dotenv"
 version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -969,6 +986,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310, upload-time = "2023-10-24T04:13:40.426Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
+]
+
+[[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
 ]
 
 [[package]]

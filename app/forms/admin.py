@@ -7,7 +7,7 @@ from wtforms import (
     SubmitField,
     TextAreaField,
 )
-from wtforms.validators import DataRequired, Optional, ValidationError
+from wtforms.validators import DataRequired, ValidationError
 
 from dependencies import get_translation as _, get_lazy_translation as _l
 
@@ -48,10 +48,6 @@ class AllowlistImportForm(StarletteForm):
         validators=[DataRequired()],
     )
     submit = SubmitField(_l("Import"), name="allowlist_import")
-
-
-class RegistryImageActionForm(StarletteForm):
-    slug = HiddenField(_l("Slug"), validators=[Optional()])
 
 
 class RegistryUpdateForm(StarletteForm):

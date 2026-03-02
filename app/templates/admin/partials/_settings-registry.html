@@ -93,51 +93,7 @@
                       {{ runner.name }}
                     </td>
                     <td class="font-mono text-muted-foreground" :class="{ 'opacity-50': !isEnabled }">{{ runner.slug }}</td>
-                    <td class="text-right whitespace-nowrap">
-                      <div class="flex items-center">
-                        <form
-                          method="post"
-                          action="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
-                          hx-post="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
-                          hx-target="#registry-flash"
-                          hx-confirm="{{ _('This will pull the image for this runner. Are you sure?') }}"
-                          hx-swap="innerHTML"
-                        >
-                          {{ registry_image_form.csrf_token() }}
-                          {{ registry_image_form.slug(value=runner.slug) }}
-                          <button
-                            type="submit"
-                            role="menuitem"
-                            class="btn-sm-icon-ghost"
-                            aria-label="{{ _('Pull image') }}"
-                            data-tooltip="{{ _('Pull image') }}"
-                          >
-                            {% include "icons/arrow-down.svg" %}
-                          </button>
-                        </form>
-                        <form
-                          method="post"
-                          action="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
-                          hx-post="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
-                          hx-target="#registry-flash"
-                          hx-confirm="{{ _('This will clear the image cache for this runner. Are you sure?') }}"
-                          hx-swap="innerHTML"
-                        >
-                          {{ registry_image_form.csrf_token() }}
-                          {{ registry_image_form.slug(value=runner.slug) }}
-                          <button
-                            type="submit"
-                            role="menuitem"
-                            class="btn-sm-icon-ghost"
-                            aria-label="{{ _('Clear image cache') }}"
-                            data-tooltip="{{ _('Clear image cache') }}"
-                            data-align="end"
-                          >
-                            {% include "icons/x.svg" %}
-                          </button>
-                        </form>
-                      </div>
-                    </td>
+                    <td class="text-right whitespace-nowrap"></td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -148,50 +104,7 @@
                       <div class="text-muted-foreground">{{ _('%(count)s runners', count=registry_state.runners | length) }}</div>
                     </div>
                   </td>
-                  <td>
-                    <div class="flex items-center">
-                      <form
-                        method="post"
-                        action="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(action='registry-pull') }}"
-                        hx-target="#registry-flash"
-                        hx-confirm="{{ _('This will pull all enabled images. Are you sure?') }}"
-                        hx-swap="innerHTML"
-                      >
-                        {{ registry_image_form.csrf_token() }}
-                        {{ registry_image_form.slug(value='') }}
-                        <button
-                          type="submit"
-                          class="btn-sm-icon-ghost"
-                          aria-label="{{ _('Pull all enabled') }}"
-                          data-tooltip="{{ _('Pull all enabled') }}"
-                          data-align="end"
-                        >
-                          {% include "icons/arrow-down.svg" %}
-                        </button>
-                      </form>
-                      <form
-                        method="post"
-                        action="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
-                        hx-post="{{ url_for('admin_settings').include_query_params(action='registry-clear') }}"
-                        hx-target="#registry-flash"
-                        hx-confirm="{{ _('This will clear all cached images. Are you sure?') }}"
-                        hx-swap="innerHTML"
-                      >
-                        {{ registry_image_form.csrf_token() }}
-                        {{ registry_image_form.slug(value='') }}
-                        <button
-                          type="submit"
-                          class="btn-sm-icon-ghost"
-                          aria-label="{{ _('Clear all cached images') }}"
-                          data-tooltip="{{ _('Clear all cached images') }}"
-                          data-align="end"
-                        >
-                          {% include "icons/x.svg" %}
-                        </button>
-                      </form>
-                    </div>
-                  </td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>

@@ -29,7 +29,6 @@ from forms.admin import (
     AllowlistAddForm,
     AllowlistDeleteForm,
     AllowlistImportForm,
-    RegistryImageActionForm,
     RegistryUpdateForm,
     RunnerToggleForm,
     PresetToggleForm,
@@ -125,7 +124,6 @@ async def admin_settings(
     # Registry
     runner_set_form = await RunnerToggleForm.from_formdata(request)
     preset_set_form = await PresetToggleForm.from_formdata(request)
-    registry_image_form = await RegistryImageActionForm.from_formdata(request)
     registry_update_form = await RegistryUpdateForm.from_formdata(request)
 
     registry_service = RegistryService(Path(settings.data_dir) / "registry")
@@ -167,7 +165,6 @@ async def admin_settings(
                 name="admin/partials/_settings-registry.html",
                 context={
                     "current_user": current_user,
-                    "registry_image_form": registry_image_form,
                     "runner_set_form": runner_set_form,
                     "preset_set_form": preset_set_form,
                     "registry_state": registry_state,
@@ -209,7 +206,7 @@ async def admin_settings(
             },
         )
 
-    # Registry actions: set runner, set preset, pull image, clear image
+    # Registry actions: set runner, set preset
     if action and action.startswith("registry-") and request.method == "POST":
         if action == "registry-set-runner":
             if not await runner_set_form.validate_on_submit():
@@ -244,38 +241,6 @@ async def admin_settings(
                     ),
                     "success",
                 )
-
-        elif action == "registry-pull":
-            if not await registry_image_form.validate_on_submit():
-                flash(request, _("Invalid registry action"), "error")
-            else:
-                slug = (registry_image_form.slug.data or "").strip()
-                if slug:
-                    await queue.enqueue_job("pull_runner_image", slug)
-                    flash(
-                        request,
-                        _("Pulling image for %(slug)s.", slug=slug),
-                        "success",
-                    )
-                else:
-                    await queue.enqueue_job("pull_all_runner_images")
-                    flash(request, _("Pulling all enabled runner images."), "success")
-
-        elif action == "registry-clear":
-            if not await registry_image_form.validate_on_submit():
-                flash(request, _("Invalid registry action"), "error")
-            else:
-                slug = (registry_image_form.slug.data or "").strip()
-                if slug:
-                    await queue.enqueue_job("clear_runner_image", slug)
-                    flash(
-                        request,
-                        _("Clearing image for %(slug)s.", slug=slug),
-                        "success",
-                    )
-                else:
-                    await queue.enqueue_job("clear_all_runner_images")
-                    flash(request, _("Clearing all runner images."), "success")
 
         if request.headers.get("HX-Request"):
             return TemplateResponse(
@@ -624,7 +589,6 @@ async def admin_settings(
             "add_allowlist_form": add_allowlist_form,
             "allowlist_delete_form": delete_allowlist_form,
             "import_allowlist_form": import_allowlist_form,
-            "registry_image_form": registry_image_form,
             "registry_update_form": registry_update_form,
             "runner_set_form": runner_set_form,
             "preset_set_form": preset_set_form,

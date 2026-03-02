@@ -1744,7 +1744,7 @@ async def project_settings(
 
                     if domains_disabled:
                         deployment_service = DeploymentService()
-                        await deployment_service.update_traefik_config(
+                        await deployment_service.sync_project_routing(
                             project, db, settings
                         )
                 else:
@@ -2017,12 +2017,12 @@ async def project_settings(
     if domains_changed:
         try:
             deployment_service = DeploymentService()
-            await deployment_service.update_traefik_config(project, db, settings)
+            await deployment_service.sync_project_routing(project, db, settings)
         except Exception as e:
-            logger.error(f"Failed to update Traefik config: {e}")
+            logger.error(f"Failed to sync project routing: {e}")
             flash(
                 request,
-                _("Traefik config update failed."),
+                _("Routing update failed."),
                 "warning",
             )
 

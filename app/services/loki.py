@@ -83,10 +83,14 @@ class LokiService:
                             "message": message,
                             "level": level,
                             "labels": {
-                                "project_id": stream["stream"]["project_id"],
-                                "deployment_id": stream["stream"]["deployment_id"],
-                                "environment_id": stream["stream"]["environment_id"],
-                                "branch": stream["stream"]["branch"],
+                                "project_id": stream["stream"].get("project_id", ""),
+                                "deployment_id": stream["stream"].get(
+                                    "deployment_id", ""
+                                ),
+                                "environment_id": stream["stream"].get(
+                                    "environment_id", ""
+                                ),
+                                "branch": stream["stream"].get("branch", ""),
                             },
                         }
                     )

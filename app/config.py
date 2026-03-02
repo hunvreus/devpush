@@ -38,13 +38,17 @@ class Settings(BaseSettings):
     postgres_user: str = "devpush-app"
     postgres_password: str = ""
     redis_url: str = "redis://redis:6379"
-    docker_host: str = "tcp://docker-proxy:2375"
+    kubernetes_namespace: str = "devpush"
+    kubernetes_control_plane_service_account: str = "devpush-control-plane"
+    kubernetes_workload_service_account: str = "devpush-workload"
+    kubernetes_ingress_controller: str = "traefik"
+    kubernetes_ingress_class: str = "traefik"
+    kubernetes_storage_class: str = ""
     data_dir: str = "/data"
     host_data_dir: str | None = None
     app_dir: str = "/app"
     registry_catalog_url: str = "https://raw.githubusercontent.com/devpushhq/registry/main/catalog/v1/catalog.json"
     upload_dir: str = ""
-    traefik_dir: str = ""
     env_file: str = ""
     version_file: str = ""
     default_cpus: float | None = None
@@ -147,8 +151,6 @@ def get_settings():
     # Directories/files normalization
     if not settings.upload_dir:
         settings.upload_dir = os.path.join(settings.data_dir, "upload")
-    if not settings.traefik_dir:
-        settings.traefik_dir = os.path.join(settings.data_dir, "traefik")
     if not settings.env_file:
         settings.env_file = os.path.join(settings.data_dir, ".env")
     if not settings.version_file:

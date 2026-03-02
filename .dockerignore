@@ -19,6 +19,8 @@ __pycache__/
 # Virtual environments
 venv/
 .venv/
+**/venv/
+**/.venv/
 
 # Build
 src/

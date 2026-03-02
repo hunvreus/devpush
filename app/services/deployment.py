@@ -1,12 +1,9 @@
 import os
 import re
-import tempfile
-import yaml
-import aiodocker
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 from arq.connections import ArqRedis
@@ -15,6 +12,7 @@ from arq.jobs import Job
 from models import Deployment, Alias, Project, User, Domain, Storage, StorageProject
 from utils.environment import get_environment_for_branch
 from config import Settings, get_settings
+from services.kubernetes import KubernetesService
 from services.registry import RegistryService
 
 logger = logging.getLogger(__name__)
@@ -247,7 +245,7 @@ class DeploymentService:
             except Exception as exc:
                 logger.error("Failed to setup environment id alias: %s", exc)
 
-    async def update_traefik_config(
+    async def sync_project_routing(
         self,
         project: Project,
         db: AsyncSession,
@@ -255,30 +253,25 @@ class DeploymentService:
         *,
         include_deployment_ids: set[str] | None = None,
     ) -> None:
-        """Update Traefik config for a project including domains."""
-        path = os.path.join(settings.traefik_dir, f"project_{project.id}.yml")
-
-        # Get aliases
+        """Sync project host routing rules into Kubernetes ingress resources."""
         include_ids = include_deployment_ids or set()
-        if include_ids:
-            where_clause = or_(
-                Deployment.conclusion == "succeeded",
-                Deployment.id.in_(list(include_ids)),
-            )
-        else:
-            where_clause = Deployment.conclusion == "succeeded"
-
         result = await db.execute(
             select(Alias)
             .join(Deployment, Alias.deployment_id == Deployment.id)
-            .filter(
+            .where(
                 Deployment.project_id == project.id,
-                where_clause,
+                (
+                    Deployment.conclusion == "succeeded"
+                    if not include_ids
+                    else (
+                        (Deployment.conclusion == "succeeded")
+                        | Deployment.id.in_(list(include_ids))
+                    )
+                ),
             )
         )
         aliases = result.scalars().all()
 
-        # Get active domains
         domains_result = await db.execute(
             select(Domain).where(
                 Domain.project_id == project.id, Domain.status == "active"
@@ -286,29 +279,17 @@ class DeploymentService:
         )
         domains = domains_result.scalars().all()
 
-        # Remove config if no aliases or domains
-        if not aliases and not domains and os.path.exists(path):
-            os.remove(path)
-            return
-
-        routers = {}
-        services = {}
-        middlewares = {}
-
-        # Aliases
+        routes: list[dict[str, str]] = []
         for a in aliases:
-            router_config = {
-                "rule": f"Host(`{a.subdomain}.{settings.deploy_domain}`)",
-                "service": f"deployment-{a.deployment_id}@docker",
-                "entryPoints": ["web", "websecure"]
-                if settings.url_scheme == "https"
-                else ["web"],
-            }
-            if settings.url_scheme == "https":
-                router_config["tls"] = {"certResolver": "le"}
-            routers[f"router-alias-{a.id}"] = router_config
+            routes.append(
+                {
+                    "route_id": f"alias-{a.id}",
+                    "route_type": "route",
+                    "host": f"{a.subdomain}.{settings.deploy_domain}",
+                    "deployment_id": a.deployment_id,
+                }
+            )
 
-        # Domains
         for domain in domains:
             env_alias = next(
                 (
@@ -322,71 +303,34 @@ class DeploymentService:
             if not env_alias:
                 continue
 
+            if domain.type not in {"route", "301", "302", "307", "308"}:
+                continue
+
             if domain.type == "route":
-                router_config = {
-                    "rule": f"Host(`{domain.hostname}`)",
-                    "service": f"deployment-{env_alias.deployment_id}@docker",
-                    "entryPoints": ["web", "websecure"]
-                    if settings.url_scheme == "https"
-                    else ["web"],
-                }
-                if settings.url_scheme == "https":
-                    # Force HTTP-0.1 ACME challenge
-                    router_config["tls"] = {"certResolver": "lehttp"}
-                routers[f"router-domain-{domain.id}"] = router_config
-
-            elif domain.type in ["301", "302", "307", "308"]:
-                middleware_name = f"redirect-{domain.id}"
-
-                router_cfg = {
-                    "rule": f"Host(`{domain.hostname}`)",
-                    "service": "noop@internal",
-                    "middlewares": [middleware_name],
-                    "entryPoints": ["web", "websecure"]
-                    if settings.url_scheme == "https"
-                    else ["web"],
-                }
-                if settings.url_scheme == "https":
-                    # Force HTTP-0.1 ACME challenge
-                    router_cfg["tls"] = {"certResolver": "lehttp"}
-                routers[f"router-redirect-{domain.id}"] = router_cfg
-
-                middlewares[middleware_name] = {
-                    "redirectRegex": {
-                        "regex": f"^https?://{domain.hostname}/(.*)",
-                        "replacement": f"https://{env_alias.subdomain}.{settings.deploy_domain}/$1",
-                        "permanent": domain.type in ["301", "308"],
+                routes.append(
+                    {
+                        "route_id": f"domain-{domain.id}",
+                        "route_type": "route",
+                        "host": domain.hostname,
+                        "deployment_id": env_alias.deployment_id,
                     }
-                }
+                )
+            else:
+                routes.append(
+                    {
+                        "route_id": f"domain-{domain.id}",
+                        "route_type": "redirect",
+                        "host": domain.hostname,
+                        "deployment_id": env_alias.deployment_id,
+                        "redirect_target_host": (
+                            f"{env_alias.subdomain}.{settings.deploy_domain}"
+                        ),
+                        "redirect_code": domain.type,
+                    }
+                )
 
-        # If there is nothing to configure, remove any stale config file.
-        if not routers and not services and not middlewares:
-            if os.path.exists(path):
-                os.remove(path)
-            return
-
-        # Write config
-        os.makedirs(settings.traefik_dir, exist_ok=True)
-        config = {"http": {"routers": routers}}
-        if services:
-            config["http"]["services"] = services
-        if middlewares:
-            config["http"]["middlewares"] = middlewares
-
-        # Write atomically so Traefik's file watcher never reads a partially-written YAML.
-        fd, tmp_path = tempfile.mkstemp(
-            prefix=f".{os.path.basename(path)}.", dir=settings.traefik_dir
-        )
-        try:
-            with os.fdopen(fd, "w") as f:
-                yaml.safe_dump(config, f, sort_keys=False, indent=2)
-            os.replace(tmp_path, path)
-        finally:
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
+        runtime = KubernetesService(settings)
+        await runtime.sync_project_routes(project_id=project.id, routes=routes)
 
     async def create(
         self,
@@ -515,50 +459,29 @@ class DeploymentService:
             if job_info and job_info.success is None:
                 await job.abort()
 
-        # Stop container if running to halt logs/app
+        # Stop workload if running to halt logs/app
         if deployment.container_id and deployment.container_status not in (
             "removed",
             "stopped",
         ):
             settings = get_settings()
+            runtime = KubernetesService(settings)
             try:
-                async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-                    try:
-                        container = await docker_client.containers.get(
-                            deployment.container_id
-                        )
-                        try:
-                            await container.stop()
-                        except Exception:
-                            pass
-                        await queue.enqueue_job(
-                            "delete_container",
-                            deployment.id,
-                            _defer_by=settings.container_delete_grace_seconds,
-                        )
-                        await DeploymentService.update_status(
-                            db,
-                            deployment,
-                            container_status="stopped",
-                            emit=False,
-                        )
-                    except aiodocker.DockerError as e:
-                        if e.status == 404:
-                            await DeploymentService.update_status(
-                                db,
-                                deployment,
-                                container_status="removed",
-                                emit=False,
-                            )
-                        else:
-                            logger.error(
-                                "Error stopping container for deployment %s: %s",
-                                deployment.id,
-                                e,
-                            )
+                await runtime.kill_workload(deployment.container_id)
+                await queue.enqueue_job(
+                    "delete_container",
+                    deployment.id,
+                    _defer_by=settings.container_delete_grace_seconds,
+                )
+                await DeploymentService.update_status(
+                    db,
+                    deployment,
+                    container_status="stopped",
+                    emit=False,
+                )
             except Exception as e:
                 logger.error(
-                    "Error during container cleanup for deployment %s: %s",
+                    "Error during workload cleanup for deployment %s: %s",
                     deployment.id,
                     e,
                 )
@@ -593,7 +516,7 @@ class DeploymentService:
         )
         await db.commit()
 
-        await self.update_traefik_config(project, db, settings)
+        await self.sync_project_routing(project, db, settings)
 
         await redis_client.xadd(
             f"stream:project:{project.id}:updates",
@@ -637,7 +560,7 @@ class DeploymentService:
     #     )
     #     await db.commit()
 
-    #     await self.update_traefik_config(project, db, settings)
+    #     await self.sync_project_routing(project, db, settings)
 
     #     await redis_client.xadd(
     #         f"stream:project:{project.id}:updates",

@@ -1,5 +1,4 @@
 import asyncio
-import aiodocker
 import logging
 from sqlalchemy import select, true
 from sqlalchemy.orm import joinedload
@@ -15,6 +14,7 @@ from dependencies import (
 from config import get_settings
 from arq.connections import ArqRedis
 from services.deployment import DeploymentService
+from services.kubernetes import KubernetesService
 from services.registry import RegistryService
 from services.loki import LokiService
 
@@ -43,13 +43,14 @@ async def _push_loki_log(
 
 async def start_deployment(ctx, deployment_id: str):
     """Starts a deployment."""
-    container = None
+    workload_id: str | None = None
     loki: LokiService | None = None
+    log_prefix = f"[DeployStart:{deployment_id}]"
     try:
         settings = get_settings()
         redis_client = get_redis_client()
-        log_prefix = f"[DeployStart:{deployment_id}]"
         logger.info(f"{log_prefix} Starting deployment")
+        runtime = KubernetesService(settings)
 
         github_installation_service = get_github_installation_service()
 
@@ -63,285 +64,145 @@ async def start_deployment(ctx, deployment_id: str):
             ).scalar_one()
             loki = LokiService()
 
-            container = None
-            async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-                # Mark deployment as in-progress
-                await DeploymentService.update_status(
-                    db,
-                    deployment,
-                    status="prepare",
-                    redis_client=redis_client,
-                )
+            await DeploymentService.update_status(
+                db,
+                deployment,
+                status="prepare",
+                redis_client=redis_client,
+            )
 
-                # Prepare environment variables
-                env_vars_dict = DeploymentService().get_runtime_env_vars(
-                    deployment, settings
+            env_vars_dict = DeploymentService().get_runtime_env_vars(deployment, settings)
+            mounts = await DeploymentService().get_runtime_mounts(
+                deployment, db, settings
+            )
+            commands: list[str] = []
+            commands.append(
+                f"echo 'Cloning {deployment.repo_full_name} (Branch: {deployment.branch}, Commit: {deployment.commit_sha[:7]})'"
+            )
+            github_installation = (
+                await github_installation_service.get_or_refresh_installation(
+                    deployment.project.github_installation_id, db
                 )
-                mounts = await DeploymentService().get_runtime_mounts(
-                    deployment, db, settings
-                )
+            )
+            env_vars_dict["DEVPUSH_GITHUB_TOKEN"] = github_installation.token
+            commands.append(
+                "git init -q && "
+                "printf '%s\n' "
+                "'#!/bin/sh' "
+                '\'case "$1" in *Username*) echo "x-access-token";; *) echo "$DEVPUSH_GITHUB_TOKEN";; esac\' '
+                "> /tmp/devpush-git-askpass && "
+                "chmod 700 /tmp/devpush-git-askpass && "
+                "export GIT_ASKPASS=/tmp/devpush-git-askpass GIT_TERMINAL_PROMPT=0 && "
+                f"git fetch -q --depth 1 https://github.com/{deployment.repo_full_name}.git {deployment.commit_sha} && "
+                "git checkout -q FETCH_HEAD && "
+                "unset GIT_ASKPASS GIT_TERMINAL_PROMPT DEVPUSH_GITHUB_TOKEN && "
+                "rm -f /tmp/devpush-git-askpass"
+            )
 
-                # Prepare commands
-                commands = []
-
-                # Step 1: Clone the repository
+            normalized_root_directory = (
+                deployment.config.get("root_directory", "").strip().lstrip("./").strip("/")
+            )
+            if normalized_root_directory not in ("", ".", "./"):
+                quoted_root_directory = shlex.quote(normalized_root_directory)
                 commands.append(
-                    f"echo 'Cloning {deployment.repo_full_name} (Branch: {deployment.branch}, Commit: {deployment.commit_sha[:7]})'"
+                    f"echo 'Changing root directory to {normalized_root_directory}'"
                 )
-                github_installation = (
-                    await github_installation_service.get_or_refresh_installation(
-                        deployment.project.github_installation_id, db
-                    )
-                )
-                env_vars_dict["DEVPUSH_GITHUB_TOKEN"] = github_installation.token
                 commands.append(
-                    "git init -q && "
-                    "printf '%s\n' "
-                    "'#!/bin/sh' "
-                    '\'case "$1" in *Username*) echo "x-access-token";; *) echo "$DEVPUSH_GITHUB_TOKEN";; esac\' '
-                    "> /tmp/devpush-git-askpass && "
-                    "chmod 700 /tmp/devpush-git-askpass && "
-                    "export GIT_ASKPASS=/tmp/devpush-git-askpass GIT_TERMINAL_PROMPT=0 && "
-                    f"git fetch -q --depth 1 https://github.com/{deployment.repo_full_name}.git {deployment.commit_sha} && "
-                    "git checkout -q FETCH_HEAD && "
-                    "unset GIT_ASKPASS GIT_TERMINAL_PROMPT DEVPUSH_GITHUB_TOKEN && "
-                    "rm -f /tmp/devpush-git-askpass"
+                    f"test -d {quoted_root_directory} || {{ printf '\\033[31mError: root directory %s not found\\033[0m\\n' {quoted_root_directory} 1>&2; exit 1; }}"
                 )
+                commands.append(f"cd {quoted_root_directory}")
 
-                # Step 2: Change root directory
-                normalized_root_directory = (
-                    deployment.config.get("root_directory", "")
-                    .strip()
-                    .lstrip("./")
-                    .strip("/")
-                )
-                if normalized_root_directory not in ("", ".", "./"):
-                    quoted_root_directory = shlex.quote(normalized_root_directory)
-                    commands.append(
-                        f"echo 'Changing root directory to {normalized_root_directory}'"
-                    )
-                    commands.append(
-                        f"test -d {quoted_root_directory} || {{ printf '\\033[31mError: root directory %s not found\\033[0m\\n' {quoted_root_directory} 1>&2; exit 1; }}"
-                    )
-                    commands.append(f"cd {quoted_root_directory}")
+            if deployment.config.get("build_command"):
+                commands.append("echo 'Installing dependencies...'")
+                commands.append(f"( {deployment.config.get('build_command')} )")
 
-                # Step 3: Install dependencies
-                if deployment.config.get("build_command"):
-                    commands.append("echo 'Installing dependencies...'")
-                    commands.append(f"( {deployment.config.get('build_command')} )")
+            if deployment.config.get("pre_deploy_command"):
+                commands.append("echo 'Running pre-deploy command...'")
+                commands.append(f"( {deployment.config.get('pre_deploy_command')} )")
 
-                # Step 4: Run pre-deploy command
-                if deployment.config.get("pre_deploy_command"):
-                    commands.append("echo 'Running pre-deploy command...'")
-                    commands.append(
-                        f"( {deployment.config.get('pre_deploy_command')} )"
-                    )
+            commands.append("echo 'Starting application...'")
+            commands.append(f"( {deployment.config.get('start_command')} )")
 
-                # Step 5: Start the application
-                commands.append("echo 'Starting application...'")
-                commands.append(f"( {deployment.config.get('start_command')} )")
+            config = deployment.config or {}
+            cpus: float | None = settings.default_cpus
+            memory_mb: int | None = settings.default_memory_mb
 
-                # Setup container configuration
-                container_name = f"runner-{deployment.id[:7]}"
-                router = f"deployment-{deployment.id}"
-
-                labels = {
-                    "traefik.enable": "true",
-                    f"traefik.http.routers.{router}.rule": f"Host(`{deployment.slug}.{settings.deploy_domain}`)",
-                    f"traefik.http.routers.{router}.service": f"{router}@docker",
-                    f"traefik.http.routers.{router}.priority": "10",
-                    f"traefik.http.services.{router}.loadbalancer.server.port": "8000",
-                    "traefik.docker.network": "devpush_runner",
-                    "devpush.deployment_id": deployment.id,
-                    "devpush.project_id": deployment.project_id,
-                    "devpush.environment_id": deployment.environment_id,
-                    "devpush.branch": deployment.branch,
-                }
-
-                if settings.url_scheme == "https":
-                    labels.update(
-                        {
-                            f"traefik.http.routers.{router}.entrypoints": "websecure",
-                            f"traefik.http.routers.{router}.tls": "true",
-                            f"traefik.http.routers.{router}.tls.certresolver": "le",
-                        }
+            if settings.allow_custom_cpu and config.get("cpus") is not None:
+                max_cpus = settings.max_cpus
+                assert max_cpus is not None
+                try:
+                    override_cpus = float(config.get("cpus"))
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"{log_prefix} Invalid CPU override in config; using default."
                     )
                 else:
-                    labels[f"traefik.http.routers.{router}.entrypoints"] = "web"
+                    if override_cpus > 0:
+                        cpus = min(override_cpus, max_cpus)
 
-                config = deployment.config or {}
-
-                cpus: float | None = settings.default_cpus
-                memory_mb: int | None = settings.default_memory_mb
-
-                if settings.allow_custom_cpu and config.get("cpus") is not None:
-                    max_cpus = settings.max_cpus
-                    assert max_cpus is not None
-                    try:
-                        override_cpus = float(config.get("cpus"))
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            f"{log_prefix} Invalid CPU override in config; using default."
-                        )
-                    else:
-                        if override_cpus > 0:
-                            cpus = min(override_cpus, max_cpus)
-
-                if settings.allow_custom_memory and config.get("memory") is not None:
-                    max_memory_mb = settings.max_memory_mb
-                    assert max_memory_mb is not None
-                    try:
-                        override_memory_mb = int(config.get("memory"))
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            f"{log_prefix} Invalid memory override in config; using default."
-                        )
-                    else:
-                        if override_memory_mb > 0:
-                            memory_mb = min(override_memory_mb, max_memory_mb)
-
-                runner_image = deployment.image
-                if not runner_image:
-                    runner_slug = config.get("runner") or config.get("image")
-                    if not runner_slug:
-                        raise ValueError("Runner not set in deployment config.")
-                    registry_state = RegistryService(
-                        Path(settings.data_dir) / "registry"
-                    ).state
-                    runner_image = next(
-                        (
-                            runner.get("image")
-                            for runner in registry_state.runners
-                            if runner.get("slug") == runner_slug
-                        ),
-                        None,
-                    )
-                if not runner_image:
-                    raise ValueError("Runner image not found for deployment.")
-
-                await _push_loki_log(
-                    loki,
-                    deployment,
-                    "Checking runner image availability...",
-                )
+            if settings.allow_custom_memory and config.get("memory") is not None:
+                max_memory_mb = settings.max_memory_mb
+                assert max_memory_mb is not None
                 try:
-                    await docker_client.images.get(runner_image)
-                    await _push_loki_log(
-                        loki,
-                        deployment,
-                        f"Runner image already present ({runner_image})",
+                    override_memory_mb = int(config.get("memory"))
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"{log_prefix} Invalid memory override in config; using default."
                     )
-                except aiodocker.DockerError as error:
-                    if error.status == 404:
-                        await _push_loki_log(
-                            loki,
-                            deployment,
-                            f"Pulling runner image ({runner_image})...",
-                        )
-                        try:
-                            await docker_client.images.pull(runner_image)
-                            await _push_loki_log(
-                                loki,
-                                deployment,
-                                "Runner image pulled",
-                            )
-                        except Exception:
-                            await _push_loki_log(
-                                loki,
-                                deployment,
-                                "Failed to pull runner image",
-                                level="Error",
-                            )
-                            raise
-                    else:
-                        raise
+                else:
+                    if override_memory_mb > 0:
+                        memory_mb = min(override_memory_mb, max_memory_mb)
 
-                await _push_loki_log(
-                    loki,
-                    deployment,
-                    "Preparing and starting container...",
+            runner_image = deployment.image
+            if not runner_image:
+                runner_slug = config.get("runner") or config.get("image")
+                if not runner_slug:
+                    raise ValueError("Runner not set in deployment config.")
+                registry_state = RegistryService(
+                    Path(settings.data_dir) / "registry"
+                ).state
+                runner_image = next(
+                    (
+                        runner.get("image")
+                        for runner in registry_state.runners
+                        if runner.get("slug") == runner_slug
+                    ),
+                    None,
                 )
+            if not runner_image:
+                raise ValueError("Runner image not found for deployment.")
 
-                # Create and start container
-                try:
-                    container = await docker_client.containers.create_or_replace(
-                        name=container_name,
-                        config={
-                            "Image": runner_image,
-                            "Cmd": ["/bin/sh", "-c", " && ".join(commands)],
-                            "Env": [f"{k}={v}" for k, v in env_vars_dict.items()],
-                            "WorkingDir": "/app",
-                            "Labels": labels,
-                            "NetworkingConfig": {
-                                "EndpointsConfig": {"devpush_runner": {}}
-                            },
-                            "HostConfig": {
-                                **(
-                                    {
-                                        "CpuQuota": int(cpus * 100000),
-                                        "CpuPeriod": 100000,
-                                    }
-                                    if cpus is not None and cpus > 0
-                                    else {}
-                                ),
-                                **(
-                                    {"Memory": memory_mb * 1024 * 1024}
-                                    if memory_mb is not None and memory_mb > 0
-                                    else {}
-                                ),
-                                **({"Binds": mounts} if mounts else {}),
-                                "SecurityOpt": ["no-new-privileges:true"],
-                                "LogConfig": {
-                                    "Type": "json-file",
-                                    "Config": {"max-size": "10m", "max-file": "5"},
-                                },
-                            },
-                        },
-                    )
-                except aiodocker.DockerError as error:
-                    queue: ArqRedis = ctx["redis"]
-                    err_str = str(error)
-                    if "No such image" in err_str or "not found" in err_str.lower():
-                        reason = "Runner image not found. Contact your administrator."
-                    elif "port is already allocated" in err_str.lower():
-                        reason = "Port conflict. Another deployment may be using the same port."
-                    else:
-                        reason = f"Failed to create container: {error}"
-                    await queue.enqueue_job(
-                        "fail_deployment",
-                        deployment_id,
-                        "prepare",
-                        reason,
-                    )
-                    logger.error(
-                        f"{log_prefix} Failed to start container for {deployment.id}: {error}"
-                    )
-                    return
+            await _push_loki_log(loki, deployment, "Preparing and starting container...")
+            workload_id = await runtime.create_workload(
+                deployment_id=deployment.id,
+                project_id=deployment.project_id,
+                environment_id=deployment.environment_id,
+                hostname=deployment.hostname,
+                image=runner_image,
+                commands=commands,
+                env_vars=env_vars_dict,
+                mounts=mounts,
+                cpus=cpus,
+                memory_mb=memory_mb,
+                labels={},
+            )
 
-                await container.start()
-
-                # Save container info
-                deployment.container_id = container.id
-                await DeploymentService.update_status(
-                    db,
-                    deployment,
-                    status="deploy",
-                    container_status="running",
-                    redis_client=redis_client,
-                )
-                logger.info(
-                    f"{log_prefix} Container {container.id} started. Monitoring..."
-                )
+            deployment.container_id = workload_id
+            await DeploymentService.update_status(
+                db,
+                deployment,
+                status="deploy",
+                container_status="running",
+                redis_client=redis_client,
+            )
+            logger.info(f"{log_prefix} Workload {workload_id} started. Monitoring...")
 
     except asyncio.CancelledError:
         logger.info(f"{log_prefix} Deployment canceled.")
-
-        if container:
+        runtime = KubernetesService(settings)
+        if workload_id:
             try:
-                try:
-                    await container.stop()
-                except Exception:
-                    pass
+                await runtime.kill_workload(workload_id)
                 queue: ArqRedis = ctx["redis"]
                 await queue.enqueue_job(
                     "delete_container",
@@ -349,22 +210,22 @@ async def start_deployment(ctx, deployment_id: str):
                     _defer_by=settings.container_delete_grace_seconds,
                 )
             except Exception as e:
-                logger.error(f"{log_prefix} Error cleaning up container: {e}")
+                logger.error(f"{log_prefix} Error cleaning up workload: {e}")
 
-            try:
-                async with AsyncSessionLocal() as db:
-                    deployment = await db.get(Deployment, deployment_id)
-                    if deployment:
-                        await DeploymentService.update_status(
-                            db,
-                            deployment,
-                            status="completed",
-                            conclusion="canceled",
-                            container_status="stopped",
-                            redis_client=get_redis_client(),
-                        )
-            except Exception as e:
-                logger.error(f"{log_prefix} Error updating deployment status: {e}")
+        try:
+            async with AsyncSessionLocal() as db:
+                deployment = await db.get(Deployment, deployment_id)
+                if deployment:
+                    await DeploymentService.update_status(
+                        db,
+                        deployment,
+                        status="completed",
+                        conclusion="canceled",
+                        container_status="stopped",
+                        redis_client=get_redis_client(),
+                    )
+        except Exception as e:
+            logger.error(f"{log_prefix} Error updating deployment status: {e}")
 
     except Exception as e:
         queue: ArqRedis = ctx["redis"]
@@ -381,7 +242,7 @@ async def start_deployment(ctx, deployment_id: str):
 
 
 async def finalize_deployment(ctx, deployment_id: str):
-    """Finalizes a deployment, setting up aliases and updating Traefik config."""
+    """Finalizes a deployment."""
     settings = get_settings()
     redis_client = get_redis_client()
     service = DeploymentService()
@@ -409,17 +270,12 @@ async def finalize_deployment(ctx, deployment_id: str):
 
             await DeploymentService().setup_aliases(deployment, db, settings)
             await db.commit()
-
-            # Update Traefik dynamic config
-            try:
-                await DeploymentService().update_traefik_config(
-                    deployment.project,
-                    db,
-                    settings,
-                    include_deployment_ids={deployment.id},
-                )
-            except Exception as e:
-                logger.error(f"{log_prefix} Failed to update Traefik config: {e}")
+            await DeploymentService().sync_project_routing(
+                deployment.project,
+                db,
+                settings,
+                include_deployment_ids={deployment.id},
+            )
 
             await service.update_status(
                 db,
@@ -457,6 +313,7 @@ async def fail_deployment(
     log_prefix = f"[DeployFail:{deployment_id}]"
     logger.info(f"{log_prefix} Handling failed deployment. Reason: {reason}")
     settings = get_settings()
+    runtime = KubernetesService(settings)
     redis_client = get_redis_client()
     service = DeploymentService()
 
@@ -494,49 +351,25 @@ async def fail_deployment(
             "stopped",
         ):
             try:
-                async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-                    container = await docker_client.containers.get(
-                        deployment.container_id
-                    )
-                    try:
-                        await container.stop()
-                    except Exception:
-                        pass
-                    queue: ArqRedis = ctx["redis"]
-                    await queue.enqueue_job(
-                        "delete_container",
-                        deployment.id,
-                        _defer_by=settings.container_delete_grace_seconds,
-                    )
-                    logger.info(
-                        f"{log_prefix} Cleaned up failed container {deployment.container_id}"
-                    )
-                    await service.update_status(
-                        db,
-                        deployment,
-                        container_status="stopped",
-                        emit=False,
-                    )
-
-            except aiodocker.DockerError as error:
-                if error.status == 404:
-                    logger.warning(
-                        f"{log_prefix} Container {deployment.container_id} not found, already removed"
-                    )
-                    await service.update_status(
-                        db,
-                        deployment,
-                        container_status="removed",
-                        emit=False,
-                    )
-                else:
-                    logger.error(
-                        f"{log_prefix} Docker error cleaning up container {deployment.container_id}: {error}",
-                        exc_info=True,
-                    )
+                await runtime.kill_workload(deployment.container_id)
+                queue: ArqRedis = ctx["redis"]
+                await queue.enqueue_job(
+                    "delete_container",
+                    deployment.id,
+                    _defer_by=settings.container_delete_grace_seconds,
+                )
+                logger.info(
+                    f"{log_prefix} Cleaned up failed workload {deployment.container_id}"
+                )
+                await service.update_status(
+                    db,
+                    deployment,
+                    container_status="stopped",
+                    emit=False,
+                )
             except Exception:
                 logger.warning(
-                    f"{log_prefix} Could not cleanup container {deployment.container_id}.",
+                    f"{log_prefix} Could not cleanup workload {deployment.container_id}.",
                     exc_info=True,
                 )
 
@@ -552,36 +385,24 @@ async def fail_deployment(
 
 
 async def delete_container(ctx, deployment_id: str):
-    """Delete a deployment container after a grace period."""
+    """Delete a deployment workload after a grace period."""
     log_prefix = f"[DeleteContainer:{deployment_id}]"
-    logger.info(f"{log_prefix} Deleting container")
+    logger.info(f"{log_prefix} Deleting workload")
     settings = get_settings()
+    runtime = KubernetesService(settings)
     async with AsyncSessionLocal() as db:
         deployment = await db.get(Deployment, deployment_id)
         if not deployment or not deployment.container_id:
-            logger.warning(f"{log_prefix} Deployment or container not found")
+            logger.warning(f"{log_prefix} Deployment or workload not found")
             return
 
         try:
-            async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-                try:
-                    container = await docker_client.containers.get(
-                        deployment.container_id
-                    )
-                    try:
-                        await container.stop()
-                    except Exception:
-                        pass
-                    await container.delete(force=True)
-                    deployment.container_status = "removed"
-                    await db.commit()
-                except aiodocker.DockerError as error:
-                    if error.status == 404:
-                        deployment.container_status = "removed"
-                        await db.commit()
+            await runtime.remove_workload(deployment.container_id)
+            deployment.container_status = "removed"
+            await db.commit()
         except Exception:
             logger.error(
-                f"[DeleteContainer:{deployment_id}] Error deleting container.",
+                f"[DeleteContainer:{deployment_id}] Error deleting workload.",
                 exc_info=True,
             )
 
@@ -589,141 +410,90 @@ async def delete_container(ctx, deployment_id: str):
 async def cleanup_inactive_containers(
     ctx, project_id: str, remove_containers: bool = True
 ):
-    """Stop/remove containers for deployments no longer referenced by aliases."""
+    """Stop/remove workloads for deployments no longer referenced by aliases."""
     settings = get_settings()
+    runtime = KubernetesService(settings)
 
     async with AsyncSessionLocal() as db:
-        async with aiodocker.Docker(url=settings.docker_host) as docker_client:
-            try:
-                # Get project
-                result = await db.execute(
-                    select(Project).where(Project.id == project_id)
-                )
-                project = result.scalar_one_or_none()
+        try:
+            result = await db.execute(select(Project).where(Project.id == project_id))
+            project = result.scalar_one_or_none()
 
-                if not project:
-                    logger.warning(
-                        f"[CleanupInactiveContainers:{project_id}] Project not found"
-                    )
-                    return
+            if not project:
+                logger.warning(f"[CleanupInactiveContainers:{project_id}] Project not found")
+                return
 
-                if project.status == "deleted":
-                    logger.info(
-                        f"[CleanupInactiveContainers:{project_id}] Project deleted, skipping"
-                    )
-                    return
-
+            if project.status == "deleted":
                 logger.info(
-                    f"[CleanupInactiveContainers:{project_id}] Starting cleanup for {project.name}"
+                    f"[CleanupInactiveContainers:{project_id}] Project deleted, skipping"
                 )
+                return
 
-                # Get active deployment IDs
-                active_result = await db.execute(
-                    select(Alias.deployment_id)
-                    .join(Deployment, Alias.deployment_id == Deployment.id)
+            logger.info(
+                f"[CleanupInactiveContainers:{project_id}] Starting cleanup for {project.name}"
+            )
+
+            active_result = await db.execute(
+                select(Alias.deployment_id)
+                .join(Deployment, Alias.deployment_id == Deployment.id)
+                .where(
+                    Deployment.project_id == project_id,
+                    Alias.deployment_id.isnot(None),
+                )
+                .union(
+                    select(Alias.previous_deployment_id)
+                    .join(Deployment, Alias.previous_deployment_id == Deployment.id)
                     .where(
                         Deployment.project_id == project_id,
-                        Alias.deployment_id.isnot(None),
-                    )
-                    .union(
-                        select(Alias.previous_deployment_id)
-                        .join(Deployment, Alias.previous_deployment_id == Deployment.id)
-                        .where(
-                            Deployment.project_id == project_id,
-                            Alias.previous_deployment_id.isnot(None),
-                        )
+                        Alias.previous_deployment_id.isnot(None),
                     )
                 )
-                active_deployment_ids = set(active_result.scalars().all())
+            )
+            active_deployment_ids = set(active_result.scalars().all())
 
-                logger.debug(
-                    f"[CleanupInactiveContainers:{project_id}] Active deployments: {active_deployment_ids}"
+            inactive_result = await db.execute(
+                select(Deployment).where(
+                    Deployment.project_id == project_id,
+                    Deployment.container_id.isnot(None),
+                    Deployment.container_status == "running",
+                    Deployment.status == "completed",
+                    Deployment.id.notin_(active_deployment_ids) if active_deployment_ids else true(),
                 )
+            )
+            inactive_deployments = inactive_result.scalars().all()
 
-                # Get inactive deployments with containers
-                inactive_result = await db.execute(
-                    select(Deployment).where(
-                        Deployment.project_id == project_id,
-                        Deployment.container_id.isnot(None),
-                        Deployment.container_status == "running",
-                        Deployment.status == "completed",
-                        Deployment.id.notin_(active_deployment_ids)
-                        if active_deployment_ids
-                        else true(),
-                    )
-                )
-                inactive_deployments = inactive_result.scalars().all()
+            stopped_count = 0
+            removed_count = 0
+            for deployment in inactive_deployments:
+                if not deployment.container_id:
+                    continue
+                try:
+                    await runtime.kill_workload(deployment.container_id)
+                    deployment.container_status = "stopped"
+                    stopped_count += 1
 
-                stopped_count = 0
-                removed_count = 0
-
-                for deployment in inactive_deployments:
-                    logger.info(
-                        f"[CleanupInactiveContainers:{project_id}] Processing inactive deployment {deployment.id}"
-                    )
-                    try:
-                        if deployment.container_id is None:
-                            logger.warning(
-                                f"[CleanupInactiveContainers:{project_id}] Deployment {deployment.id} has no container"
-                            )
-                            continue
-
-                        container = await docker_client.containers.get(
-                            deployment.container_id
-                        )
-
-                        # Stop container
-                        await container.stop()
-                        deployment.container_status = "stopped"
-                        stopped_count += 1
-                        logger.info(
-                            f"[CleanupInactiveContainers:{project_id}] Stopped container {deployment.container_id}"
-                        )
-
-                        # Remove if requested
-                        if remove_containers:
-                            await container.delete()
-                            deployment.container_status = "removed"
-                            removed_count += 1
-                            logger.info(
-                                f"[CleanupInactiveContainers:{project_id}] Removed container {deployment.container_id}"
-                            )
-
-                    except aiodocker.DockerError as error:
-                        if error.status == 404:
-                            logger.warning(
-                                f"[CleanupInactiveContainers:{project_id}] Container {deployment.container_id} not found"
-                            )
-                            deployment.container_status = None
-                        else:
-                            logger.error(
-                                f"[CleanupInactiveContainers:{project_id}] Docker error: {error}"
-                            )
-                    except Exception as error:
-                        logger.error(
-                            f"[CleanupInactiveContainers:{project_id}] Error processing container: {error}"
-                        )
-
-                # Commit status updates
-                if stopped_count > 0 or removed_count > 0:
-                    try:
-                        await db.commit()
-                        logger.info(
-                            f"[CleanupInactiveContainers:{project_id}] Stopped: {stopped_count}, Removed: {removed_count}"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"[CleanupInactiveContainers:{project_id}] Failed to commit: {e}"
-                        )
-                        await db.rollback()
-                else:
-                    logger.info(
-                        f"[CleanupInactiveContainers:{project_id}] No inactive containers found"
+                    if remove_containers:
+                        await runtime.remove_workload(deployment.container_id)
+                        deployment.container_status = "removed"
+                        removed_count += 1
+                except Exception as error:
+                    logger.error(
+                        f"[CleanupInactiveContainers:{project_id}] Error processing workload {deployment.container_id}: {error}"
                     )
 
-            except Exception as error:
-                logger.error(
-                    f"[CleanupInactiveContainers:{project_id}] Task failed: {error}"
+            if stopped_count > 0 or removed_count > 0:
+                await db.commit()
+                logger.info(
+                    f"[CleanupInactiveContainers:{project_id}] Stopped: {stopped_count}, Removed: {removed_count}"
                 )
-                await db.rollback()
-                raise
+            else:
+                logger.info(
+                    f"[CleanupInactiveContainers:{project_id}] No inactive workloads found"
+                )
+
+        except Exception as error:
+            logger.error(
+                f"[CleanupInactiveContainers:{project_id}] Task failed: {error}"
+            )
+            await db.rollback()
+            raise
