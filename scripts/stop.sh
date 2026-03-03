@@ -11,16 +11,18 @@ trap 'printf "Stop failed near: %s\n" "${BASH_COMMAND}" >&2' ERR
 require_cmd colima
 require_cmd kubectl
 
-printf "# Connect to Kubernetes (Colima + k3s)\n"
+# Connect to Kubernetes (Colima + k3s)
+printf "Connect to Kubernetes (Colima + k3s)\n"
 if ! colima_running; then
-  printf "Colima is not running. Nothing to stop.\n"
+  printf "%s Colima is not running. Nothing to stop.\n" "$CHILD_MARK"
   exit 0
 fi
 run_cmd "Using kubectl context: colima..." use_colima_context
 run_cmd "Waiting for Kubernetes API..." wait_for_kube_api 30 2
 
 printf '\n'
-printf "# Scale deployments down\n"
+# Scale deployments down
+printf "Scale deployments down\n"
 for deployment in \
   "${RELEASE_NAME}-app" \
   "${RELEASE_NAME}-pgsql" \
@@ -36,5 +38,4 @@ for deployment in \
 done
 
 printf '\n'
-printf "Stack stopped in namespace %s.\n" "$NAMESPACE"
-
+printf "${CLR_GREEN}Stack stopped in namespace ${NAMESPACE}.${CLR_RESET}\n"

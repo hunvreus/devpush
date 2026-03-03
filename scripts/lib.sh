@@ -21,11 +21,187 @@ require_cmd() {
   }
 }
 
+if [[ -t 1 ]]; then
+  CLR_GREEN="$(printf '\033[32m')"
+  CLR_YELLOW="$(printf '\033[33m')"
+  CLR_RED="$(printf '\033[31m')"
+  CLR_DIM="$(printf '\033[2m')"
+  CLR_RESET="$(printf '\033[0m')"
+else
+  CLR_GREEN=""
+  CLR_YELLOW=""
+  CLR_RED=""
+  CLR_DIM=""
+  CLR_RESET=""
+fi
+
+CHILD_MARK="-"
+case "${LC_ALL:-${LANG:-}}" in
+  *UTF-8*|*utf8*) CHILD_MARK="└─" ;;
+esac
+
+SPINNER_FRAMES=('-' '\' '|' '/')
+SPINNER_DELAY_SECONDS=0.1
+
+_spinner() {
+  local pid="$1"
+  local message="$2"
+  local frame_index=0
+  local frame_count="${#SPINNER_FRAMES[@]}"
+
+  while kill -0 "$pid" >/dev/null 2>&1; do
+    printf "\r${CLR_DIM}%s${CLR_RESET} %s ${CLR_DIM}[%s]${CLR_RESET}" \
+      "$CHILD_MARK" "$message" "${SPINNER_FRAMES[$frame_index]}"
+    frame_index=$(( (frame_index + 1) % frame_count ))
+    sleep "$SPINNER_DELAY_SECONDS"
+  done
+}
+
 run_cmd() {
   local message="$1"
   shift
-  printf "%s\n" "$message"
-  "$@"
+
+  if [[ $# -eq 0 ]]; then
+    printf "run_cmd requires a command for: %s\n" "$message" >&2
+    return 1
+  fi
+
+  if [[ ! -t 1 ]]; then
+    printf "%s %s\n" "$CHILD_MARK" "$message"
+    "$@"
+    return $?
+  fi
+
+  local cmd_log
+  cmd_log="$(mktemp)"
+
+  "$@" >"$cmd_log" 2>&1 &
+  local cmd_pid="$!"
+  _spinner "$cmd_pid" "$message"
+
+  local status=0
+  wait "$cmd_pid" || status=$?
+  printf "\r\033[K"
+
+  if (( status == 0 )); then
+    printf "${CLR_DIM}%s${CLR_RESET} %s ${CLR_GREEN}✔${CLR_RESET}\n" "$CHILD_MARK" "$message"
+    rm -f "$cmd_log"
+    return 0
+  fi
+
+  printf "${CLR_DIM}%s${CLR_RESET} %s ${CLR_RED}✖${CLR_RESET}\n" "$CHILD_MARK" "$message"
+  if [[ -s "$cmd_log" ]]; then
+    while IFS= read -r line; do
+      printf "${CLR_DIM}   %s${CLR_RESET}\n" "$line" >&2
+    done < "$cmd_log"
+  fi
+  rm -f "$cmd_log"
+  return "$status"
+}
+
+run_cmd_stream() {
+  local indent_level=1
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --indent)
+        indent_level="${2:-}"
+        [[ "$indent_level" =~ ^[0-9]+$ ]] || {
+          printf "run_cmd_stream --indent expects a non-negative integer\n" >&2
+          return 1
+        }
+        shift 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  local message="$1"
+  shift
+
+  if [[ $# -eq 0 ]]; then
+    printf "run_cmd_stream requires a command for: %s\n" "$message" >&2
+    return 1
+  fi
+
+  local indent_prefix=""
+  indent_prefix="$(printf '%*s' "$((indent_level * 3))" '')"
+
+  printf "${CLR_DIM}%s${CLR_RESET} %s\n" "$CHILD_MARK" "$message"
+
+  local status=0
+  local had_errexit=0
+  [[ $- == *e* ]] && had_errexit=1
+  set +e
+  "$@" 2>&1 | while IFS= read -r line; do
+    line="${line%"${line##*[![:space:]]}"}"
+    if [[ -z "$line" ]]; then
+      continue
+    fi
+    if [[ -t 1 ]]; then
+      printf "${CLR_DIM}%s%s${CLR_RESET}\n" "$indent_prefix" "$line"
+    else
+      printf "%s%s\n" "$indent_prefix" "$line"
+    fi
+  done
+  status=${PIPESTATUS[0]}
+  (( had_errexit == 1 )) && set -e
+
+  if (( status == 0 )); then
+    printf "${CLR_DIM}%s${CLR_RESET} %s ${CLR_GREEN}✔${CLR_RESET}\n" "$CHILD_MARK" "$message"
+    return 0
+  fi
+  printf "${CLR_DIM}%s${CLR_RESET} %s ${CLR_RED}✖${CLR_RESET}\n" "$CHILD_MARK" "$message"
+  return "$status"
+}
+
+run_cmd_plain() {
+  local message="$1"
+  shift
+
+  if [[ $# -eq 0 ]]; then
+    printf "run_cmd_plain requires a command for: %s\n" "$message" >&2
+    return 1
+  fi
+
+  if [[ ! -t 1 ]]; then
+    printf "%s\n" "$message"
+    "$@"
+    return $?
+  fi
+
+  local cmd_log
+  cmd_log="$(mktemp)"
+
+  "$@" >"$cmd_log" 2>&1 &
+  local cmd_pid="$!"
+  local frame_index=0
+  local frame_count="${#SPINNER_FRAMES[@]}"
+  while kill -0 "$cmd_pid" >/dev/null 2>&1; do
+    printf "\r%s ${CLR_DIM}[%s]${CLR_RESET}" "$message" "${SPINNER_FRAMES[$frame_index]}"
+    frame_index=$(( (frame_index + 1) % frame_count ))
+    sleep "$SPINNER_DELAY_SECONDS"
+  done
+
+  local status=0
+  wait "$cmd_pid" || status=$?
+  printf "\r\033[K"
+
+  if (( status == 0 )); then
+    printf "%s ${CLR_GREEN}✔${CLR_RESET}\n" "$message"
+    rm -f "$cmd_log"
+    return 0
+  fi
+
+  printf "%s ${CLR_RED}✖${CLR_RESET}\n" "$message"
+  if [[ -s "$cmd_log" ]]; then
+    while IFS= read -r line; do
+      printf "${CLR_DIM}   %s${CLR_RESET}\n" "$line" >&2
+    done < "$cmd_log"
+  fi
+  rm -f "$cmd_log"
+  return "$status"
 }
 
 write_env_secret_manifest() {
@@ -95,7 +271,7 @@ colima_running() {
 
 ensure_colima_kubernetes() {
   # Start Colima with Kubernetes; no-op if already running.
-  run_cmd "Starting Colima Kubernetes..." colima start --kubernetes >/dev/null
+  colima start --kubernetes >/dev/null
 }
 
 use_colima_context() {

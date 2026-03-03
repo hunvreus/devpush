@@ -7,6 +7,48 @@ source "$SCRIPT_DIR/lib.sh"
 
 trap 'printf "Start failed near: %s\n" "${BASH_COMMAND}" >&2' ERR
 
+# Parse CLI flags
+usage() {
+  cat <<USG
+Usage: start.sh [--no-migrate] [--timeout <value>] [-v|--verbose] [-h|--help]
+
+Start local Kubernetes stack (Colima + k3s + Helm).
+
+  --no-migrate       Skip database migrations after rollout
+  --timeout <value>  Rollout wait timeout in seconds (default: ${WAIT_TIMEOUT_SECONDS})
+  -v, --verbose      Enable verbose command output
+  -h, --help         Show this help
+USG
+  exit 0
+}
+
+timeout="$WAIT_TIMEOUT_SECONDS"
+VERBOSE="${VERBOSE:-0}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-migrate)
+      # Compatibility flag (no-op in current Kubernetes start flow).
+      shift
+      ;;
+    --timeout)
+      timeout="${2:-}"
+      [[ -n "$timeout" ]] || { printf "Missing value for --timeout\n" >&2; exit 1; }
+      shift 2
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      printf "Unknown option: %s\n" "$1" >&2
+      usage
+      ;;
+  esac
+done
+
 # Validate local prerequisites
 require_cmd colima
 require_cmd kubectl
@@ -44,33 +86,47 @@ seed_cluster_registry_defaults() {
   fi
 }
 
-printf "# Bootstrap Kubernetes (Colima + k3s)\n"
-run_cmd "Ensuring Colima is running with Kubernetes..." ensure_colima_kubernetes
+apply_namespace_manifest() {
+  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply --validate=false -f - >/dev/null
+}
+
+wait_rollout_quiet() {
+  local deployment_name="$1"
+  kubectl -n "$NAMESPACE" rollout status "deployment/${deployment_name}" --timeout="${timeout}s" >/dev/null
+}
+
+# Bootstrap Kubernetes (Colima + k3s)
+printf "Bootstrap Kubernetes (Colima + k3s)\n"
+colima_task_label="Ensuring Colima is running with Kubernetes..."
+if colima_running; then
+  run_cmd "Ensuring Colima is running with Kubernetes (already running)..." true
+else
+  run_cmd "$colima_task_label" ensure_colima_kubernetes
+fi
 run_cmd "Using kubectl context: colima..." use_colima_context
 run_cmd "Waiting for Kubernetes API..." wait_for_kube_api 45 2
 
-printf '\n'
-printf "# Prepare local data defaults\n"
 run_cmd "Ensuring local registry defaults..." seed_local_registry_defaults
 
 printf '\n'
-printf "# Build dev image\n"
-run_cmd "Building image ${IMAGE_REPOSITORY}:${IMAGE_TAG}..." \
+# Build dev image
+printf "Build dev image\n"
+run_cmd_stream --indent 1 "Building image ${IMAGE_REPOSITORY}:${IMAGE_TAG}..." \
   docker build -t "${IMAGE_REPOSITORY}:${IMAGE_TAG}" -f "$APP_DIR/docker/Dockerfile.app.dev" "$APP_DIR"
 
 printf '\n'
-printf "# Prepare namespace + env secret\n"
-run_cmd "Applying namespace ${NAMESPACE}..." \
-  sh -lc "kubectl create namespace '$NAMESPACE' --dry-run=client -o yaml | kubectl apply --validate=false -f - >/dev/null"
+# Prepare namespace + env secret
+run_cmd_plain "Applying namespace ${NAMESPACE}..." apply_namespace_manifest
 secret_manifest_file="$(mktemp)"
 write_env_secret_manifest "$ENV_FILE" "$NAMESPACE" "${RELEASE_NAME}-env" "$secret_manifest_file"
-run_cmd "Applying env secret ${RELEASE_NAME}-env..." \
+run_cmd_plain "Applying env secret ${RELEASE_NAME}-env..." \
   kubectl apply --validate=false -f "$secret_manifest_file" >/dev/null
 rm -f "$secret_manifest_file"
 
 printf '\n'
-printf "# Deploy chart\n"
-run_cmd "Deploying Helm release ${RELEASE_NAME}..." \
+# Deploy chart
+printf "Deploy chart\n"
+run_cmd_stream --indent 1 "Deploying Helm release ${RELEASE_NAME}..." \
   helm upgrade --install "$RELEASE_NAME" "$CHART_DIR" \
     --namespace "$NAMESPACE" \
     --create-namespace \
@@ -84,19 +140,19 @@ run_cmd "Deploying Helm release ${RELEASE_NAME}..." \
     --set devSource.hostPath="$APP_DIR/app"
 
 printf '\n'
-printf "# Wait for workloads\n"
-run_cmd "Waiting for pgsql rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-pgsql" --timeout="${WAIT_TIMEOUT_SECONDS}s"
-run_cmd "Waiting for redis rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-redis" --timeout="${WAIT_TIMEOUT_SECONDS}s"
-run_cmd "Waiting for app rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-app" --timeout="${WAIT_TIMEOUT_SECONDS}s"
-run_cmd "Waiting for worker-jobs rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-worker-jobs" --timeout="${WAIT_TIMEOUT_SECONDS}s"
-run_cmd "Waiting for worker-monitor rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-worker-monitor" --timeout="${WAIT_TIMEOUT_SECONDS}s"
-run_cmd "Waiting for traefik rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-traefik" --timeout="${WAIT_TIMEOUT_SECONDS}s"
-run_cmd "Waiting for loki rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-loki" --timeout="${WAIT_TIMEOUT_SECONDS}s"
-run_cmd "Waiting for alloy rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-alloy" --timeout="${WAIT_TIMEOUT_SECONDS}s"
+# Wait for workloads
+printf "Wait for workloads\n"
+run_cmd "Waiting for pgsql rollout..." wait_rollout_quiet "${RELEASE_NAME}-pgsql"
+run_cmd "Waiting for redis rollout..." wait_rollout_quiet "${RELEASE_NAME}-redis"
+run_cmd "Waiting for app rollout..." wait_rollout_quiet "${RELEASE_NAME}-app"
+run_cmd "Waiting for worker-jobs rollout..." wait_rollout_quiet "${RELEASE_NAME}-worker-jobs"
+run_cmd "Waiting for worker-monitor rollout..." wait_rollout_quiet "${RELEASE_NAME}-worker-monitor"
+run_cmd "Waiting for traefik rollout..." wait_rollout_quiet "${RELEASE_NAME}-traefik"
+run_cmd "Waiting for loki rollout..." wait_rollout_quiet "${RELEASE_NAME}-loki"
+run_cmd "Waiting for alloy rollout..." wait_rollout_quiet "${RELEASE_NAME}-alloy"
 
 printf '\n'
-printf "# Seed cluster registry defaults\n"
-run_cmd "Ensuring /data/registry defaults in cluster..." seed_cluster_registry_defaults
+run_cmd_plain "Ensuring /data/registry defaults in cluster..." seed_cluster_registry_defaults
 
 printf '\n'
-printf "App URL: http://localhost\n"
+printf "${CLR_GREEN}App URL: http://localhost${CLR_RESET}\n"
