@@ -43,7 +43,10 @@ This file defines how shell scripts in `scripts/` should be written and formatte
 - Keep flag parsing near the top of the script.
 - Validate flag values early and fail fast on invalid input.
 - Current `start.sh` supports:
-  - `--no-migrate` (compatibility no-op)
+  - `--timeout <value>`
+  - `-v|--verbose`
+  - `-h|--help`
+- Current `stop.sh` supports:
   - `--timeout <value>`
   - `-v|--verbose`
   - `-h|--help`
@@ -64,3 +67,8 @@ This file defines how shell scripts in `scripts/` should be written and formatte
 - `lib.sh` contains shared functional and output helpers.
 - Keep script-specific logic in each script (`start.sh`, `stop.sh`, etc.).
 - Do not duplicate helper logic across scripts.
+
+## TODO
+
+- Add production/development environment-mode parity from legacy `lib.sh` (path defaults and env detection).
+- Expand `validate_env` parity for production-focused required values and provider-specific checks.

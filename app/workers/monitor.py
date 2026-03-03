@@ -132,47 +132,50 @@ async def monitor():
     runtime = KubernetesService(settings)
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     redis_pool = await create_pool(redis_settings)
-
-    async with AsyncSessionLocal() as db:
-        schema_ready = False
-        while True:
-            try:
-                if not schema_ready:
-                    schema_ready = await db.run_sync(
-                        lambda sync_session: inspect(
-                            sync_session.connection()
-                        ).has_table("alembic_version")
-                    )
+    try:
+        async with AsyncSessionLocal() as db:
+            schema_ready = False
+            while True:
+                try:
                     if not schema_ready:
-                        logger.warning(
-                            "Database schema not ready (no alembic_version); waiting for migrations..."
+                        schema_ready = await db.run_sync(
+                            lambda sync_session: inspect(
+                                sync_session.connection()
+                            ).has_table("alembic_version")
                         )
-                        await asyncio.sleep(5)
-                        continue
+                        if not schema_ready:
+                            logger.warning(
+                                "Database schema not ready (no alembic_version); waiting for migrations..."
+                            )
+                            await asyncio.sleep(5)
+                            continue
 
-                result = await db.execute(
-                    select(Deployment).where(
-                        Deployment.status == "deploy",
-                        Deployment.container_status == "running",
+                    result = await db.execute(
+                        select(Deployment).where(
+                            Deployment.status == "deploy",
+                            Deployment.container_status == "running",
+                        )
                     )
-                )
-                deployments_to_check = result.scalars().all()
-                if deployments_to_check:
-                    await asyncio.gather(
-                        *[
-                            _check_status(deployment, runtime, redis_pool, db)
-                            for deployment in deployments_to_check
-                        ]
-                    )
+                    deployments_to_check = result.scalars().all()
+                    if deployments_to_check:
+                        await asyncio.gather(
+                            *[
+                                _check_status(deployment, runtime, redis_pool, db)
+                                for deployment in deployments_to_check
+                            ]
+                        )
 
-            except exc.SQLAlchemyError as error:
-                logger.error(f"Database error in monitor loop: {error}. Reconnecting.")
-                await db.close()
-                db = AsyncSessionLocal()
-            except Exception:
-                logger.error("Critical error in monitor main loop", exc_info=True)
+                except exc.SQLAlchemyError as error:
+                    logger.error(f"Database error in monitor loop: {error}. Reconnecting.")
+                    await db.close()
+                    db = AsyncSessionLocal()
+                except Exception:
+                    logger.error("Critical error in monitor main loop", exc_info=True)
 
-            await asyncio.sleep(2)
+                await asyncio.sleep(2)
+    finally:
+        await runtime.close()
+        await redis_pool.close()
 
 
 if __name__ == "__main__":

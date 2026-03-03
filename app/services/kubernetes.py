@@ -22,6 +22,7 @@ class KubernetesService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.namespace = settings.kubernetes_namespace
+        self._api_client: client.ApiClient | None = None
         self._apps_api: client.AppsV1Api | None = None
         self._core_api: client.CoreV1Api | None = None
         self._networking_api: client.NetworkingV1Api | None = None
@@ -33,10 +34,20 @@ class KubernetesService:
 
         config.load_incluster_config()
 
-        self._apps_api = client.AppsV1Api()
-        self._core_api = client.CoreV1Api()
-        self._networking_api = client.NetworkingV1Api()
-        self._custom_api = client.CustomObjectsApi()
+        self._api_client = client.ApiClient()
+        self._apps_api = client.AppsV1Api(self._api_client)
+        self._core_api = client.CoreV1Api(self._api_client)
+        self._networking_api = client.NetworkingV1Api(self._api_client)
+        self._custom_api = client.CustomObjectsApi(self._api_client)
+
+    async def close(self) -> None:
+        if self._api_client is not None:
+            await self._api_client.close()
+        self._api_client = None
+        self._apps_api = None
+        self._core_api = None
+        self._networking_api = None
+        self._custom_api = None
 
     def resource_names(self, deployment_id: str, project_id: str) -> dict[str, str]:
         base = _sanitize_name(f"devpush-{project_id[:8]}-{deployment_id[:8]}")

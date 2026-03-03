@@ -40,8 +40,8 @@ case "${LC_ALL:-${LANG:-}}" in
   *UTF-8*|*utf8*) CHILD_MARK="└─" ;;
 esac
 
-SPINNER_FRAMES=('-' '\' '|' '/')
-SPINNER_DELAY_SECONDS=0.1
+SPINNER_FRAMES=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+SPINNER_DELAY_SECONDS=0.08
 
 _spinner() {
   local pid="$1"
@@ -202,6 +202,104 @@ run_cmd_plain() {
   fi
   rm -f "$cmd_log"
   return "$status"
+}
+
+read_env_value() {
+  local env_file="$1"
+  local key="$2"
+
+  python3 - "$env_file" "$key" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+env_path = Path(sys.argv[1])
+target_key = sys.argv[2]
+key_pattern = re.compile(r"^[-._a-zA-Z][-._a-zA-Z0-9]*$")
+
+def parse_value(raw: str) -> str:
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        value = value[1:-1]
+        return (
+            value.replace(r"\n", "\n")
+            .replace(r"\r", "\r")
+            .replace(r"\t", "\t")
+            .replace(r"\\", "\\")
+            .replace(r"\"", '"')
+        )
+    if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+        return value[1:-1]
+    return value
+
+if not env_path.exists():
+    sys.exit(0)
+
+for line in env_path.read_text(encoding="utf-8").splitlines():
+    item = line.strip()
+    if not item or item.startswith("#"):
+        continue
+    if item.startswith("export "):
+        item = item[len("export "):].strip()
+    if "=" not in item:
+        continue
+    key, raw_value = item.split("=", 1)
+    key = key.strip()
+    if not key_pattern.match(key):
+        continue
+    if key == target_key:
+        print(parse_value(raw_value), end="")
+        sys.exit(0)
+PY
+}
+
+validate_env() {
+  local env_file="$1"
+  [[ -f "$env_file" ]] || { printf "Not found: %s\n" "$env_file" >&2; return 1; }
+
+  local required=(
+    APP_HOSTNAME
+    DEPLOY_DOMAIN
+    EMAIL_SENDER_ADDRESS
+    GITHUB_APP_ID
+    GITHUB_APP_NAME
+    GITHUB_APP_PRIVATE_KEY
+    GITHUB_APP_WEBHOOK_SECRET
+    GITHUB_APP_CLIENT_ID
+    GITHUB_APP_CLIENT_SECRET
+    SECRET_KEY
+    ENCRYPTION_KEY
+    POSTGRES_PASSWORD
+  )
+
+  local missing=()
+  local key value
+  for key in "${required[@]}"; do
+    value="$(read_env_value "$env_file" "$key")"
+    [[ -n "$value" ]] || missing+=("$key")
+  done
+
+  local resend_key smtp_host smtp_username smtp_password
+  resend_key="$(read_env_value "$env_file" RESEND_API_KEY)"
+  smtp_host="$(read_env_value "$env_file" SMTP_HOST)"
+  smtp_username="$(read_env_value "$env_file" SMTP_USERNAME)"
+  smtp_password="$(read_env_value "$env_file" SMTP_PASSWORD)"
+
+  if [[ -n "$resend_key" ]]; then
+    :
+  elif [[ -n "$smtp_host" && -n "$smtp_username" && -n "$smtp_password" ]]; then
+    :
+  else
+    missing+=("RESEND_API_KEY or SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD")
+  fi
+
+  if ((${#missing[@]})); then
+    local joined
+    joined="$(printf "%s, " "${missing[@]}")"
+    joined="${joined%, }"
+    printf "Missing values in %s: %s\n" "$env_file" "$joined" >&2
+    return 1
+  fi
 }
 
 write_env_secret_manifest() {

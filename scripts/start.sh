@@ -10,11 +10,10 @@ trap 'printf "Start failed near: %s\n" "${BASH_COMMAND}" >&2' ERR
 # Parse CLI flags
 usage() {
   cat <<USG
-Usage: start.sh [--no-migrate] [--timeout <value>] [-v|--verbose] [-h|--help]
+Usage: start.sh [--timeout <value>] [-v|--verbose] [-h|--help]
 
 Start local Kubernetes stack (Colima + k3s + Helm).
 
-  --no-migrate       Skip database migrations after rollout
   --timeout <value>  Rollout wait timeout in seconds (default: ${WAIT_TIMEOUT_SECONDS})
   -v, --verbose      Enable verbose command output
   -h, --help         Show this help
@@ -26,10 +25,6 @@ timeout="$WAIT_TIMEOUT_SECONDS"
 VERBOSE="${VERBOSE:-0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --no-migrate)
-      # Compatibility flag (no-op in current Kubernetes start flow).
-      shift
-      ;;
     --timeout)
       timeout="${2:-}"
       [[ -n "$timeout" ]] || { printf "Missing value for --timeout\n" >&2; exit 1; }
@@ -57,6 +52,7 @@ require_cmd helm
 
 [[ -f "$ENV_FILE" ]] || { printf "Missing env file: %s\n" "$ENV_FILE" >&2; exit 1; }
 [[ -d "$CHART_DIR" ]] || { printf "Missing Helm chart: %s\n" "$CHART_DIR" >&2; exit 1; }
+validate_env "$ENV_FILE"
 
 # Create local runtime data directories and seed default registry files.
 seed_local_registry_defaults() {
@@ -95,16 +91,15 @@ wait_rollout_quiet() {
   kubectl -n "$NAMESPACE" rollout status "deployment/${deployment_name}" --timeout="${timeout}s" >/dev/null
 }
 
-# Bootstrap Kubernetes (Colima + k3s)
-printf "Bootstrap Kubernetes (Colima + k3s)\n"
-colima_task_label="Ensuring Colima is running with Kubernetes..."
-if colima_running; then
-  run_cmd "Ensuring Colima is running with Kubernetes (already running)..." true
-else
-  run_cmd "$colima_task_label" ensure_colima_kubernetes
-fi
+# Kubernetes preflight (deploy-only script)
+printf "Kubernetes preflight\n"
 run_cmd "Using kubectl context: colima..." use_colima_context
-run_cmd "Waiting for Kubernetes API..." wait_for_kube_api 45 2
+if ! wait_for_kube_api 10 2; then
+  printf "Kubernetes API is not reachable.\n" >&2
+  printf "Run: ./scripts/k8s-up.sh or ./scripts/k8s-recover.sh\n" >&2
+  exit 1
+fi
+run_cmd "Kubernetes API is reachable..." true
 
 run_cmd "Ensuring local registry defaults..." seed_local_registry_defaults
 

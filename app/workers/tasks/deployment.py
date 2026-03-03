@@ -45,6 +45,7 @@ async def start_deployment(ctx, deployment_id: str):
     """Starts a deployment."""
     workload_id: str | None = None
     loki: LokiService | None = None
+    runtime: KubernetesService | None = None
     log_prefix = f"[DeployStart:{deployment_id}]"
     try:
         settings = get_settings()
@@ -199,9 +200,10 @@ async def start_deployment(ctx, deployment_id: str):
 
     except asyncio.CancelledError:
         logger.info(f"{log_prefix} Deployment canceled.")
-        runtime = KubernetesService(settings)
         if workload_id:
             try:
+                if runtime is None:
+                    runtime = KubernetesService(settings)
                 await runtime.kill_workload(workload_id)
                 queue: ArqRedis = ctx["redis"]
                 await queue.enqueue_job(
@@ -237,6 +239,8 @@ async def start_deployment(ctx, deployment_id: str):
         )
         logger.info(f"{log_prefix} Deployment startup failed.", exc_info=True)
     finally:
+        if runtime:
+            await runtime.close()
         if loki:
             await loki.client.aclose()
 
@@ -316,72 +320,74 @@ async def fail_deployment(
     runtime = KubernetesService(settings)
     redis_client = get_redis_client()
     service = DeploymentService()
-
-    async with AsyncSessionLocal() as db:
-        deployment = (
-            await db.execute(
-                select(Deployment)
-                .options(joinedload(Deployment.project))
-                .where(Deployment.id == deployment_id)
-            )
-        ).scalar_one()
-
-        if deployment.conclusion == "canceled":
-            logger.info(
-                "%s Deployment already canceled; skipping fail handler.", log_prefix
-            )
-            return
-        if deployment.conclusion:
-            logger.info(
-                "%s Deployment already concluded (%s); skipping fail handler.",
-                log_prefix,
-                deployment.conclusion,
-            )
-            return
-
-        await service.update_status(
-            db,
-            deployment,
-            status="fail",
-            redis_client=redis_client,
-        )
-
-        if deployment.container_id and deployment.container_status not in (
-            "removed",
-            "stopped",
-        ):
-            try:
-                await runtime.kill_workload(deployment.container_id)
-                queue: ArqRedis = ctx["redis"]
-                await queue.enqueue_job(
-                    "delete_container",
-                    deployment.id,
-                    _defer_by=settings.container_delete_grace_seconds,
+    try:
+        async with AsyncSessionLocal() as db:
+            deployment = (
+                await db.execute(
+                    select(Deployment)
+                    .options(joinedload(Deployment.project))
+                    .where(Deployment.id == deployment_id)
                 )
+            ).scalar_one()
+
+            if deployment.conclusion == "canceled":
                 logger.info(
-                    f"{log_prefix} Cleaned up failed workload {deployment.container_id}"
+                    "%s Deployment already canceled; skipping fail handler.", log_prefix
                 )
-                await service.update_status(
-                    db,
-                    deployment,
-                    container_status="stopped",
-                    emit=False,
+                return
+            if deployment.conclusion:
+                logger.info(
+                    "%s Deployment already concluded (%s); skipping fail handler.",
+                    log_prefix,
+                    deployment.conclusion,
                 )
-            except Exception:
-                logger.warning(
-                    f"{log_prefix} Could not cleanup workload {deployment.container_id}.",
-                    exc_info=True,
-                )
+                return
 
-        await service.update_status(
-            db,
-            deployment,
-            status="completed",
-            conclusion="failed",
-            error={"status": status, "message": reason or "Deployment failed"},
-            redis_client=redis_client,
-        )
-        logger.error(f"{log_prefix} Deployment failed and cleaned up.")
+            await service.update_status(
+                db,
+                deployment,
+                status="fail",
+                redis_client=redis_client,
+            )
+
+            if deployment.container_id and deployment.container_status not in (
+                "removed",
+                "stopped",
+            ):
+                try:
+                    await runtime.kill_workload(deployment.container_id)
+                    queue: ArqRedis = ctx["redis"]
+                    await queue.enqueue_job(
+                        "delete_container",
+                        deployment.id,
+                        _defer_by=settings.container_delete_grace_seconds,
+                    )
+                    logger.info(
+                        f"{log_prefix} Cleaned up failed workload {deployment.container_id}"
+                    )
+                    await service.update_status(
+                        db,
+                        deployment,
+                        container_status="stopped",
+                        emit=False,
+                    )
+                except Exception:
+                    logger.warning(
+                        f"{log_prefix} Could not cleanup workload {deployment.container_id}.",
+                        exc_info=True,
+                    )
+
+            await service.update_status(
+                db,
+                deployment,
+                status="completed",
+                conclusion="failed",
+                error={"status": status, "message": reason or "Deployment failed"},
+                redis_client=redis_client,
+            )
+            logger.error(f"{log_prefix} Deployment failed and cleaned up.")
+    finally:
+        await runtime.close()
 
 
 async def delete_container(ctx, deployment_id: str):
@@ -390,21 +396,24 @@ async def delete_container(ctx, deployment_id: str):
     logger.info(f"{log_prefix} Deleting workload")
     settings = get_settings()
     runtime = KubernetesService(settings)
-    async with AsyncSessionLocal() as db:
-        deployment = await db.get(Deployment, deployment_id)
-        if not deployment or not deployment.container_id:
-            logger.warning(f"{log_prefix} Deployment or workload not found")
-            return
+    try:
+        async with AsyncSessionLocal() as db:
+            deployment = await db.get(Deployment, deployment_id)
+            if not deployment or not deployment.container_id:
+                logger.warning(f"{log_prefix} Deployment or workload not found")
+                return
 
-        try:
-            await runtime.remove_workload(deployment.container_id)
-            deployment.container_status = "removed"
-            await db.commit()
-        except Exception:
-            logger.error(
-                f"[DeleteContainer:{deployment_id}] Error deleting workload.",
-                exc_info=True,
-            )
+            try:
+                await runtime.remove_workload(deployment.container_id)
+                deployment.container_status = "removed"
+                await db.commit()
+            except Exception:
+                logger.error(
+                    f"[DeleteContainer:{deployment_id}] Error deleting workload.",
+                    exc_info=True,
+                )
+    finally:
+        await runtime.close()
 
 
 async def cleanup_inactive_containers(
@@ -413,87 +422,89 @@ async def cleanup_inactive_containers(
     """Stop/remove workloads for deployments no longer referenced by aliases."""
     settings = get_settings()
     runtime = KubernetesService(settings)
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                result = await db.execute(select(Project).where(Project.id == project_id))
+                project = result.scalar_one_or_none()
 
-    async with AsyncSessionLocal() as db:
-        try:
-            result = await db.execute(select(Project).where(Project.id == project_id))
-            project = result.scalar_one_or_none()
+                if not project:
+                    logger.warning(f"[CleanupInactiveContainers:{project_id}] Project not found")
+                    return
 
-            if not project:
-                logger.warning(f"[CleanupInactiveContainers:{project_id}] Project not found")
-                return
+                if project.status == "deleted":
+                    logger.info(
+                        f"[CleanupInactiveContainers:{project_id}] Project deleted, skipping"
+                    )
+                    return
 
-            if project.status == "deleted":
                 logger.info(
-                    f"[CleanupInactiveContainers:{project_id}] Project deleted, skipping"
+                    f"[CleanupInactiveContainers:{project_id}] Starting cleanup for {project.name}"
                 )
-                return
 
-            logger.info(
-                f"[CleanupInactiveContainers:{project_id}] Starting cleanup for {project.name}"
-            )
-
-            active_result = await db.execute(
-                select(Alias.deployment_id)
-                .join(Deployment, Alias.deployment_id == Deployment.id)
-                .where(
-                    Deployment.project_id == project_id,
-                    Alias.deployment_id.isnot(None),
-                )
-                .union(
-                    select(Alias.previous_deployment_id)
-                    .join(Deployment, Alias.previous_deployment_id == Deployment.id)
+                active_result = await db.execute(
+                    select(Alias.deployment_id)
+                    .join(Deployment, Alias.deployment_id == Deployment.id)
                     .where(
                         Deployment.project_id == project_id,
-                        Alias.previous_deployment_id.isnot(None),
+                        Alias.deployment_id.isnot(None),
+                    )
+                    .union(
+                        select(Alias.previous_deployment_id)
+                        .join(Deployment, Alias.previous_deployment_id == Deployment.id)
+                        .where(
+                            Deployment.project_id == project_id,
+                            Alias.previous_deployment_id.isnot(None),
+                        )
                     )
                 )
-            )
-            active_deployment_ids = set(active_result.scalars().all())
+                active_deployment_ids = set(active_result.scalars().all())
 
-            inactive_result = await db.execute(
-                select(Deployment).where(
-                    Deployment.project_id == project_id,
-                    Deployment.container_id.isnot(None),
-                    Deployment.container_status == "running",
-                    Deployment.status == "completed",
-                    Deployment.id.notin_(active_deployment_ids) if active_deployment_ids else true(),
+                inactive_result = await db.execute(
+                    select(Deployment).where(
+                        Deployment.project_id == project_id,
+                        Deployment.container_id.isnot(None),
+                        Deployment.container_status == "running",
+                        Deployment.status == "completed",
+                        Deployment.id.notin_(active_deployment_ids) if active_deployment_ids else true(),
+                    )
                 )
-            )
-            inactive_deployments = inactive_result.scalars().all()
+                inactive_deployments = inactive_result.scalars().all()
 
-            stopped_count = 0
-            removed_count = 0
-            for deployment in inactive_deployments:
-                if not deployment.container_id:
-                    continue
-                try:
-                    await runtime.kill_workload(deployment.container_id)
-                    deployment.container_status = "stopped"
-                    stopped_count += 1
+                stopped_count = 0
+                removed_count = 0
+                for deployment in inactive_deployments:
+                    if not deployment.container_id:
+                        continue
+                    try:
+                        await runtime.kill_workload(deployment.container_id)
+                        deployment.container_status = "stopped"
+                        stopped_count += 1
 
-                    if remove_containers:
-                        await runtime.remove_workload(deployment.container_id)
-                        deployment.container_status = "removed"
-                        removed_count += 1
-                except Exception as error:
-                    logger.error(
-                        f"[CleanupInactiveContainers:{project_id}] Error processing workload {deployment.container_id}: {error}"
+                        if remove_containers:
+                            await runtime.remove_workload(deployment.container_id)
+                            deployment.container_status = "removed"
+                            removed_count += 1
+                    except Exception as error:
+                        logger.error(
+                            f"[CleanupInactiveContainers:{project_id}] Error processing workload {deployment.container_id}: {error}"
+                        )
+
+                if stopped_count > 0 or removed_count > 0:
+                    await db.commit()
+                    logger.info(
+                        f"[CleanupInactiveContainers:{project_id}] Stopped: {stopped_count}, Removed: {removed_count}"
+                    )
+                else:
+                    logger.info(
+                        f"[CleanupInactiveContainers:{project_id}] No inactive workloads found"
                     )
 
-            if stopped_count > 0 or removed_count > 0:
-                await db.commit()
-                logger.info(
-                    f"[CleanupInactiveContainers:{project_id}] Stopped: {stopped_count}, Removed: {removed_count}"
+            except Exception as error:
+                logger.error(
+                    f"[CleanupInactiveContainers:{project_id}] Task failed: {error}"
                 )
-            else:
-                logger.info(
-                    f"[CleanupInactiveContainers:{project_id}] No inactive workloads found"
-                )
-
-        except Exception as error:
-            logger.error(
-                f"[CleanupInactiveContainers:{project_id}] Task failed: {error}"
-            )
-            await db.rollback()
-            raise
+                await db.rollback()
+                raise
+    finally:
+        await runtime.close()
