@@ -5,23 +5,31 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-trap 'printf "db-migrate failed near: %s\n" "${BASH_COMMAND}" >&2' ERR
+trap 'printf "db-generate failed near: %s\n" "${BASH_COMMAND}" >&2' ERR
 
 usage() {
   cat <<USG
-Usage: db-migrate.sh [--timeout <value>] [-h|--help]
+Usage: db-generate.sh [--message <value>] [--timeout <value>] [-h|--help]
 
-Run Alembic migrations in the app deployment.
+Generate an Alembic migration in the app deployment.
 
+  --message <value>   Migration message (if omitted, prompt in TTY)
   --timeout <value>   Rollout wait timeout in seconds (default: 240)
   -h, --help          Show this help
 USG
   exit 0
 }
 
+message=""
 timeout="$WAIT_TIMEOUT_SECONDS"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --message)
+      message="${2:-}"
+      [[ -n "$message" ]] || { printf "Missing value for --message\n" >&2; exit 1; }
+      shift 2
+      ;;
     --timeout)
       timeout="${2:-}"
       [[ -n "$timeout" ]] || { printf "Missing value for --timeout\n" >&2; exit 1; }
@@ -37,6 +45,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$message" && -t 0 ]]; then
+  printf "Migration message: "
+  read -r message
+fi
+[[ -n "$message" ]] || { printf "Migration message is required.\n" >&2; exit 1; }
+
 require_cmd colima
 require_cmd kubectl
 
@@ -46,14 +60,13 @@ run_cmd "Using kubectl context: colima..." use_colima_context
 run_cmd "Waiting for Kubernetes API..." wait_for_kube_api 45 2
 
 printf '\n'
-printf "# Wait for db + app\n"
-run_cmd "Waiting for ${RELEASE_NAME}-pgsql rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-pgsql" --timeout="${timeout}s"
+printf "# Wait for app\n"
 run_cmd "Waiting for ${RELEASE_NAME}-app rollout..." kubectl -n "$NAMESPACE" rollout status "deployment/${RELEASE_NAME}-app" --timeout="${timeout}s"
 
 printf '\n'
-printf "# Apply migrations\n"
-run_cmd "Running Alembic upgrade head..." kubectl -n "$NAMESPACE" exec "deploy/${RELEASE_NAME}-app" -- sh -lc "cd /app && uv run alembic -c alembic.ini upgrade head"
+printf "# Generate migration\n"
+run_cmd "Running Alembic revision --autogenerate..." kubectl -n "$NAMESPACE" exec "deploy/${RELEASE_NAME}-app" -- sh -lc "cd /app && uv run alembic -c alembic.ini revision --autogenerate -m \"$message\""
 
 printf '\n'
-printf "Migrations applied.\n"
+printf "Migration generated.\n"
 
