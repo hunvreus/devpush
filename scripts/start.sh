@@ -96,7 +96,7 @@ printf "Kubernetes preflight\n"
 run_cmd "Using kubectl context: colima..." use_colima_context
 if ! wait_for_kube_api 10 2; then
   printf "Kubernetes API is not reachable.\n" >&2
-  printf "Run: ./scripts/k8s-up.sh or ./scripts/k8s-recover.sh\n" >&2
+  printf "Run: ./scripts/k8s-up.sh\n" >&2
   exit 1
 fi
 run_cmd "Kubernetes API is reachable..." true

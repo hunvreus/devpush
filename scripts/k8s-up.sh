@@ -35,14 +35,8 @@ require_cmd kubectl
 printf "# Start Kubernetes (Colima + k3s)\n"
 run_cmd "Ensuring Colima is running with Kubernetes..." ensure_colima_kubernetes
 run_cmd "Using kubectl context: colima..." use_colima_context
-
-if ! wait_for_kube_api 30 2; then
-  run_cmd "Kubernetes API unhealthy; running recovery..." bash "$SCRIPT_DIR/k8s-recover.sh"
-fi
-
-if ! wait_for_node_ready 30 2; then
-  run_cmd "Node not ready; running recovery..." bash "$SCRIPT_DIR/k8s-recover.sh"
-fi
+run_cmd "Waiting for Kubernetes API..." wait_for_kube_api 30 2
+run_cmd "Waiting for node readiness..." wait_for_node_ready 30 2
 
 # Final status
 printf '\n'
