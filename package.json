@@ -1,0 +1,27 @@
+{
+  "name": "devpush-root",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "pnpm --dir app dev",
+    "dev:start": "scripts/local-start.sh",
+    "dev:stop": "scripts/local-stop.sh",
+    "dev:restart": "scripts/local-restart.sh",
+    "build": "pnpm --dir app build",
+    "typecheck": "pnpm --dir app typecheck",
+    "lint": "pnpm --dir app lint",
+    "test": "pnpm --dir app test",
+    "smoke:deploy": "pnpm --dir app smoke:deploy",
+    "smoke:agent": "GOCACHE=$PWD/.tmp/go-build-cache DEVPUSH_RUN_DOCKER_SMOKE=1 go test ./agent/internal/agent -run 'TestRunDeploymentJob(RunsRealDockerCompose|RoutesThroughRealTraefik)' -count=1 -v",
+    "validate:local": "scripts/validate-local-mvp.sh",
+    "validate:config": "node scripts/validate-mvp-config.mjs",
+    "validate:production": "scripts/validate-production-image.sh",
+    "validate:remote": "scripts/validate-remote-mvp.sh",
+    "validate:remote:proof": "scripts/validate-remote-proof.sh",
+    "agent:build": "GOCACHE=$PWD/.tmp/go-build-cache go build -o bin/devpush-agent ./agent/cmd/devpush-agent",
+    "agent:build:linux": "pnpm agent:build:linux:amd64 && pnpm agent:build:linux:arm64",
+    "agent:build:linux:amd64": "mkdir -p bin && GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=amd64 go build -o bin/devpush-agent-linux-amd64 ./agent/cmd/devpush-agent",
+    "agent:build:linux:arm64": "mkdir -p bin && GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=arm64 go build -o bin/devpush-agent-linux-arm64 ./agent/cmd/devpush-agent",
+    "agent:test": "GOCACHE=$PWD/.tmp/go-build-cache go test ./agent/..."
+  }
+}

@@ -1,0 +1,202 @@
+import { createHash } from 'node:crypto'
+
+import { eq, inArray } from 'drizzle-orm'
+import { afterAll, afterEach, describe, expect, test } from 'vitest'
+
+import { closeDb, db } from '@/server/db'
+import {
+  environments,
+  projects,
+  runtimeLogs,
+  servers,
+  teamMembers,
+  teams,
+  user,
+} from '@/server/db/schema'
+import { getProjectLogsContext } from '@/server/projects/service'
+import { recordRuntimeLogs } from './runtime-logs'
+
+const touchedRuntimeLogIds: Array<string> = []
+const touchedEnvironmentIds: Array<string> = []
+const touchedProjectIds: Array<string> = []
+const touchedServerIds: Array<string> = []
+const touchedTeamIds: Array<string> = []
+const touchedUserIds: Array<string> = []
+
+afterEach(async () => {
+  await cleanupRows()
+})
+
+afterAll(async () => {
+  await closeDb()
+})
+
+describe('runtime log ingestion', () => {
+  test('records assigned runtime logs and deduplicates repeated batches', async () => {
+    const { projectName, serverId, teamSlug, token, userId } =
+      await createFixture()
+    const payload = {
+      serverId,
+      token,
+      logs: [
+        {
+          runtimeId: 'dp_project_production',
+          service: 'web',
+          observedAt: '2026-06-01T00:00:00.000Z',
+          content: 'Listening on 3000',
+        },
+        {
+          runtimeId: 'dp_project_other',
+          service: 'web',
+          observedAt: '2026-06-01T00:00:00.000Z',
+          content: 'Should be ignored',
+        },
+      ],
+    }
+
+    await recordRuntimeLogs(payload)
+    await recordRuntimeLogs(payload)
+
+    const rows = await db
+      .select({
+        id: runtimeLogs.id,
+        runtimeId: runtimeLogs.runtimeId,
+        service: runtimeLogs.service,
+        content: runtimeLogs.content,
+      })
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    touchedRuntimeLogIds.push(...rows.map((row) => row.id))
+
+    expect(rows).toEqual([
+      {
+        id: expect.any(String),
+        runtimeId: 'dp_project_production',
+        service: 'web',
+        content: 'Listening on 3000',
+      },
+    ])
+
+    const context = await getProjectLogsContext({
+      userId,
+      teamSlug,
+      projectName,
+      keyword: 'Listening',
+    })
+
+    expect(context.logs).toContainEqual(
+      expect.objectContaining({
+        source: 'runtime',
+        deploymentId: null,
+        runtimeId: 'dp_project_production',
+        service: 'web',
+        stream: 'runtime',
+        content: 'Listening on 3000',
+      }),
+    )
+  })
+})
+
+async function createFixture() {
+  const suffix = crypto.randomUUID()
+  const token = `token-${suffix}`
+  const userId = `user-${suffix}`
+  const teamId = `team-${suffix}`
+  const serverId = `server-${suffix}`
+  const projectId = `project-${suffix}`
+  const environmentId = `environment-${suffix}`
+
+  touchedUserIds.push(userId)
+  touchedTeamIds.push(teamId)
+  touchedServerIds.push(serverId)
+  touchedProjectIds.push(projectId)
+  touchedEnvironmentIds.push(environmentId)
+
+  await db.insert(user).values({
+    id: userId,
+    name: 'Runtime Logs User',
+    username: `runtime-${suffix.slice(0, 12)}`,
+    email: `runtime-${suffix}@example.com`,
+    emailVerified: true,
+  })
+  await db.insert(teams).values({
+    id: teamId,
+    slug: `team-${suffix}`,
+    name: 'Runtime Logs Team',
+  })
+  await db.insert(teamMembers).values({
+    id: `member-${suffix}`,
+    teamId,
+    userId,
+    role: 'owner',
+  })
+  await db.insert(servers).values({
+    id: serverId,
+    teamId,
+    name: `server-${suffix}`,
+    handle: `server-${suffix}`,
+    status: 'connected',
+    enrollmentTokenHash: hashToken(token),
+    enrollmentTokenExpiresAt: null,
+  })
+  await db.insert(projects).values({
+    id: projectId,
+    teamId,
+    slug: `project-${suffix}`,
+    name: 'Runtime Logs Project',
+    githubRepo: 'acme/app',
+  })
+  await db.insert(environments).values({
+    id: environmentId,
+    projectId,
+    serverId,
+    name: 'Production',
+    slug: 'production',
+    branch: 'main',
+    isProduction: true,
+    runtimeId: 'dp_project_production',
+  })
+
+  return { projectName: `project-${suffix}`, serverId, teamSlug: `team-${suffix}`, token, userId }
+}
+
+async function cleanupRows() {
+  if (touchedRuntimeLogIds.length > 0) {
+    await db
+      .delete(runtimeLogs)
+      .where(inArray(runtimeLogs.id, touchedRuntimeLogIds))
+    touchedRuntimeLogIds.length = 0
+  }
+
+  if (touchedEnvironmentIds.length > 0) {
+    await db
+      .delete(environments)
+      .where(inArray(environments.id, touchedEnvironmentIds))
+    touchedEnvironmentIds.length = 0
+  }
+
+  if (touchedProjectIds.length > 0) {
+    await db.delete(projects).where(inArray(projects.id, touchedProjectIds))
+    touchedProjectIds.length = 0
+  }
+
+  if (touchedServerIds.length > 0) {
+    await db.delete(servers).where(inArray(servers.id, touchedServerIds))
+    touchedServerIds.length = 0
+  }
+
+  if (touchedTeamIds.length > 0) {
+    await db.delete(teamMembers).where(inArray(teamMembers.teamId, touchedTeamIds))
+    await db.delete(teams).where(inArray(teams.id, touchedTeamIds))
+    touchedTeamIds.length = 0
+  }
+
+  if (touchedUserIds.length > 0) {
+    await db.delete(user).where(inArray(user.id, touchedUserIds))
+    touchedUserIds.length = 0
+  }
+}
+
+function hashToken(token: string) {
+  return createHash('sha256').update(token).digest('hex')
+}

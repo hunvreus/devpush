@@ -1,0 +1,9 @@
+packages:
+  - app
+
+allowBuilds:
+  esbuild: true
+  lightningcss: true
+  unrs-resolver: true
+
+minimumReleaseAge: 1440

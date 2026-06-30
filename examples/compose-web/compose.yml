@@ -1,0 +1,14 @@
+services:
+  web:
+    image: python:3.13-alpine
+    working_dir: /app
+    command: python -m http.server 3000 --directory /app/public
+    volumes:
+      - ./public:/app/public:ro
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6

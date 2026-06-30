@@ -1,0 +1,1098 @@
+import { randomUUID } from 'node:crypto'
+
+import { and, asc, eq, inArray, lt, lte, sql } from 'drizzle-orm'
+
+import { db } from '@/server/db'
+import {
+  agentJobs,
+  backupArtifacts,
+  backupRuns,
+  deployments,
+  deploymentLogs,
+  hostnames,
+} from '@/server/db/schema'
+import { createInstallationAccessToken } from '@/server/github/service'
+import type { DeprovisionJobPayload } from './cleanup'
+import {
+  decryptDeploymentEnvVars,
+  parseDeploymentConfigSnapshot,
+  toDeploymentCommitMeta,
+} from '@/server/projects/deployment-snapshot'
+import type { DeploymentConfigSnapshot } from '@/server/projects/deployment-snapshot'
+import { requireAgentServer } from '@/server/servers/service'
+
+type AgentRoute = {
+  host: string
+  service: string
+  port: number
+  path: string
+  https: boolean
+  stripPrefix: boolean
+}
+
+type AgentEnvVar = {
+  key: string
+  value: string
+}
+
+export type AgentDeployJob = {
+  type: 'deploy'
+  id: string
+  logStartSeq: number
+  repo: {
+    fullName: string
+    branch: string
+    sha: string
+    token: string
+  }
+  project: {
+    name: string
+  }
+  compose: {
+    path: string
+    projectName: string
+    releaseCommand: string | null
+    releaseService: string
+    readinessPath: string | null
+    envVars: Array<AgentEnvVar>
+    routes: Array<AgentRoute>
+  }
+}
+
+export type AgentCleanupJob = {
+  type: 'deprovision' | 'purge'
+  id: string
+  cleanup: {
+    runtimeIds: Array<string>
+    removeVolumes: boolean
+    reason: string
+  }
+}
+
+export type AgentJob = AgentDeployJob | AgentCleanupJob
+
+export type AgentJobCompletion = {
+  deploymentId: string
+  status: 'succeeded' | 'failed' | 'canceled'
+  gitSha: string | null
+  logStartSeq?: number
+  logs: Array<string>
+  events: Array<{
+    phase:
+      | 'agent_connected'
+      | 'config_synced'
+      | 'repo_fetched'
+      | 'compose_resolved'
+      | 'images_built_or_pulled'
+      | 'release_command_started'
+      | 'release_command_succeeded'
+      | 'revision_started'
+      | 'readiness_check_started'
+      | 'traffic_switched'
+      | 'old_revision_retired'
+      | 'completed'
+    message: string
+  }>
+}
+
+export type AgentCleanupCompletion = {
+  jobId: string
+  status: 'succeeded' | 'failed' | 'canceled'
+  message?: string | null
+}
+
+export type AgentBackupCompletion = {
+  jobId: string
+  backupRunId: string
+  status: 'succeeded' | 'failed' | 'canceled'
+  message?: string | null
+  manifest?: unknown
+  artifacts?: Array<{
+    type: 'manifest' | 'volume' | 'database'
+    objectKey: string
+    checksumSha256: string
+    sizeBytes: number
+  }>
+}
+
+export type AgentBackupCleanupCompletion = {
+  jobId: string
+  backupRunIds: Array<string>
+  status: 'succeeded' | 'failed' | 'canceled'
+  message?: string | null
+}
+
+export type AgentJobProgress = {
+  deploymentId: string
+  logStartSeq: number
+  logs: Array<string>
+  events: AgentJobCompletion['events']
+}
+
+export type AgentJobStatus = {
+  deploymentId: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+}
+
+type InstallationAccessTokenFactory = typeof createInstallationAccessToken
+
+export async function claimNextAgentJob({
+  serverId,
+  token,
+  createAccessToken = createInstallationAccessToken,
+}: {
+  serverId: string
+  token: string
+  createAccessToken?: InstallationAccessTokenFactory
+}): Promise<AgentJob | null> {
+  await requireAgentServer({ serverId, token })
+  await failStaleRunningDeploymentsForServer(serverId)
+
+  const cleanupJob = await claimNextCleanupJob({ serverId })
+
+  if (cleanupJob) {
+    return cleanupJob
+  }
+
+  return claimNextDeploymentJob({
+    serverId,
+    token,
+    createAccessToken,
+    skipAgentAuth: true,
+  })
+}
+
+export async function claimNextDeploymentJob({
+  serverId,
+  token,
+  createAccessToken = createInstallationAccessToken,
+  skipAgentAuth = false,
+}: {
+  serverId: string
+  token: string
+  createAccessToken?: InstallationAccessTokenFactory
+  skipAgentAuth?: boolean
+}): Promise<AgentDeployJob | null> {
+  if (!skipAgentAuth) {
+    await requireAgentServer({ serverId, token })
+    await failStaleRunningDeploymentsForServer(serverId)
+  }
+
+  const claimed = await db
+    .transaction(async (tx) => {
+      const rows = await tx
+        .select({
+          deployment: deployments,
+        })
+        .from(deployments)
+        .where(
+          and(
+            eq(deployments.serverId, serverId),
+            eq(deployments.status, 'queued'),
+            runtimeHasNoRunningDeployment(),
+          ),
+        )
+        .orderBy(asc(deployments.createdAt))
+        .limit(1)
+      const row = rows.at(0)
+
+      if (!row) {
+        return null
+      }
+
+      const claimedRows = await tx
+        .update(deployments)
+        .set({
+          status: 'running',
+          phase: 'agent_connected',
+          startedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(deployments.id, row.deployment.id),
+            eq(deployments.status, 'queued'),
+            runtimeHasNoRunningDeployment(),
+          ),
+        )
+        .returning({ id: deployments.id })
+
+      if (!claimedRows.at(0)) {
+        return null
+      }
+
+      return row
+    })
+    .catch((error: unknown) => {
+      if (isUniqueViolation(error)) {
+        return null
+      }
+
+      throw error
+    })
+
+  if (!claimed) {
+    return null
+  }
+
+  const snapshot = parseDeploymentConfigSnapshot(
+    claimed.deployment.configSnapshot,
+  )
+
+  if (!snapshot) {
+    await failClaimedDeployment(
+      claimed.deployment.id,
+      'Deployment snapshot is invalid.',
+    )
+    return null
+  }
+
+  if (!snapshot.repo.installationId) {
+    await failClaimedDeployment(
+      claimed.deployment.id,
+      'Project is missing a GitHub App installation.',
+    )
+    return null
+  }
+
+  let accessToken: { token: string }
+  try {
+    accessToken = await createAccessToken({
+      installationId: snapshot.repo.installationId,
+      repositoryId: snapshot.repo.id,
+    })
+  } catch (error) {
+    await failClaimedDeployment(
+      claimed.deployment.id,
+      error instanceof Error
+        ? error.message
+        : 'Unable to create GitHub installation token.',
+    )
+    return null
+  }
+  let envVars: Array<AgentEnvVar>
+
+  try {
+    envVars = decryptDeploymentEnvVars(claimed.deployment.envVarsSnapshot)
+  } catch (error) {
+    await failClaimedDeployment(
+      claimed.deployment.id,
+      error instanceof Error
+        ? error.message
+        : 'Unable to decrypt deployment environment variables.',
+    )
+    return null
+  }
+
+  const runtimeEnvVars = buildAgentDeploymentEnvVars({
+    deployment: claimed.deployment,
+    envVars,
+    snapshot,
+  })
+
+  return {
+    type: 'deploy',
+    id: claimed.deployment.id,
+    logStartSeq: await getNextLogSeq(claimed.deployment.id),
+    repo: {
+      fullName: snapshot.repo.fullName,
+      branch: claimed.deployment.gitBranch,
+      sha: claimed.deployment.gitSha,
+      token: accessToken.token,
+    },
+    project: {
+      name: snapshot.project.name,
+    },
+    compose: {
+      path: snapshot.compose.path,
+      projectName: snapshot.compose.projectName,
+      releaseCommand: snapshot.compose.releaseCommand,
+      releaseService: snapshot.compose.releaseService,
+      readinessPath: snapshot.compose.readinessPath,
+      envVars: runtimeEnvVars,
+      routes: snapshot.compose.routes,
+    },
+  }
+}
+
+export function buildAgentDeploymentEnvVars({
+  deployment,
+  envVars,
+  snapshot,
+}: {
+  deployment: {
+    id: string
+    createdAt: Date
+    gitBranch: string
+    gitSha: string
+    commitMeta: unknown
+    repoFullName: string
+  }
+  envVars: Array<AgentEnvVar>
+  snapshot: DeploymentConfigSnapshot
+}) {
+  const next = [...envVars]
+  const rawCommitMeta =
+    typeof deployment.commitMeta === 'object' && deployment.commitMeta !== null
+      ? (deployment.commitMeta as {
+          authorName?: string | null
+          authoredAt?: string | null
+          message?: string | null
+          url?: string | null
+        })
+      : {}
+  const commitMeta = toDeploymentCommitMeta({
+    authorName: rawCommitMeta.authorName,
+    authoredAt: rawCommitMeta.authoredAt,
+    message: rawCommitMeta.message ?? null,
+    url: rawCommitMeta.url,
+  })
+  const [repoOwner, repoName] = deployment.repoFullName.split('/', 2)
+  const runtimeVars: Record<string, string | null | undefined> = {
+    DEVPUSH: 'true',
+    DEVPUSH_URL: snapshot.environment.defaultHost
+      ? `https://${snapshot.environment.defaultHost}`
+      : null,
+    DEVPUSH_DOMAIN: snapshot.environment.defaultHost,
+    DEVPUSH_TEAM_ID: snapshot.project.teamId,
+    DEVPUSH_PROJECT_ID: snapshot.project.id,
+    DEVPUSH_ENVIRONMENT: snapshot.environment.slug || snapshot.environment.id,
+    DEVPUSH_DEPLOYMENT_ID: deployment.id,
+    DEVPUSH_DEPLOYMENT_CREATED_AT: deployment.createdAt.toISOString(),
+    DEVPUSH_GIT_PROVIDER: 'github',
+    DEVPUSH_GIT_REPO: deployment.repoFullName,
+    DEVPUSH_GIT_REF: deployment.gitBranch,
+    DEVPUSH_GIT_COMMIT_SHA: deployment.gitSha,
+    DEVPUSH_GIT_COMMIT_AUTHOR: commitMeta.authorName,
+    DEVPUSH_GIT_COMMIT_MESSAGE: commitMeta.message,
+    DEVPUSH_GIT_REPO_OWNER: repoOwner,
+    DEVPUSH_GIT_REPO_NAME: repoName,
+  }
+
+  for (const [key, value] of Object.entries(runtimeVars)) {
+    if (value && !next.some((envVar) => envVar.key === key)) {
+      next.push({ key, value })
+    }
+  }
+
+  return next
+}
+
+function isUniqueViolation(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === '23505'
+  )
+}
+
+async function claimNextCleanupJob({
+  serverId,
+}: {
+  serverId: string
+}): Promise<AgentCleanupJob | null> {
+  const now = new Date()
+  const claimed = await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ job: agentJobs })
+      .from(agentJobs)
+      .where(
+        and(
+          eq(agentJobs.serverId, serverId),
+          inArray(agentJobs.type, ['deprovision', 'purge']),
+          eq(agentJobs.status, 'queued'),
+          lte(agentJobs.availableAt, now),
+        ),
+      )
+      .orderBy(asc(agentJobs.createdAt))
+      .limit(1)
+    const row = rows.at(0)
+
+    if (!row) {
+      return null
+    }
+
+    const claimedRows = await tx
+      .update(agentJobs)
+      .set({
+        status: 'running',
+        attempt: row.job.attempt + 1,
+        claimedAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(agentJobs.id, row.job.id), eq(agentJobs.status, 'queued')))
+      .returning({ id: agentJobs.id })
+
+    if (!claimedRows.at(0)) {
+      return null
+    }
+
+    return row.job
+  })
+
+  if (!claimed) {
+    return null
+  }
+
+  if (claimed.type !== 'deprovision' && claimed.type !== 'purge') {
+    await failCleanupJob(claimed.id, `Unsupported agent job type "${claimed.type}".`)
+    return null
+  }
+
+  const payload = parseDeprovisionPayload(claimed.payload)
+
+  if (!payload) {
+    await failCleanupJob(claimed.id, 'Cleanup job payload is invalid.')
+    return null
+  }
+
+  return {
+    type: claimed.type,
+    id: claimed.id,
+    cleanup: {
+      runtimeIds: payload.runtimeIds,
+      removeVolumes: payload.removeVolumes,
+      reason: payload.reason,
+    },
+  }
+}
+
+export async function failStaleRunningDeploymentsForServer(serverId: string) {
+  const cutoff = new Date(Date.now() - 60 * 60 * 1000)
+  const staleRows = await db
+    .select({ id: deployments.id })
+    .from(deployments)
+    .where(
+      and(
+        eq(deployments.serverId, serverId),
+        eq(deployments.status, 'running'),
+        lt(deployments.startedAt, cutoff),
+      ),
+    )
+  const staleIds = staleRows.map((row) => row.id)
+
+  if (staleIds.length === 0) {
+    return []
+  }
+
+  const nextSeqRows = await db
+    .select({
+      deploymentId: deploymentLogs.deploymentId,
+      value: sql<number>`coalesce(max(${deploymentLogs.seq}), 0) + 1`,
+    })
+    .from(deploymentLogs)
+    .where(inArray(deploymentLogs.deploymentId, staleIds))
+    .groupBy(deploymentLogs.deploymentId)
+  const nextSeqByDeployment = new Map(
+    nextSeqRows.map((row) => [row.deploymentId, Number(row.value)]),
+  )
+  const message = 'Deployment timed out after the agent stopped reporting.'
+
+  return db.transaction(async (tx) => {
+    const failedRows = await tx
+      .update(deployments)
+      .set({
+        status: 'failed',
+        phase: 'timed_out',
+        errorMessage: message,
+        finishedAt: new Date(),
+      })
+      .where(
+        and(
+          inArray(deployments.id, staleIds),
+          eq(deployments.status, 'running'),
+        ),
+      )
+      .returning({ id: deployments.id })
+    const failedIds = failedRows.map((row) => row.id)
+
+    if (failedIds.length === 0) {
+      return []
+    }
+
+    await tx.insert(deploymentLogs).values(
+      failedIds.map((deploymentId) => ({
+        deploymentId,
+        stream: 'deploy',
+        seq: nextSeqByDeployment.get(deploymentId) ?? 1,
+        content: message,
+      })),
+    )
+
+    return failedIds
+  })
+}
+
+export async function getDeploymentJobStatus({
+  serverId,
+  token,
+  deploymentId,
+}: {
+  serverId: string
+  token: string
+  deploymentId: string
+}): Promise<AgentJobStatus> {
+  await requireAgentServer({ serverId, token })
+
+  const rows = await db
+    .select({ status: deployments.status })
+    .from(deployments)
+    .where(
+      and(eq(deployments.id, deploymentId), eq(deployments.serverId, serverId)),
+    )
+    .limit(1)
+  const row = rows.at(0)
+
+  if (!row) {
+    throw new Error('Deployment not found for this server.')
+  }
+
+  return {
+    deploymentId,
+    status: row.status,
+  }
+}
+
+export async function completeDeploymentJob({
+  serverId,
+  token,
+  completion,
+}: {
+  serverId: string
+  token: string
+  completion: AgentJobCompletion
+}) {
+  await requireAgentServer({ serverId, token })
+
+  const rows = await db
+    .select({
+      deployment: deployments,
+    })
+    .from(deployments)
+    .where(
+      and(
+        eq(deployments.id, completion.deploymentId),
+        eq(deployments.serverId, serverId),
+      ),
+    )
+    .limit(1)
+  const row = rows.at(0)
+
+  if (!row) {
+    throw new Error('Deployment not found for this server.')
+  }
+
+  if (row.deployment.status === 'canceled') {
+    return { ok: true, ignored: true }
+  }
+
+  if (row.deployment.status !== 'running') {
+    throw new Error('Deployment is not running.')
+  }
+
+  const snapshot = parseDeploymentConfigSnapshot(row.deployment.configSnapshot)
+
+  if (!snapshot) {
+    throw new Error('Deployment snapshot is invalid.')
+  }
+
+  const now = new Date()
+  const latestEvent = completion.events.at(-1)
+  const latestMessage = getLatestProgressMessage(completion)
+
+  await db.transaction(async (tx) => {
+    const completedRows = await tx
+      .update(deployments)
+      .set({
+        status: completion.status,
+        phase:
+          completion.status === 'canceled'
+            ? 'canceled'
+            : (latestEvent?.phase ?? 'completed'),
+        gitSha: completion.gitSha ?? row.deployment.gitSha,
+        errorMessage:
+          completion.status === 'failed'
+            ? latestMessage
+            : completion.status === 'canceled'
+              ? latestMessage
+              : row.deployment.errorMessage,
+        finishedAt: now,
+      })
+      .where(
+        and(
+          eq(deployments.id, completion.deploymentId),
+          eq(deployments.status, 'running'),
+        ),
+      )
+      .returning({ id: deployments.id })
+
+    if (!completedRows.at(0)) {
+      return
+    }
+
+    await appendDeploymentProgress(
+      tx,
+      {
+        deploymentId: completion.deploymentId,
+        logStartSeq:
+          completion.logStartSeq ??
+          (await getNextLogSeq(completion.deploymentId)),
+        logs: completion.logs,
+        events: completion.events,
+      },
+      { updatePhase: false },
+    )
+
+    if (completion.status === 'succeeded') {
+      await tx
+        .update(hostnames)
+        .set({
+          deploymentId: completion.deploymentId,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(hostnames.projectId, snapshot.project.id),
+            eq(hostnames.type, 'environment_alias'),
+            eq(hostnames.environmentId, snapshot.environment.id),
+          ),
+        )
+    }
+  })
+
+  return { ok: true }
+}
+
+export async function completeCleanupJob({
+  serverId,
+  token,
+  completion,
+}: {
+  serverId: string
+  token: string
+  completion: AgentCleanupCompletion
+}) {
+  await requireAgentServer({ serverId, token })
+
+  const rows = await db
+    .select({ job: agentJobs })
+    .from(agentJobs)
+    .where(
+      and(eq(agentJobs.id, completion.jobId), eq(agentJobs.serverId, serverId)),
+    )
+    .limit(1)
+  const row = rows.at(0)
+
+  if (!row) {
+    throw new Error('Cleanup job not found for this server.')
+  }
+
+  if (row.job.status !== 'running') {
+    return { ok: true, ignored: true }
+  }
+
+  const now = new Date()
+
+  await db
+    .update(agentJobs)
+    .set({
+      status: completion.status,
+      errorMessage:
+        completion.status === 'failed'
+          ? (completion.message ?? 'Cleanup failed.')
+          : null,
+      finishedAt: now,
+      updatedAt: now,
+    })
+    .where(and(eq(agentJobs.id, completion.jobId), eq(agentJobs.status, 'running')))
+
+  return { ok: true }
+}
+
+export async function completeBackupJob({
+  serverId,
+  token,
+  completion,
+}: {
+  serverId: string
+  token: string
+  completion: AgentBackupCompletion
+}) {
+  await requireAgentServer({ serverId, token })
+
+  const rows = await db
+    .select({ job: agentJobs, backupRun: backupRuns })
+    .from(agentJobs)
+    .innerJoin(backupRuns, eq(backupRuns.id, completion.backupRunId))
+    .where(
+      and(
+        eq(agentJobs.id, completion.jobId),
+        eq(agentJobs.serverId, serverId),
+        eq(agentJobs.type, 'backup'),
+        eq(backupRuns.id, completion.backupRunId),
+        eq(backupRuns.serverId, serverId),
+      ),
+    )
+    .limit(1)
+  const row = rows.at(0)
+
+  if (!row) {
+    throw new Error('Backup job not found for this server.')
+  }
+
+  if (row.job.status !== 'running') {
+    return { ok: true, ignored: true }
+  }
+
+  const now = new Date()
+  const errorMessage =
+    completion.status === 'failed'
+      ? (completion.message ?? 'Backup failed.')
+      : completion.status === 'canceled'
+        ? (completion.message ?? 'Backup canceled.')
+        : null
+
+  await db.transaction(async (tx) => {
+    if (completion.status === 'succeeded' && completion.artifacts?.length) {
+      await tx
+        .insert(backupArtifacts)
+        .values(
+          completion.artifacts.map((artifact) => ({
+            id: randomUUID(),
+            backupRunId: completion.backupRunId,
+            type: artifact.type,
+            objectKey: artifact.objectKey,
+            checksumSha256: artifact.checksumSha256,
+            sizeBytes: artifact.sizeBytes,
+            createdAt: now,
+          })),
+        )
+        .onConflictDoNothing({
+          target: [backupArtifacts.backupRunId, backupArtifacts.objectKey],
+        })
+    }
+
+    await tx
+      .update(backupRuns)
+      .set({
+        status: completion.status,
+        manifest: completion.manifest ?? row.backupRun.manifest,
+        errorMessage,
+        startedAt: row.backupRun.startedAt ?? now,
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(backupRuns.id, completion.backupRunId),
+          eq(backupRuns.status, 'running'),
+        ),
+      )
+
+    await tx
+      .update(agentJobs)
+      .set({
+        status: completion.status,
+        errorMessage,
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(agentJobs.id, completion.jobId), eq(agentJobs.status, 'running')))
+  })
+
+  return { ok: true }
+}
+
+export async function completeBackupCleanupJob({
+  serverId,
+  token,
+  completion,
+}: {
+  serverId: string
+  token: string
+  completion: AgentBackupCleanupCompletion
+}) {
+  await requireAgentServer({ serverId, token })
+
+  const rows = await db
+    .select({ job: agentJobs })
+    .from(agentJobs)
+    .where(
+      and(
+        eq(agentJobs.id, completion.jobId),
+        eq(agentJobs.serverId, serverId),
+        eq(agentJobs.type, 'backup_cleanup'),
+      ),
+    )
+    .limit(1)
+  const row = rows.at(0)
+
+  if (!row) {
+    throw new Error('Backup cleanup job not found for this server.')
+  }
+
+  if (row.job.status !== 'running') {
+    return { ok: true, ignored: true }
+  }
+
+  const backupRunIds = Array.from(
+    new Set(completion.backupRunIds.map((id) => id.trim()).filter(Boolean)),
+  )
+
+  if (backupRunIds.length === 0) {
+    throw new Error('Backup cleanup completion must include backup runs.')
+  }
+
+  const now = new Date()
+  const errorMessage =
+    completion.status === 'failed'
+      ? (completion.message ?? 'Backup cleanup failed.')
+      : completion.status === 'canceled'
+        ? (completion.message ?? 'Backup cleanup canceled.')
+        : null
+
+  await db.transaction(async (tx) => {
+    const backupRunPatch = {
+      cleanupErrorMessage: errorMessage,
+      updatedAt: now,
+      ...(completion.status === 'succeeded' ? { cleanupFinishedAt: now } : {}),
+    }
+
+    await tx
+      .update(backupRuns)
+      .set(backupRunPatch)
+      .where(
+        and(
+          inArray(backupRuns.id, backupRunIds),
+          eq(backupRuns.serverId, serverId),
+        ),
+      )
+
+    await tx
+      .update(agentJobs)
+      .set({
+        status: completion.status,
+        errorMessage,
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(agentJobs.id, completion.jobId), eq(agentJobs.status, 'running')))
+  })
+
+  return { ok: true }
+}
+
+export async function recordDeploymentProgress({
+  serverId,
+  token,
+  progress,
+}: {
+  serverId: string
+  token: string
+  progress: AgentJobProgress
+}) {
+  await requireAgentServer({ serverId, token })
+
+  const rows = await db
+    .select({
+      deployment: deployments,
+    })
+    .from(deployments)
+    .where(
+      and(
+        eq(deployments.id, progress.deploymentId),
+        eq(deployments.serverId, serverId),
+      ),
+    )
+    .limit(1)
+  const row = rows.at(0)
+
+  if (!row) {
+    throw new Error('Deployment not found for this server.')
+  }
+
+  if (row.deployment.status === 'canceled') {
+    return { ok: true, ignored: true }
+  }
+
+  if (row.deployment.status !== 'running') {
+    throw new Error('Deployment is not running.')
+  }
+
+  await db.transaction(async (tx) => {
+    await appendDeploymentProgress(tx, progress, { requireRunning: true })
+  })
+
+  return { ok: true }
+}
+
+function parseDeprovisionPayload(value: unknown): DeprovisionJobPayload | null {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('schemaVersion' in value) ||
+    !('runtimeIds' in value) ||
+    !('removeVolumes' in value) ||
+    !('reason' in value)
+  ) {
+    return null
+  }
+
+  const payload = value as Record<string, unknown>
+
+  if (
+    payload.schemaVersion !== 1 ||
+    !Array.isArray(payload.runtimeIds) ||
+    typeof payload.removeVolumes !== 'boolean' ||
+    typeof payload.reason !== 'string'
+  ) {
+    return null
+  }
+
+  const runtimeIds = payload.runtimeIds.filter(
+    (runtimeId): runtimeId is string =>
+      typeof runtimeId === 'string' && runtimeId.trim() !== '',
+  )
+
+  if (runtimeIds.length === 0) {
+    return null
+  }
+
+  return {
+    schemaVersion: 1,
+    runtimeIds: Array.from(new Set(runtimeIds)).sort(),
+    removeVolumes: payload.removeVolumes,
+    reason: payload.reason,
+  }
+}
+
+async function failCleanupJob(jobId: string, message: string) {
+  await db
+    .update(agentJobs)
+    .set({
+      status: 'failed',
+      errorMessage: message,
+      finishedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(agentJobs.id, jobId))
+}
+
+function runtimeHasNoRunningDeployment() {
+  return sql`not exists (
+    select 1
+    from deployments as running_deployments
+    where running_deployments.runtime_id = ${deployments.runtimeId}
+      and running_deployments.status = 'running'
+  )`
+}
+
+async function appendDeploymentProgress(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  progress: AgentJobProgress,
+  options: {
+    requireRunning?: boolean
+    updatePhase?: boolean
+  } = {},
+) {
+  if (options.requireRunning) {
+    const runningRows = await tx
+      .select({ id: deployments.id })
+      .from(deployments)
+      .where(
+        and(
+          eq(deployments.id, progress.deploymentId),
+          eq(deployments.status, 'running'),
+        ),
+      )
+      .limit(1)
+
+    if (!runningRows.at(0)) {
+      return
+    }
+  }
+
+  if (options.updatePhase !== false && progress.events.length > 0) {
+    const latestEvent = progress.events.at(-1)
+
+    if (latestEvent) {
+      await tx
+        .update(deployments)
+        .set({ phase: latestEvent.phase })
+        .where(
+          options.requireRunning
+            ? and(
+                eq(deployments.id, progress.deploymentId),
+                eq(deployments.status, 'running'),
+              )
+            : eq(deployments.id, progress.deploymentId),
+        )
+    }
+  }
+
+  if (progress.logs.length > 0) {
+    await tx
+      .insert(deploymentLogs)
+      .values(
+        progress.logs.map((line, index) => ({
+          deploymentId: progress.deploymentId,
+          stream: 'deploy',
+          seq: progress.logStartSeq + index,
+          content: line,
+        })),
+      )
+      .onConflictDoNothing({
+        target: [
+          deploymentLogs.deploymentId,
+          deploymentLogs.stream,
+          deploymentLogs.seq,
+        ],
+      })
+  }
+}
+
+async function failClaimedDeployment(deploymentId: string, message: string) {
+  const nextSeq = await getNextLogSeq(deploymentId)
+
+  await db.transaction(async (tx) => {
+    const failedRows = await tx
+      .update(deployments)
+      .set({
+        status: 'failed',
+        phase: 'failed',
+        errorMessage: message,
+        finishedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(deployments.id, deploymentId),
+          eq(deployments.status, 'running'),
+        ),
+      )
+      .returning({ id: deployments.id })
+
+    if (failedRows.at(0)) {
+      await tx.insert(deploymentLogs).values({
+        deploymentId,
+        stream: 'deploy',
+        seq: nextSeq,
+        content: message,
+      })
+    }
+  })
+}
+
+async function getNextLogSeq(deploymentId: string) {
+  const nextSeqRows = await db
+    .select({
+      value: sql<number>`coalesce(max(${deploymentLogs.seq}), 0) + 1`,
+    })
+    .from(deploymentLogs)
+    .where(eq(deploymentLogs.deploymentId, deploymentId))
+
+  return Number(nextSeqRows.at(0)?.value ?? 1)
+}
+
+function getLatestProgressMessage(progress: AgentJobCompletion) {
+  return progress.events.at(-1)?.message ?? progress.logs.at(-1) ?? null
+}

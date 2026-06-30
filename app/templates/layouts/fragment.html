@@ -1,7 +1,0 @@
-{{ content | safe }}
-
-{% from "macros/toast.html" import toaster %}
-{{ toaster(
-toasts=get_flashed_messages(),
-attrs={"hx-swap-oob": "beforeend"}
-) }}

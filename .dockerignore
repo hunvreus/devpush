@@ -1,34 +1,18 @@
-# Ignore all dot files
-.*
+.git
+.tmp
+.tanstack
+.DS_Store
 
-# Docker
-docker-compose*.yml
-docker/
-!docker/entrypoint.app.sh
-!docker/entrypoint.app.dev.sh
-!docker/entrypoint.worker-jobs.sh
-!docker/entrypoint.worker-jobs.dev.sh
-!docker/entrypoint.worker-monitor.sh
-!docker/entrypoint.worker-monitor.dev.sh
+**/node_modules
+**/.output
+**/.nitro
+**/.tanstack
+**/dist
+**/coverage
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
+bin
+data
+logs
+backups
 
-# Virtual environments
-venv/
-.venv/
-
-# Build
-src/
-scripts/
-
-# Node
-node_modules/
-package-lock.json
-package.json
-tailwind.config.js
-
-# Static assets and uploads
-upload/
+legacy

@@ -1,174 +1,264 @@
-# /dev/push
+# devpush
 
-An open-source and self-hostable alternative to Vercel, Render, Netlify and the likes. It allows you to build and deploy any app (Python, Node.js, PHP, ...) with zero-downtime updates, real-time logs, team management, customizable environments and domains, etc.
+devpush is being rebuilt as a Docker Compose deployment control plane with
+server-side agents.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://devpu.sh/media/screenshot-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://devpu.sh/media/screenshot-light.png">
-  <img alt="A screenshot of a deployment in /dev/push." src="https://devpu.sh/media/screenshot-dark.png">
-</picture>
+The control plane owns users, teams, projects, GitHub integration, deployment
+history, deploy logs, and UI workflows. Agents run on user servers, own Docker
+Compose and Traefik locally, and connect outbound to the control plane.
 
-## Key features
+The previous FastAPI implementation lives in `legacy/` as reference material.
+`examples/compose-web` contains a known-good Docker Compose app for validating
+the first remote deployment against a real server.
 
-- **Git-based deployments**: Push to deploy from GitHub with zero-downtime rollouts and instant rollback.
-- **Multi-language support**: Python, Node.js, PHP... basically anything that can run on Docker.
-- **Environment management**: Multiple environments with branch mapping and encrypted environment variables.
-- **Real-time monitoring**: Live and searchable build and runtime logs.
-- **Team collaboration**: Role-based access control with team invitations and permissions.
-- **Custom domains**: Support for custom domain and automatic Let's Encrypt SSL certificates.
-- **Self-hosted and open source**: Run on your own servers, MIT licensed.
+## Current status
 
-## Documentation
+This branch contains the MVP scaffold:
 
-See [devpu.sh/docs](https://devpu.sh/docs) for installation, configuration, and usage. For technical details, see [ARCHITECTURE.md](ARCHITECTURE.md).
+- `app/`: TanStack Start control plane scaffold.
+- `agent/`: Go agent for server registration, heartbeats, and basic Compose deploy jobs.
+- `docs/`: protocol, feature, and development notes.
+- `deploy/`: local and production Compose files.
+- `legacy/`: old implementation.
 
-## Prerequisites
+Current deploy support is intentionally narrow: manual deploys and GitHub push
+webhooks create queued deployments. The agent polls for jobs, clones the GitHub
+repo with a short-lived installation token, runs Docker Compose on the target
+server, incrementally reports deploy logs/events, and posts final status back.
+When routes are configured, the agent starts managed Traefik, connects routed
+services to a shared proxy network with a generated Compose overlay, and gates
+success on container health/readiness checks. Deployment rows snapshot the
+resolved project configuration, routes, runtime identity, and encrypted
+environment variables; the agent receives that snapshot plus a short-lived
+GitHub installation token. Rollback queues a new deployment from a previous
+successful deployment snapshot. Runtime logs are collected from active Compose
+runtimes through the agent and stored separately from deploy logs.
 
-- **Server**: Ubuntu 20.04+ or Debian 11+ with SSH access and sudo privileges. A [Hetzner CPX31](https://devpu.sh/docs/guides/create-hetzner-server) works well.
-- **DNS**: We recommend [Cloudflare](https://cloudflare.com).
-- **GitHub account**: You'll create a GitHub App for login and repository access.
-- **Email provider**: A [Resend](https://resend.com) account or SMTP credentials for login emails and invitations.
+## Installation
 
-## Quickstart
-
-> ⚠️ Supported on Ubuntu/Debian. Other distros may work but aren't officially supported (yet).
-
-1. **Install** on a fresh server:
-
-```bash
-curl -fsSL https://install.devpu.sh | sudo bash
-```
-
-2. **Create a GitHub App** at [devpu.sh/docs/guides/create-github-app](https://devpu.sh/docs/guides/create-github-app)
-
-3. **Configure** by editing `/var/lib/devpush/.env` with: `APP_HOSTNAME`, `DEPLOY_DOMAIN`, `LE_EMAIL`, `EMAIL_SENDER_ADDRESS`, `RESEND_API_KEY` (or SMTP settings), and your GitHub App credentials.
-
-4. **Set DNS**:
-   - `A` `example.com` → server IP (app hostname)
-   - `A` `*.example.com` → server IP (deployments)
-
-5. **Start** the service:
+Install app dependencies:
 
 ```bash
-sudo systemctl start devpush.service
+pnpm --dir app install
 ```
 
-For more information, including manual installation or updates, refer to [the documentation](https://devpu.sh/docs/installation).
-
-## Development
-
-**Prerequisites**: Docker and Docker Compose v2+. On macOS, [Colima](https://github.com/abiosoft/colima) works well as an alternative to Docker Desktop.
+Start local Postgres:
 
 ```bash
-git clone https://github.com/hunvreus/devpush.git
-cd devpush
-mkdir -p data
-cp .env.dev.example data/.env
-# Edit data/.env with your GitHub App credentials
+docker-compose -f deploy/compose.yml up -d
 ```
 
-Start the stack:
+Create the app environment file:
 
 ```bash
-./scripts/start.sh
+cp app/.env.example app/.env
 ```
 
-The stack auto-detects development mode on macOS and enables hot reloading. Data is stored in `./data/`.
+Generate a Better Auth secret:
 
-## Registry catalog
+```bash
+pnpm dlx @better-auth/cli@latest secret
+```
 
-Default runner/preset definitions ship in `registry/` and are copied to `DATA_DIR/registry/` during install/update.
-See `registry/README.md` for the catalog format and override rules.
+Set these values in `app/.env`:
 
-**Key scripts**:
+```env
+BETTER_AUTH_SECRET=replace-with-a-long-random-secret
+BETTER_AUTH_URL=http://localhost:7429
+DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush
 
-- `./scripts/start.sh` / `stop.sh` / `restart.sh` — manage the full stack or selected components (`--components <csv>`)
-- `./scripts/compose.sh logs -f app` — view logs
-- `./scripts/db-generate.sh` — create database migration
-- `./scripts/clean.sh` — remove all Docker resources and data
-- `./scripts/update.sh` — update by ref (defaults to `app` only; use `--all` / `--components` / `--full` to expand scope)
+EMAIL_FROM="devpush <onboarding@resend.dev>"
+RESEND_API_KEY=re_...
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for codebase structure.
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
 
-## Scripts
+GITHUB_APP_CLIENT_ID=...
+GITHUB_APP_CLIENT_SECRET=...
+GITHUB_APP_ID=...
+GITHUB_APP_NAME=devpush
+GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+GITHUB_APP_WEBHOOK_SECRET=...
 
-| Script                     | What it does                                                                                                                                                                      |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/backup.sh`        | Create backup of data directory, database, and code metadata (`--output <file>`, `--verbose`)                                                                                     |
-| `scripts/clean.sh`         | Stop stack and remove all Docker resources and data (`--keep-docker`, `--keep-data`, `--yes`)                                                                                     |
-| `scripts/compose.sh`       | Docker compose wrapper with correct files/env (`--`)                                                                                                                              |
-| `scripts/db-generate.sh`   | Generate Alembic migration (prompts for message)                                                                                                                                  |
-| `scripts/db-migrate.sh`    | Apply Alembic migrations (`--timeout <sec>`)                                                                                                                                      |
-| `scripts/install.sh`       | Server setup: Docker, user, clone repo, .env, systemd (`--repo <url>`, `--ref <ref>`, `--yes`, `--no-telemetry`, `--verbose`)                                                     |
-| `scripts/restart.sh`       | Restart services (`--components <csv>`, `--no-migrate`)                                                                                                                            |
-| `scripts/restore.sh`       | Restore from backup archive (`--archive <file>`, `--no-db`, `--no-data`, `--no-code`, `--no-restart`, `--no-backup`, `--remove-runners`, `--timeout <sec>`, `--yes`, `--verbose`) |
-| `scripts/start.sh`         | Start stack (`--components <csv>`, `--no-migrate`, `--timeout <sec>`, `--verbose`)                                                                                                 |
-| `scripts/status.sh`        | Show stack status                                                                                                                                                                 |
-| `scripts/stop.sh`          | Stop services (`--components <csv>`, `--hard`)                                                                                                                                     |
-| `scripts/uninstall.sh`     | Uninstall from server (`--yes`, `--skip-backup`, `--no-telemetry`, `--verbose`)                                                                                                   |
-| `scripts/update.sh`        | Update by tag (default updates `app` only; use `--all`, `--full`, or `--components <csv>` to expand scope) (`--ref <tag>`, `--all`, `--full`, `--components <csv>`, `--no-migrate`, `--no-telemetry`, `--yes`, `--verbose`) |
+DEVPUSH_AGENT_BINARY_DIR=/absolute/path/to/devpush/bin
+DEVPUSH_TRAEFIK_EMAIL=ops@example.com
+DEVPUSH_DEFAULT_APP_DOMAIN=devpush.app
+```
 
-## Environment variables
+The GitHub OAuth credentials should come from the GitHub App OAuth settings.
 
-| Variable                            | Description                                                                                                                              |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `SECRET_KEY`                        | App secret for sessions/CSRF. Auto-generated by install.sh.                                                                              |
-| `ENCRYPTION_KEY`                    | Fernet key for encrypting secrets. Auto-generated by install.sh.                                                                         |
-| `POSTGRES_PASSWORD`                 | PostgreSQL password. Auto-generated by install.sh.                                                                                       |
-| `SERVICE_UID`                       | Container user UID. Auto-set to match host user.                                                                                         |
-| `SERVICE_GID`                       | Container user GID. Auto-set to match host user.                                                                                         |
-| `SERVER_IP`                         | Public IP of the server. Auto-detected by install.sh.                                                                                    |
-| `CERT_CHALLENGE_PROVIDER`           | ACME challenge provider: `default` (HTTP-01) or `cloudflare`, `route53`, `gcloud`, `digitalocean`, `azure` (DNS-01). Default: `default`. |
-| `GITHUB_APP_ID`                     | GitHub App ID.                                                                                                                           |
-| `GITHUB_APP_NAME`                   | GitHub App name.                                                                                                                         |
-| `GITHUB_APP_PRIVATE_KEY`            | GitHub App private key (PEM format, use `\n` for newlines).                                                                              |
-| `GITHUB_APP_WEBHOOK_SECRET`         | GitHub webhook secret.                                                                                                                   |
-| `GITHUB_APP_CLIENT_ID`              | GitHub OAuth client ID.                                                                                                                  |
-| `GITHUB_APP_CLIENT_SECRET`          | GitHub OAuth client secret.                                                                                                              |
-| `APP_HOSTNAME`                      | Domain for the app (e.g., `example.com`).                                                                                                |
-| `DEPLOY_DOMAIN`                     | Domain for deployments (wildcard root). No default—set explicitly (e.g., `deploy.example.com`).                                          |
-| `LE_EMAIL`                          | Email for Let's Encrypt notifications.                                                                                                   |
-| `EMAIL_SENDER_ADDRESS`              | Email sender for invites/login.                                                                                                          |
-| `RESEND_API_KEY`                    | API key for [Resend](https://resend.com). Optional if SMTP is configured.                                                               |
-| `SMTP_HOST`                         | SMTP host. When set with username/password, SMTP is used instead of Resend.                                                             |
-| `SMTP_PORT`                         | SMTP port. Default: `587`.                                                                                                              |
-| `SMTP_USERNAME`                     | SMTP username. Required when using SMTP.                                                                                                |
-| `SMTP_PASSWORD`                     | SMTP password. Required when using SMTP.                                                                                                |
-| `GOOGLE_CLIENT_ID`                  | Google OAuth client ID (optional).                                                                                                       |
-| `GOOGLE_CLIENT_SECRET`              | Google OAuth client secret (optional).                                                                                                   |
-| `APP_NAME`                          | Display name. Default: `/dev/push`.                                                                                                      |
-| `APP_DESCRIPTION`                   | App description.                                                                                                                         |
-| `EMAIL_SENDER_NAME`                 | Sender display name. Default: `/dev/push`.                                                                                               |
-| `POSTGRES_DB`                       | Database name. Default: `devpush`.                                                                                                       |
-| `POSTGRES_USER`                     | Database user. Default: `devpush-app`.                                                                                                   |
-| `REDIS_URL`                         | Redis URL. Default: `redis://redis:6379`.                                                                                                |
-| `DOCKER_HOST`                       | Docker API. Default: `tcp://docker-proxy:2375`.                                                                                          |
-| `DATA_DIR`                          | Data directory. Default: `/var/lib/devpush`.                                                                                             |
-| `APP_DIR`                           | Code directory. Default: `/opt/devpush`.                                                                                                 |
-| `DEFAULT_CPUS`                      | Default CPU limit per deployment. No limit if not provided.                                                                              |
-| `MAX_CPUS`                          | Maximum allowed CPU override per project. Used only when `DEFAULT_CPUS` is set. Required to let user customize CPU.                      |
-| `DEFAULT_MEMORY_MB`                 | Default memory limit (MB) per deployment. No limit if not provided.                                                                      |
-| `MAX_MEMORY_MB`                     | Maximum allowed memory override per project. Used only when `DEFAULT_MEMORY_MB` is set. Required to let user customize memory.           |
-| `JOB_TIMEOUT_SECONDS`               | Job timeout (seconds). Default: `320`.                                                                                                   |
-| `JOB_MAX_TRIES`                     | Max retries per background job. Default: `3`.                                                                                            |
-| `DEPLOYMENT_TIMEOUT_SECONDS`        | Deployment timeout (seconds). Default: `300`.                                                                                            |
-| `CONTAINER_DELETE_GRACE_SECONDS`    | Wait before deleting containers after stop/failure to let logs ship. Default: `3`.                                                       |
-| `LOG_STREAM_GRACE_SECONDS`          | Grace window for deployment log streaming (when to connect/close SSE around terminal states). Default: `5`.                              |
-| `LOG_LEVEL`                         | Logging level. Default: `WARNING`.                                                                                                       |
-| `MAGIC_LINK_TTL_SECONDS`            | Magic link validity (seconds). Default: `900`.                                                                                           |
-| `AUTH_TOKEN_TTL_DAYS`               | Auth cookie/JWT lifetime (days). Default: `30`.                                                                                          |
-| `AUTH_TOKEN_REFRESH_THRESHOLD_DAYS` | Refresh auth token when expiring within N days. Default: `1`.                                                                            |
-| `AUTH_TOKEN_ISSUER`                 | JWT issuer for auth_token. Default: `devpush-app`.                                                                                       |
-| `AUTH_TOKEN_AUDIENCE`               | JWT audience for auth_token. Default: `devpush-web`.                                                                                     |
+OAuth callbacks:
 
-## Support the project
+```text
+http://localhost:7429/api/auth/callback/google
+http://localhost:7429/api/auth/callback/github
+```
 
-- [Contribute code](/CONTRIBUTING.md)
-- [Report issues](https://github.com/hunvreus/devpush/issues)
-- [Sponsor me](https://github.com/sponsors/hunvreus)
-- [Star the project on GitHub](https://github.com/hunvreus/devpush)
-- [Join the Discord chat](https://devpu.sh/chat)
+GitHub App setup callback:
 
-## License
+```text
+http://localhost:7429/api/github/install/callback
+```
 
-[MIT](/LICENSE.md)
+GitHub App webhook URL:
+
+```text
+http://localhost:7429/api/github/webhook
+```
+
+Sync the database and start the app:
+
+```bash
+pnpm --dir app db:push
+pnpm --dir app dev
+```
+
+Maintenance jobs:
+
+```bash
+pnpm --dir app cleanup:invites
+pnpm --dir app cleanup:users
+```
+
+The app runs at the fixed local OAuth origin `http://localhost:7429`. Startup
+fails if that port is already in use.
+
+For the local MVP workflow with the Lima test VM, use the helper scripts:
+
+```bash
+pnpm dev:start
+pnpm dev:stop
+pnpm dev:restart
+```
+
+`pnpm dev:start` starts local Postgres, requires the `devpush-test` Lima VM by
+default, syncs the database, and starts the control plane in the background.
+Use `DEVPUSH_LIMA_INSTANCE=name` for another VM, or `DEVPUSH_REQUIRE_LIMA=0`
+when you only need the web app. Logs are written to `.tmp/devpush-dev.log`.
+
+SMTP is not supported yet; email OTP uses Resend. For production, set
+`EMAIL_FROM` to an address on a domain verified in Resend.
+
+For one-command server enrollment, build or provide Linux agent binaries and set
+`DEVPUSH_AGENT_BINARY_DIR` to the directory containing
+`devpush-agent-linux-amd64` and `devpush-agent-linux-arm64`. The installer
+detects the server architecture, downloads the matching binary from the control
+plane, creates the `devpush` system user, writes `/etc/devpush/agent.env`,
+installs a systemd service, and starts `devpush-agent`.
+
+When the selected server reports a public IPv4 address, new projects default to
+an exact nip.io host such as `my-app.167-11-3-44.nip.io`. Otherwise,
+`DEVPUSH_DEFAULT_APP_DOMAIN` is used for new project route defaults. Hosted
+devpush can use `devpush.app`; self-hosted installs may set it to a wildcard
+domain they control. Per-project route hosts can still be changed in project
+settings.
+`DEVPUSH_TRAEFIK_EMAIL` is passed to installed agents for Let's Encrypt account
+registration when HTTPS routes are enabled.
+
+Server install commands contain a time-limited enrollment token. devpush stores
+only the token hash, so the Servers page can generate a fresh install command
+for an existing server when you need to reconnect or reinstall the agent.
+
+## Production control plane
+
+The MVP production Compose file builds the TanStack Start app and embeds the
+Linux agent binary used by the server installer:
+
+```bash
+cp deploy/.env.production.example deploy/.env.production
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
+```
+
+If your host exposes Compose as the standalone v2 binary, use `docker-compose`
+with the same arguments.
+
+Set `BETTER_AUTH_URL` to the public HTTPS URL of the control plane before adding
+servers. The app container currently runs `pnpm --dir app db:push` on startup;
+replace that with explicit migrations before treating this as a stable
+production deployment. The production Compose file mounts `app_uploads` at
+`/app/app/public/uploads` so user and team avatar uploads survive app container
+recreates.
+
+## Commands
+
+```bash
+pnpm --dir app dev
+pnpm --dir app build
+pnpm --dir app typecheck
+pnpm --dir app lint
+pnpm smoke:deploy
+pnpm smoke:agent
+pnpm validate:local
+pnpm validate:config
+pnpm validate:production
+pnpm validate:remote
+pnpm validate:remote:proof
+pnpm agent:test
+pnpm agent:build
+pnpm agent:build:linux
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
+```
+
+Use `docker-compose` instead of `docker compose` on hosts where Compose is
+installed as the standalone binary.
+
+`pnpm smoke:deploy` uses the local Postgres database to seed a disposable
+user/team/server/project, register the server agent, queue a deployment, claim
+it through the agent job protocol, complete it, verify persisted logs, and clean
+up the seeded rows. It requires `deploy/compose.yml` Postgres to be running and
+the schema to be synced with `pnpm --dir app db:push`.
+
+`pnpm smoke:agent` runs the agent's opt-in Docker smoke tests. It creates
+temporary Git repositories with Compose files, runs the real agent deployment
+path against local Docker Compose, verifies the release command ran through a
+mounted volume, verifies an HTTP route through managed Traefik when Docker can
+publish port 80, and cleans up the Compose projects.
+
+`pnpm validate:local` runs the local MVP gate before a remote VPS attempt:
+typecheck, lint, app tests, control-plane deploy smoke, agent tests, local
+smoke-mode config validation, and the real Docker/Traefik agent smoke. Set
+`DEVPUSH_SKIP_DOCKER_SMOKE=1` only when Docker is unavailable.
+
+`pnpm validate:config` checks the local MVP configuration before a real run:
+auth URL, OAuth credentials, GitHub App private key, Resend OTP settings,
+default app domain, and the agent binary path. Use remote mode before adding a
+real VPS:
+
+```bash
+pnpm validate:config -- --env deploy/.env.production --remote
+```
+
+`pnpm validate:production` checks the production Compose config, builds the
+control-plane image, and verifies that the runtime image contains the Linux
+agent binary, the built server entrypoint, and `drizzle-kit`.
+
+`pnpm validate:remote` validates the generated server installer against a real
+remote host over SSH. It requires `DEVPUSH_SERVER_URL`, `DEVPUSH_REMOTE_HOST`,
+and `DEVPUSH_INSTALL_COMMAND`; see
+[local setup](./docs/development/local-setup.md#remote-mvp-validation). Set
+`DEVPUSH_FULL_PROOF=1` with `DEVPUSH_PROJECT_URL` after a GitHub-backed deploy
+to require the public route and managed Traefik checks. On failure it prints
+best-effort remote diagnostics, including agent service status/logs, Docker
+containers/networks, and listeners on ports 80/443.
+
+The control-plane and deployed route URLs must use HTTPS unless
+`DEVPUSH_ALLOW_INSECURE_SERVER_URL=1` is set for a local or private test
+network.
+Successful remote validation writes a summary to
+`.tmp/remote-mvp-validation-<timestamp>.md` or `DEVPUSH_REMOTE_SUMMARY_PATH`.
+
+`pnpm validate:remote:proof` runs the full remote proof gate: production config
+validation, production image validation, and remote full proof with
+`DEVPUSH_FULL_PROOF=1`. It requires `DEVPUSH_PROJECT_URL` in addition to the
+remote installer environment, and verifies that the proof env file
+`BETTER_AUTH_URL` matches `DEVPUSH_SERVER_URL`.
+
+For remote server enrollment, run `pnpm agent:build:linux` and set
+`DEVPUSH_AGENT_BINARY_DIR` to the generated `bin` directory.
+
+## Docs
+
+- [Architecture](./ARCHITECTURE.md)
+- [Local setup](./docs/development/local-setup.md)
+- [TODO](./TODO.md)
+- [Docs index](./docs/index.md)

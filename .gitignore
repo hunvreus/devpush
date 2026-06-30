@@ -1,29 +1,32 @@
-# Ignore all dot files except a few
-.*
-!.gitignore
-!.dockerignore
+# Local state
+.DS_Store
+.env
+.env.*
 !.env.example
-!.env.dev.example
-!.env.prod.example
+!.env.*.example
+.version.json
+.claude/
+.vscode/
+data/
+logs/
+backups/
+__pycache__/
+legacy/
+
+# Dependencies and build output
+node_modules/
+.pnpm-store/
+.output/
+.tanstack/
+.tmp/
+dist/
+coverage/
 
 # Python
-__pycache__/
 *.py[cod]
 *$py.class
 
-# Supervisor
-supervisord.log
-supervisord.pid
-
-# Data (uploads and Traefik)
-/data/
-/logs/
-/backups/
-
-# Node
-node_modules/
-package-lock.json
-
-# Terraform
-terraform.tfstate
-terraform.tfstate.backup
+# Go
+bin/
+agent/devpush-agent
+*.test
