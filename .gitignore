@@ -8,7 +8,7 @@
 .claude/
 .vscode/
 data/
-logs/
+/logs/
 backups/
 !app/src/server/backups/
 !app/src/server/backups/**
