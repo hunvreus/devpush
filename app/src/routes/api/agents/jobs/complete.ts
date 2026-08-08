@@ -6,6 +6,7 @@ import {
   completeBackupJob,
   completeCleanupJob,
   completeDeploymentJob,
+  completeRestoreJob,
 } from '@/server/agents/jobs'
 
 const eventSchema = z.object({
@@ -49,8 +50,12 @@ const completeCleanupJobSchema = z.object({
 
 const backupArtifactSchema = z.object({
   type: z.enum(['manifest', 'volume', 'database']),
+  storage: z.enum(['local', 'remote']).optional(),
   objectKey: z.string().trim().min(1).max(1_024),
-  checksumSha256: z.string().trim().regex(/^[a-f0-9]{64}$/),
+  checksumSha256: z
+    .string()
+    .trim()
+    .regex(/^[a-f0-9]{64}$/),
   sizeBytes: z.number().int().min(0),
 })
 
@@ -76,11 +81,21 @@ const completeBackupCleanupJobSchema = z.object({
   message: z.string().optional().nullable(),
 })
 
+const completeRestoreJobSchema = z.object({
+  serverId: z.string().min(1),
+  token: z.string().min(1),
+  type: z.literal('restore'),
+  jobId: z.string().min(1),
+  status: z.enum(['succeeded', 'failed', 'canceled']),
+  message: z.string().optional().nullable(),
+})
+
 const completeJobSchema = z.union([
   completeDeploymentJobSchema,
   completeCleanupJobSchema,
   completeBackupJobSchema,
   completeBackupCleanupJobSchema,
+  completeRestoreJobSchema,
 ])
 
 export const Route = createFileRoute('/api/agents/jobs/complete')({
@@ -114,6 +129,20 @@ export const Route = createFileRoute('/api/agents/jobs/complete')({
               completion: {
                 jobId: payload.jobId,
                 backupRunIds: payload.backupRunIds,
+                status: payload.status,
+                message: payload.message,
+              },
+            })
+
+            return Response.json(result)
+          }
+
+          if (payload.type === 'restore') {
+            const result = await completeRestoreJob({
+              serverId: payload.serverId,
+              token: payload.token,
+              completion: {
+                jobId: payload.jobId,
                 status: payload.status,
                 message: payload.message,
               },

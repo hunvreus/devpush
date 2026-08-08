@@ -3,7 +3,9 @@ import { sql } from 'drizzle-orm'
 import { db } from '@/server/db'
 import { allowlist, user } from '@/server/db/schema'
 
-export async function assertEmailCanAuthenticate(email: string | null | undefined) {
+export async function assertEmailCanAuthenticate(
+  email: string | null | undefined,
+) {
   const normalizedEmail = normalizeEmail(email)
 
   if (!normalizedEmail) {

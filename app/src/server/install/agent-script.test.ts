@@ -110,6 +110,7 @@ exit 0
       env: {
         ...process.env,
         DEVPUSH_AGENT_TOKEN: 'dps_test_token',
+        DEVPUSH_AGENT_AUTO_UPDATE: 'true',
         DEVPUSH_INSTALL_ROOT: root,
         DEVPUSH_SERVER_URL: 'https://devpush.example',
         DEVPUSH_TRAEFIK_EMAIL: 'ops@devpush.example',
@@ -118,15 +119,15 @@ exit 0
       stdio: 'pipe',
     })
 
-    expect(
-      readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8'),
-    ).toContain('DEVPUSH_AGENT_TOKEN="dps_test_token"')
-    expect(
-      readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8'),
-    ).toContain(`DEVPUSH_STATE_DIR="${root}/var/lib/devpush-agent"`)
-    expect(
-      readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8'),
-    ).toContain('DEVPUSH_TRAEFIK_EMAIL="ops@devpush.example"')
+    expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
+      'DEVPUSH_AGENT_TOKEN="dps_test_token"',
+    )
+    expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
+      `DEVPUSH_STATE_DIR="${root}/var/lib/devpush-agent"`,
+    )
+    expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
+      'DEVPUSH_TRAEFIK_EMAIL="ops@devpush.example"',
+    )
     expect(
       readFileSync(
         join(root, 'etc/systemd/system/devpush-agent.service'),
@@ -139,13 +140,24 @@ exit 0
         'utf8',
       ),
     ).toContain(`EnvironmentFile=${root}/etc/devpush/agent.env`)
-    expect(readFileSync(join(root, 'usr/local/bin/devpush-agent'), 'utf8'))
-      .toContain('devpush-agent')
-    expect(readFileSync(systemctlLog, 'utf8')).toContain(
-      'enable devpush-agent',
-    )
+    expect(
+      readFileSync(join(root, 'usr/local/bin/devpush-agent'), 'utf8'),
+    ).toContain('devpush-agent')
+    expect(readFileSync(systemctlLog, 'utf8')).toContain('enable devpush-agent')
     expect(readFileSync(systemctlLog, 'utf8')).toContain(
       'restart devpush-agent',
+    )
+    expect(
+      readFileSync(join(root, 'usr/local/lib/devpush/update-agent'), 'utf8'),
+    ).toContain('/checksum?os=')
+    expect(
+      readFileSync(
+        join(root, 'etc/systemd/system/devpush-agent-update.timer'),
+        'utf8',
+      ),
+    ).toContain('OnCalendar=daily')
+    expect(readFileSync(systemctlLog, 'utf8')).toContain(
+      'enable --now devpush-agent-update.timer',
     )
   })
 

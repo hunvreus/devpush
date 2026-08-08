@@ -1,7 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
-import { ProjectLayout } from '@/features/projects/project-layout'
 import { ProjectLogs } from '@/features/projects/project-logs'
 import { getProjectLogs } from '@/server/projects/functions'
 
@@ -39,9 +38,5 @@ export const Route = createFileRoute('/$teamSlug/projects/$projectName/logs')({
 function LogsRoute() {
   const context = Route.useLoaderData()
 
-  return (
-    <ProjectLayout context={context} contentClassName="space-y-8">
-      <ProjectLogs context={context} />
-    </ProjectLayout>
-  )
+  return <ProjectLogs context={context} />
 }

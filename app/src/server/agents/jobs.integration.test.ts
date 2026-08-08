@@ -10,7 +10,7 @@ import {
   backupRuns,
   deployments,
   environments,
-  hostnames,
+  aliases,
   projects,
   servers,
   teamMembers,
@@ -21,6 +21,7 @@ import {
   completeBackupCleanupJob,
   completeBackupJob,
   completeDeploymentJob,
+  completeRestoreJob,
 } from './jobs'
 
 const touchedArtifactIds: Array<string> = []
@@ -58,7 +59,8 @@ describe('agent deployment jobs', () => {
         events: [
           {
             phase: 'completed',
-            message: 'Deployment canceled because a newer deployment was queued.',
+            message:
+              'Deployment canceled because a newer deployment was queued.',
           },
         ],
       },
@@ -76,7 +78,8 @@ describe('agent deployment jobs', () => {
     expect(rows.at(0)).toEqual({
       status: 'canceled',
       phase: 'canceled',
-      errorMessage: 'Deployment canceled because a newer deployment was queued.',
+      errorMessage:
+        'Deployment canceled because a newer deployment was queued.',
     })
   })
 
@@ -103,10 +106,10 @@ describe('agent deployment jobs', () => {
 
     const rows = await db
       .select({
-        deploymentId: hostnames.deploymentId,
+        deploymentId: aliases.deploymentId,
       })
-      .from(hostnames)
-      .where(eq(hostnames.id, hostnameId))
+      .from(aliases)
+      .where(eq(aliases.id, hostnameId))
 
     expect(rows).toEqual([{ deploymentId }])
   })
@@ -128,6 +131,7 @@ describe('agent deployment jobs', () => {
         artifacts: [
           {
             type: 'manifest',
+            storage: 'remote',
             objectKey: 'manifest.json',
             checksumSha256:
               'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -218,6 +222,29 @@ describe('agent deployment jobs', () => {
     expect(runRows.at(0)?.cleanupErrorMessage).toBeNull()
     expect(jobRows).toEqual([{ status: 'succeeded', errorMessage: null }])
   })
+
+  test('records completed restore jobs', async () => {
+    const { jobId, serverId, token } = await createRestoreFixture()
+
+    await completeRestoreJob({
+      serverId,
+      token,
+      completion: {
+        jobId,
+        status: 'succeeded',
+      },
+    })
+
+    const jobRows = await db
+      .select({
+        status: agentJobs.status,
+        errorMessage: agentJobs.errorMessage,
+      })
+      .from(agentJobs)
+      .where(eq(agentJobs.id, jobId))
+
+    expect(jobRows).toEqual([{ status: 'succeeded', errorMessage: null }])
+  })
 })
 
 async function createBackupFixture() {
@@ -251,10 +278,25 @@ async function createBackupFixture() {
       destination: {
         bucket: 'devpush-backups',
       },
+      artifactPrefix:
+        'projects/project/environments/environment/backups/runs/run',
+      localBasePath: '/var/lib/devpush/backups/project/environment/run',
       retention: {
-        daily: 7,
-        weekly: 4,
-        monthly: 3,
+        local: {
+          count: 7,
+          days: 0,
+          maxStorageGb: 0,
+        },
+        remote: {
+          enabled: true,
+          count: 7,
+          days: 0,
+          maxStorageGb: 0,
+        },
+      },
+      volumes: {
+        mode: 'none',
+        names: [],
       },
       databaseDumps: [],
     },
@@ -300,7 +342,8 @@ async function createBackupCleanupFixture() {
       destination: {
         bucket: 'devpush-backups',
       },
-      objectKeys: ['expired/manifest.json'],
+      localObjectKeys: [],
+      remoteObjectKeys: ['expired/manifest.json'],
       reason: 'retention',
     },
     claimedAt: now,
@@ -308,6 +351,46 @@ async function createBackupCleanupFixture() {
 
   return {
     backupRunId,
+    jobId,
+    serverId: fixture.serverId,
+    token: fixture.token,
+  }
+}
+
+async function createRestoreFixture() {
+  const fixture = await createFixture()
+  const jobId = `restore-job-${crypto.randomUUID()}`
+  const now = new Date()
+  touchedAgentJobIds.push(jobId)
+
+  await db.insert(agentJobs).values({
+    id: jobId,
+    type: 'restore',
+    status: 'running',
+    serverId: fixture.serverId,
+    projectId: fixture.projectId,
+    payload: {
+      schemaVersion: 1,
+      backupRunId: `backup-run-${crypto.randomUUID()}`,
+      projectId: fixture.projectId,
+      environmentId: fixture.environmentId,
+      runtimeId: 'dp_backup_runtime',
+      artifacts: [
+        {
+          id: `artifact-${crypto.randomUUID()}`,
+          type: 'volume',
+          storage: 'local',
+          objectKey: '/var/lib/devpush/backups/run/volumes/data.tar.gz',
+          checksumSha256:
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+          targetVolume: 'data',
+        },
+      ],
+    },
+    claimedAt: now,
+  })
+
+  return {
     jobId,
     serverId: fixture.serverId,
     token: fixture.token,
@@ -384,53 +467,27 @@ async function createFixture() {
     status: 'running',
     phase: 'revision_started',
     trigger: 'user',
+    repoId: 1,
     repoFullName: 'acme/app',
     gitSha: 'abc1234',
     gitBranch: 'main',
-    configSnapshot: {
-      version: 1,
-      repo: {
-        id: 123,
-        fullName: 'acme/app',
-        installationId: 456,
-      },
-      project: {
-        id: projectId,
-        slug: `project-${suffix}`,
-        name: 'Agent Jobs Project',
-      },
-      environment: {
-        id: environmentId,
-        name: 'Production',
-        slug: 'production',
-        branch: 'main',
-        color: 'blue',
-        defaultHost: null,
-      },
-      server: {
-        id: serverId,
-        name: `server-${suffix}`,
-        status: 'connected',
-      },
-      compose: {
-        path: 'compose.yml',
-        projectName: `dp_${suffix.slice(0, 12)}`,
-        releaseCommand: null,
-        releaseService: 'web',
-        readinessPath: null,
-        routes: [],
-      },
+    config: {
+      version: 2,
+      composePath: 'compose.yml',
+      releaseCommand: null,
+      releaseService: 'web',
+      readinessPath: null,
+      routes: [],
     },
-    envVarsSnapshot: '[]',
+    envVars: '[]',
     runtimeId: `dp_${suffix.slice(0, 12)}`,
   })
-  await db.insert(hostnames).values({
+  await db.insert(aliases).values({
     id: hostnameId,
     hostname: `project-${suffix}.devpush.local`,
     projectId,
     environmentId,
-    status: 'active',
-    type: 'environment_alias',
+    type: 'environment',
   })
 
   return {
@@ -471,7 +528,7 @@ async function cleanupRows() {
   }
 
   if (touchedHostnameIds.length > 0) {
-    await db.delete(hostnames).where(inArray(hostnames.id, touchedHostnameIds))
+    await db.delete(aliases).where(inArray(aliases.id, touchedHostnameIds))
     touchedHostnameIds.length = 0
   }
 
@@ -493,7 +550,9 @@ async function cleanupRows() {
   }
 
   if (touchedTeamIds.length > 0) {
-    await db.delete(teamMembers).where(inArray(teamMembers.teamId, touchedTeamIds))
+    await db
+      .delete(teamMembers)
+      .where(inArray(teamMembers.teamId, touchedTeamIds))
     await db.delete(teams).where(inArray(teams.id, touchedTeamIds))
     touchedTeamIds.length = 0
   }

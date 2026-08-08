@@ -14,3 +14,4 @@
 ## Development
 
 - [Local setup](./development/local-setup.md)
+- [Production operations](./development/production-operations.md)

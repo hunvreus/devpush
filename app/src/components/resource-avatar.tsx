@@ -35,6 +35,7 @@ const iconSizeClasses = {
 export type ResourceColor = keyof typeof colorClasses
 
 type ResourceAvatarProps = {
+  'data-icon'?: 'inline-start' | 'inline-end'
   name: string
   src?: string
   color?: ResourceColor
@@ -43,6 +44,7 @@ type ResourceAvatarProps = {
 }
 
 export function ResourceAvatar({
+  'data-icon': dataIcon,
   name,
   src,
   color = 'zinc',
@@ -54,6 +56,7 @@ export function ResourceAvatar({
   if (src) {
     return (
       <img
+        data-icon={dataIcon}
         src={src}
         alt={name}
         className={cn('shrink-0 object-cover', sizeClasses[size], className)}
@@ -63,6 +66,7 @@ export function ResourceAvatar({
 
   return (
     <span
+      data-icon={dataIcon}
       className={cn(
         'flex shrink-0 items-center justify-center border bg-gradient-to-tl uppercase',
         sizeClasses[size],

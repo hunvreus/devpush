@@ -23,34 +23,46 @@ const optionalEmail = z.preprocess(
   (value) => (value === '' ? undefined : value),
   z.string().email().optional(),
 )
+const envBoolean = z.preprocess(
+  (value) => (typeof value === 'string' ? value.toLowerCase() : value),
+  z.enum(['true', 'false']).transform((value) => value === 'true'),
+)
 
-const envSchema = z.object({
-  DATABASE_URL: z
-    .string()
-    .min(1)
-    .default('postgres://devpush:devpush@localhost:7543/devpush'),
-  BETTER_AUTH_SECRET: z.string().min(1).default('dev-secret-change-me'),
-  BETTER_AUTH_URL: z.string().url().default('http://localhost:7429'),
-  EMAIL_FROM: optionalString,
-  RESEND_API_KEY: optionalString,
-  GOOGLE_CLIENT_ID: optionalString,
-  GOOGLE_CLIENT_SECRET: optionalString,
-  GITHUB_APP_CLIENT_ID: optionalString,
-  GITHUB_APP_CLIENT_SECRET: optionalString,
-  GITHUB_APP_ID: optionalString,
-  GITHUB_APP_NAME: optionalString,
-  GITHUB_APP_PRIVATE_KEY: optionalString,
-  GITHUB_APP_WEBHOOK_SECRET: optionalString,
-  DEVPUSH_SMOKE_GITHUB_TOKEN: optionalString,
-  DEVPUSH_AGENT_BINARY_DIR: optionalString,
-  DEVPUSH_VERSION_FILE: optionalString,
-  DEVPUSH_TRAEFIK_EMAIL: optionalEmail,
-  DEVPUSH_DEFAULT_APP_DOMAIN: z
-    .string()
-    .trim()
-    .min(1)
-    .regex(/^[^\s/]+$/, 'Use a domain name without protocol or path.')
-    .default('devpush.app'),
-})
+const envSchema = z
+  .object({
+    DATABASE_URL: z
+      .string()
+      .min(1)
+      .default('postgres://devpush:devpush@localhost:7543/devpush'),
+    BETTER_AUTH_SECRET: z.string().min(1).default('dev-secret-change-me'),
+    BETTER_AUTH_URL: z.string().url().default('http://localhost:7429'),
+    EMAIL_FROM: optionalString,
+    RESEND_API_KEY: optionalString,
+    GOOGLE_CLIENT_ID: optionalString,
+    GOOGLE_CLIENT_SECRET: optionalString,
+    GITHUB_APP_CLIENT_ID: optionalString,
+    GITHUB_APP_CLIENT_SECRET: optionalString,
+    GITHUB_APP_ID: optionalString,
+    GITHUB_APP_NAME: optionalString,
+    GITHUB_APP_PRIVATE_KEY: optionalString,
+    GITHUB_APP_WEBHOOK_SECRET: optionalString,
+    DEVPUSH_SMOKE_GITHUB_TOKEN: optionalString,
+    DEVPUSH_AGENT_BINARY_DIR: optionalString,
+    DEVPUSH_VERSION_FILE: optionalString,
+    DEVPUSH_CRON_SECRET: optionalString,
+    DEVPUSH_BACKUPS_ENABLED: envBoolean.default(false),
+    DEVPUSH_AGENT_AUTO_UPDATE: envBoolean.default(false),
+    DEVPUSH_SECRET_ENCRYPTION_KEY: optionalString,
+    DEVPUSH_TRAEFIK_EMAIL: optionalEmail,
+  })
+  .superRefine((value, context) => {
+    if (value.DEVPUSH_BACKUPS_ENABLED && !value.DEVPUSH_CRON_SECRET) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEVPUSH_CRON_SECRET'],
+        message: 'DEVPUSH_CRON_SECRET is required when backups are enabled.',
+      })
+    }
+  })
 
 export const config = envSchema.parse(process.env)

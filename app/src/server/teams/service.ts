@@ -6,9 +6,10 @@ import { config } from '@/server/config'
 import { db } from '@/server/db'
 import { enqueueTeamDeprovisionJobs } from '@/server/agents/cleanup'
 import {
+  aliases,
+  domains,
   deployments,
   environments,
-  hostnames,
   projects,
   servers,
   teamInvites,
@@ -348,8 +349,8 @@ export async function listTeamProjects(
       name: projects.name,
       githubRepo: projects.githubRepo,
       composePath: projects.composePath,
-      defaultHost: environments.defaultHost,
-      publicRoutes: environments.publicRoutes,
+      defaultHost: aliases.hostname,
+      defaultRouteHttps: aliases.https,
     })
     .from(projects)
     .leftJoin(
@@ -357,6 +358,13 @@ export async function listTeamProjects(
       and(
         eq(environments.projectId, projects.id),
         eq(environments.isProduction, true),
+      ),
+    )
+    .leftJoin(
+      aliases,
+      and(
+        eq(aliases.environmentId, environments.id),
+        eq(aliases.type, 'environment'),
       ),
     )
     .where(and(eq(projects.teamId, teamId), eq(projects.status, 'active')))
@@ -368,7 +376,7 @@ export async function listTeamProjects(
     githubRepo: project.githubRepo,
     composePath: project.composePath,
     defaultHost: project.defaultHost,
-    defaultRouteHttps: getDefaultRouteHttps(project.publicRoutes),
+    defaultRouteHttps: project.defaultRouteHttps ?? false,
     color: getResourceColor(project.id),
   }))
 }
@@ -403,8 +411,8 @@ export async function listTeamServers(
     }),
     lastSeenAt: server.lastSeenAt?.toISOString() ?? null,
     monitoring: monitoring.get(server.id) ?? {
-      heartbeatCount24h: 0,
-      uptime24h: null,
+      availabilityPercent: null,
+      availabilityWindowMs: 0,
       latestMetrics: null,
     },
   }))
@@ -1002,10 +1010,8 @@ export async function deleteTeam({
           )
       }
 
-      await tx
-        .update(hostnames)
-        .set({ status: 'disabled', updatedAt: now })
-        .where(inArray(hostnames.projectId, projectIds))
+      await tx.delete(aliases).where(inArray(aliases.projectId, projectIds))
+      await tx.delete(domains).where(inArray(domains.projectId, projectIds))
     }
 
     await tx
@@ -1195,25 +1201,6 @@ export async function acceptUserTeamInvite({
 
     return row.teamSlug
   })
-}
-
-function getDefaultRouteHttps(value: unknown) {
-  if (!Array.isArray(value)) {
-    return true
-  }
-
-  const firstRoute = value.at(0)
-
-  if (
-    typeof firstRoute === 'object' &&
-    firstRoute !== null &&
-    'https' in firstRoute &&
-    typeof firstRoute.https === 'boolean'
-  ) {
-    return firstRoute.https
-  }
-
-  return true
 }
 
 function slugify(value: string) {

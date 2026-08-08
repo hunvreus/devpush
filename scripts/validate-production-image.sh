@@ -9,7 +9,7 @@ This checks the production Compose file, builds the app image, and verifies that
 the runtime image contains:
 
 - the bundled Linux devpush-agent binary used by the server installer
-- drizzle-kit, required by the current MVP startup command
+- the explicit migration runner and SQL migrations
 - the built TanStack Start server entrypoint
 
 Optional environment:
@@ -62,7 +62,9 @@ docker run --rm "$image" sh -lc '
   /repo/bin/devpush-agent-linux-amd64 --help >/dev/null || true
   /repo/bin/devpush-agent-linux-arm64 --help >/dev/null || true
   test -f /repo/app/.output/server/index.mjs
-  pnpm --dir app exec drizzle-kit --version >/dev/null
+  test -f /repo/app/scripts/migrate.ts
+  test -f /repo/app/src/server/db/migrations/meta/_journal.json
+  pnpm --dir app exec tsx --version >/dev/null
 '
 
 cat <<EOF

@@ -4,11 +4,11 @@ import { afterAll, afterEach, describe, expect, test } from 'vitest'
 import { closeDb, db } from '@/server/db'
 import {
   agentJobs,
+  aliases,
   deployments,
+  domains,
   environments,
   githubInstallations,
-  hostnames,
-  projectServers,
   projects,
   servers,
   teamMembers,
@@ -20,20 +20,22 @@ import {
   createRedeployDeployment,
   createRollbackDeployment,
   deleteProject,
+  getProjectContext,
+  updateProjectEnvironmentServers,
   updateProjectSettings,
   updateProjectEnvironments,
 } from './service'
 import {
   decryptDeploymentEnvVars,
-  parseDeploymentConfigSnapshot,
-} from './deployment-snapshot'
+  parseDeploymentConfig,
+} from './deployment-config'
 
 const touchedJobIds: Array<string> = []
 const touchedInstallationIds: Array<number> = []
 const touchedHostnameIds: Array<string> = []
 const touchedDeploymentIds: Array<string> = []
+const touchedDomainIds: Array<string> = []
 const touchedEnvironmentIds: Array<string> = []
-const touchedProjectServerIds: Array<string> = []
 const touchedProjectIds: Array<string> = []
 const touchedServerIds: Array<string> = []
 const touchedTeamIds: Array<string> = []
@@ -48,6 +50,167 @@ afterAll(async () => {
 })
 
 describe('project settings integration', () => {
+  test('project default servers are inherited and environments can override them', async () => {
+    const {
+      environmentId,
+      ownerId,
+      projectId,
+      projectName,
+      serverId,
+      teamId,
+      teamSlug,
+    } = await createProjectFixture()
+    const overrideServerId = makeId('server')
+    touchedServerIds.push(overrideServerId)
+
+    await db.insert(servers).values({
+      id: overrideServerId,
+      name: 'Override server',
+      handle: makeSlug(overrideServerId),
+      status: 'connected',
+      teamId,
+      lastSeenAt: new Date(),
+    })
+    await db
+      .update(projects)
+      .set({ defaultServerId: serverId })
+      .where(eq(projects.id, projectId))
+    await db
+      .update(environments)
+      .set({ serverId: null })
+      .where(eq(environments.id, environmentId))
+
+    const inheritedContext = await getProjectContext({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+    })
+
+    expect(inheritedContext.project.defaultServerId).toBe(serverId)
+    expect(inheritedContext.environments[0]).toMatchObject({
+      serverId: null,
+      effectiveServerId: serverId,
+    })
+    expect(inheritedContext.environment.serverId).toBe(serverId)
+
+    const overriddenContext = await updateProjectEnvironmentServers({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+      defaultServerId: serverId,
+      environmentServers: [{ environmentId, serverId: overrideServerId }],
+    })
+
+    expect(overriddenContext.project.defaultServerId).toBe(serverId)
+    expect(overriddenContext.environments[0]).toMatchObject({
+      serverId: overrideServerId,
+      effectiveServerId: overrideServerId,
+    })
+    expect(overriddenContext.environment.serverId).toBe(overrideServerId)
+  })
+
+  test('project environments are returned in persisted priority order', async () => {
+    const {
+      environmentId,
+      ownerId,
+      projectId,
+      serverId,
+      teamSlug,
+      projectName,
+    } = await createProjectFixture()
+    const developmentId = makeId('environment')
+    const stagingId = makeId('environment')
+    touchedEnvironmentIds.push(developmentId, stagingId)
+
+    await db
+      .update(environments)
+      .set({ position: 0 })
+      .where(eq(environments.id, environmentId))
+    await db.insert(environments).values([
+      {
+        id: stagingId,
+        projectId,
+        serverId,
+        name: 'Staging',
+        slug: 'staging',
+        branch: 'stg-*',
+        position: 2,
+        runtimeId: makeId('runtime'),
+      },
+      {
+        id: developmentId,
+        projectId,
+        serverId,
+        name: 'Development',
+        slug: 'development',
+        branch: 'dev-*',
+        position: 1,
+        runtimeId: makeId('runtime'),
+      },
+    ])
+
+    const context = await getProjectContext({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+    })
+
+    expect(context.environments.map((environment) => environment.id)).toEqual([
+      environmentId,
+      developmentId,
+      stagingId,
+    ])
+  })
+
+  test('generated aliases disambiguate custom domain collisions', async () => {
+    const {
+      environmentId,
+      ownerId,
+      projectId,
+      projectName,
+      serverId,
+      teamSlug,
+    } = await createProjectFixture()
+    const domainId = makeId('domain')
+    const requestedHostname = `${projectName}-127-0-0-1.nip.io`
+    touchedDomainIds.push(domainId)
+
+    await db.insert(domains).values({
+      id: domainId,
+      environmentId,
+      hostname: requestedHostname,
+      projectId,
+    })
+
+    await updateProjectEnvironments({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+      projectEnvironments: [
+        {
+          id: environmentId,
+          name: 'Production',
+          slug: 'production',
+          branch: 'main',
+          color: 'blue',
+          position: 0,
+          status: 'active',
+          effectiveServerId: serverId,
+          serverId,
+        },
+      ],
+    })
+
+    const aliasRows = await db
+      .select({ hostname: aliases.hostname })
+      .from(aliases)
+      .where(eq(aliases.environmentId, environmentId))
+
+    expect(aliasRows).toHaveLength(1)
+    expect(aliasRows[0]?.hostname).not.toBe(requestedHostname)
+    expect(aliasRows[0]?.hostname).toMatch(/-127-0-0-1\.nip\.io$/)
+  })
+
   test('project machine names must be unique within a team', async () => {
     const { ownerId, projectName, teamId, teamSlug } =
       await createProjectFixture()
@@ -73,6 +236,7 @@ describe('project settings integration', () => {
         installationId: null,
         composePath: 'compose.current.yml',
         releaseCommand: 'current-release',
+        releaseService: null,
         readinessPath: '/current-health',
       }),
     ).rejects.toThrow('Project names must be unique within a team.')
@@ -131,9 +295,9 @@ describe('project settings integration', () => {
         ]),
       )
     const hostnameRows = await db
-      .select({ status: hostnames.status })
-      .from(hostnames)
-      .where(eq(hostnames.projectId, projectId))
+      .select({ id: aliases.id })
+      .from(aliases)
+      .where(eq(aliases.projectId, projectId))
     const jobRows = await db
       .select({
         id: agentJobs.id,
@@ -173,7 +337,7 @@ describe('project settings integration', () => {
       phase: 'complete',
       errorMessage: null,
     })
-    expect(hostnameRows).toEqual([{ status: 'disabled' }])
+    expect(hostnameRows).toEqual([])
     expect(jobRows).toHaveLength(2)
     const deprovisionJob = jobRows.find((job) => job.type === 'deprovision')
     const purgeJob = jobRows.find((job) => job.type === 'purge')
@@ -271,8 +435,8 @@ describe('project settings integration', () => {
     expect(jobRows).toEqual([])
   })
 
-  test('rollback reuses the source deployment snapshot and env vars', async () => {
-    const { ownerId, projectId, projectName, succeededDeploymentId, teamSlug } =
+  test('rollback reuses the source deployment config and env vars', async () => {
+    const { ownerId, projectName, succeededDeploymentId, teamSlug } =
       await createProjectFixture()
 
     const rollback = await createRollbackDeployment({
@@ -293,13 +457,11 @@ describe('project settings integration', () => {
       throw new Error('Rollback deployment was not created.')
     }
 
-    const snapshot = parseDeploymentConfigSnapshot(
-      rollbackDeployment.configSnapshot,
-    )
+    const deploymentConfig = parseDeploymentConfig(rollbackDeployment.config)
     const hostnameRows = await db
-      .select({ id: hostnames.id, hostname: hostnames.hostname })
-      .from(hostnames)
-      .where(eq(hostnames.deploymentId, rollback.deploymentId))
+      .select({ id: aliases.id, hostname: aliases.hostname })
+      .from(aliases)
+      .where(eq(aliases.deploymentId, rollback.deploymentId))
     touchedHostnameIds.push(...hostnameRows.map((hostname) => hostname.id))
 
     expect(rollbackDeployment).toMatchObject({
@@ -308,37 +470,34 @@ describe('project settings integration', () => {
       repoFullName: 'example/old-project',
       gitSha: succeededDeploymentId,
       gitBranch: 'release/old',
-      envVarsSnapshot: 'encrypted-old-env-vars',
+      envVars: 'encrypted-old-env-vars',
       runtimeId: 'runtime-succeeded',
     })
-    expect(snapshot).toMatchObject({
-      repo: {
-        fullName: 'example/old-project',
-      },
-      project: {
-        id: projectId,
-      },
-      compose: {
-        path: 'compose.old.yml',
-        projectName: 'runtime-succeeded',
-        releaseCommand: 'old-release',
-        releaseService: 'old-worker',
-        readinessPath: '/old-health',
-        routes: [
-          {
-            host: 'old.example.devpush.app',
-            path: '/',
-            service: 'old-web',
-            port: 8080,
-          },
-        ],
-      },
+    expect(deploymentConfig).toMatchObject({
+      composePath: 'compose.old.yml',
+      releaseCommand: 'old-release',
+      releaseService: 'old-worker',
+      readinessPath: '/old-health',
     })
-    expect(hostnameRows.at(0)?.hostname).toContain('old-project')
+    expect(deploymentConfig?.routes).toEqual(
+      expect.arrayContaining([
+        {
+          host: 'old.example.devpush.app',
+          https: true,
+          path: '/',
+          service: 'old-web',
+          port: 8080,
+          stripPrefix: false,
+        },
+      ]),
+    )
+    expect(hostnameRows.at(0)?.hostname).toMatch(
+      new RegExp(`^${rollback.deploymentId.slice(0, 7)}-`),
+    )
   })
 
-  test('redeploy reuses the source deployment snapshot and env vars', async () => {
-    const { ownerId, projectId, projectName, succeededDeploymentId, teamSlug } =
+  test('redeploy reuses the source deployment config and env vars', async () => {
+    const { ownerId, projectName, succeededDeploymentId, teamSlug } =
       await createProjectFixture()
 
     const redeploy = await createRedeployDeployment({
@@ -359,13 +518,11 @@ describe('project settings integration', () => {
       throw new Error('Redeployment was not created.')
     }
 
-    const snapshot = parseDeploymentConfigSnapshot(
-      redeployDeployment.configSnapshot,
-    )
+    const deploymentConfig = parseDeploymentConfig(redeployDeployment.config)
     const hostnameRows = await db
-      .select({ id: hostnames.id, hostname: hostnames.hostname })
-      .from(hostnames)
-      .where(eq(hostnames.deploymentId, redeploy.deploymentId))
+      .select({ id: aliases.id, hostname: aliases.hostname })
+      .from(aliases)
+      .where(eq(aliases.deploymentId, redeploy.deploymentId))
     touchedHostnameIds.push(...hostnameRows.map((hostname) => hostname.id))
 
     expect(redeployDeployment).toMatchObject({
@@ -374,38 +531,34 @@ describe('project settings integration', () => {
       repoFullName: 'example/old-project',
       gitSha: succeededDeploymentId,
       gitBranch: 'release/old',
-      envVarsSnapshot: 'encrypted-old-env-vars',
+      envVars: 'encrypted-old-env-vars',
       runtimeId: 'runtime-succeeded',
     })
-    expect(snapshot).toMatchObject({
-      repo: {
-        fullName: 'example/old-project',
-      },
-      project: {
-        id: projectId,
-      },
-      compose: {
-        path: 'compose.old.yml',
-        projectName: 'runtime-succeeded',
-        releaseCommand: 'old-release',
-        releaseService: 'old-worker',
-        readinessPath: '/old-health',
-        routes: [
-          {
-            host: 'old.example.devpush.app',
-            path: '/',
-            service: 'old-web',
-            port: 8080,
-          },
-        ],
-      },
+    expect(deploymentConfig).toMatchObject({
+      composePath: 'compose.old.yml',
+      releaseCommand: 'old-release',
+      releaseService: 'old-worker',
+      readinessPath: '/old-health',
     })
-    expect(hostnameRows.at(0)?.hostname).toContain('old-project')
+    expect(deploymentConfig?.routes).toEqual(
+      expect.arrayContaining([
+        {
+          host: 'old.example.devpush.app',
+          https: true,
+          path: '/',
+          service: 'old-web',
+          port: 8080,
+          stripPrefix: false,
+        },
+      ]),
+    )
+    expect(hostnameRows.at(0)?.hostname).toMatch(
+      new RegExp(`^${redeploy.deploymentId.slice(0, 7)}-`),
+    )
   })
 
   test('push deployments snapshot saved project routes instead of stale environment routes', async () => {
-    const { environmentId, projectId, projectName, serverId } =
-      await createProjectFixture()
+    const { projectId, projectName, serverId } = await createProjectFixture()
     const installationId = 123_456_789
     const repoId = 987_654_321
 
@@ -428,22 +581,6 @@ describe('project settings integration', () => {
         ],
       })
       .where(eq(projects.id, projectId))
-    await db
-      .update(environments)
-      .set({
-        publicRoutes: [
-          {
-            host: 'stale.example.devpush.app',
-            service: 'stale',
-            port: 9999,
-            path: '/stale',
-            https: true,
-            stripPrefix: false,
-          },
-        ],
-      })
-      .where(eq(environments.id, environmentId))
-
     const result = await createDeploymentsForGitHubPush({
       installationId,
       repositoryId: repoId,
@@ -464,33 +601,34 @@ describe('project settings integration', () => {
       .select({ deployment: deployments })
       .from(deployments)
       .where(eq(deployments.id, deploymentId))
-    const snapshot = parseDeploymentConfigSnapshot(
-      rows.at(0)?.deployment.configSnapshot,
-    )
+    const snapshot = parseDeploymentConfig(rows.at(0)?.deployment.config)
 
     expect(rows.at(0)?.deployment).toMatchObject({
       serverId,
       runtimeId: 'runtime-production',
       trigger: 'webhook',
     })
-    expect(snapshot?.compose.routes).toEqual([
-      {
-        host: `${projectName}.example.devpush.app`,
-        https: true,
-        path: '/',
-        port: 3000,
-        service: 'web',
-        stripPrefix: false,
-      },
-      {
-        host: `${projectName}.example.devpush.app`,
-        https: true,
-        path: '/api',
-        port: 8080,
-        service: 'api',
-        stripPrefix: true,
-      },
-    ])
+    expect(snapshot?.routes).toEqual(
+      expect.arrayContaining([
+        {
+          host: `${projectName}.example.devpush.app`,
+          https: true,
+          path: '/',
+          port: 3000,
+          service: 'web',
+          stripPrefix: false,
+        },
+        {
+          host: `${projectName}.example.devpush.app`,
+          https: true,
+          path: '/api',
+          port: 8080,
+          service: 'api',
+          stripPrefix: true,
+        },
+      ]),
+    )
+    expect(snapshot?.routes).toHaveLength(6)
   })
 
   test('push deployments snapshot env vars using environment ids', async () => {
@@ -554,12 +692,10 @@ describe('project settings integration', () => {
       runtimeId: 'runtime-production',
       trigger: 'webhook',
     })
-    expect(decryptDeploymentEnvVars(deployment?.envVarsSnapshot ?? '')).toEqual(
-      [
-        { key: 'SHARED', value: 'all-envs' },
-        { key: 'DATABASE_URL', value: 'environment-id-value' },
-      ],
-    )
+    expect(decryptDeploymentEnvVars(deployment?.envVars ?? '')).toEqual([
+      { key: 'SHARED', value: 'all-envs' },
+      { key: 'DATABASE_URL', value: 'environment-id-value' },
+    ])
   })
 
   test('saving a non-production environment creates a runtime row and generated alias', async () => {
@@ -572,20 +708,12 @@ describe('project settings integration', () => {
       teamSlug,
     } = await createProjectFixture()
     const stagingEnvironmentId = makeId('environment')
-    const allServerAssignmentId = makeId('project-server')
     const installationId = 223_456_789
     const repoId = 887_654_321
 
     touchedEnvironmentIds.push(stagingEnvironmentId)
-    touchedProjectServerIds.push(allServerAssignmentId)
     touchedInstallationIds.push(installationId)
 
-    await db.insert(projectServers).values({
-      id: allServerAssignmentId,
-      environmentId: null,
-      projectId,
-      serverId,
-    })
     await db.insert(githubInstallations).values({
       installationId,
       accountLogin: 'example',
@@ -615,15 +743,21 @@ describe('project settings integration', () => {
           slug: 'production',
           branch: 'main',
           color: 'blue',
+          position: 0,
           status: 'active',
+          effectiveServerId: serverId,
+          serverId,
         },
         {
           id: stagingEnvironmentId,
           name: 'Staging',
           slug: 'staging',
-          branch: 'develop',
+          branch: 'stg-*',
           color: 'violet',
+          position: 1,
           status: 'active',
+          effectiveServerId: serverId,
+          serverId,
         },
       ],
     })
@@ -635,16 +769,16 @@ describe('project settings integration', () => {
         .where(eq(environments.id, stagingEnvironmentId)),
       db
         .select()
-        .from(hostnames)
-        .where(eq(hostnames.environmentId, stagingEnvironmentId)),
+        .from(aliases)
+        .where(eq(aliases.environmentId, stagingEnvironmentId)),
     ])
     const staging = stagingRows.at(0)
     const stagingAlias = stagingHostnames.find(
-      (hostname) => hostname.type === 'environment_alias',
+      (hostname) => hostname.type === 'environment',
     )
 
     expect(staging).toMatchObject({
-      branch: 'develop',
+      branch: 'stg-*',
       name: 'Staging',
       projectId,
       serverId,
@@ -653,13 +787,12 @@ describe('project settings integration', () => {
     expect(staging?.runtimeId).toMatch(/^dp_/)
     expect(stagingAlias).toMatchObject({
       projectId,
-      status: 'active',
     })
-    expect(stagingAlias?.hostname).toContain(`${projectName}-env-staging`)
-    expect(staging?.publicRoutes).toEqual([
+    expect(stagingAlias?.hostname).toMatch(/-env-staging-127-0-0-1\.nip\.io$/)
+    const expectedRoutes = [
       {
         host: stagingAlias?.hostname,
-        https: true,
+        https: false,
         path: '/',
         port: 3000,
         service: 'web',
@@ -667,19 +800,19 @@ describe('project settings integration', () => {
       },
       {
         host: stagingAlias?.hostname,
-        https: true,
+        https: false,
         path: '/api',
         port: 8080,
         service: 'api',
         stripPrefix: true,
       },
-    ])
+    ]
 
     const result = await createDeploymentsForGitHubPush({
       installationId,
       repositoryId: repoId,
       repositoryFullName: 'example/project',
-      branch: 'develop',
+      branch: 'stg-preview',
       gitSha: 'feedface123456',
       message: 'Deploy staging',
     })
@@ -695,8 +828,8 @@ describe('project settings integration', () => {
       .select({ deployment: deployments })
       .from(deployments)
       .where(eq(deployments.id, deploymentId))
-    const snapshot = parseDeploymentConfigSnapshot(
-      deploymentRows.at(0)?.deployment.configSnapshot,
+    const snapshot = parseDeploymentConfig(
+      deploymentRows.at(0)?.deployment.config,
     )
 
     expect(deploymentRows.at(0)?.deployment).toMatchObject({
@@ -704,12 +837,8 @@ describe('project settings integration', () => {
       serverId,
       trigger: 'webhook',
     })
-    expect(snapshot?.environment).toMatchObject({
-      id: stagingEnvironmentId,
-      name: 'Staging',
-      slug: 'staging',
-    })
-    expect(snapshot?.compose.routes).toEqual(staging?.publicRoutes)
+    expect(snapshot?.routes).toEqual(expect.arrayContaining(expectedRoutes))
+    expect(snapshot?.routes).toHaveLength(6)
   })
 })
 
@@ -723,7 +852,6 @@ async function createProjectFixture() {
   const projectId = makeId('project')
   const projectName = makeSlug(projectId)
   const environmentId = makeId('environment')
-  const projectServerId = makeId('project-server')
   const hostnameId = makeId('hostname')
   const queuedDeploymentId = makeId('deployment')
   const runningDeploymentId = makeId('deployment')
@@ -735,7 +863,6 @@ async function createProjectFixture() {
   touchedServerIds.push(serverId)
   touchedProjectIds.push(projectId)
   touchedEnvironmentIds.push(environmentId)
-  touchedProjectServerIds.push(projectServerId)
   touchedHostnameIds.push(hostnameId)
   touchedDeploymentIds.push(
     queuedDeploymentId,
@@ -792,29 +919,12 @@ async function createProjectFixture() {
   await db.insert(environments).values({
     id: environmentId,
     branch: 'main',
-    defaultHost: 'project.example.devpush.app',
     isProduction: true,
     name: 'Production',
     projectId,
-    publicRoutes: [
-      {
-        host: 'project.example.devpush.app',
-        service: 'web',
-        port: 3000,
-        path: '/',
-        https: true,
-        stripPrefix: false,
-      },
-    ],
     runtimeId: 'runtime-production',
     serverId,
     slug: 'production',
-  })
-  await db.insert(projectServers).values({
-    id: projectServerId,
-    environmentId,
-    projectId,
-    serverId,
   })
   await db.insert(deployments).values([
     makeDeployment({
@@ -835,65 +945,40 @@ async function createProjectFixture() {
     makeDeployment({
       id: succeededDeploymentId,
       environmentId,
-      envVarsSnapshot: 'encrypted-old-env-vars',
+      repoFullName: 'example/old-project',
+      repoId: 123,
+      envVars: 'encrypted-old-env-vars',
       gitBranch: 'release/old',
       runtimeId: 'runtime-succeeded',
       serverId,
       snapshot: {
-        version: 1,
-        repo: {
-          id: 123,
-          fullName: 'example/old-project',
-          installationId: null,
-        },
-        project: {
-          id: projectId,
-          slug: 'old-project',
-          name: 'old-project',
-        },
-        environment: {
-          id: environmentId,
-          name: 'Old Production',
-          slug: 'production',
-          branch: 'release/old',
-          color: 'rose',
-          defaultHost: 'old.example.devpush.app',
-        },
-        server: {
-          id: serverId,
-          name: 'Old server',
-          status: 'connected',
-        },
-        compose: {
-          path: 'compose.old.yml',
-          projectName: 'runtime-succeeded',
-          releaseCommand: 'old-release',
-          releaseService: 'old-worker',
-          readinessPath: '/old-health',
-          routes: [
-            {
-              host: 'old.example.devpush.app',
-              service: 'old-web',
-              port: 8080,
-              path: '/',
-              https: true,
-              stripPrefix: false,
-            },
-          ],
-        },
+        version: 2,
+        composePath: 'compose.old.yml',
+        releaseCommand: 'old-release',
+        releaseService: 'old-worker',
+        readinessPath: '/old-health',
+        routes: [
+          {
+            host: 'old.example.devpush.app',
+            service: 'old-web',
+            port: 8080,
+            path: '/',
+            https: true,
+            stripPrefix: false,
+          },
+        ],
       },
       status: 'succeeded',
       phase: 'complete',
       finishedAt: now,
     }),
   ])
-  await db.insert(hostnames).values({
+  await db.insert(aliases).values({
     id: hostnameId,
     environmentId,
     hostname: `${projectName}.example.devpush.app`,
     projectId,
-    status: 'active',
-    type: 'environment_alias',
+    type: 'environment',
   })
 
   return {
@@ -918,19 +1003,17 @@ async function cleanupRows() {
   }
 
   if (touchedHostnameIds.length > 0) {
-    await db.delete(hostnames).where(inArray(hostnames.id, touchedHostnameIds))
+    await db.delete(aliases).where(inArray(aliases.id, touchedHostnameIds))
+  }
+
+  if (touchedDomainIds.length > 0) {
+    await db.delete(domains).where(inArray(domains.id, touchedDomainIds))
   }
 
   if (touchedDeploymentIds.length > 0) {
     await db
       .delete(deployments)
       .where(inArray(deployments.id, touchedDeploymentIds))
-  }
-
-  if (touchedProjectServerIds.length > 0) {
-    await db
-      .delete(projectServers)
-      .where(inArray(projectServers.id, touchedProjectServerIds))
   }
 
   if (touchedEnvironmentIds.length > 0) {
@@ -970,8 +1053,8 @@ async function cleanupRows() {
   touchedInstallationIds.length = 0
   touchedHostnameIds.length = 0
   touchedDeploymentIds.length = 0
+  touchedDomainIds.length = 0
   touchedEnvironmentIds.length = 0
-  touchedProjectServerIds.length = 0
   touchedProjectIds.length = 0
   touchedServerIds.length = 0
   touchedTeamIds.length = 0
@@ -979,23 +1062,27 @@ async function cleanupRows() {
 }
 
 function makeDeployment({
-  envVarsSnapshot = '[]',
+  envVars = '[]',
   environmentId,
   finishedAt,
   gitBranch = 'main',
   id,
   phase,
+  repoFullName = 'example/project',
+  repoId = 1,
   runtimeId,
   serverId,
   snapshot = {},
   status,
 }: {
-  envVarsSnapshot?: string
+  envVars?: string
   environmentId: string
   finishedAt?: Date
   gitBranch?: string
   id: string
   phase?: string
+  repoFullName?: string
+  repoId?: number
   runtimeId: string
   serverId: string
   snapshot?: unknown
@@ -1004,14 +1091,15 @@ function makeDeployment({
   return {
     id,
     commitMeta: {},
-    configSnapshot: snapshot,
+    config: snapshot,
     environmentId,
-    envVarsSnapshot,
+    envVars,
     finishedAt,
     gitBranch,
     gitSha: id,
     phase,
-    repoFullName: 'example/project',
+    repoFullName,
+    repoId,
     runtimeId,
     serverId,
     status,

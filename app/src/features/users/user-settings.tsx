@@ -40,8 +40,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Table,
   TableBody,
@@ -113,6 +119,12 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
   const emailDirty = newEmail.trim().toLowerCase() !== user.email.toLowerCase()
   const normalizedNewEmail = newEmail.trim().toLowerCase()
   const emailIsValid = isValidEmail(normalizedNewEmail)
+  const emailError =
+    emailDirty && !emailIsValid
+      ? normalizedNewEmail
+        ? 'Enter a valid email address.'
+        : 'Email is required.'
+      : null
   const socialProviders = ['github', 'google'] as const
   const accountsByProvider = new Map(
     accounts.map((account) => [account.providerId, account]),
@@ -276,7 +288,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                 <Button
                   asChild
                   variant="ghost"
-                  size="sm"
                   className={`justify-start font-normal ${
                     item === 'Danger' ? 'text-destructive' : ''
                   }`}
@@ -296,77 +307,78 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                   General settings for your account.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-8">
-                <div className="space-y-3">
-                  <Label>Avatar</Label>
-                  <div className="flex items-center gap-2">
-                    <ResourceAvatar
-                      name={name || username || user.email}
-                      src={avatarUrl ?? undefined}
-                      size="md"
-                      className="rounded-full"
+              <CardContent>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel>Avatar</FieldLabel>
+                    <div className="flex items-center gap-2">
+                      <ResourceAvatar
+                        name={name || username || user.email}
+                        src={avatarUrl ?? undefined}
+                        size="md"
+                        className="rounded-full"
+                      />
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/gif,image/webp"
+                        className="hidden"
+                        onChange={(event) => {
+                          void chooseAvatar(event.target.files?.[0])
+                          event.target.value = ''
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <UploadIcon data-icon="inline-start" />
+                        Upload image
+                      </Button>
+                      {avatarUrl ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="destructive"
+                              size="icon-sm"
+                              type="button"
+                              aria-label="Remove image"
+                              onClick={() => {
+                                setAvatarDataUrl(null)
+                                setDeleteAvatar(true)
+                              }}
+                            >
+                              <Trash2Icon />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Remove image</TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="account-name">Name</FieldLabel>
+                    <Input
+                      id="account-name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
                     />
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/png,image/jpeg,image/gif,image/webp"
-                      className="hidden"
-                      onChange={(event) => {
-                        void chooseAvatar(event.target.files?.[0])
-                        event.target.value = ''
-                      }}
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="account-username">Username</FieldLabel>
+                    <Input
+                      id="account-username"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
                     />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <UploadIcon />
-                      Upload image
-                    </Button>
-                    {avatarUrl ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="destructive"
-                            size="icon"
-                            type="button"
-                            aria-label="Remove image"
-                            onClick={() => {
-                              setAvatarDataUrl(null)
-                              setDeleteAvatar(true)
-                            }}
-                          >
-                            <Trash2Icon />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Remove image</TooltipContent>
-                      </Tooltip>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <Label htmlFor="account-name">Name</Label>
-                  <Input
-                    id="account-name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                </div>
-                <div className="space-y-3">
-                  <Label htmlFor="account-username">Username</Label>
-                  <Input
-                    id="account-username"
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                  />
-                </div>
+                  </Field>
+                </FieldGroup>
               </CardContent>
               <CardFooter className="justify-end gap-2">
                 <Button
                   variant="ghost"
-                  size="sm"
                   disabled={!generalDirty || isSavingGeneral}
                   onClick={() => {
                     setName(user.name)
@@ -378,12 +390,14 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                   Cancel
                 </Button>
                 <Button
-                  size="sm"
                   disabled={!generalDirty || isSavingGeneral}
                   onClick={saveGeneral}
                 >
                   {isSavingGeneral ? (
-                    <LoaderIcon className="animate-spin" />
+                    <LoaderIcon
+                      data-icon="inline-start"
+                      className="animate-spin"
+                    />
                   ) : null}
                   Save
                 </Button>
@@ -398,31 +412,38 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  <Label htmlFor="account-email">Email</Label>
+                <Field data-invalid={Boolean(emailError)}>
+                  <FieldLabel htmlFor="account-email">Email</FieldLabel>
                   <Input
+                    aria-invalid={Boolean(emailError)}
                     id="account-email"
                     value={newEmail}
                     onChange={(event) => setNewEmail(event.target.value)}
                   />
-                </div>
+                  <FieldDescription>
+                    Verification is required before the new email is used for
+                    sign in.
+                  </FieldDescription>
+                  <FieldError>{emailError}</FieldError>
+                </Field>
               </CardContent>
               <CardFooter className="justify-end gap-2">
                 <Button
                   variant="ghost"
-                  size="sm"
                   disabled={!emailDirty || isSavingEmail}
                   onClick={() => setNewEmail(user.email)}
                 >
                   Cancel
                 </Button>
                 <Button
-                  size="sm"
                   disabled={!emailDirty || !emailIsValid || isSavingEmail}
                   onClick={requestEmailChange}
                 >
                   {isSavingEmail ? (
-                    <LoaderIcon className="animate-spin" />
+                    <LoaderIcon
+                      data-icon="inline-start"
+                      className="animate-spin"
+                    />
                   ) : null}
                   Save
                 </Button>
@@ -529,7 +550,10 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                             onClick={() => void connectProvider(provider)}
                           >
                             {pendingProvider === provider ? (
-                              <LoaderIcon className="animate-spin" />
+                              <LoaderIcon
+                                data-icon="inline-start"
+                                className="animate-spin"
+                              />
                             ) : null}
                             Connect
                           </Button>
@@ -709,9 +733,12 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                       onClick={() => setDeleteAccountConfirmation('')}
                     >
                       {isDeletingAccount ? (
-                        <LoaderIcon className="animate-spin" />
+                        <LoaderIcon
+                          data-icon="inline-start"
+                          className="animate-spin"
+                        />
                       ) : (
-                        <Trash2Icon />
+                        <Trash2Icon data-icon="inline-start" />
                       )}
                       Delete account
                     </Button>
@@ -727,7 +754,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                         {`Type "${user.email}" to confirm.`}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="space-y-3">
+                    <Field>
                       <Input
                         aria-label={`Type ${user.email} to confirm`}
                         id="delete-account-confirmation"
@@ -747,7 +774,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                           }
                         }}
                       />
-                    </div>
+                    </Field>
                     <AlertDialogFooter>
                       <AlertDialogCancel disabled={isDeletingAccount}>
                         Cancel

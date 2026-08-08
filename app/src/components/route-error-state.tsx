@@ -1,4 +1,3 @@
-import { Link, useRouterState } from '@tanstack/react-router'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { ArrowLeftIcon } from 'lucide-react'
 
@@ -26,11 +25,11 @@ export function RouteNotFoundState({
           <EmptyDescription>{description}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/">
-              <ArrowLeftIcon />
+          <Button asChild variant="outline">
+            <a href="/">
+              <ArrowLeftIcon data-icon="inline-start" />
               Go home
-            </Link>
+            </a>
           </Button>
         </EmptyContent>
       </Empty>
@@ -39,9 +38,8 @@ export function RouteNotFoundState({
 }
 
 export function RouteErrorState({ error }: ErrorComponentProps) {
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
+  const pathname =
+    typeof window === 'undefined' ? null : window.location.pathname
 
   if (isNotFoundError(error)) {
     return (
@@ -63,11 +61,11 @@ export function RouteErrorState({ error }: ErrorComponentProps) {
         </EmptyHeader>
         {pathname !== '/' ? (
           <EmptyContent>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/">
-                <ArrowLeftIcon />
+            <Button asChild variant="outline">
+              <a href="/">
+                <ArrowLeftIcon data-icon="inline-start" />
                 Go home
-              </Link>
+              </a>
             </Button>
           </EmptyContent>
         ) : null}

@@ -7,7 +7,7 @@ import {
 
 import { config } from '@/server/config'
 
-export type DeploymentSnapshotRoute = {
+export type DeploymentRoute = {
   host: string
   service: string
   port: number
@@ -16,7 +16,7 @@ export type DeploymentSnapshotRoute = {
   stripPrefix: boolean
 }
 
-export type DeploymentSnapshotEnvVar = {
+export type DeploymentEnvVar = {
   key: string
   value: string
 }
@@ -28,39 +28,13 @@ export type DeploymentCommitMeta = {
   url: string | null
 }
 
-export type DeploymentConfigSnapshot = {
-  version: 1
-  repo: {
-    id: number | null
-    fullName: string
-    installationId: number | null
-  }
-  project: {
-    id: string
-    teamId: string | null
-    name: string
-  }
-  environment: {
-    id: string
-    name: string
-    slug: string
-    branch: string
-    color: string
-    defaultHost: string | null
-  }
-  server: {
-    id: string
-    name: string
-    status: string | null
-  }
-  compose: {
-    path: string
-    projectName: string
-    releaseCommand: string | null
-    releaseService: string
-    readinessPath: string | null
-    routes: Array<DeploymentSnapshotRoute>
-  }
+export type DeploymentConfig = {
+  version: 2
+  composePath: string
+  releaseCommand: string | null
+  releaseService: string
+  readinessPath: string | null
+  routes: Array<DeploymentRoute>
 }
 
 export function buildComposeProjectName({
@@ -73,15 +47,13 @@ export function buildComposeProjectName({
   return `dp_${shortRuntimeId(projectId)}_${shortRuntimeId(environmentId)}`
 }
 
-export function encryptDeploymentEnvVars(
-  envVars: Array<DeploymentSnapshotEnvVar>,
-) {
+export function encryptDeploymentEnvVars(envVars: Array<DeploymentEnvVar>) {
   return encryptJson(envVars)
 }
 
 export function decryptDeploymentEnvVars(
   payload: string,
-): Array<DeploymentSnapshotEnvVar> {
+): Array<DeploymentEnvVar> {
   const value = decryptJson(payload)
 
   if (!Array.isArray(value)) {
@@ -89,7 +61,7 @@ export function decryptDeploymentEnvVars(
   }
 
   return value.filter(
-    (item): item is DeploymentSnapshotEnvVar =>
+    (item): item is DeploymentEnvVar =>
       typeof item === 'object' &&
       item !== null &&
       'key' in item &&
@@ -99,85 +71,28 @@ export function decryptDeploymentEnvVars(
   )
 }
 
-export function parseDeploymentConfigSnapshot(
-  value: unknown,
-): DeploymentConfigSnapshot | null {
-  if (!isRecord(value) || value.version !== 1) {
+export function parseDeploymentConfig(value: unknown): DeploymentConfig | null {
+  if (!isRecord(value) || value.version !== 2) {
     return null
   }
 
-  const repo = value.repo
-  const project = value.project
-  const environment = value.environment
-  const server = value.server
-  const compose = value.compose
-
   if (
-    !isRecord(repo) ||
-    !isRecord(project) ||
-    !isRecord(environment) ||
-    !isRecord(server) ||
-    !isRecord(compose) ||
-    typeof repo.fullName !== 'string' ||
-    typeof project.id !== 'string' ||
-    typeof project.name !== 'string' ||
-    typeof environment.id !== 'string' ||
-    typeof environment.name !== 'string' ||
-    typeof environment.slug !== 'string' ||
-    typeof environment.branch !== 'string' ||
-    typeof environment.color !== 'string' ||
-    typeof server.id !== 'string' ||
-    typeof compose.path !== 'string' ||
-    typeof compose.projectName !== 'string' ||
-    typeof compose.releaseService !== 'string' ||
-    !Array.isArray(compose.routes)
+    typeof value.composePath !== 'string' ||
+    typeof value.releaseService !== 'string' ||
+    !Array.isArray(value.routes)
   ) {
     return null
   }
 
   return {
-    version: 1,
-    repo: {
-      id: typeof repo.id === 'number' ? repo.id : null,
-      fullName: repo.fullName,
-      installationId:
-        typeof repo.installationId === 'number' ? repo.installationId : null,
-    },
-    project: {
-      id: project.id,
-      teamId: typeof project.teamId === 'string' ? project.teamId : null,
-      name: project.name,
-    },
-    environment: {
-      id: environment.id,
-      name: environment.name,
-      slug: environment.slug,
-      branch: environment.branch,
-      color: environment.color,
-      defaultHost:
-        typeof environment.defaultHost === 'string'
-          ? environment.defaultHost
-          : null,
-    },
-    server: {
-      id: server.id,
-      name: typeof server.name === 'string' ? server.name : '',
-      status: typeof server.status === 'string' ? server.status : null,
-    },
-    compose: {
-      path: compose.path,
-      projectName: compose.projectName,
-      releaseCommand:
-        typeof compose.releaseCommand === 'string'
-          ? compose.releaseCommand
-          : null,
-      releaseService: compose.releaseService,
-      readinessPath:
-        typeof compose.readinessPath === 'string'
-          ? compose.readinessPath
-          : null,
-      routes: normalizeSnapshotRoutes(compose.routes),
-    },
+    version: 2,
+    composePath: value.composePath,
+    releaseCommand:
+      typeof value.releaseCommand === 'string' ? value.releaseCommand : null,
+    releaseService: value.releaseService,
+    readinessPath:
+      typeof value.readinessPath === 'string' ? value.readinessPath : null,
+    routes: normalizeRoutes(value.routes),
   }
 }
 
@@ -195,16 +110,14 @@ export function toDeploymentCommitMeta(commit: {
   }
 }
 
-function normalizeSnapshotRoutes(
-  value: unknown,
-): Array<DeploymentSnapshotRoute> {
+function normalizeRoutes(value: unknown): Array<DeploymentRoute> {
   if (!Array.isArray(value)) {
     return []
   }
 
   return value
     .filter(
-      (item): item is DeploymentSnapshotRoute =>
+      (item): item is DeploymentRoute =>
         isRecord(item) &&
         typeof item.host === 'string' &&
         typeof item.service === 'string' &&

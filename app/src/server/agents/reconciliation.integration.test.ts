@@ -30,6 +30,39 @@ afterAll(async () => {
 })
 
 describe('agent runtime reconciliation', () => {
+  test('stores the latest Compose service state for an observed runtime', async () => {
+    const { serverId } = await createFixture()
+    const services = [
+      {
+        name: 'web',
+        containerName: 'project-web-1',
+        state: 'running',
+        health: 'healthy',
+        restartCount: 1,
+        startedAt: '2026-06-01T00:00:00Z',
+        exitCode: 0,
+      },
+    ]
+
+    await reconcileReportedRuntimes({
+      serverId,
+      runtimeIds: ['dp_project_production'],
+      runtimes: [{ runtimeId: 'dp_project_production', services }],
+      now: new Date('2026-06-01T00:01:00Z'),
+    })
+
+    const observations = await db
+      .select({
+        id: agentRuntimeObservations.id,
+        services: agentRuntimeObservations.services,
+      })
+      .from(agentRuntimeObservations)
+      .where(eq(agentRuntimeObservations.serverId, serverId))
+    touchedObservationIds.push(...observations.map((row) => row.id))
+
+    expect(observations.at(0)?.services).toEqual(services)
+  })
+
   test('records first sighting without queueing cleanup', async () => {
     const { serverId } = await createFixture()
 
@@ -170,18 +203,13 @@ describe('agent runtime reconciliation', () => {
       .from(agentJobs)
       .where(eq(agentJobs.serverId, serverId))
     touchedJobIds.push(
-      ...jobs
-        .map((row) => row.id)
-        .filter((id) => !touchedJobIds.includes(id)),
+      ...jobs.map((row) => row.id).filter((id) => !touchedJobIds.includes(id)),
     )
 
     expect(queued).toEqual(['dp_project_orphan'])
     expect(observations.at(0)?.purgeQueuedAt).toBeInstanceOf(Date)
     expect(jobs).toHaveLength(2)
-    expect(jobs.map((job) => job.type).sort()).toEqual([
-      'deprovision',
-      'purge',
-    ])
+    expect(jobs.map((job) => job.type).sort()).toEqual(['deprovision', 'purge'])
     expect(jobs.find((job) => job.type === 'purge')).toMatchObject({
       type: 'purge',
       payload: {

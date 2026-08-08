@@ -10,6 +10,8 @@
 data/
 logs/
 backups/
+!app/src/server/backups/
+!app/src/server/backups/**
 __pycache__/
 legacy/
 

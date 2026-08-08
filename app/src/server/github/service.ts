@@ -83,6 +83,10 @@ type GitHubBranchResponse = {
   }
 }
 
+type GitHubBranchListResponse = Array<{
+  name: string
+}>
+
 type GitHubCommitResponse = {
   sha: string
   commit?: {
@@ -99,6 +103,18 @@ type GitHubRepositoriesResponse = {
   repositories: Array<GitHubRepositoryResponse>
   total_count: number
 }
+
+type GitHubContentResponse =
+  | {
+      type: 'file'
+      content: string
+      encoding: string
+    }
+  | {
+      type: string
+      content?: string
+      encoding?: string
+    }
 
 let cachedJwt: { token: string; expiresAt: number } | null = null
 
@@ -252,6 +268,33 @@ export async function detectComposePath({
   return null
 }
 
+export async function getRepositoryFileText({
+  accessToken,
+  path,
+  ref,
+  repo,
+}: {
+  accessToken: string
+  path: string
+  ref: string
+  repo: string
+}) {
+  const data = await githubRequest<GitHubContentResponse>(
+    `/repos/${encodeURIComponentRepoName(repo)}/contents/${encodeURIComponentPath(path)}?ref=${encodeURIComponent(ref)}`,
+    accessToken,
+  )
+
+  if (data.type !== 'file' || !data.content) {
+    throw new Error(`${path} is not a file.`)
+  }
+
+  if (data.encoding !== 'base64') {
+    throw new Error(`${path} has unsupported encoding.`)
+  }
+
+  return Buffer.from(data.content.replace(/\s/g, ''), 'base64').toString('utf8')
+}
+
 export async function getBranchHeadCommit({
   accessToken,
   branch,
@@ -326,6 +369,39 @@ export async function listBranchCommits({
   )
 
   return data.map(mapCommit)
+}
+
+export async function listRepositoryBranches({
+  accessToken,
+  repo,
+}: {
+  accessToken: string
+  repo: string
+}) {
+  if (
+    config.DEVPUSH_SMOKE_GITHUB_TOKEN &&
+    accessToken === config.DEVPUSH_SMOKE_GITHUB_TOKEN
+  ) {
+    return ['main']
+  }
+
+  const branches: Array<string> = []
+  let page = 1
+  let hasMore = true
+
+  while (hasMore) {
+    const data = await githubRequest<GitHubBranchListResponse>(
+      `/repos/${encodeURIComponentRepoName(repo)}/branches?per_page=100&page=${page}`,
+      accessToken,
+    )
+
+    branches.push(...data.map((branch) => branch.name))
+
+    hasMore = data.length === 100
+    page += 1
+  }
+
+  return branches
 }
 
 export async function getAppInstallation(installationId: number) {
@@ -560,4 +636,8 @@ async function readGitHubError(response: Response) {
 
 function encodeURIComponentRepoName(fullName: string) {
   return fullName.split('/').map(encodeURIComponent).join('/')
+}
+
+function encodeURIComponentPath(path: string) {
+  return path.split('/').map(encodeURIComponent).join('/')
 }

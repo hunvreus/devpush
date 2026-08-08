@@ -41,6 +41,7 @@ function buildTokenizedInstallScript({
     '#!/usr/bin/env bash',
     `export DEVPUSH_SERVER_URL=${shellQuote(serverUrl)}`,
     `export DEVPUSH_AGENT_TOKEN=${shellQuote(token)}`,
+    `export DEVPUSH_AGENT_AUTO_UPDATE=${shellQuote(String(config.DEVPUSH_AGENT_AUTO_UPDATE))}`,
   ]
 
   if (config.DEVPUSH_TRAEFIK_EMAIL) {

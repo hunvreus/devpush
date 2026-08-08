@@ -8,9 +8,10 @@ import { enqueueTeamDeprovisionJobs } from '@/server/agents/cleanup'
 import { db } from '@/server/db'
 import {
   account,
+  aliases,
   deployments,
+  domains,
   environments,
-  hostnames,
   projects,
   servers,
   session,
@@ -21,10 +22,7 @@ import {
   userCleanupJobs,
 } from '@/server/db/schema'
 import { getResourceColor } from '@/server/resources/color'
-import {
-  assertOtherOwner,
-  lockTeamMembers,
-} from '@/server/teams/service'
+import { assertOtherOwner, lockTeamMembers } from '@/server/teams/service'
 import { removePublicFile, resolveAvatarUpdate } from '@/server/uploads/avatar'
 
 export type AuthAccountSummary = {
@@ -189,10 +187,12 @@ export async function backfillAuthAccountIdentities({
       .update(account)
       .set({
         providerAccountName: row.providerAccountName ?? identity.name ?? null,
-        providerAccountEmail: row.providerAccountEmail ?? identity.email ?? null,
+        providerAccountEmail:
+          row.providerAccountEmail ?? identity.email ?? null,
         providerAccountUsername:
           row.providerAccountUsername ?? identity.username ?? null,
-        providerAccountImage: row.providerAccountImage ?? identity.image ?? null,
+        providerAccountImage:
+          row.providerAccountImage ?? identity.image ?? null,
         updatedAt: new Date(),
       })
       .where(and(eq(account.id, row.id), eq(account.userId, userId)))
@@ -201,7 +201,9 @@ export async function backfillAuthAccountIdentities({
   return listAuthAccounts(userId)
 }
 
-async function listAuthAccountRows(userId: string): Promise<Array<AuthAccountRow>> {
+async function listAuthAccountRows(
+  userId: string,
+): Promise<Array<AuthAccountRow>> {
   await assertActiveUser(userId)
 
   const rows = await db
@@ -237,9 +239,7 @@ export async function assertActiveUser(userId: string) {
   }
 }
 
-export function mapAuthAccountSummary(
-  row: AuthAccountRow,
-): AuthAccountSummary {
+export function mapAuthAccountSummary(row: AuthAccountRow): AuthAccountSummary {
   return {
     id: row.id,
     accountId: row.accountId,
@@ -389,7 +389,9 @@ export async function disconnectAuthAccount({
   }
 
   if (!authMethods.email && accounts.length <= 1) {
-    throw new Error('Connect another sign-in method before disconnecting this account.')
+    throw new Error(
+      'Connect another sign-in method before disconnecting this account.',
+    )
   }
 
   await db
@@ -462,7 +464,9 @@ export async function leaveTeam({
     const membershipRows = await tx
       .select()
       .from(teamMembers)
-      .where(and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)))
+      .where(
+        and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)),
+      )
       .limit(1)
     const membership = membershipRows.at(0)
 
@@ -600,8 +604,10 @@ export async function runQueuedUserCleanupJobs({
     .orderBy(asc(userCleanupJobs.availableAt))
     .limit(limit)
 
-  const results: Array<{ id: string; status: 'succeeded' | 'failed' | 'queued' }> =
-    []
+  const results: Array<{
+    id: string
+    status: 'succeeded' | 'failed' | 'queued'
+  }> = []
 
   for (const row of rows) {
     const claimedRows = await db
@@ -612,7 +618,12 @@ export async function runQueuedUserCleanupJobs({
         claimedAt: now,
         updatedAt: now,
       })
-      .where(and(eq(userCleanupJobs.id, row.id), eq(userCleanupJobs.status, 'queued')))
+      .where(
+        and(
+          eq(userCleanupJobs.id, row.id),
+          eq(userCleanupJobs.status, 'queued'),
+        ),
+      )
       .returning({
         id: userCleanupJobs.id,
         attempt: userCleanupJobs.attempt,
@@ -741,10 +752,8 @@ async function cleanupDeletedUserResources({
               )
           }
 
-          await tx
-            .update(hostnames)
-            .set({ status: 'disabled', updatedAt: now })
-            .where(inArray(hostnames.projectId, projectIds))
+          await tx.delete(aliases).where(inArray(aliases.projectId, projectIds))
+          await tx.delete(domains).where(inArray(domains.projectId, projectIds))
           await tx
             .update(projects)
             .set({ status: 'deleted', updatedAt: now })

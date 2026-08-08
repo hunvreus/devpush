@@ -208,7 +208,7 @@ function EmailStep({
         <Field>
           <Button type="submit" disabled={busy}>
             Continue with email
-            {pending === 'email' ? <Spinner /> : null}
+            {pending === 'email' ? <Spinner data-icon="inline-end" /> : null}
           </Button>
         </Field>
       </div>
@@ -229,9 +229,11 @@ function EmailStep({
                 disabled={busy}
                 onClick={() => void onProviderSignIn('github')}
               >
-                <GithubIcon />
+                <GithubIcon data-icon="inline-start" />
                 Continue with GitHub
-                {pending === 'github' ? <Spinner /> : null}
+                {pending === 'github' ? (
+                  <Spinner data-icon="inline-end" />
+                ) : null}
               </Button>
             ) : null}
             {authMethods.google ? (
@@ -241,9 +243,11 @@ function EmailStep({
                 disabled={busy}
                 onClick={() => void onProviderSignIn('google')}
               >
-                <GoogleIcon />
+                <GoogleIcon data-icon="inline-start" />
                 Continue with Google
-                {pending === 'google' ? <Spinner /> : null}
+                {pending === 'google' ? (
+                  <Spinner data-icon="inline-end" />
+                ) : null}
               </Button>
             ) : null}
           </Field>
@@ -299,7 +303,7 @@ function OtpStep({
       <Field>
         <Button type="submit" disabled={busy || otp.length !== 6}>
           Verify code
-          {pending === 'otp' ? <Spinner /> : null}
+          {pending === 'otp' ? <Spinner data-icon="inline-end" /> : null}
         </Button>
         <Button
           type="button"
@@ -317,13 +321,18 @@ function OtpStep({
   )
 }
 
-function Spinner() {
-  return <LoaderCircle className="ml-1 size-4 animate-spin" />
+type InlineIconProps = {
+  'data-icon'?: 'inline-start' | 'inline-end'
 }
 
-function GithubIcon() {
+function Spinner({ 'data-icon': dataIcon }: InlineIconProps) {
+  return <LoaderCircle data-icon={dataIcon} className="size-4 animate-spin" />
+}
+
+function GithubIcon({ 'data-icon': dataIcon }: InlineIconProps) {
   return (
     <svg
+      data-icon={dataIcon}
       role="img"
       fill="currentColor"
       viewBox="0 0 24 24"
@@ -336,9 +345,10 @@ function GithubIcon() {
   )
 }
 
-function GoogleIcon() {
+function GoogleIcon({ 'data-icon': dataIcon }: InlineIconProps) {
   return (
     <svg
+      data-icon={dataIcon}
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
       className="size-4"

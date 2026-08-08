@@ -1,16 +1,20 @@
-import { and, desc, eq, gte, ilike, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, ilike, inArray, ne, sql } from 'drizzle-orm'
+import { parse as parseYaml } from 'yaml'
 
 import { db } from '@/server/db'
 import { config } from '@/server/config'
 import { enqueueProjectDeprovisionJobs } from '@/server/agents/cleanup'
 import { failStaleRunningDeploymentsForServer } from '@/server/agents/jobs'
 import {
+  aliases,
+  backupArtifacts,
   backupConfigs,
+  backupRuns,
+  agentRuntimeObservations,
   deployments,
   deploymentLogs,
+  domains,
   environments,
-  hostnames,
-  projectServers,
   projects,
   runtimeLogs,
   servers,
@@ -19,12 +23,13 @@ import {
   detectComposePath,
   createInstallationAccessToken,
   getBranchHeadCommit,
-  getRepositoryCommit,
   getGitHubAccount,
   getGitHubRepository,
   getGitHubAppInstallUrl,
+  getRepositoryFileText,
   isGitHubAppConfigured,
   listBranchCommits,
+  listRepositoryBranches,
   listInstallationRepositories,
   listUserInstallations,
   upsertGitHubInstallation,
@@ -46,19 +51,30 @@ import type {
 import {
   buildComposeProjectName,
   encryptDeploymentEnvVars,
-  parseDeploymentConfigSnapshot,
+  parseDeploymentConfig,
   toDeploymentCommitMeta,
-} from './deployment-snapshot'
+} from './deployment-config'
+import {
+  getEnvironmentForBranch,
+  groupBranchesByEnvironment,
+} from './environment-branches'
 import type {
   DeploymentCommitMeta,
-  DeploymentConfigSnapshot,
-  DeploymentSnapshotEnvVar,
-} from './deployment-snapshot'
+  DeploymentConfig,
+  DeploymentEnvVar,
+} from './deployment-config'
 import type {
   BackupDatabaseDump,
   BackupDestination,
   BackupRetentionPolicy,
+  BackupVolumeSelection,
 } from '@/server/backups/service'
+import {
+  backupRetentionSchema,
+  queueEnvironmentBackup,
+  queueBackupRestoreJob,
+} from '@/server/backups/service'
+import { encryptSecret } from '@/server/secrets/crypto'
 import { getResourceColor } from '@/server/resources/color'
 import { getEffectiveServerStatus } from '@/server/servers/status'
 import type { ServerStatus } from '@/server/servers/status'
@@ -136,7 +152,6 @@ export type ProjectDomain = {
   basePath: string | null
   https: boolean
   status: 'pending' | 'active' | 'disabled' | 'failed'
-  generated: boolean
 }
 
 export type ProjectEnvironmentVariable = {
@@ -151,20 +166,61 @@ export type ProjectEnvironmentConfig = {
   slug: string
   branch: string
   color: string
+  position: number
   status: 'active' | 'deleted'
+  effectiveServerId: string | null
+  serverId: string | null
 }
 
-export type ProjectServerAssignment = {
-  environment: string
-  serverId: string
+export type ProjectComposeMetadata = {
+  services: Array<string>
+  volumes: Array<string>
 }
 
 export type ProjectBackupConfig = {
+  id: string
+  name: string
   environmentId: string
   enabled: boolean
+  schedule: ProjectBackupSchedule
   destination: BackupDestination
   retention: BackupRetentionPolicy
+  volumes: BackupVolumeSelection
   databaseDumps: Array<BackupDatabaseDump>
+}
+
+type BackupDestinationInput = BackupDestination & {
+  clearSecretAccessKey?: boolean
+  secretAccessKey?: string
+}
+
+export type ProjectBackupSchedule = {
+  cron: string
+}
+
+export type ProjectBackupRun = {
+  id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+  environmentId: string
+  environmentName: string
+  environmentColor: string
+  serverId: string | null
+  serverName: string | null
+  errorMessage: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string
+  artifacts: Array<ProjectBackupArtifact>
+}
+
+export type ProjectBackupArtifact = {
+  id: string
+  type: 'manifest' | 'volume' | 'database'
+  storage: 'local' | 'remote'
+  objectKey: string
+  checksumSha256: string
+  sizeBytes: number
+  createdAt: string
 }
 
 export type DeploymentSummary = {
@@ -185,6 +241,7 @@ export type DeploymentSummary = {
   environmentName: string
   environmentSlug: string
   environmentColor: string
+  serverId: string | null
   serverName: string
   serverStatus: ServerStatus
   projectName: string
@@ -200,32 +257,48 @@ export type ProjectContext = {
     githubInstallationId: number | null
     githubRepoId: number | null
     githubRepo: string
+    defaultServerId: string | null
     avatarUrl: string | null
     composePath: string | null
     releaseCommand: string | null
+    releaseService: string | null
     readinessPath: string | null
     color: ReturnType<typeof getResourceColor>
   }
   teamProjects: Array<ProjectSummary>
   routes: Array<ProjectRoute>
+  composeMetadata: ProjectComposeMetadata | null
   domains: Array<ProjectDomain>
   envVars: Array<ProjectEnvironmentVariable>
   backupConfigs: Array<ProjectBackupConfig>
+  backupRuns: Array<ProjectBackupRun>
   environment: {
     id: string
     name: string
     slug: string
     branch: string
     color: string
+    position: number
     defaultHost: string | null
     serverId: string | null
     serverName: string | null
     serverStatus: ServerStatus | null
     envVars: Array<ProjectEnvironmentVariable>
     publicRoutes: Array<ProjectPublicRoute>
+    runtime: {
+      observedAt: string
+      services: Array<{
+        name: string
+        containerName: string
+        state: string
+        health: string | null
+        restartCount: number
+        startedAt: string | null
+        exitCode: number
+      }>
+    } | null
   }
   environments: Array<ProjectEnvironmentConfig>
-  serverAssignments: Array<ProjectServerAssignment>
   deployments: Array<DeploymentSummary>
   servers: Array<ServerSummary>
 }
@@ -237,7 +310,6 @@ export type DeploymentContext = {
   teamProjects: Array<ProjectSummary>
   latestDeployments: Array<DeploymentSummary>
   environment: ProjectContext['environment']
-  serverAssignments: Array<ProjectServerAssignment>
   servers: Array<ServerSummary>
   deployment: DeploymentSummary
   logs: Array<{
@@ -261,6 +333,7 @@ export type ProjectLogEntry = {
 
 export type ProjectLogsContext = ProjectContext & {
   logs: Array<ProjectLogEntry>
+  hasAnyLogs: boolean
   filters: {
     branch: string | null
     date: string | null
@@ -448,10 +521,18 @@ export async function createProjectFromGitHub({
           : envVar.environment,
     }))
     await requireAvailableProjectMachineName(tx, team.id, slug)
-    const defaultHost = buildDefaultHostForProject({
-      projectName: slug,
-      serverPublicAddress: server?.publicAddress ?? null,
-    })
+    const requestedDefaultHost = server
+      ? buildDefaultHostForProject({
+          projectName: slug,
+          serverPublicAddress: server.publicAddress,
+        })
+      : null
+    const defaultHost = requestedDefaultHost
+      ? await resolveAvailableAliasHostname({
+          hostname: requestedDefaultHost,
+          uniquenessKey: projectId,
+        })
+      : null
 
     await tx.insert(projects).values({
       id: projectId,
@@ -461,68 +542,39 @@ export async function createProjectFromGitHub({
       githubRepoId: repo.id,
       githubRepo: repo.fullName,
       githubInstallationId: installationId,
-      environments: [
-        {
-          id: productionEnvironmentId,
-          name: 'Production',
-          slug: 'production',
-          branch: repo.defaultBranch,
-          color: 'blue',
-          status: 'active',
-        },
-      ],
+      defaultServerId: server?.id ?? null,
       routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
       envVars: scopedProjectEnvVars,
       composePath: projectComposePath,
     })
 
-    if (server) {
-      await tx.insert(projectServers).values({
-        id: crypto.randomUUID(),
-        projectId,
-        environmentId: null,
-        serverId: server.id,
-      })
-    }
-
-    await tx.insert(hostnames).values({
-      id: crypto.randomUUID(),
-      projectId,
-      hostname: defaultHost,
-      type: 'environment_alias',
-      environmentId: productionEnvironmentId,
-      https: true,
-      status: 'active',
-    })
-
     await tx.insert(environments).values({
       id: productionEnvironmentId,
       projectId,
-      serverId: server?.id ?? null,
+      serverId: null,
       name: 'Production',
       slug: 'production',
       branch: repo.defaultBranch,
       isProduction: true,
-      defaultHost,
+      position: 0,
+      color: 'blue',
+      status: 'active',
       runtimeId: buildComposeProjectName({
         projectId,
         environmentId: productionEnvironmentId,
       }),
-      envVars: getEnvVarsForEnvironment(
-        scopedProjectEnvVars,
-        productionEnvironmentId,
-      ),
-      publicRoutes: [
-        {
-          host: defaultHost,
-          service: 'web',
-          port: 3000,
-          path: '/',
-          https: true,
-          stripPrefix: false,
-        },
-      ],
     })
+
+    if (defaultHost) {
+      await tx.insert(aliases).values({
+        id: crypto.randomUUID(),
+        projectId,
+        environmentId: productionEnvironmentId,
+        hostname: defaultHost,
+        type: 'environment',
+        https: generatedAliasUsesHttps(server?.publicAddress ?? null),
+      })
+    }
 
     return {
       id: projectId,
@@ -558,7 +610,13 @@ export async function getProjectContext({
         eq(environments.isProduction, true),
       ),
     )
-    .leftJoin(servers, eq(servers.id, environments.serverId))
+    .leftJoin(
+      servers,
+      eq(
+        servers.id,
+        sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+      ),
+    )
     .where(
       and(
         eq(projects.teamId, team.id),
@@ -573,8 +631,8 @@ export async function getProjectContext({
     throw new Error('Project not found.')
   }
 
-  if (row.environment.serverId) {
-    await failStaleRunningDeploymentsForServer(row.environment.serverId)
+  if (row.server) {
+    await failStaleRunningDeploymentsForServer(row.server.id)
   }
 
   const deploymentRows = await db
@@ -592,60 +650,111 @@ export async function getProjectContext({
     .orderBy(desc(deployments.createdAt))
     .limit(20)
 
-  const projectEnvironments = normalizeProjectEnvironments(
-    row.project.environments,
-    row.environment,
-  )
   const projectEnvVars = normalizeEnvVars(row.project.envVars)
-  const [teamServers, projectServerRows, hostnameRows, backupConfigRows] =
-    await Promise.all([
-      listTeamServers(team.id),
-      db
-        .select({
-          environmentId: projectServers.environmentId,
-          serverId: projectServers.serverId,
-        })
-        .from(projectServers)
-        .where(eq(projectServers.projectId, row.project.id)),
-      db
-        .select()
-        .from(hostnames)
-        .where(eq(hostnames.projectId, row.project.id)),
-      db
-        .select()
-        .from(backupConfigs)
-        .where(eq(backupConfigs.projectId, row.project.id)),
-    ])
-  const serverAssignments = normalizeServerAssignments(
-    projectServerRows.map((assignment) => ({
-      environment: assignment.environmentId ?? '',
-      serverId: assignment.serverId,
-    })),
-    row.environment.serverId,
+  const [
+    teamServers,
+    environmentRows,
+    aliasRows,
+    domainRows,
+    backupConfigRows,
+    backupRunRows,
+    runtimeObservationRows,
+  ] = await Promise.all([
+    listTeamServers(team.id),
+    db
+      .select()
+      .from(environments)
+      .where(
+        and(
+          eq(environments.projectId, row.project.id),
+          eq(environments.status, 'active'),
+        ),
+      )
+      .orderBy(asc(environments.position), asc(environments.createdAt)),
+    db.select().from(aliases).where(eq(aliases.projectId, row.project.id)),
+    db.select().from(domains).where(eq(domains.projectId, row.project.id)),
+    db
+      .select()
+      .from(backupConfigs)
+      .where(eq(backupConfigs.projectId, row.project.id)),
+    db
+      .select({
+        backupRun: backupRuns,
+        environment: environments,
+        server: servers,
+      })
+      .from(backupRuns)
+      .innerJoin(environments, eq(environments.id, backupRuns.environmentId))
+      .leftJoin(servers, eq(servers.id, backupRuns.serverId))
+      .where(eq(backupRuns.projectId, row.project.id))
+      .orderBy(desc(backupRuns.createdAt))
+      .limit(50),
+    row.server
+      ? db
+          .select({
+            lastSeenAt: agentRuntimeObservations.lastSeenAt,
+            services: agentRuntimeObservations.services,
+          })
+          .from(agentRuntimeObservations)
+          .where(
+            and(
+              eq(agentRuntimeObservations.serverId, row.server.id),
+              eq(agentRuntimeObservations.runtimeId, row.environment.runtimeId),
+            ),
+          )
+          .limit(1)
+      : Promise.resolve([]),
+  ])
+  const backupRunIds = backupRunRows.map((item) => item.backupRun.id)
+  const backupArtifactRows =
+    backupRunIds.length > 0
+      ? await db
+          .select()
+          .from(backupArtifacts)
+          .where(inArray(backupArtifacts.backupRunId, backupRunIds))
+      : []
+  const backupArtifactsByRunId = new Map<
+    string,
+    Array<typeof backupArtifacts.$inferSelect>
+  >()
+  for (const artifact of backupArtifactRows) {
+    const artifacts = backupArtifactsByRunId.get(artifact.backupRunId) ?? []
+    artifacts.push(artifact)
+    backupArtifactsByRunId.set(artifact.backupRunId, artifacts)
+  }
+  const projectEnvironments = environmentRows.map((environment) =>
+    mapEnvironmentConfig(environment, row.project.defaultServerId),
   )
-  const productionServerId = resolveServerAssignment(
-    serverAssignments,
-    getProductionEnvironment(projectEnvironments).id,
-  )
+  const productionEnvironment = getProductionEnvironment(projectEnvironments)
+  const productionEnvironmentRow =
+    environmentRows.find(
+      (environment) => environment.id === productionEnvironment.id,
+    ) ?? row.environment
+  const productionServerId =
+    productionEnvironmentRow.serverId ?? row.project.defaultServerId
   const productionServer =
     teamServers.find((server) => server.id === productionServerId) ?? null
   const projectRoutes = normalizeProjectRoutes(row.project.routes)
-  const productionEnvironment = getProductionEnvironment(projectEnvironments)
-  const productionHostnames = hostnameRows.filter(
-    (hostname) =>
-      hostname.environmentId === productionEnvironment.id &&
-      (hostname.type === 'environment_alias' ||
-        hostname.type === 'custom_domain'),
+  const productionAliases = aliasRows.filter(
+    (alias) =>
+      alias.environmentId === productionEnvironment.id &&
+      alias.type !== 'deployment',
+  )
+  const productionDomains = domainRows.filter(
+    (domain) =>
+      domain.environmentId === productionEnvironment.id &&
+      (domain.status === 'pending' || domain.status === 'active'),
   )
   const productionPublicRoutes = expandPublicRoutesFromHostnames(
     projectRoutes,
-    productionHostnames,
+    toRouteHostnames(productionAliases, productionDomains),
   )
+  const composeMetadata = await getProjectComposeMetadata({
+    project: row.project,
+    ref: productionEnvironment.branch,
+  })
   const productionDefaultHost =
-    productionHostnames.find(
-      (hostname) => hostname.type === 'environment_alias',
-    )?.hostname ??
-    row.environment.defaultHost ??
+    productionAliases.find((alias) => alias.type === 'environment')?.hostname ??
     null
 
   return {
@@ -654,9 +763,17 @@ export async function getProjectContext({
     project: mapProject(row.project),
     teamProjects: await listTeamProjects(team.id),
     routes: projectRoutes,
-    domains: mapProjectDomains(hostnameRows),
+    composeMetadata,
+    domains: mapProjectDomains(domainRows),
     envVars: projectEnvVars,
     backupConfigs: backupConfigRows.map(mapBackupConfig),
+    backupRuns: backupRunRows.map((backupRunRow) =>
+      mapBackupRun(
+        backupRunRow,
+        projectEnvironments,
+        backupArtifactsByRunId.get(backupRunRow.backupRun.id) ?? [],
+      ),
+    ),
     environment: {
       ...mapEnvironment(row.environment, row.server),
       defaultHost: productionDefaultHost,
@@ -664,11 +781,14 @@ export async function getProjectContext({
       serverId: productionServer?.id ?? null,
       serverName: productionServer?.name ?? null,
       serverStatus: productionServer?.status ?? null,
-      envVars: getEnvVarsForEnvironment(projectEnvVars, 'production'),
+      envVars: getEnvVarsForEnvironment(
+        projectEnvVars,
+        productionEnvironment.id,
+      ),
       publicRoutes: productionPublicRoutes,
+      runtime: mapRuntimeObservation(runtimeObservationRows.at(0) ?? null),
     },
     environments: projectEnvironments,
-    serverAssignments,
     deployments: deploymentRows.map((deploymentRow) =>
       mapDeployment(deploymentRow),
     ),
@@ -757,7 +877,6 @@ export async function getDeploymentContext({
     teamProjects: context.teamProjects,
     latestDeployments: context.deployments,
     environment: context.environment,
-    serverAssignments: context.serverAssignments,
     servers: context.servers,
     deployment,
     logs: logs.map((log) => ({
@@ -865,6 +984,27 @@ export async function getProjectLogsContext({
         .where(and(...runtimeLogConditions))
         .orderBy(desc(runtimeLogs.observedAt))
         .limit(200)
+  const [deploymentLogExists, runtimeLogExists] = await Promise.all([
+    db
+      .select({ deploymentId: deploymentLogs.deploymentId })
+      .from(deploymentLogs)
+      .innerJoin(deployments, eq(deployments.id, deploymentLogs.deploymentId))
+      .innerJoin(environments, eq(environments.id, deployments.environmentId))
+      .where(eq(environments.projectId, context.project.id))
+      .limit(1),
+    db
+      .select({ id: runtimeLogs.id })
+      .from(runtimeLogs)
+      .innerJoin(
+        environments,
+        and(
+          eq(environments.serverId, runtimeLogs.serverId),
+          eq(environments.runtimeId, runtimeLogs.runtimeId),
+        ),
+      )
+      .where(eq(environments.projectId, context.project.id))
+      .limit(1),
+  ])
   const logs: Array<ProjectLogEntry> = [
     ...deploymentLogRows.map((log) => ({
       source: 'deployment' as const,
@@ -897,6 +1037,7 @@ export async function getProjectLogsContext({
   return {
     ...context,
     logs,
+    hasAnyLogs: deploymentLogExists.length > 0 || runtimeLogExists.length > 0,
     filters: {
       branch: normalizedBranch,
       date: normalizedDate,
@@ -945,6 +1086,7 @@ export async function updateProjectSettings({
   deleteAvatar,
   composePath,
   releaseCommand,
+  releaseService,
   readinessPath,
 }: {
   userId: string
@@ -957,6 +1099,7 @@ export async function updateProjectSettings({
   deleteAvatar?: boolean
   composePath: string
   releaseCommand: string | null
+  releaseService: string | null
   readinessPath: string | null
 }) {
   const context = await getProjectContext({
@@ -983,6 +1126,47 @@ export async function updateProjectSettings({
     avatarDataUrl,
     deleteAvatar: deleteAvatar ?? false,
   })
+  const productionBranch =
+    context.environments.find(
+      (environment) => environment.slug === 'production',
+    )?.branch ?? context.environments.at(0)?.branch
+  if (releaseService && productionBranch) {
+    const projectRows = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, context.project.id))
+      .limit(1)
+    const currentProject = projectRows.at(0)
+
+    if (!currentProject) {
+      throw new Error('Project not found.')
+    }
+
+    const metadata = await getProjectComposeMetadata({
+      project: {
+        ...currentProject,
+        slug: nextProjectSlug,
+        name: nextProjectSlug,
+        githubRepoId: repoUpdate.repoId,
+        githubRepo: repoUpdate.repoFullName,
+        githubInstallationId: repoUpdate.installationId,
+        avatarPath,
+        routes: context.routes,
+        envVars: context.envVars,
+        composePath,
+        releaseCommand,
+        releaseService,
+        readinessPath,
+      },
+      ref: productionBranch,
+    })
+
+    if (!metadata?.services.includes(releaseService)) {
+      throw new Error(
+        `Release service "${releaseService}" is not defined in the Compose file.`,
+      )
+    }
+  }
   const now = new Date()
 
   try {
@@ -1004,6 +1188,7 @@ export async function updateProjectSettings({
           avatarPath,
           composePath,
           releaseCommand,
+          releaseService,
           readinessPath,
           updatedAt: now,
         })
@@ -1077,10 +1262,8 @@ export async function deleteProject({
         )
     }
 
-    await tx
-      .update(hostnames)
-      .set({ status: 'disabled', updatedAt: now })
-      .where(eq(hostnames.projectId, context.project.id))
+    await tx.delete(aliases).where(eq(aliases.projectId, context.project.id))
+    await tx.delete(domains).where(eq(domains.projectId, context.project.id))
     await tx
       .update(projects)
       .set({ status: 'deleted', updatedAt: now })
@@ -1110,26 +1293,19 @@ export async function updateProjectRoutes({
       .set({ routes: normalizedRoutes, updatedAt: now })
       .where(eq(projects.id, context.project.id))
 
-    const hostnameRows = await tx
+    const domainRows = await tx
       .select()
-      .from(hostnames)
-      .where(eq(hostnames.projectId, context.project.id))
+      .from(domains)
+      .where(eq(domains.projectId, context.project.id))
 
-    for (const hostname of hostnameRows) {
-      if (hostname.basePath && !routePaths.has(hostname.basePath)) {
+    for (const domain of domainRows) {
+      if (domain.basePath && !routePaths.has(domain.basePath)) {
         await tx
-          .update(hostnames)
+          .update(domains)
           .set({ basePath: null, updatedAt: now })
-          .where(eq(hostnames.id, hostname.id))
+          .where(eq(domains.id, domain.id))
       }
     }
-
-    await syncProjectRuntimeRoutes({
-      tx,
-      projectId: context.project.id,
-      routes: normalizedRoutes,
-      now,
-    })
   })
 
   return getProjectContext({ userId, teamSlug, projectName })
@@ -1139,16 +1315,16 @@ export async function updateProjectDomains({
   userId,
   teamSlug,
   projectName,
-  domains,
+  domains: projectDomains,
 }: {
   userId: string
   teamSlug: string
   projectName: string
-  domains: Array<Omit<ProjectDomain, 'id' | 'generated' | 'status'>>
+  domains: Array<Omit<ProjectDomain, 'id' | 'status'>>
 }) {
   const context = await getProjectContext({ userId, teamSlug, projectName })
   const routePaths = new Set(context.routes.map((route) => route.path))
-  const normalizedDomains = domains.map((domain) => ({
+  const normalizedDomains = projectDomains.map((domain) => ({
     host: domain.host.trim().toLowerCase(),
     environmentId: domain.environmentId,
     basePath:
@@ -1168,38 +1344,38 @@ export async function updateProjectDomains({
   const now = new Date()
 
   await db.transaction(async (tx) => {
-    await tx
-      .delete(hostnames)
+    const conflictingAliases = await tx
+      .select({ hostname: aliases.hostname })
+      .from(aliases)
       .where(
-        and(
-          eq(hostnames.projectId, context.project.id),
-          eq(hostnames.type, 'custom_domain'),
+        inArray(
+          aliases.hostname,
+          normalizedDomains.map((item) => item.host),
         ),
       )
 
+    if (conflictingAliases.length > 0) {
+      throw new Error('A custom domain cannot replace a generated alias.')
+    }
+
+    await tx.delete(domains).where(eq(domains.projectId, context.project.id))
+
     if (normalizedDomains.length > 0) {
-      const values: Array<typeof hostnames.$inferInsert> =
-        normalizedDomains.map((domain) => ({
+      const values: Array<typeof domains.$inferInsert> = normalizedDomains.map(
+        (domain) => ({
           id: crypto.randomUUID(),
           projectId: context.project.id,
           hostname: domain.host,
-          type: 'custom_domain',
           environmentId: domain.environmentId,
           basePath: domain.basePath,
           https: domain.https,
           status: 'pending',
           updatedAt: now,
-        }))
+        }),
+      )
 
-      await tx.insert(hostnames).values(values)
+      await tx.insert(domains).values(values)
     }
-
-    await syncProjectRuntimeRoutes({
-      tx,
-      projectId: context.project.id,
-      routes: context.routes,
-      now,
-    })
   })
 
   return getProjectContext({ userId, teamSlug, projectName })
@@ -1299,11 +1475,13 @@ export async function updateProjectEnvironments({
   teamSlug,
   projectName,
   projectEnvironments,
+  defaultServerId,
 }: {
   userId: string
   teamSlug: string
   projectName: string
   projectEnvironments: Array<ProjectEnvironmentConfig>
+  defaultServerId?: string | null
 }) {
   const context = await getProjectContext({ userId, teamSlug, projectName })
   const activeEnvironments = projectEnvironments.filter(
@@ -1326,17 +1504,21 @@ export async function updateProjectEnvironments({
   }
 
   const now = new Date()
+  const effectiveDefaultServerId =
+    defaultServerId === undefined
+      ? context.project.defaultServerId
+      : defaultServerId
 
   await db.transaction(async (tx) => {
-    const [environmentRows, hostnameRows] = await Promise.all([
+    const [environmentRows, aliasRows] = await Promise.all([
       tx
         .select()
         .from(environments)
         .where(eq(environments.projectId, context.project.id)),
       tx
         .select()
-        .from(hostnames)
-        .where(eq(hostnames.projectId, context.project.id)),
+        .from(aliases)
+        .where(eq(aliases.projectId, context.project.id)),
     ])
     const environmentById = new Map(
       environmentRows.map((environment) => [environment.id, environment]),
@@ -1359,65 +1541,38 @@ export async function updateProjectEnvironments({
       reconciledEnvironments.map((environment) => environment.id),
     )
 
-    await tx
-      .update(projects)
-      .set({ environments: reconciledEnvironments, updatedAt: now })
-      .where(eq(projects.id, context.project.id))
-
-    for (const environment of reconciledEnvironments) {
+    for (const [position, environment] of reconciledEnvironments.entries()) {
       const existing = environmentById.get(environment.id)
-      const existingAlias = hostnameRows.find(
-        (hostname) =>
-          hostname.type === 'environment_alias' &&
-          hostname.environmentId === environment.id,
+      const existingAlias = aliasRows.find(
+        (alias) =>
+          alias.type === 'environment' &&
+          alias.environmentId === environment.id,
       )
-      const serverId = resolveServerAssignment(
-        context.serverAssignments,
-        environment.id,
-      )
-      const defaultHost =
-        existingAlias?.hostname ??
-        buildDefaultHostForEnvironment({
-          environmentSlug: environment.slug,
-          projectName: context.project.name,
-          serverPublicAddress:
-            context.servers.find((server) => server.id === serverId)
-              ?.publicAddress ?? null,
-        })
-      const environmentHostnames = hostnameRows.filter(
-        (hostname) =>
-          hostname.environmentId === environment.id &&
-          (hostname.type === 'custom_domain' ||
-            hostname.type === 'environment_alias'),
-      )
-      const routeHostnames: Array<typeof hostnames.$inferSelect> = existingAlias
-        ? environmentHostnames.map((hostname) =>
-            hostname.id === existingAlias.id
-              ? { ...hostname, hostname: defaultHost, status: 'active' }
-              : hostname,
+      const effectiveServerId = environment.serverId ?? effectiveDefaultServerId
+      const server = effectiveServerId
+        ? context.servers.find(
+            (candidate) => candidate.id === effectiveServerId,
           )
-        : [
-            ...environmentHostnames,
-            {
-              id: crypto.randomUUID(),
-              projectId: context.project.id,
-              deploymentId: null,
-              hostname: defaultHost,
-              type: 'environment_alias',
-              environmentId: environment.id,
-              basePath: null,
-              https: true,
-              status: 'active',
-              message: null,
-              verifiedAt: null,
-              createdAt: now,
-              updatedAt: now,
-            },
-          ]
-      const publicRoutes = expandPublicRoutesFromHostnames(
-        context.routes,
-        routeHostnames,
-      )
+        : null
+
+      if (effectiveServerId && !server) {
+        throw new Error('Select a valid server for every environment.')
+      }
+
+      const requestedHostname = server
+        ? buildDefaultHostForEnvironment({
+            environmentSlug: environment.slug,
+            projectName: context.project.name,
+            serverPublicAddress: server.publicAddress,
+          })
+        : null
+      const hostname = requestedHostname
+        ? await resolveAvailableAliasHostname({
+            excludeAliasId: existingAlias?.id,
+            hostname: requestedHostname,
+            uniquenessKey: environment.id,
+          })
+        : null
 
       if (existing) {
         await tx
@@ -1426,11 +1581,11 @@ export async function updateProjectEnvironments({
             name: environment.name,
             slug: environment.slug,
             branch: environment.branch,
-            serverId,
-            defaultHost,
+            serverId: environment.serverId,
+            color: environment.color,
+            status: 'active',
             isProduction: environment.id === reconciledProduction.id,
-            envVars: getEnvVarsForEnvironment(context.envVars, environment.id),
-            publicRoutes,
+            position,
             updatedAt: now,
           })
           .where(eq(environments.id, existing.id))
@@ -1438,130 +1593,142 @@ export async function updateProjectEnvironments({
         await tx.insert(environments).values({
           id: environment.id,
           projectId: context.project.id,
-          serverId,
+          serverId: environment.serverId,
           name: environment.name,
           slug: environment.slug,
           branch: environment.branch,
+          color: environment.color,
+          status: 'active',
           isProduction: environment.id === reconciledProduction.id,
-          defaultHost,
+          position,
           runtimeId: buildComposeProjectName({
             projectId: context.project.id,
             environmentId: environment.id,
           }),
-          envVars: getEnvVarsForEnvironment(context.envVars, environment.id),
-          publicRoutes,
           updatedAt: now,
         })
       }
 
-      if (!existingAlias) {
-        await tx.insert(hostnames).values({
+      if (hostname && !existingAlias) {
+        await tx.insert(aliases).values({
           id: crypto.randomUUID(),
           projectId: context.project.id,
-          hostname: defaultHost,
-          type: 'environment_alias',
           environmentId: environment.id,
-          https: true,
-          status: 'active',
+          hostname,
+          type: 'environment',
+          https: generatedAliasUsesHttps(server?.publicAddress ?? null),
           updatedAt: now,
         })
-      } else if (existingAlias.hostname !== defaultHost) {
+      } else if (
+        hostname &&
+        existingAlias &&
+        existingAlias.hostname !== hostname
+      ) {
         await tx
-          .update(hostnames)
-          .set({ hostname: defaultHost, status: 'active', updatedAt: now })
-          .where(eq(hostnames.id, existingAlias.id))
+          .update(aliases)
+          .set({
+            hostname,
+            https: generatedAliasUsesHttps(server?.publicAddress ?? null),
+            updatedAt: now,
+          })
+          .where(eq(aliases.id, existingAlias.id))
+      } else if (!hostname && existingAlias) {
+        await tx.delete(aliases).where(eq(aliases.id, existingAlias.id))
       }
     }
 
-    for (const hostname of hostnameRows) {
-      if (
-        (hostname.type === 'custom_domain' ||
-          hostname.type === 'environment_alias') &&
-        hostname.environmentId &&
-        !activeEnvironmentIds.has(hostname.environmentId)
-      ) {
-        await tx
-          .update(hostnames)
-          .set({
-            status: 'disabled',
-            message: 'Environment was deleted.',
-            updatedAt: now,
-          })
-          .where(eq(hostnames.id, hostname.id))
-      }
+    const removedEnvironmentIds = environmentRows
+      .filter((environment) => !activeEnvironmentIds.has(environment.id))
+      .map((environment) => environment.id)
+
+    if (removedEnvironmentIds.length > 0) {
+      await tx
+        .update(environments)
+        .set({ status: 'deleted', isProduction: false, updatedAt: now })
+        .where(inArray(environments.id, removedEnvironmentIds))
+      await tx
+        .delete(aliases)
+        .where(inArray(aliases.environmentId, removedEnvironmentIds))
+      await tx
+        .delete(domains)
+        .where(inArray(domains.environmentId, removedEnvironmentIds))
     }
+
+    await tx
+      .update(projects)
+      .set({
+        ...(defaultServerId === undefined ? {} : { defaultServerId }),
+        updatedAt: now,
+      })
+      .where(eq(projects.id, context.project.id))
   })
 
   return getProjectContext({ userId, teamSlug, projectName })
 }
 
-export async function updateProjectServerAssignments({
+export async function updateProjectEnvironmentServers({
   userId,
   teamSlug,
   projectName,
-  serverAssignments,
+  defaultServerId,
+  environmentServers,
 }: {
   userId: string
   teamSlug: string
   projectName: string
-  serverAssignments: Array<ProjectServerAssignment>
+  defaultServerId: string | null
+  environmentServers: Array<{ environmentId: string; serverId: string | null }>
 }) {
   const context = await getProjectContext({ userId, teamSlug, projectName })
-  const normalizedAssignments = serverAssignments.filter(
-    (assignment) => assignment.serverId,
-  )
-
   const duplicateEnvironment = findDuplicate(
-    normalizedAssignments.map((assignment) => assignment.environment),
+    environmentServers.map((assignment) => assignment.environmentId),
   )
 
   if (duplicateEnvironment !== null) {
     throw new Error('Each environment can only have one server assignment.')
   }
 
-  for (const assignment of normalizedAssignments) {
-    const server = context.servers.find(
-      (candidate) => candidate.id === assignment.serverId,
-    )
+  if (
+    defaultServerId &&
+    !context.servers.some((server) => server.id === defaultServerId)
+  ) {
+    throw new Error('Select a valid default server.')
+  }
 
-    if (!server) {
-      throw new Error('Select a valid server.')
+  for (const assignment of environmentServers) {
+    const environment = context.environments.find(
+      (candidate) => candidate.id === assignment.environmentId,
+    )
+    const server = assignment.serverId
+      ? context.servers.find(
+          (candidate) => candidate.id === assignment.serverId,
+        )
+      : null
+
+    if (!environment || (assignment.serverId && !server)) {
+      throw new Error('Select a valid environment and server.')
     }
   }
 
-  const productionServerId = resolveServerAssignment(
-    normalizedAssignments,
-    getProductionEnvironment(context.environments).id,
+  const serverByEnvironment = new Map(
+    environmentServers.map((assignment) => [
+      assignment.environmentId,
+      assignment.serverId,
+    ]),
   )
 
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(projectServers)
-      .where(eq(projectServers.projectId, context.project.id))
-
-    if (normalizedAssignments.length > 0) {
-      await tx.insert(projectServers).values(
-        normalizedAssignments.map((assignment) => ({
-          id: crypto.randomUUID(),
-          projectId: context.project.id,
-          environmentId: assignment.environment || null,
-          serverId: assignment.serverId,
-        })),
-      )
-    }
-
-    await tx
-      .update(environments)
-      .set({ serverId: productionServerId, updatedAt: new Date() })
-      .where(eq(environments.id, context.environment.id))
-
-    await tx
-      .update(projects)
-      .set({ updatedAt: new Date() })
-      .where(eq(projects.id, context.project.id))
+  return updateProjectEnvironments({
+    userId,
+    teamSlug,
+    projectName,
+    defaultServerId,
+    projectEnvironments: context.environments.map((environment) => ({
+      ...environment,
+      serverId: serverByEnvironment.has(environment.id)
+        ? (serverByEnvironment.get(environment.id) ?? null)
+        : environment.serverId,
+    })),
   })
-
-  return getProjectContext({ userId, teamSlug, projectName })
 }
 
 export async function updateProjectEnvVars({
@@ -1585,22 +1752,10 @@ export async function updateProjectEnvVars({
     throw new Error('Environment variable keys must be unique per environment.')
   }
 
-  const currentEnvironmentEnvVars = getEnvVarsForEnvironment(
-    normalizedEnvVars,
-    context.environment.id,
-  )
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(projects)
-      .set({ envVars: normalizedEnvVars, updatedAt: new Date() })
-      .where(eq(projects.id, context.project.id))
-
-    await tx
-      .update(environments)
-      .set({ envVars: currentEnvironmentEnvVars, updatedAt: new Date() })
-      .where(eq(environments.id, context.environment.id))
-  })
+  await db
+    .update(projects)
+    .set({ envVars: normalizedEnvVars, updatedAt: new Date() })
+    .where(eq(projects.id, context.project.id))
 
   return getProjectContext({ userId, teamSlug, projectName })
 }
@@ -1614,43 +1769,101 @@ export async function updateProjectBackupConfigs({
   userId: string
   teamSlug: string
   projectName: string
-  backupConfigs: Array<ProjectBackupConfig>
+  backupConfigs: Array<
+    Omit<ProjectBackupConfig, 'destination'> & {
+      destination: BackupDestinationInput
+    }
+  >
 }) {
   const context = await getProjectContext({ userId, teamSlug, projectName })
   const environmentIds = new Set(context.environments.map((item) => item.id))
+  const existingBackupConfigRows = await db
+    .select({
+      id: backupConfigs.id,
+      destination: backupConfigs.destination,
+    })
+    .from(backupConfigs)
+    .where(eq(backupConfigs.projectId, context.project.id))
+  const existingDestinationById = new Map(
+    existingBackupConfigRows.map((item) => [
+      item.id,
+      typeof item.destination === 'object' && item.destination !== null
+        ? (item.destination as Partial<BackupDestination>)
+        : {},
+    ]),
+  )
   const normalizedConfigs = nextBackupConfigs
     .filter((item) => item.environmentId.trim() !== '')
-    .map((item) => ({
-      environmentId: item.environmentId,
-      enabled: item.enabled,
-      destination: {
-        bucket: item.destination.bucket.trim(),
-        region: item.destination.region?.trim() || undefined,
-        endpoint: item.destination.endpoint?.trim() || undefined,
-        prefix: item.destination.prefix?.trim() || undefined,
-      },
-      retention: item.retention,
-      databaseDumps: item.databaseDumps.map((dump) => ({
-        service: dump.service.trim(),
-        command: dump.command.trim(),
-        output: dump.output.trim(),
-      })),
-    }))
-  const duplicateEnvironment = findDuplicate(
-    normalizedConfigs.map((item) => item.environmentId),
-  )
+    .map((item) => {
+      const id = item.id.trim() || crypto.randomUUID()
+      const existingDestination = existingDestinationById.get(id)
+      const secretAccessKey = item.destination.secretAccessKey?.trim()
+      const accessKeyId = item.destination.accessKeyId?.trim()
+      const secretAccessKeyCiphertext = secretAccessKey
+        ? encryptSecret(secretAccessKey)
+        : item.destination.clearSecretAccessKey
+          ? undefined
+          : existingDestination?.secretAccessKeyCiphertext
+      const secretAccessKeyPreview = secretAccessKey
+        ? maskSecret(secretAccessKey)
+        : item.destination.clearSecretAccessKey
+          ? undefined
+          : existingDestination?.secretAccessKeyPreview
 
-  if (duplicateEnvironment) {
-    throw new Error('Each environment can only have one backup configuration.')
-  }
+      return {
+        id,
+        name: item.name.trim(),
+        environmentId: item.environmentId,
+        enabled: item.enabled,
+        schedule: parseBackupSchedule(item.schedule),
+        destination: {
+          bucket: item.destination.bucket.trim(),
+          region: item.destination.region?.trim() || undefined,
+          endpoint: item.destination.endpoint?.trim() || undefined,
+          prefix: item.destination.prefix?.trim() || undefined,
+          accessKeyId: accessKeyId || undefined,
+          secretAccessKeyCiphertext,
+          secretAccessKeyPreview,
+        },
+        retention: item.retention,
+        volumes: normalizeBackupVolumes(item.volumes),
+        databaseDumps: item.databaseDumps.map((dump) => ({
+          service: dump.service.trim(),
+          command: dump.command.trim(),
+        })),
+      }
+    })
 
   for (const backupConfig of normalizedConfigs) {
+    if (!backupConfig.name) {
+      throw new Error('Backup name is required.')
+    }
+
     if (!environmentIds.has(backupConfig.environmentId)) {
       throw new Error('Select a valid backup environment.')
     }
 
-    if (!backupConfig.destination.bucket) {
+    if (
+      backupConfig.retention.remote.enabled &&
+      !backupConfig.destination.bucket
+    ) {
       throw new Error('Backup bucket is required.')
+    }
+
+    if (
+      backupConfig.retention.remote.enabled &&
+      backupConfig.destination.accessKeyId &&
+      !backupConfig.destination.secretAccessKeyCiphertext
+    ) {
+      throw new Error('Remote backup secret access key is required.')
+    }
+
+    if (
+      backupConfig.retention.remote.enabled &&
+      !backupConfig.destination.accessKeyId &&
+      backupConfig.destination.secretAccessKeyCiphertext
+    ) {
+      throw new Error('Remote backup access key ID is required.')
     }
   }
 
@@ -1664,13 +1877,16 @@ export async function updateProjectBackupConfigs({
     if (normalizedConfigs.length > 0) {
       const values: Array<typeof backupConfigs.$inferInsert> =
         normalizedConfigs.map((backupConfig) => ({
-          id: crypto.randomUUID(),
+          id: backupConfig.id,
+          name: backupConfig.name,
           projectId: context.project.id,
           environmentId: backupConfig.environmentId,
           enabled: backupConfig.enabled,
           destinationType: 's3',
+          schedule: backupConfig.schedule,
           destination: backupConfig.destination,
           retention: backupConfig.retention,
+          volumes: backupConfig.volumes,
           databaseDumps: backupConfig.databaseDumps,
           createdAt: now,
           updatedAt: now,
@@ -1683,43 +1899,173 @@ export async function updateProjectBackupConfigs({
   return getProjectContext({ userId, teamSlug, projectName })
 }
 
+export async function createManualBackupRun({
+  backupConfigId,
+  userId,
+  teamSlug,
+  projectName,
+}: {
+  backupConfigId: string
+  userId: string
+  teamSlug: string
+  projectName: string
+}) {
+  const context = await getProjectContext({ userId, teamSlug, projectName })
+  const backupConfig = context.backupConfigs.find(
+    (candidate) => candidate.id === backupConfigId,
+  )
+
+  if (!backupConfig) {
+    throw new Error('Backup policy not found.')
+  }
+
+  await queueEnvironmentBackup({
+    projectId: context.project.id,
+    environmentId: backupConfig.environmentId,
+    manifest: {
+      trigger: 'manual',
+      backupConfigId,
+      requestedAt: new Date().toISOString(),
+    },
+  })
+
+  return getProjectContext({ userId, teamSlug, projectName })
+}
+
+export async function createBackupRestoreJob({
+  userId,
+  teamSlug,
+  projectName,
+  backupRunId,
+  artifacts,
+}: {
+  userId: string
+  teamSlug: string
+  projectName: string
+  backupRunId: string
+  artifacts: Array<
+    | {
+        artifactId: string
+        type: 'volume'
+        targetVolume: string
+      }
+    | {
+        artifactId: string
+        type: 'database'
+        targetService: string
+        restoreCommand: string
+      }
+  >
+}) {
+  const context = await getProjectContext({ userId, teamSlug, projectName })
+
+  await queueBackupRestoreJob({
+    projectId: context.project.id,
+    backupRunId,
+    artifacts,
+  })
+
+  return getProjectContext({ userId, teamSlug, projectName })
+}
+
 export async function createManualDeployment({
+  environmentId,
+  gitBranch,
   gitSha,
   userId,
   teamSlug,
   projectName,
 }: {
+  environmentId: string
+  gitBranch: string
   gitSha?: string | null
   userId: string
   teamSlug: string
   projectName: string
 }) {
   const context = await getProjectContext({ userId, teamSlug, projectName })
+  const environmentConfig = context.environments.find(
+    (environment) => environment.id === environmentId,
+  )
 
-  if (!context.environment.serverId) {
+  if (!environmentConfig) {
+    throw new Error('Deployment environment not found.')
+  }
+
+  const matchedEnvironment = getEnvironmentForBranch(
+    gitBranch,
+    context.environments,
+  )
+
+  if (matchedEnvironment?.id !== environmentConfig.id) {
+    throw new Error('The selected branch does not match this environment.')
+  }
+
+  const environmentRows = await db
+    .select({ environment: environments, project: projects, server: servers })
+    .from(environments)
+    .innerJoin(projects, eq(projects.id, environments.projectId))
+    .leftJoin(
+      servers,
+      eq(
+        servers.id,
+        sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+      ),
+    )
+    .where(
+      and(
+        eq(environments.id, environmentConfig.id),
+        eq(environments.projectId, context.project.id),
+      ),
+    )
+    .limit(1)
+  const environmentRow = environmentRows.at(0)
+
+  if (!environmentRow?.server) {
     throw new Error('Assign a server before deploying.')
   }
 
-  const assignedServerIds = Array.from(
-    new Set(
-      context.serverAssignments
-        .map((assignment) => assignment.serverId)
-        .filter(Boolean),
-    ),
-  )
-  const assignedServers = assignedServerIds.map((serverId) =>
-    context.servers.find((server) => server.id === serverId),
-  )
-
   if (
-    assignedServers.some((server) => !server || server.status !== 'connected')
+    getEffectiveServerStatus({
+      status: environmentRow.server.status,
+      lastSeenAt: environmentRow.server.lastSeenAt,
+    }) !== 'connected'
   ) {
     throw new Error(
-      'Wait until every assigned server is connected before deploying.',
+      'Wait until the assigned server is connected before deploying.',
     )
   }
 
-  if (context.environment.publicRoutes.length === 0) {
+  const [aliasRows, domainRows] = await Promise.all([
+    db
+      .select()
+      .from(aliases)
+      .where(
+        and(
+          eq(aliases.projectId, context.project.id),
+          eq(aliases.environmentId, environmentConfig.id),
+        ),
+      ),
+    db
+      .select()
+      .from(domains)
+      .where(
+        and(
+          eq(domains.projectId, context.project.id),
+          eq(domains.environmentId, environmentConfig.id),
+        ),
+      ),
+  ])
+
+  if (
+    resolveDeploymentPublicRoutes({
+      environment: environmentRow.environment,
+      aliasRows,
+      domainRows,
+      project: environmentRow.project,
+      gitBranch,
+    }).routes.length === 0
+  ) {
     throw new Error('Configure a public route before deploying.')
   }
 
@@ -1732,24 +2078,31 @@ export async function createManualDeployment({
     repositoryId: context.project.githubRepoId,
   })
   const commit = gitSha
-    ? await getRepositoryCommit({
-        accessToken: installationToken.token,
-        repo: context.project.githubRepo,
-        sha: gitSha,
-      })
+    ? (
+        await listBranchCommits({
+          accessToken: installationToken.token,
+          branch: gitBranch,
+          repo: context.project.githubRepo,
+          perPage: 5,
+        })
+      ).find((candidate) => candidate.sha === gitSha)
     : await getBranchHeadCommit({
         accessToken: installationToken.token,
-        branch: context.environment.branch,
+        branch: gitBranch,
         repo: context.project.githubRepo,
       })
-  const logMessage = `Queued ${context.project.githubRepo} for ${context.environment.name}.`
+
+  if (!commit) {
+    throw new Error('The selected commit is not available on this branch.')
+  }
+
+  const logMessage = `Queued ${context.project.githubRepo} for ${environmentConfig.name}.`
 
   const deployment = await createDeploymentForEnvironment({
-    environmentId: context.environment.id,
-    gitBranch: context.environment.branch,
+    environmentId: environmentConfig.id,
+    gitBranch,
     gitSha: commit.sha,
     trigger: 'user',
-    commitMessage: commit.message,
     commitMeta: toDeploymentCommitMeta(commit),
     queuedMessage: logMessage,
     createdByUserId: userId,
@@ -1796,26 +2149,26 @@ export async function createRollbackDeployment({
     throw new Error('Only successful deployments can be rolled back to.')
   }
 
-  const snapshot = parseDeploymentConfigSnapshot(source.configSnapshot)
+  const deploymentConfig = parseDeploymentConfig(source.config)
 
-  if (!snapshot) {
-    throw new Error('Deployment snapshot is invalid.')
+  if (!deploymentConfig) {
+    throw new Error('Deployment config is invalid.')
   }
 
   const serverRows = await db
     .select()
     .from(servers)
-    .where(eq(servers.id, snapshot.server.id))
+    .where(eq(servers.id, source.serverId))
     .limit(1)
-  const snapshottedServer = serverRows.at(0)
+  const deploymentServer = serverRows.at(0)
 
-  if (!snapshottedServer) {
+  if (!deploymentServer) {
     throw new Error('Deployment server not found.')
   }
 
   const serverStatus = getEffectiveServerStatus({
-    status: snapshottedServer.status,
-    lastSeenAt: snapshottedServer.lastSeenAt,
+    status: deploymentServer.status,
+    lastSeenAt: deploymentServer.lastSeenAt,
   })
 
   if (serverStatus !== 'connected') {
@@ -1823,8 +2176,28 @@ export async function createRollbackDeployment({
   }
 
   const rollbackDeploymentId = crypto.randomUUID()
+  const rollbackAliasHostname = buildDeploymentAliasHostname({
+    deploymentId: rollbackDeploymentId,
+    projectName: context.project.name,
+    serverPublicAddress: deploymentServer.publicAddress,
+  })
+  const sourceAliasRows = await db
+    .select({ hostname: aliases.hostname })
+    .from(aliases)
+    .where(
+      and(eq(aliases.deploymentId, source.id), eq(aliases.type, 'deployment')),
+    )
+  const rollbackConfig = replaceDeploymentAliasRoutes({
+    config: deploymentConfig,
+    hostname: rollbackAliasHostname,
+    https: generatedAliasUsesHttps(deploymentServer.publicAddress),
+    previousHostnames: sourceAliasRows.map((alias) => alias.hostname),
+  })
   const now = new Date()
   const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
+  const environmentName =
+    context.environments.find((item) => item.id === source.environmentId)
+      ?.name ?? 'environment'
 
   await db.transaction(async (tx) => {
     await cancelActiveDeploymentsForEnvironment(tx, {
@@ -1836,18 +2209,17 @@ export async function createRollbackDeployment({
     await tx.insert(deployments).values({
       id: rollbackDeploymentId,
       environmentId: source.environmentId,
-      serverId: snapshottedServer.id,
+      serverId: deploymentServer.id,
       status: 'queued',
       phase: 'queued',
       trigger: 'rollback',
-      repoId: snapshot.repo.id,
-      repoFullName: snapshot.repo.fullName,
+      repoId: source.repoId,
+      repoFullName: source.repoFullName,
       gitSha: source.gitSha,
       gitBranch: source.gitBranch,
-      commitMessage: source.commitMessage,
       commitMeta,
-      configSnapshot: source.configSnapshot,
-      envVarsSnapshot: source.envVarsSnapshot,
+      config: rollbackConfig,
+      envVars: source.envVars,
       runtimeId: source.runtimeId,
       createdByUserId: userId,
     })
@@ -1856,23 +2228,18 @@ export async function createRollbackDeployment({
       deploymentId: rollbackDeploymentId,
       stream: 'deploy',
       seq: 1,
-      content: `Queued rollback to ${source.gitSha.slice(0, 7)} for ${snapshot.environment.name}.`,
+      content: `Queued rollback to ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
       createdAt: now,
     })
 
-    await tx.insert(hostnames).values({
+    await tx.insert(aliases).values({
       id: crypto.randomUUID(),
       projectId: context.project.id,
       deploymentId: rollbackDeploymentId,
-      hostname: buildDeploymentAliasHostname({
-        deploymentId: rollbackDeploymentId,
-        projectName: snapshot.project.name,
-        fallbackHost: snapshot.environment.defaultHost,
-      }),
-      type: 'deployment_alias',
-      environmentId: snapshot.environment.id,
-      https: true,
-      status: 'active',
+      hostname: rollbackAliasHostname,
+      type: 'deployment',
+      environmentId: source.environmentId,
+      https: generatedAliasUsesHttps(deploymentServer.publicAddress),
       updatedAt: now,
     })
   })
@@ -1915,26 +2282,26 @@ export async function createRedeployDeployment({
     throw new Error('Queued or running deployments cannot be redeployed.')
   }
 
-  const snapshot = parseDeploymentConfigSnapshot(source.configSnapshot)
+  const deploymentConfig = parseDeploymentConfig(source.config)
 
-  if (!snapshot) {
-    throw new Error('Deployment snapshot is invalid.')
+  if (!deploymentConfig) {
+    throw new Error('Deployment config is invalid.')
   }
 
   const serverRows = await db
     .select()
     .from(servers)
-    .where(eq(servers.id, snapshot.server.id))
+    .where(eq(servers.id, source.serverId))
     .limit(1)
-  const snapshottedServer = serverRows.at(0)
+  const deploymentServer = serverRows.at(0)
 
-  if (!snapshottedServer) {
+  if (!deploymentServer) {
     throw new Error('Deployment server not found.')
   }
 
   const serverStatus = getEffectiveServerStatus({
-    status: snapshottedServer.status,
-    lastSeenAt: snapshottedServer.lastSeenAt,
+    status: deploymentServer.status,
+    lastSeenAt: deploymentServer.lastSeenAt,
   })
 
   if (serverStatus !== 'connected') {
@@ -1942,8 +2309,28 @@ export async function createRedeployDeployment({
   }
 
   const redeploymentId = crypto.randomUUID()
+  const redeploymentAliasHostname = buildDeploymentAliasHostname({
+    deploymentId: redeploymentId,
+    projectName: context.project.name,
+    serverPublicAddress: deploymentServer.publicAddress,
+  })
+  const sourceAliasRows = await db
+    .select({ hostname: aliases.hostname })
+    .from(aliases)
+    .where(
+      and(eq(aliases.deploymentId, source.id), eq(aliases.type, 'deployment')),
+    )
+  const redeploymentConfig = replaceDeploymentAliasRoutes({
+    config: deploymentConfig,
+    hostname: redeploymentAliasHostname,
+    https: generatedAliasUsesHttps(deploymentServer.publicAddress),
+    previousHostnames: sourceAliasRows.map((alias) => alias.hostname),
+  })
   const now = new Date()
   const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
+  const environmentName =
+    context.environments.find((item) => item.id === source.environmentId)
+      ?.name ?? 'environment'
 
   await db.transaction(async (tx) => {
     await cancelActiveDeploymentsForEnvironment(tx, {
@@ -1955,18 +2342,17 @@ export async function createRedeployDeployment({
     await tx.insert(deployments).values({
       id: redeploymentId,
       environmentId: source.environmentId,
-      serverId: snapshottedServer.id,
+      serverId: deploymentServer.id,
       status: 'queued',
       phase: 'queued',
       trigger: 'user',
-      repoId: snapshot.repo.id,
-      repoFullName: snapshot.repo.fullName,
+      repoId: source.repoId,
+      repoFullName: source.repoFullName,
       gitSha: source.gitSha,
       gitBranch: source.gitBranch,
-      commitMessage: source.commitMessage,
       commitMeta,
-      configSnapshot: source.configSnapshot,
-      envVarsSnapshot: source.envVarsSnapshot,
+      config: redeploymentConfig,
+      envVars: source.envVars,
       runtimeId: source.runtimeId,
       createdByUserId: userId,
     })
@@ -1975,23 +2361,18 @@ export async function createRedeployDeployment({
       deploymentId: redeploymentId,
       stream: 'deploy',
       seq: 1,
-      content: `Queued redeploy of ${source.gitSha.slice(0, 7)} for ${snapshot.environment.name}.`,
+      content: `Queued redeploy of ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
       createdAt: now,
     })
 
-    await tx.insert(hostnames).values({
+    await tx.insert(aliases).values({
       id: crypto.randomUUID(),
       projectId: context.project.id,
       deploymentId: redeploymentId,
-      hostname: buildDeploymentAliasHostname({
-        deploymentId: redeploymentId,
-        projectName: snapshot.project.name,
-        fallbackHost: snapshot.environment.defaultHost,
-      }),
-      type: 'deployment_alias',
-      environmentId: snapshot.environment.id,
-      https: true,
-      status: 'active',
+      hostname: redeploymentAliasHostname,
+      type: 'deployment',
+      environmentId: source.environmentId,
+      https: generatedAliasUsesHttps(deploymentServer.publicAddress),
       updatedAt: now,
     })
   })
@@ -2002,15 +2383,24 @@ export async function createRedeployDeployment({
 }
 
 export async function getManualDeploymentOptions({
+  environmentId,
   userId,
   teamSlug,
   projectName,
 }: {
+  environmentId: string
   userId: string
   teamSlug: string
   projectName: string
 }) {
   const context = await getProjectContext({ userId, teamSlug, projectName })
+  const environment = context.environments.find(
+    (candidate) => candidate.id === environmentId,
+  )
+
+  if (!environment) {
+    throw new Error('Deployment environment not found.')
+  }
 
   if (!context.project.githubInstallationId || !context.project.githubRepoId) {
     throw new Error('Connect a GitHub App installation before deploying.')
@@ -2020,19 +2410,40 @@ export async function getManualDeploymentOptions({
     installationId: context.project.githubInstallationId,
     repositoryId: context.project.githubRepoId,
   })
-  const commits = await listBranchCommits({
+  const branches = await listRepositoryBranches({
     accessToken: installationToken.token,
-    branch: context.environment.branch,
     repo: context.project.githubRepo,
-    perPage: 5,
   })
+  const matchingBranches =
+    groupBranchesByEnvironment(context.environments, branches).get(
+      environment.id,
+    ) ?? []
+  const commits = (
+    await Promise.all(
+      matchingBranches.map(async (branch) =>
+        (
+          await listBranchCommits({
+            accessToken: installationToken.token,
+            branch,
+            repo: context.project.githubRepo,
+            perPage: 5,
+          })
+        ).map((commit) => ({ ...commit, branch })),
+      ),
+    )
+  )
+    .flat()
+    .sort(
+      (left, right) =>
+        Date.parse(right.authoredAt ?? '') - Date.parse(left.authoredAt ?? ''),
+    )
 
   return {
     environment: {
-      id: context.environment.id,
-      name: context.environment.name,
-      branch: context.environment.branch,
-      color: context.environment.color,
+      id: environment.id,
+      name: environment.name,
+      branch: environment.branch,
+      color: environment.color,
     },
     commits,
   }
@@ -2053,7 +2464,7 @@ export async function createDeploymentsForGitHubPush({
   gitSha: string
   message: string | null
 }) {
-  const rows = await db
+  const candidateRows = await db
     .select({
       project: projects,
       environment: environments,
@@ -2061,16 +2472,59 @@ export async function createDeploymentsForGitHubPush({
     })
     .from(projects)
     .innerJoin(environments, eq(environments.projectId, projects.id))
-    .leftJoin(servers, eq(servers.id, environments.serverId))
+    .leftJoin(
+      servers,
+      eq(
+        servers.id,
+        sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+      ),
+    )
     .where(
       and(
         eq(projects.githubInstallationId, installationId),
         eq(projects.githubRepoId, repositoryId),
         eq(projects.githubRepo, repositoryFullName),
         eq(projects.status, 'active'),
-        eq(environments.branch, branch),
+        eq(environments.status, 'active'),
       ),
     )
+    .orderBy(asc(projects.id), asc(environments.position))
+  const candidatesByProject = new Map<
+    string,
+    Array<(typeof candidateRows)[number]>
+  >()
+
+  for (const row of candidateRows) {
+    const candidates = candidatesByProject.get(row.project.id) ?? []
+    candidates.push(row)
+    candidatesByProject.set(row.project.id, candidates)
+  }
+
+  const rows = Array.from(candidatesByProject.values()).flatMap(
+    (candidates) => {
+      const environmentConfig = getEnvironmentForBranch(
+        branch,
+        candidates.map((candidate) =>
+          mapEnvironmentConfig(
+            candidate.environment,
+            candidate.project.defaultServerId,
+          ),
+        ),
+      )
+
+      if (!environmentConfig) {
+        return []
+      }
+
+      const matched = candidates.find(
+        (candidate) =>
+          candidate.environment.id === environmentConfig.id ||
+          candidate.environment.slug === environmentConfig.slug,
+      )
+
+      return matched ? [matched] : []
+    },
+  )
 
   const created: Array<{
     deploymentId: string
@@ -2084,21 +2538,32 @@ export async function createDeploymentsForGitHubPush({
   }> = []
 
   for (const row of rows) {
-    const [hostnameRows] = await Promise.all([
+    const [aliasRows, domainRows] = await Promise.all([
       db
         .select()
-        .from(hostnames)
+        .from(aliases)
         .where(
           and(
-            eq(hostnames.projectId, row.project.id),
-            eq(hostnames.environmentId, row.environment.id),
-            inArray(hostnames.type, ['custom_domain', 'environment_alias']),
+            eq(aliases.projectId, row.project.id),
+            eq(aliases.environmentId, row.environment.id),
+            eq(aliases.type, 'environment'),
+          ),
+        ),
+      db
+        .select()
+        .from(domains)
+        .where(
+          and(
+            eq(domains.projectId, row.project.id),
+            eq(domains.environmentId, row.environment.id),
           ),
         ),
     ])
     const routeCount = resolveDeploymentPublicRoutes({
       environment: row.environment,
-      hostnameRows,
+      aliasRows,
+      domainRows,
+      gitBranch: branch,
       project: row.project,
     }).routes.length
     const serverStatus = row.server
@@ -2108,11 +2573,7 @@ export async function createDeploymentsForGitHubPush({
         })
       : null
 
-    if (
-      !row.environment.serverId ||
-      !row.server ||
-      serverStatus !== 'connected'
-    ) {
+    if (!row.server || serverStatus !== 'connected') {
       skipped.push({
         projectId: row.project.id,
         environmentId: row.environment.id,
@@ -2135,7 +2596,6 @@ export async function createDeploymentsForGitHubPush({
       gitBranch: branch,
       gitSha,
       trigger: 'webhook',
-      commitMessage: message,
       commitMeta: {
         message,
         authorName: null,
@@ -2168,12 +2628,122 @@ function mapProject(
     githubInstallationId: project.githubInstallationId,
     githubRepoId: project.githubRepoId,
     githubRepo: project.githubRepo,
+    defaultServerId: project.defaultServerId,
     avatarUrl: project.avatarPath,
     composePath: project.composePath,
     releaseCommand: project.releaseCommand,
+    releaseService: project.releaseService,
     readinessPath: project.readinessPath,
     color: getResourceColor(project.id),
   }
+}
+
+async function getProjectComposeMetadata({
+  project,
+  ref,
+}: {
+  project: typeof projects.$inferSelect
+  ref: string
+}): Promise<ProjectComposeMetadata | null> {
+  if (
+    !project.composePath ||
+    !project.githubInstallationId ||
+    !project.githubRepo
+  ) {
+    return null
+  }
+
+  try {
+    const installation = await createInstallationAccessToken({
+      installationId: project.githubInstallationId,
+      repositoryId: project.githubRepoId,
+    })
+    const composeText = await getRepositoryFileText({
+      accessToken: installation.token,
+      repo: project.githubRepo,
+      path: project.composePath,
+      ref,
+    })
+
+    return parseComposeMetadata(composeText)
+  } catch {
+    return null
+  }
+}
+
+function parseComposeMetadata(composeText: string): ProjectComposeMetadata {
+  const document = parseYaml(composeText)
+  const root = isRecord(document) ? document : {}
+  const services = isRecord(root.services)
+    ? Object.keys(root.services).filter(Boolean).sort()
+    : []
+  const volumes = new Set<string>()
+
+  if (isRecord(root.volumes)) {
+    for (const volumeName of Object.keys(root.volumes)) {
+      if (volumeName) {
+        volumes.add(volumeName)
+      }
+    }
+  }
+
+  if (isRecord(root.services)) {
+    for (const service of Object.values(root.services)) {
+      if (!isRecord(service) || !Array.isArray(service.volumes)) {
+        continue
+      }
+
+      for (const mount of service.volumes) {
+        const volumeName = getComposeVolumeName(mount)
+
+        if (volumeName) {
+          volumes.add(volumeName)
+        }
+      }
+    }
+  }
+
+  return {
+    services,
+    volumes: Array.from(volumes).sort(),
+  }
+}
+
+function getComposeVolumeName(mount: unknown) {
+  if (typeof mount === 'string') {
+    const [source] = mount.split(':')
+    const trimmed = source.trim()
+
+    return isNamedComposeVolume(trimmed) ? trimmed : null
+  }
+
+  if (!isRecord(mount)) {
+    return null
+  }
+
+  const type = typeof mount.type === 'string' ? mount.type : null
+  const source = typeof mount.source === 'string' ? mount.source.trim() : ''
+
+  if (type && type !== 'volume') {
+    return null
+  }
+
+  return isNamedComposeVolume(source) ? source : null
+}
+
+function isNamedComposeVolume(value: string | null | undefined) {
+  return Boolean(
+    value &&
+    !value.startsWith('/') &&
+    !value.startsWith('./') &&
+    !value.startsWith('../') &&
+    !value.startsWith('~/') &&
+    !value.includes('$'),
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function mapEnvironment(
@@ -2185,9 +2755,10 @@ function mapEnvironment(
     name: environment.name,
     slug: environment.slug,
     branch: environment.branch,
-    color: 'blue',
-    defaultHost: environment.defaultHost,
-    serverId: environment.serverId,
+    color: environment.color,
+    position: environment.position,
+    defaultHost: null,
+    serverId: server?.id ?? null,
     serverName: server?.name ?? null,
     serverStatus: server
       ? getEffectiveServerStatus({
@@ -2195,11 +2766,50 @@ function mapEnvironment(
           lastSeenAt: server.lastSeenAt,
         })
       : null,
-    envVars: normalizeEnvVars(environment.envVars),
-    publicRoutes: normalizeRoutes(
-      environment.publicRoutes,
-      environment.defaultHost,
-    ),
+    envVars: [],
+    publicRoutes: [],
+    runtime: null,
+  }
+}
+
+function mapRuntimeObservation(
+  observation: {
+    lastSeenAt: Date
+    services: unknown
+  } | null,
+): ProjectContext['environment']['runtime'] {
+  if (!observation || !Array.isArray(observation.services)) {
+    return null
+  }
+
+  const services = observation.services.flatMap((value) => {
+    if (!isRecord(value)) {
+      return []
+    }
+    const name = typeof value.name === 'string' ? value.name : null
+    const containerName =
+      typeof value.containerName === 'string' ? value.containerName : null
+    const state = typeof value.state === 'string' ? value.state : null
+    if (!name || !containerName || !state) {
+      return []
+    }
+    return [
+      {
+        name,
+        containerName,
+        state,
+        health: typeof value.health === 'string' ? value.health : null,
+        restartCount:
+          typeof value.restartCount === 'number' ? value.restartCount : 0,
+        startedAt: typeof value.startedAt === 'string' ? value.startedAt : null,
+        exitCode: typeof value.exitCode === 'number' ? value.exitCode : 0,
+      },
+    ]
+  })
+
+  return {
+    observedAt: observation.lastSeenAt.toISOString(),
+    services,
   }
 }
 
@@ -2214,11 +2824,9 @@ function mapDeployment({
   project: typeof projects.$inferSelect
   server?: typeof servers.$inferSelect | null
 }): DeploymentSummary {
-  const snapshot = parseDeploymentConfigSnapshot(deployment.configSnapshot)
-  const routes = normalizeRoutes(
-    snapshot?.compose.routes ?? environment.publicRoutes,
-    snapshot?.environment.defaultHost ?? environment.defaultHost,
-  )
+  const deploymentConfig = parseDeploymentConfig(deployment.config)
+  const routes = normalizeRoutes(deploymentConfig?.routes ?? [], null)
+  const commitMeta = normalizeDeploymentCommitMeta(deployment.commitMeta)
 
   return {
     id: deployment.id,
@@ -2227,58 +2835,28 @@ function mapDeployment({
     trigger: deployment.trigger,
     gitSha: deployment.gitSha,
     gitBranch: deployment.gitBranch,
-    githubRepo: snapshot?.repo.fullName ?? deployment.repoFullName,
-    defaultHost: snapshot?.environment.defaultHost ?? environment.defaultHost,
+    githubRepo: deployment.repoFullName,
+    defaultHost: routes.at(0)?.host ?? null,
     defaultRouteHttps: routes.at(0)?.https ?? true,
-    commitMessage: deployment.commitMessage,
+    commitMessage: commitMeta.message,
     errorMessage: deployment.errorMessage,
     createdAt: deployment.createdAt.toISOString(),
     startedAt: deployment.startedAt?.toISOString() ?? null,
     finishedAt: deployment.finishedAt?.toISOString() ?? null,
-    environmentName: snapshot?.environment.name ?? environment.name,
-    environmentSlug: snapshot?.environment.slug ?? environment.slug,
-    environmentColor:
-      snapshot?.environment.color ??
-      getEnvironmentConfigColor(project, environment),
-    serverName: server?.name ?? snapshot?.server.name ?? 'Unknown server',
+    environmentName: environment.name,
+    environmentSlug: environment.slug,
+    environmentColor: environment.color,
+    serverId: server?.id ?? deployment.serverId,
+    serverName: server?.name ?? 'Unknown server',
     serverStatus: server
       ? getEffectiveServerStatus({
           status: server.status,
           lastSeenAt: server.lastSeenAt,
         })
-      : normalizeDeploymentServerStatus(snapshot?.server.status),
-    projectName: snapshot?.project.name ?? project.name,
+      : 'disconnected',
+    projectName: project.name,
     projectColor: getResourceColor(project.id),
   }
-}
-
-function normalizeDeploymentServerStatus(status: string | null | undefined) {
-  if (
-    status === 'pending' ||
-    status === 'connected' ||
-    status === 'disconnected' ||
-    status === 'disabled' ||
-    status === 'deleted'
-  ) {
-    return status
-  }
-
-  return 'disconnected'
-}
-
-function getEnvironmentConfigColor(
-  project: typeof projects.$inferSelect,
-  environment: typeof environments.$inferSelect,
-) {
-  const environmentConfig = normalizeProjectEnvironments(
-    project.environments,
-    environment,
-  )
-  return (
-    environmentConfig.find((item) => item.id === environment.id)?.color ??
-    environmentConfig.find((item) => item.slug === environment.slug)?.color ??
-    'blue'
-  )
 }
 
 function normalizeEnvVars(value: unknown): Array<ProjectEnvironmentVariable> {
@@ -2307,78 +2885,21 @@ function normalizeEnvVars(value: unknown): Array<ProjectEnvironmentVariable> {
     .filter((item) => item.key.trim() !== '')
 }
 
-function normalizeProjectEnvironments(
-  value: unknown,
-  fallbackEnvironment: typeof environments.$inferSelect,
-): Array<ProjectEnvironmentConfig> {
-  if (Array.isArray(value)) {
-    const environmentsConfig = value
-      .filter(
-        (item): item is ProjectEnvironmentConfig =>
-          typeof item === 'object' &&
-          item !== null &&
-          'id' in item &&
-          'name' in item &&
-          'slug' in item &&
-          'branch' in item &&
-          'color' in item &&
-          typeof item.id === 'string' &&
-          typeof item.name === 'string' &&
-          typeof item.slug === 'string' &&
-          typeof item.branch === 'string' &&
-          typeof item.color === 'string',
-      )
-      .map((item) => ({
-        ...item,
-        status:
-          item.status === 'deleted'
-            ? ('deleted' as const)
-            : ('active' as const),
-      }))
-      .filter((item) => item.status === 'active')
-
-    if (environmentsConfig.length > 0) {
-      return environmentsConfig
-    }
+function mapEnvironmentConfig(
+  environment: typeof environments.$inferSelect,
+  defaultServerId: string | null,
+): ProjectEnvironmentConfig {
+  return {
+    id: environment.id,
+    name: environment.name,
+    slug: environment.slug,
+    branch: environment.branch,
+    color: environment.color,
+    position: environment.position,
+    status: environment.status,
+    effectiveServerId: environment.serverId ?? defaultServerId,
+    serverId: environment.serverId,
   }
-
-  return [
-    {
-      id: fallbackEnvironment.id,
-      name: fallbackEnvironment.name,
-      slug: fallbackEnvironment.slug,
-      branch: fallbackEnvironment.branch,
-      color: 'blue',
-      status: 'active',
-    },
-  ]
-}
-
-function normalizeServerAssignments(
-  value: unknown,
-  fallbackServerId: string | null,
-): Array<ProjectServerAssignment> {
-  if (Array.isArray(value)) {
-    const assignments = value
-      .filter(
-        (item): item is ProjectServerAssignment =>
-          typeof item === 'object' &&
-          item !== null &&
-          'environment' in item &&
-          'serverId' in item &&
-          typeof item.environment === 'string' &&
-          typeof item.serverId === 'string',
-      )
-      .filter((item) => item.serverId)
-
-    if (assignments.length > 0) {
-      return assignments
-    }
-  }
-
-  return fallbackServerId
-    ? [{ environment: '', serverId: fallbackServerId }]
-    : []
 }
 
 function getProductionEnvironment(
@@ -2388,18 +2909,6 @@ function getProductionEnvironment(
     environmentsConfig.find(
       (environment) => environment.slug === 'production',
     ) ?? environmentsConfig[0]
-  )
-}
-
-function resolveServerAssignment(
-  assignments: Array<ProjectServerAssignment>,
-  environment: string,
-) {
-  return (
-    assignments.find((assignment) => assignment.environment === environment)
-      ?.serverId ??
-    assignments.find((assignment) => assignment.environment === '')?.serverId ??
-    null
   )
 }
 
@@ -2434,9 +2943,16 @@ function normalizeProjectRoutes(value: unknown): Array<ProjectRoute> {
     : [{ path: '/', service: 'web', port: 3000, stripPrefix: false }]
 }
 
+type RouteHostname = {
+  hostname: string
+  environmentId: string
+  basePath: string | null
+  https: boolean
+}
+
 function expandPublicRoutesFromHostnames(
   routes: Array<ProjectRoute>,
-  hostnameRows: Array<typeof hostnames.$inferSelect>,
+  hostnameRows: Array<RouteHostname>,
 ): Array<ProjectPublicRoute> {
   return hostnameRows.flatMap((hostname) => {
     const targetRoutes = hostname.basePath
@@ -2454,20 +2970,37 @@ function expandPublicRoutesFromHostnames(
   })
 }
 
+function toRouteHostnames(
+  aliasRows: Array<typeof aliases.$inferSelect>,
+  domainRows: Array<typeof domains.$inferSelect>,
+): Array<RouteHostname> {
+  return [
+    ...aliasRows.map((alias) => ({
+      hostname: alias.hostname,
+      environmentId: alias.environmentId,
+      basePath: null,
+      https: alias.https,
+    })),
+    ...domainRows.map((domain) => ({
+      hostname: domain.hostname,
+      environmentId: domain.environmentId,
+      basePath: domain.basePath,
+      https: domain.https,
+    })),
+  ]
+}
+
 function mapProjectDomains(
-  hostnameRows: Array<typeof hostnames.$inferSelect>,
+  domainRows: Array<typeof domains.$inferSelect>,
 ): Array<ProjectDomain> {
-  return hostnameRows
-    .filter((hostname) => hostname.type === 'custom_domain')
-    .map((hostname) => ({
-      id: hostname.id,
-      host: hostname.hostname,
-      environmentId: hostname.environmentId ?? '',
-      basePath: hostname.basePath,
-      https: hostname.https,
-      status: hostname.status,
-      generated: false,
-    }))
+  return domainRows.map((domain) => ({
+    id: domain.id,
+    host: domain.hostname,
+    environmentId: domain.environmentId,
+    basePath: domain.basePath,
+    https: domain.https,
+    status: domain.status,
+  }))
 }
 
 function mapBackupConfig(
@@ -2478,11 +3011,7 @@ function mapBackupConfig(
     backupConfig.destination !== null
       ? (backupConfig.destination as Partial<BackupDestination>)
       : {}
-  const retention =
-    typeof backupConfig.retention === 'object' &&
-    backupConfig.retention !== null
-      ? (backupConfig.retention as Partial<BackupRetentionPolicy>)
-      : {}
+  const retention = backupRetentionSchema.parse(backupConfig.retention)
   const databaseDumps = Array.isArray(backupConfig.databaseDumps)
     ? backupConfig.databaseDumps.filter(
         (dump): dump is BackupDatabaseDump =>
@@ -2490,75 +3019,121 @@ function mapBackupConfig(
           dump !== null &&
           'service' in dump &&
           'command' in dump &&
-          'output' in dump &&
           typeof dump.service === 'string' &&
-          typeof dump.command === 'string' &&
-          typeof dump.output === 'string',
+          typeof dump.command === 'string',
       )
     : []
 
   return {
+    id: backupConfig.id,
+    name: backupConfig.name,
     environmentId: backupConfig.environmentId,
     enabled: backupConfig.enabled,
+    schedule: parseBackupSchedule(backupConfig.schedule),
     destination: {
       bucket: destination.bucket ?? '',
       region: destination.region,
       endpoint: destination.endpoint,
       prefix: destination.prefix,
+      accessKeyId: destination.accessKeyId,
+      secretAccessKeyPreview: destination.secretAccessKeyPreview
+        ? 'Configured'
+        : undefined,
     },
-    retention: {
-      daily: retention.daily ?? 7,
-      weekly: retention.weekly ?? 4,
-      monthly: retention.monthly ?? 3,
-    },
+    retention,
+    volumes: normalizeBackupVolumes(backupConfig.volumes),
     databaseDumps,
   }
 }
 
-async function syncProjectRuntimeRoutes({
-  tx,
-  projectId,
-  routes,
-  now,
-}: {
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0]
-  projectId: string
-  routes: Array<ProjectRoute>
-  now: Date
-}) {
-  const [environmentRows, hostnameRows] = await Promise.all([
-    tx.select().from(environments).where(eq(environments.projectId, projectId)),
-    tx
-      .select()
-      .from(hostnames)
-      .where(
-        and(
-          eq(hostnames.projectId, projectId),
-          inArray(hostnames.type, ['custom_domain', 'environment_alias']),
-        ),
-      ),
-  ])
+function maskSecret(value: string) {
+  return value.length > 0 ? 'Configured' : ''
+}
 
-  for (const environment of environmentRows) {
-    const environmentHostnames = hostnameRows.filter(
-      (hostname) => hostname.environmentId === environment.id,
-    )
-    const environmentAlias = environmentHostnames.find(
-      (hostname) => hostname.type === 'environment_alias',
-    )
+function mapBackupRun(
+  {
+    backupRun,
+    environment,
+    server,
+  }: {
+    backupRun: typeof backupRuns.$inferSelect
+    environment: typeof environments.$inferSelect
+    server: typeof servers.$inferSelect | null
+  },
+  projectEnvironments: Array<ProjectEnvironmentConfig>,
+  artifacts: Array<typeof backupArtifacts.$inferSelect>,
+): ProjectBackupRun {
+  const environmentConfig =
+    projectEnvironments.find((item) => item.id === environment.id) ?? null
 
-    await tx
-      .update(environments)
-      .set({
-        defaultHost: environmentAlias?.hostname ?? null,
-        publicRoutes: expandPublicRoutesFromHostnames(
-          routes,
-          environmentHostnames,
-        ),
-        updatedAt: now,
-      })
-      .where(eq(environments.id, environment.id))
+  return {
+    id: backupRun.id,
+    status: backupRun.status,
+    environmentId: environment.id,
+    environmentName: environmentConfig?.name ?? environment.name,
+    environmentColor:
+      environmentConfig?.color ?? getResourceColor(environment.name),
+    serverId: server?.id ?? null,
+    serverName: server?.name ?? null,
+    errorMessage: backupRun.errorMessage,
+    startedAt: backupRun.startedAt?.toISOString() ?? null,
+    finishedAt: backupRun.finishedAt?.toISOString() ?? null,
+    createdAt: backupRun.createdAt.toISOString(),
+    artifacts: artifacts.map(mapBackupArtifact),
   }
+}
+
+function mapBackupArtifact(
+  artifact: typeof backupArtifacts.$inferSelect,
+): ProjectBackupArtifact {
+  return {
+    id: artifact.id,
+    type: artifact.type,
+    storage: artifact.storage,
+    objectKey: artifact.objectKey,
+    checksumSha256: artifact.checksumSha256,
+    sizeBytes: artifact.sizeBytes,
+    createdAt: artifact.createdAt.toISOString(),
+  }
+}
+
+function parseBackupSchedule(value: unknown): ProjectBackupSchedule {
+  if (typeof value === 'object' && value !== null) {
+    const schedule = value as Partial<ProjectBackupSchedule>
+
+    if (typeof schedule.cron === 'string' && isCronSchedule(schedule.cron)) {
+      return { cron: schedule.cron.trim() }
+    }
+  }
+
+  throw new Error('Backup schedules must use a five-field cron expression.')
+}
+
+function normalizeBackupVolumes(value: unknown): BackupVolumeSelection {
+  if (typeof value === 'object' && value !== null) {
+    const volumes = value as Partial<BackupVolumeSelection>
+
+    if (volumes.mode === 'none') {
+      return { mode: 'none', names: [] }
+    }
+
+    if (volumes.mode === 'selected' && Array.isArray(volumes.names)) {
+      const names = volumes.names
+        .filter((name): name is string => typeof name === 'string')
+        .map((name) => name.trim())
+        .filter(Boolean)
+
+      return names.length > 0
+        ? { mode: 'selected', names }
+        : { mode: 'allNamed', names: [] }
+    }
+  }
+
+  return { mode: 'allNamed', names: [] }
+}
+
+function isCronSchedule(value: string) {
+  return /^(\S+\s+){4}\S+$/.test(value.trim())
 }
 
 function getEnvVarsForEnvironment(
@@ -2669,11 +3244,43 @@ export function buildDefaultHostForProject({
   projectName: string
   serverPublicAddress: string | null
 }) {
-  if (serverPublicAddress && isPublicIpv4Address(serverPublicAddress)) {
-    return `${projectName}.${serverPublicAddress.replaceAll('.', '-')}.nip.io`
+  const address = resolveRoutingIpv4(serverPublicAddress)
+  const addressLabel = address.replaceAll('.', '-')
+  const prefix = toNipPrefix(projectName, 63 - addressLabel.length - 1)
+
+  return `${prefix}-${addressLabel}.nip.io`
+}
+
+function toNipPrefix(value: string, maxLength: number) {
+  const normalized =
+    value
+      .toLowerCase()
+      .replace(/[\s_.]+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'app'
+
+  if (normalized.length <= maxLength) {
+    return normalized
   }
 
-  return `${projectName}.${config.DEVPUSH_DEFAULT_APP_DOMAIN.replace(/^\.+|\.+$/g, '')}`
+  const hash = stableHostHash(normalized)
+  const remainingLength = maxLength - hash.length - 2
+  const startLength = Math.ceil(remainingLength / 2)
+  const endLength = Math.floor(remainingLength / 2)
+
+  return `${normalized.slice(0, startLength)}-${hash}-${normalized.slice(-endLength)}`
+}
+
+function stableHostHash(value: string) {
+  let hash = 2_166_136_261
+
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 16_777_619)
+  }
+
+  return (hash >>> 0).toString(36).padStart(7, '0').slice(0, 7)
 }
 
 function buildDefaultHostForEnvironment({
@@ -2699,28 +3306,164 @@ function buildDefaultHostForEnvironment({
 function buildDeploymentAliasHostname({
   deploymentId,
   projectName,
-  fallbackHost,
+  serverPublicAddress,
 }: {
   deploymentId: string
   projectName: string
-  fallbackHost: string | null
+  serverPublicAddress: string | null
 }) {
-  const suffix = fallbackHost?.includes('.')
-    ? fallbackHost.split('.').slice(1).join('.')
-    : config.DEVPUSH_DEFAULT_APP_DOMAIN.replace(/^\.+|\.+$/g, '')
-
-  return `${deploymentId.slice(0, 7)}-${projectName}.${suffix}`
+  return buildDefaultHostForProject({
+    projectName: `${deploymentId.slice(0, 7)}-${projectName}`,
+    serverPublicAddress,
+  })
 }
 
-function isPublicIpv4Address(value: string) {
+function buildBranchAliasHostname({
+  branch,
+  projectName,
+  serverPublicAddress,
+}: {
+  branch: string
+  projectName: string
+  serverPublicAddress: string | null
+}) {
+  return buildDefaultHostForProject({
+    projectName: `${projectName}-git-${slugify(branch)}`,
+    serverPublicAddress,
+  })
+}
+
+function disambiguateNipHostname(hostname: string, uniquenessKey: string) {
+  const match = /^(.*)-(\d{1,3}(?:-\d{1,3}){3})\.nip\.io$/.exec(hostname)
+
+  if (!match) {
+    throw new Error(`Generated alias "${hostname}" is not a nip.io hostname.`)
+  }
+
+  const [, prefix = 'app', address = '127-0-0-1'] = match
+  const maxPrefixLength = 63 - address.length - 1
+  const resolvedPrefix = toNipPrefix(
+    `${prefix}-${stableHostHash(uniquenessKey)}`,
+    maxPrefixLength,
+  )
+
+  return `${resolvedPrefix}-${address}.nip.io`
+}
+
+async function resolveAvailableAliasHostname({
+  excludeAliasId,
+  hostname,
+  uniquenessKey,
+}: {
+  excludeAliasId?: string
+  hostname: string
+  uniquenessKey: string
+}) {
+  let candidate = hostname
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [aliasRows, domainRows] = await Promise.all([
+      db
+        .select({ id: aliases.id })
+        .from(aliases)
+        .where(
+          and(
+            eq(aliases.hostname, candidate),
+            excludeAliasId ? ne(aliases.id, excludeAliasId) : undefined,
+          ),
+        )
+        .limit(1),
+      db
+        .select({ id: domains.id })
+        .from(domains)
+        .where(eq(domains.hostname, candidate))
+        .limit(1),
+    ])
+
+    if (aliasRows.length === 0 && domainRows.length === 0) {
+      return candidate
+    }
+
+    candidate = disambiguateNipHostname(hostname, `${uniquenessKey}:${attempt}`)
+  }
+
+  throw new Error('Could not generate an available nip.io hostname.')
+}
+
+function replaceDeploymentAliasRoutes({
+  config: deploymentConfig,
+  hostname,
+  https,
+  previousHostnames,
+}: {
+  config: DeploymentConfig
+  hostname: string
+  https: boolean
+  previousHostnames: Array<string>
+}): DeploymentConfig {
+  const previous = new Set(previousHostnames)
+  const stableRoutes = deploymentConfig.routes.filter(
+    (route) => !previous.has(route.host),
+  )
+  const routeShapes = new Map<
+    string,
+    Omit<DeploymentConfig['routes'][number], 'host' | 'https'>
+  >()
+
+  for (const route of stableRoutes.length > 0
+    ? stableRoutes
+    : deploymentConfig.routes) {
+    const { host: _host, https: _https, ...shape } = route
+    const key = `${shape.service}:${shape.port}:${shape.path}:${shape.stripPrefix}`
+    routeShapes.set(key, shape)
+  }
+
+  return {
+    ...deploymentConfig,
+    routes: [
+      ...stableRoutes,
+      ...Array.from(routeShapes.values(), (route) => ({
+        ...route,
+        host: hostname,
+        https,
+      })),
+    ],
+  }
+}
+
+function resolveRoutingIpv4(value: string | null) {
+  if (value && isIpv4Address(value)) {
+    return value
+  }
+
+  const controlPlaneHost = new URL(config.BETTER_AUTH_URL).hostname
+
+  if (controlPlaneHost === 'localhost' || controlPlaneHost === '127.0.0.1') {
+    return '127.0.0.1'
+  }
+
+  throw new Error(
+    'The assigned server has no IPv4 address for generating its nip.io URL.',
+  )
+}
+
+function isIpv4Address(value: string) {
   const octets = value.split('.').map((part) => Number.parseInt(part, 10))
 
-  if (
-    octets.length !== 4 ||
-    octets.some((octet) => Number.isNaN(octet) || octet < 0 || octet > 255)
-  ) {
-    return false
-  }
+  return (
+    octets.length === 4 &&
+    octets.every(
+      (octet, index) =>
+        /^\d{1,3}$/.test(value.split('.')[index] ?? '') &&
+        octet >= 0 &&
+        octet <= 255,
+    )
+  )
+}
+
+function generatedAliasUsesHttps(serverPublicAddress: string | null) {
+  const value = resolveRoutingIpv4(serverPublicAddress)
+  const octets = value.split('.').map((part) => Number.parseInt(part, 10))
 
   const [first = 0, second = 0] = octets
 
@@ -2770,7 +3513,6 @@ async function createDeploymentForEnvironment({
   gitBranch,
   gitSha,
   trigger,
-  commitMessage,
   commitMeta,
   queuedMessage,
   createdByUserId,
@@ -2780,7 +3522,6 @@ async function createDeploymentForEnvironment({
   gitBranch: string
   gitSha: string
   trigger: 'user' | 'webhook' | 'api' | 'rollback'
-  commitMessage: string | null
   commitMeta: DeploymentCommitMeta
   queuedMessage: string
   createdByUserId?: string
@@ -2794,7 +3535,13 @@ async function createDeploymentForEnvironment({
     })
     .from(environments)
     .innerJoin(projects, eq(projects.id, environments.projectId))
-    .leftJoin(servers, eq(servers.id, environments.serverId))
+    .leftJoin(
+      servers,
+      eq(
+        servers.id,
+        sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+      ),
+    )
     .where(eq(environments.id, environmentId))
     .limit(1)
   const environmentRow = environmentRows.at(0)
@@ -2803,34 +3550,87 @@ async function createDeploymentForEnvironment({
     throw new Error('Deployment environment not found.')
   }
 
-  if (!environmentRow.environment.serverId || !environmentRow.server) {
+  if (!environmentRow.server) {
     throw new Error('Assign a server before deploying.')
   }
+  if (!environmentRow.project.githubRepoId) {
+    throw new Error('Project repository is not configured.')
+  }
   const server = environmentRow.server
+  const repoId = environmentRow.project.githubRepoId
 
   if (server.status === 'deleted') {
     throw new Error('Assigned server was deleted. Choose another server.')
   }
 
-  const hostnameRows = await db
-    .select()
-    .from(hostnames)
-    .where(
-      and(
-        eq(hostnames.projectId, environmentRow.project.id),
-        eq(hostnames.environmentId, environmentRow.environment.id),
-        inArray(hostnames.type, ['custom_domain', 'environment_alias']),
+  const [aliasRows, domainRows] = await Promise.all([
+    db
+      .select()
+      .from(aliases)
+      .where(
+        and(
+          eq(aliases.projectId, environmentRow.project.id),
+          eq(aliases.environmentId, environmentRow.environment.id),
+        ),
       ),
-    )
+    db
+      .select()
+      .from(domains)
+      .where(
+        and(
+          eq(domains.projectId, environmentRow.project.id),
+          eq(domains.environmentId, environmentRow.environment.id),
+        ),
+      ),
+  ])
 
-  const snapshot = createDeploymentConfigSnapshot({
-    environment: environmentRow.environment,
-    hostnameRows,
-    project: environmentRow.project,
-    server,
+  const branchAlias = aliasRows.find(
+    (alias) => alias.type === 'branch' && alias.branch === gitBranch,
+  )
+  const requestedBranchAliasHostname =
+    branchAlias?.hostname ??
+    buildBranchAliasHostname({
+      branch: gitBranch,
+      projectName: environmentRow.project.name,
+      serverPublicAddress: server.publicAddress,
+    })
+  const branchAliasHostname = await resolveAvailableAliasHostname({
+    excludeAliasId: branchAlias?.id,
+    hostname: requestedBranchAliasHostname,
+    uniquenessKey: `${environmentRow.project.id}:${gitBranch}`,
   })
-  const envVarsSnapshot = encryptDeploymentEnvVars(
-    getDeploymentEnvVarsSnapshot({
+  const requestedDeploymentAliasHostname = buildDeploymentAliasHostname({
+    deploymentId,
+    projectName: environmentRow.project.name,
+    serverPublicAddress: server.publicAddress,
+  })
+  const deploymentAliasHostname = await resolveAvailableAliasHostname({
+    hostname: requestedDeploymentAliasHostname,
+    uniquenessKey: deploymentId,
+  })
+  const deploymentConfig = createDeploymentConfig({
+    environment: environmentRow.environment,
+    aliasRows,
+    domainRows,
+    gitBranch,
+    extraHostnames: [
+      {
+        hostname: branchAliasHostname,
+        environmentId,
+        basePath: null,
+        https: generatedAliasUsesHttps(server.publicAddress),
+      },
+      {
+        hostname: deploymentAliasHostname,
+        environmentId,
+        basePath: null,
+        https: generatedAliasUsesHttps(server.publicAddress),
+      },
+    ],
+    project: environmentRow.project,
+  })
+  const envVars = encryptDeploymentEnvVars(
+    getDeploymentEnvVars({
       environment: environmentRow.environment,
       project: environmentRow.project,
     }),
@@ -2850,15 +3650,14 @@ async function createDeploymentForEnvironment({
       phase: 'queued',
       trigger,
       serverId: server.id,
-      repoId: environmentRow.project.githubRepoId,
+      repoId,
       repoFullName: environmentRow.project.githubRepo,
       gitSha,
       gitBranch,
-      commitMessage,
       commitMeta,
-      configSnapshot: snapshot,
-      envVarsSnapshot,
-      runtimeId: snapshot.compose.projectName,
+      config: deploymentConfig,
+      envVars,
+      runtimeId: environmentRow.environment.runtimeId,
       createdByUserId,
     })
 
@@ -2870,19 +3669,27 @@ async function createDeploymentForEnvironment({
       createdAt: now,
     })
 
-    await tx.insert(hostnames).values({
+    if (!branchAlias) {
+      await tx.insert(aliases).values({
+        id: crypto.randomUUID(),
+        projectId: environmentRow.project.id,
+        environmentId,
+        hostname: branchAliasHostname,
+        type: 'branch',
+        branch: gitBranch,
+        https: generatedAliasUsesHttps(server.publicAddress),
+        updatedAt: now,
+      })
+    }
+
+    await tx.insert(aliases).values({
       id: crypto.randomUUID(),
       projectId: environmentRow.project.id,
       deploymentId,
-      hostname: buildDeploymentAliasHostname({
-        deploymentId,
-        projectName: environmentRow.project.name,
-        fallbackHost: environmentRow.environment.defaultHost,
-      }),
-      type: 'deployment_alias',
+      hostname: deploymentAliasHostname,
+      type: 'deployment',
       environmentId: environmentRow.environment.id,
-      https: true,
-      status: 'active',
+      https: generatedAliasUsesHttps(server.publicAddress),
       updatedAt: now,
     })
   })
@@ -2890,105 +3697,92 @@ async function createDeploymentForEnvironment({
   return { status: 'created', deploymentId }
 }
 
-function createDeploymentConfigSnapshot({
+function createDeploymentConfig({
   environment,
-  hostnameRows,
+  aliasRows,
+  domainRows,
+  extraHostnames = [],
+  gitBranch,
   project,
-  server,
 }: {
   environment: typeof environments.$inferSelect
-  hostnameRows: Array<typeof hostnames.$inferSelect>
+  aliasRows: Array<typeof aliases.$inferSelect>
+  domainRows: Array<typeof domains.$inferSelect>
+  extraHostnames?: Array<RouteHostname>
+  gitBranch: string
   project: typeof projects.$inferSelect
-  server: typeof servers.$inferSelect
-}): DeploymentConfigSnapshot {
-  const { defaultHost, routes } = resolveDeploymentPublicRoutes({
+}): DeploymentConfig {
+  const { routes } = resolveDeploymentPublicRoutes({
     environment,
-    hostnameRows,
+    aliasRows,
+    domainRows,
+    extraHostnames,
+    gitBranch,
     project,
   })
-  const releaseService = routes.at(0)?.service ?? 'web'
-  const serverStatus = getEffectiveServerStatus({
-    status: server.status,
-    lastSeenAt: server.lastSeenAt,
-  })
+  const releaseService = project.releaseService ?? routes.at(0)?.service
+
+  if (!releaseService) {
+    throw new Error('Configure a release service before deploying.')
+  }
 
   return {
-    version: 1,
-    repo: {
-      id: project.githubRepoId,
-      fullName: project.githubRepo,
-      installationId: project.githubInstallationId,
-    },
-    project: {
-      id: project.id,
-      teamId: project.teamId,
-      name: project.name,
-    },
-    environment: {
-      id: environment.id,
-      name: environment.name,
-      slug: environment.slug,
-      branch: environment.branch,
-      color: getEnvironmentConfigColor(project, environment),
-      defaultHost,
-    },
-    server: {
-      id: server.id,
-      name: server.name,
-      status: serverStatus,
-    },
-    compose: {
-      path: project.composePath ?? 'compose.yml',
-      projectName: environment.runtimeId,
-      releaseCommand: project.releaseCommand,
-      releaseService,
-      readinessPath: project.readinessPath,
-      routes,
-    },
+    version: 2,
+    composePath: project.composePath ?? 'compose.yml',
+    releaseCommand: project.releaseCommand,
+    releaseService,
+    readinessPath: project.readinessPath,
+    routes,
   }
 }
 
 function resolveDeploymentPublicRoutes({
   environment,
-  hostnameRows,
+  aliasRows,
+  domainRows,
+  extraHostnames = [],
+  gitBranch,
   project,
 }: {
   environment: typeof environments.$inferSelect
-  hostnameRows: Array<typeof hostnames.$inferSelect>
+  aliasRows: Array<typeof aliases.$inferSelect>
+  domainRows: Array<typeof domains.$inferSelect>
+  extraHostnames?: Array<RouteHostname>
+  gitBranch?: string
   project: typeof projects.$inferSelect
 }) {
   const projectRoutes = normalizeProjectRoutes(project.routes)
-  const environmentHostnames = hostnameRows.filter(
-    (hostname) =>
-      hostname.environmentId === environment.id &&
-      (hostname.type === 'custom_domain' ||
-        hostname.type === 'environment_alias'),
+  const environmentAliases = aliasRows.filter(
+    (alias) =>
+      alias.environmentId === environment.id &&
+      (alias.type === 'environment' ||
+        (alias.type === 'branch' && alias.branch === gitBranch)),
   )
-  const environmentAlias = environmentHostnames.find(
-    (hostname) => hostname.type === 'environment_alias',
+  const environmentDomains = domainRows.filter(
+    (domain) =>
+      domain.environmentId === environment.id &&
+      (domain.status === 'pending' || domain.status === 'active'),
   )
-  const defaultHost = environmentAlias?.hostname ?? environment.defaultHost
-  const routes = expandPublicRoutesFromHostnames(
-    projectRoutes,
-    environmentHostnames,
-  )
+  const routeHostnames = toRouteHostnames(
+    environmentAliases,
+    environmentDomains,
+  ).concat(extraHostnames)
+  const defaultHost = environmentAliases.at(0)?.hostname ?? null
+  const routes = expandPublicRoutesFromHostnames(projectRoutes, routeHostnames)
 
   return {
     defaultHost,
-    routes:
-      routes.length > 0
-        ? routes
-        : normalizeRoutes(environment.publicRoutes, defaultHost),
+    routes,
   }
 }
 
-function getDeploymentEnvVarsSnapshot({
+function getDeploymentEnvVars({
   environment,
   project,
 }: {
   environment: typeof environments.$inferSelect
   project: typeof projects.$inferSelect
-}): Array<DeploymentSnapshotEnvVar> {
+}): Array<DeploymentEnvVar> {
   return getEnvVarsForEnvironment(
     normalizeEnvVars(project.envVars),
     environment.id,

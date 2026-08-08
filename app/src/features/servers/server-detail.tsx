@@ -1,11 +1,12 @@
 import { Link, useRouter } from '@tanstack/react-router'
 import {
   BanIcon,
+  CopyIcon,
   LoaderIcon,
   SquareTerminalIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -30,8 +31,25 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from '@/components/ui/empty'
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import {
   Tooltip,
   TooltipContent,
@@ -39,11 +57,11 @@ import {
 } from '@/components/ui/tooltip'
 import { ResourceAvatar } from '@/components/resource-avatar'
 import { ServerAvatar } from '@/features/servers/server-avatar'
+import { ServerMetricChart } from '@/features/servers/server-metric-chart'
 import { getErrorMessage } from '@/lib/error-message'
 import {
   formatAge,
   formatServerStatus,
-  formatUptime,
   getInstallDescription,
   InstallCommand,
 } from '@/features/servers/team-servers'
@@ -60,7 +78,6 @@ import type {
   ServerDetail as ServerDetailData,
   ServerInstallCommand,
 } from '@/server/servers/service'
-import type { ServerMetricsSample } from '@/server/servers/monitoring'
 import type { TeamSummary } from '@/server/teams/service'
 
 export function ServerDetail({
@@ -75,11 +92,6 @@ export function ServerDetail({
   const [name, setName] = useState(server.name)
   const [isSaving, setIsSaving] = useState(false)
   const hasChanges = name.trim() !== savedName
-  const hasConnectionDetails =
-    server.publicAddress !== null ||
-    server.agentVersion !== null ||
-    server.lastSeenAt !== null ||
-    server.monitoring.heartbeatCount24h > 0
 
   async function save() {
     setIsSaving(true)
@@ -109,240 +121,311 @@ export function ServerDetail({
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-      <div className="space-y-8">
-        <section>
-          <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-            <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-              <ResourceAvatar name={team.name} color={team.color} size="md" />
-            </Link>
-            <span className="text-muted-foreground/25 font-normal">/</span>
-            <Link
-              className="hover:underline"
-              to="/$teamSlug/servers"
-              params={{ teamSlug: team.slug }}
-            >
-              Servers
-            </Link>
-            <span className="text-muted-foreground/25 font-normal">/</span>
-            <span className="truncate">{savedName}</span>
-          </h1>
-        </section>
+    <div className="space-y-8">
+      <section>
+        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
+          <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
+            <ResourceAvatar name={team.name} color={team.color} size="md" />
+          </Link>
+          <span className="text-muted-foreground/25 font-normal">/</span>
+          <Link
+            className="hover:underline"
+            to="/$teamSlug/servers"
+            params={{ teamSlug: team.slug }}
+          >
+            Servers
+          </Link>
+          <span className="text-muted-foreground/25 font-normal">/</span>
+          <span className="truncate">{savedName}</span>
+        </h1>
+      </section>
 
-        <ServerInstallCallout server={server} teamSlug={team.slug} />
+      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
+        <div className="space-y-8">
+          {server.status === 'connected' ? null : (
+            <ServerInstallCallout server={server} teamSlug={team.slug} />
+          )}
 
-        <Card id="general" className="scroll-mt-8">
-          <CardHeader className="border-b">
-            <CardTitle>General</CardTitle>
-            <CardDescription>Basic details for this server.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-8">
-            <div className="space-y-3">
-              <Label>Status</Label>
-              <div className="flex items-center gap-x-2 text-sm">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <ServerAvatar
-                        name={savedName}
-                        status={server.status}
-                        size="sm"
-                      />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {formatServerStatus(server.status)}
-                  </TooltipContent>
-                </Tooltip>
-                <span>{formatServerStatus(server.status)}</span>
+          <Card id="general" className="scroll-mt-8">
+            <CardHeader className="border-b">
+              <CardTitle>General</CardTitle>
+              <CardDescription>Basic details for this server.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Status</p>
+                <div className="flex items-center gap-2 text-sm">
+                  <ServerAvatar
+                    name={savedName}
+                    status={server.status}
+                    size="sm"
+                  />
+                  <span>{formatServerStatus(server.status)}</span>
+                  <span className="text-muted-foreground">
+                    ·{' '}
+                    {server.lastSeenAt
+                      ? formatAge(server.lastSeenAt)
+                      : 'Never contacted'}
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-3">
-              <Label htmlFor="server-name">Name</Label>
-              <Input
-                id="server-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </div>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="server-name">Name</FieldLabel>
+                  <Input
+                    id="server-name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="server-id">Server ID</FieldLabel>
+                  <InputGroup>
+                    <InputGroupInput
+                      id="server-id"
+                      className="font-mono text-[13px] text-muted-foreground"
+                      value={server.id}
+                      readOnly
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <InputGroupButton
+                            size="icon-sm"
+                            type="button"
+                            aria-label="Copy server ID"
+                            onClick={() =>
+                              void navigator.clipboard.writeText(server.id)
+                            }
+                          >
+                            <CopyIcon />
+                          </InputGroupButton>
+                        </TooltipTrigger>
+                        <TooltipContent>Copy server ID</TooltipContent>
+                      </Tooltip>
+                    </InputGroupAddon>
+                  </InputGroup>
+                  <FieldDescription>
+                    A unique identifier used by the API and agent.
+                  </FieldDescription>
+                </Field>
+              </FieldGroup>
+            </CardContent>
+            <CardFooter className="justify-end gap-x-2">
+              <Button
+                variant="ghost"
+                type="button"
+                onClick={reset}
+                disabled={!hasChanges || isSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void save()}
+                disabled={!hasChanges || isSaving || name.trim().length === 0}
+              >
+                {isSaving ? (
+                  <LoaderIcon
+                    data-icon="inline-start"
+                    className="animate-spin"
+                  />
+                ) : null}
+                Save
+              </Button>
+            </CardFooter>
+          </Card>
 
-            <div className="space-y-3">
-              <Label htmlFor="server-id">Server ID</Label>
-              <Input
-                id="server-id"
-                className="font-mono text-[13px] text-muted-foreground"
-                value={server.id}
-                readOnly
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="justify-end gap-x-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              onClick={reset}
-              disabled={!hasChanges || isSaving}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              onClick={() => void save()}
-              disabled={!hasChanges || isSaving || name.trim().length === 0}
-            >
-              {isSaving ? <LoaderIcon className="animate-spin" /> : null}
-              Save
-            </Button>
-          </CardFooter>
-        </Card>
-
-        <Card id="connection" className="scroll-mt-8">
-          <CardHeader className="border-b">
-            <CardTitle>Connection</CardTitle>
-            <CardDescription>
-              Agent connection details reported by this server.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {hasConnectionDetails ? (
-              <dl className="grid gap-4 text-sm md:grid-cols-2">
-                <ServerDetailField label="Public address">
-                  {server.publicAddress ?? 'Not reported'}
+          <Card id="host" className="scroll-mt-8">
+            <CardHeader className="border-b">
+              <CardTitle>Host</CardTitle>
+              <CardDescription>
+                System information reported by the agent.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
+                <ServerDetailField label="Hostname">
+                  {server.hostname ?? 'Not reported'}
+                </ServerDetailField>
+                <ServerDetailField label="Operating system">
+                  {server.operatingSystem ?? 'Not reported'}
+                </ServerDetailField>
+                <ServerDetailField label="CPU">
+                  {server.cpuCoreCount
+                    ? formatCount(server.cpuCoreCount, 'core')
+                    : 'Not reported'}
+                </ServerDetailField>
+                <ServerDetailField label="Memory">
+                  {server.monitoring.latestMetrics?.memoryTotalBytes
+                    ? formatBytes(
+                        server.monitoring.latestMetrics.memoryTotalBytes,
+                      )
+                    : 'Not reported'}
+                </ServerDetailField>
+                <ServerDetailField label="Architecture">
+                  {server.architecture ?? 'Not reported'}
+                </ServerDetailField>
+                <ServerDetailField label="Host uptime">
+                  {server.status === 'connected' &&
+                  server.hostUptimeSeconds !== null
+                    ? formatDuration(server.hostUptimeSeconds)
+                    : 'Not reported'}
+                </ServerDetailField>
+                <ServerDetailField label="Kernel">
+                  {server.kernelVersion ?? 'Not reported'}
                 </ServerDetailField>
                 <ServerDetailField label="Agent version">
                   {server.agentVersion ?? 'Not reported'}
                 </ServerDetailField>
-                <ServerDetailField label="Last seen">
-                  {server.lastSeenAt
-                    ? `Last seen ${formatAge(server.lastSeenAt)}`
-                    : 'Never'}
-                </ServerDetailField>
-                <ServerDetailField label="Uptime">
-                  {server.monitoring.uptime24h !== null
-                    ? `${formatUptime(server.monitoring.uptime24h)} over 24h`
-                    : 'Not enough data'}
-                </ServerDetailField>
-                <ServerDetailField label="Heartbeats">
-                  {`${server.monitoring.heartbeatCount24h.toLocaleString()} over 24h`}
-                </ServerDetailField>
-                <ServerDetailField label="Created">
-                  {formatDate(server.createdAt)}
-                </ServerDetailField>
               </dl>
-            ) : (
-              <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                No connection reported yet.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card id="metrics" className="scroll-mt-8">
-          <CardHeader className="border-b">
-            <CardTitle>Metrics</CardTitle>
-            <CardDescription>
-              Latest host metrics and 24-hour history reported by this server.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {server.monitoring.latestMetrics ? (
-              <>
-                <dl className="grid gap-4 text-sm md:grid-cols-2">
-                  <ServerDetailField label="CPU">
-                    {formatPercent(server.monitoring.latestMetrics.cpuPercent)}
-                  </ServerDetailField>
-                  <ServerDetailField label="Load">
-                    {formatNumber(server.monitoring.latestMetrics.load1)}
-                  </ServerDetailField>
-                  <ServerDetailField label="Memory">
-                    {formatByteRatio(
-                      server.monitoring.latestMetrics.memoryUsedBytes,
-                      server.monitoring.latestMetrics.memoryTotalBytes,
-                    )}
-                  </ServerDetailField>
-                  <ServerDetailField label="Disk">
-                    {formatByteRatio(
-                      server.monitoring.latestMetrics.diskUsedBytes,
-                      server.monitoring.latestMetrics.diskTotalBytes,
-                    )}
-                  </ServerDetailField>
-                  <ServerDetailField label="Reported">
-                    {formatAge(server.monitoring.latestMetrics.observedAt)}
-                  </ServerDetailField>
-                </dl>
+          <Card id="metrics" className="scroll-mt-8">
+            <CardHeader className="border-b">
+              <CardTitle>Metrics</CardTitle>
+              <CardDescription>
+                Up to 24 hours of host resource history. Missing samples remain
+                visible as gaps.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {server.monitoring.latestMetrics ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <ServerMetricChart
+                      domain={[0, 100]}
+                      label="CPU usage"
+                      latestValue={formatPercent(
+                        server.monitoring.latestMetrics.cpuPercent,
+                      )}
+                      points={server.metricSeries}
+                      formatValue={formatPercent}
+                      series={[
+                        {
+                          key: 'cpu',
+                          label: 'CPU',
+                          color: 'var(--chart-1)',
+                          getValue: (sample) => sample.cpuPercent,
+                        },
+                      ]}
+                      window={server.metricWindow}
+                    />
+                    <ServerMetricChart
+                      domain={[0, 100]}
+                      label="Memory usage"
+                      latestValue={formatByteRatio(
+                        server.monitoring.latestMetrics.memoryUsedBytes,
+                        server.monitoring.latestMetrics.memoryTotalBytes,
+                      )}
+                      points={server.metricSeries}
+                      formatValue={formatPercent}
+                      series={[
+                        {
+                          key: 'memory',
+                          label: 'Memory',
+                          color: 'var(--chart-2)',
+                          getValue: (sample) =>
+                            formatBytePercent(
+                              sample.memoryUsedBytes,
+                              sample.memoryTotalBytes,
+                            ),
+                        },
+                      ]}
+                      window={server.metricWindow}
+                    />
+                    <ServerMetricChart
+                      domain={[0, 100]}
+                      label="Disk usage"
+                      latestValue={formatByteRatio(
+                        server.monitoring.latestMetrics.diskUsedBytes,
+                        server.monitoring.latestMetrics.diskTotalBytes,
+                      )}
+                      points={server.metricSeries}
+                      formatValue={formatPercent}
+                      series={[
+                        {
+                          key: 'disk',
+                          label: 'Disk',
+                          color: 'var(--chart-5)',
+                          getValue: (sample) =>
+                            formatBytePercent(
+                              sample.diskUsedBytes,
+                              sample.diskTotalBytes,
+                            ),
+                        },
+                      ]}
+                      window={server.metricWindow}
+                    />
+                    <ServerMetricChart
+                      label="Network traffic"
+                      latestValue={formatNetworkSummary(
+                        server.monitoring.latestMetrics
+                          .networkReceiveBytesPerSecond,
+                        server.monitoring.latestMetrics
+                          .networkTransmitBytesPerSecond,
+                      )}
+                      points={server.metricSeries}
+                      formatValue={formatBytesPerSecond}
+                      series={[
+                        {
+                          key: 'received',
+                          label: 'Received',
+                          color: 'var(--chart-3)',
+                          getValue: (sample) =>
+                            sample.networkReceiveBytesPerSecond,
+                        },
+                        {
+                          key: 'sent',
+                          label: 'Sent',
+                          color: 'var(--chart-4)',
+                          getValue: (sample) =>
+                            sample.networkTransmitBytesPerSecond,
+                        },
+                      ]}
+                      window={server.metricWindow}
+                    />
+                  </div>
+                </>
+              ) : (
+                <Empty className="min-h-40 border">
+                  <EmptyHeader>
+                    <EmptyTitle>No metrics reported yet.</EmptyTitle>
+                    <EmptyDescription>
+                      Metrics will appear after the agent reports host data.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+            </CardContent>
+          </Card>
 
-                <div className="grid gap-5 border-t pt-6 md:grid-cols-2">
-                  <MetricSparkline
-                    label="CPU"
-                    points={server.metricSeries}
-                    getValue={(sample) => sample.cpuPercent}
-                    formatValue={formatPercent}
-                  />
-                  <MetricSparkline
-                    label="Load"
-                    points={server.metricSeries}
-                    getValue={(sample) => sample.load1}
-                    formatValue={formatNumber}
-                  />
-                  <MetricSparkline
-                    label="Memory"
-                    points={server.metricSeries}
-                    getValue={(sample) =>
-                      formatBytePercent(
-                        sample.memoryUsedBytes,
-                        sample.memoryTotalBytes,
-                      )
-                    }
-                    formatValue={formatPercent}
-                  />
-                  <MetricSparkline
-                    label="Disk"
-                    points={server.metricSeries}
-                    getValue={(sample) =>
-                      formatBytePercent(
-                        sample.diskUsedBytes,
-                        sample.diskTotalBytes,
-                      )
-                    }
-                    formatValue={formatPercent}
-                  />
-                </div>
-              </>
-            ) : (
-              <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                No metrics reported yet.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+          <ServerDangerSection server={server} teamSlug={team.slug} />
+        </div>
 
-        <ServerDangerSection server={server} teamSlug={team.slug} />
+        <aside className="hidden text-sm lg:block">
+          <nav className="sticky top-[122px] flex flex-col gap-y-1">
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#general">General</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#host">Host</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#metrics">Metrics</a>
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <a href="#danger">Danger</a>
+            </Button>
+          </nav>
+        </aside>
       </div>
-
-      <aside className="hidden pt-16 text-sm lg:block">
-        <nav className="sticky top-[122px] flex flex-col gap-y-1">
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#general">General</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#connection">Connection</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#metrics">Metrics</a>
-          </Button>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            <a href="#danger">Danger</a>
-          </Button>
-        </nav>
-      </aside>
     </div>
   )
 }
@@ -358,45 +441,24 @@ function ServerInstallCallout({
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
+  async function createCommand() {
+    setIsCreating(true)
+    setError(null)
 
-    async function createCommand() {
-      if (server.status === 'disabled') {
-        return
-      }
-
-      setIsCreating(true)
-      setError(null)
-
-      try {
-        const result: ServerInstallCommand = await createInstallCommand({
-          data: {
-            teamSlug,
-            serverId: server.id,
-          },
-        })
-
-        if (!cancelled) {
-          setInstallCommand(result.installCommand)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setError(getErrorMessage(error, 'Unable to create install command.'))
-        }
-      } finally {
-        if (!cancelled) {
-          setIsCreating(false)
-        }
-      }
+    try {
+      const result: ServerInstallCommand = await createInstallCommand({
+        data: {
+          teamSlug,
+          serverId: server.id,
+        },
+      })
+      setInstallCommand(result.installCommand)
+    } catch (cause) {
+      setError(getErrorMessage(cause, 'Unable to create install command.'))
+    } finally {
+      setIsCreating(false)
     }
-
-    void createCommand()
-
-    return () => {
-      cancelled = true
-    }
-  }, [server.id, server.status, teamSlug])
+  }
 
   return (
     <Alert className="gap-y-2">
@@ -408,15 +470,24 @@ function ServerInstallCallout({
           <p className="text-sm text-muted-foreground">
             Enable this server before creating a new install command.
           </p>
-        ) : isCreating && !installCommand ? (
-          <p className="text-sm text-muted-foreground">
-            Creating install command...
-          </p>
         ) : installCommand ? (
           <InstallCommand className="mt-2 max-w-xl" command={installCommand} />
         ) : error ? (
           <p className="text-sm text-destructive">{error}</p>
-        ) : null}
+        ) : (
+          <Button
+            className="mt-2"
+            disabled={isCreating}
+            onClick={() => void createCommand()}
+            type="button"
+            variant="outline"
+          >
+            {isCreating ? (
+              <LoaderIcon data-icon="inline-start" className="animate-spin" />
+            ) : null}
+            Generate install command
+          </Button>
+        )}
       </AlertDescription>
     </Alert>
   )
@@ -560,9 +631,9 @@ function ServerDangerSection({
               disabled={isChangingStatus}
             >
               {isChangingStatus ? (
-                <LoaderIcon className="animate-spin" />
+                <LoaderIcon data-icon="inline-start" className="animate-spin" />
               ) : !isDisabled ? (
-                <BanIcon />
+                <BanIcon data-icon="inline-start" />
               ) : null}
               {isDisabled ? 'Enable server' : 'Disable server'}
             </Button>
@@ -574,12 +645,12 @@ function ServerDangerSection({
               </AlertDialogTitle>
               <AlertDialogDescription>
                 {isDisabled
-                  ? `${server.name} will return to pending and can be enrolled with a fresh install command.`
+                  ? `${server.name} will accept its existing agent credential again. Reinstallation is not required.`
                   : `This blocks new enrollment commands and agent token use for ${server.name}. Type "${server.name}" to confirm.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
             {!isDisabled ? (
-              <div className="space-y-3">
+              <Field>
                 <Input
                   aria-label={`Type ${server.name} to confirm`}
                   id="disable-server-confirmation"
@@ -596,7 +667,7 @@ function ServerDangerSection({
                   }}
                   disabled={isChangingStatus}
                 />
-              </div>
+              </Field>
             ) : null}
             <AlertDialogFooter>
               <AlertDialogCancel disabled={isChangingStatus}>
@@ -625,9 +696,9 @@ function ServerDangerSection({
           <AlertDialogTrigger asChild>
             <Button variant="destructive" disabled={isDeleting}>
               {isDeleting ? (
-                <LoaderIcon className="animate-spin" />
+                <LoaderIcon data-icon="inline-start" className="animate-spin" />
               ) : (
-                <Trash2Icon />
+                <Trash2Icon data-icon="inline-start" />
               )}
               Delete server
             </Button>
@@ -672,7 +743,7 @@ function ServerDangerSection({
                 </span>
               </label>
 
-              <div className="space-y-3">
+              <Field>
                 <Input
                   aria-label={`Type ${server.name} to confirm`}
                   id="delete-server-confirmation"
@@ -689,7 +760,7 @@ function ServerDangerSection({
                   }}
                   disabled={isDeleting}
                 />
-              </div>
+              </Field>
             </div>
 
             <AlertDialogFooter>
@@ -719,76 +790,6 @@ function formatCount(count: number, singular: string) {
   return `${count.toLocaleString()} ${singular}${count === 1 ? '' : 's'}`
 }
 
-function MetricSparkline({
-  formatValue,
-  getValue,
-  label,
-  points,
-}: {
-  formatValue: (value: number | null) => string
-  getValue: (sample: ServerMetricsSample) => number | null
-  label: string
-  points: Array<ServerMetricsSample>
-}) {
-  const values = points
-    .map((sample) => ({
-      observedAt: sample.observedAt,
-      value: getValue(sample),
-    }))
-    .filter((point): point is { observedAt: string; value: number } => {
-      return point.value !== null && Number.isFinite(point.value)
-    })
-
-  const latest = values.at(-1)?.value ?? null
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="font-medium">{label}</span>
-        <span className="text-muted-foreground">{formatValue(latest)}</span>
-      </div>
-      {values.length > 1 ? (
-        <Sparkline values={values.map((point) => point.value)} />
-      ) : (
-        <div className="flex h-12 items-center text-sm text-muted-foreground">
-          Not enough data
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Sparkline({ values }: { values: Array<number> }) {
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = max - min || 1
-  const points = values
-    .map((value, index) => {
-      const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 120
-      const y = 36 - ((value - min) / range) * 32
-      return `${x.toFixed(2)},${y.toFixed(2)}`
-    })
-    .join(' ')
-
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-12 w-full overflow-visible text-foreground"
-      preserveAspectRatio="none"
-      viewBox="0 0 120 40"
-    >
-      <polyline
-        className="fill-none stroke-current"
-        points={points}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  )
-}
-
 function ServerDetailField({
   children,
   label,
@@ -812,20 +813,36 @@ function formatPercent(value: number | null) {
   return `${value.toFixed(1)}%`
 }
 
-function formatNumber(value: number | null) {
-  if (value === null) {
-    return 'Not reported'
-  }
-
-  return value.toFixed(2)
-}
-
 function formatByteRatio(used: number | null, total: number | null) {
   if (used === null || total === null || total <= 0) {
     return 'Not reported'
   }
 
   return `${formatBytes(used)} / ${formatBytes(total)}`
+}
+
+function formatBytesPerSecond(value: number | null) {
+  return value === null ? 'Not reported' : `${formatBytes(value)}/s`
+}
+
+function formatNetworkSummary(received: number | null, sent: number | null) {
+  if (received === null && sent === null) {
+    return 'Not reported'
+  }
+  return `↓ ${formatBytesPerSecond(received)}  ↑ ${formatBytesPerSecond(sent)}`
+}
+
+function formatDuration(totalSeconds: number) {
+  const days = Math.floor(totalSeconds / 86_400)
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600)
+  const minutes = Math.floor((totalSeconds % 3_600) / 60)
+  if (days > 0) {
+    return `${days}d ${hours}h`
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+  return `${minutes}m`
 }
 
 function formatBytePercent(used: number | null, total: number | null) {
@@ -847,11 +864,4 @@ function formatBytes(value: number) {
   }
 
   return `${current.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
 }

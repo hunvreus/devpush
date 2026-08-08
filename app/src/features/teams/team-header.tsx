@@ -45,6 +45,7 @@ import {
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog'
+import { getServerAvailabilityNotice } from '@/features/servers/server-availability'
 import { authClient } from '@/lib/auth/client'
 import { getErrorMessage } from '@/lib/error-message'
 import { cn } from '@/lib/utils'
@@ -75,6 +76,8 @@ const teamTabs = [
   { label: 'Settings', to: '/$teamSlug/settings' },
 ] as const
 
+const backupsEnabled = import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED === 'true'
+
 const projectTabs = [
   {
     label: 'Overview',
@@ -89,14 +92,18 @@ const projectTabs = [
     to: '/$teamSlug/projects/$projectName/logs',
   },
   {
+    label: 'Backups',
+    to: '/$teamSlug/projects/$projectName/backups',
+  },
+  {
     label: 'Settings',
     to: '/$teamSlug/projects/$projectName/settings',
   },
-] as const
+].filter((tab) => backupsEnabled || tab.label !== 'Backups')
 
 type TeamHeaderProps = {
   currentProject?: boolean
-  currentProjectContext?: ProjectContext['project']
+  currentProjectContext?: ProjectSummary
   currentProjects?: Array<ProjectSummary>
   currentDeployment?: {
     id: string
@@ -181,7 +188,7 @@ export function TeamHeader({
             className="hidden sm:inline-flex"
           >
             <Link to="/admin">
-              <SettingsIcon />
+              <SettingsIcon data-icon="inline-start" />
               Admin
             </Link>
           </Button>
@@ -246,32 +253,45 @@ export function TeamPage({
   contentClassName,
   userContext,
   currentTeam,
+  currentProject,
+  currentProjects = [],
   servers = [],
 }: {
   children: ReactNode
   contentClassName?: string
   userContext?: AuthUserContext
   currentTeam?: TeamSummary
+  currentProject?: ProjectSummary
+  currentProjects?: Array<ProjectSummary>
   servers?: Array<ServerSummary>
 }) {
   const serverNotice = getServerAvailabilityNotice(servers)
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <TeamHeader userContext={userContext} currentTeam={currentTeam} />
+      <TeamHeader
+        currentProject={Boolean(currentProject)}
+        currentProjectContext={currentProject}
+        currentProjects={currentProjects}
+        userContext={userContext}
+        currentTeam={currentTeam}
+      />
       <div
         className={cn('mx-auto w-full max-w-screen-xl p-8', contentClassName)}
       >
-        {serverNotice && currentTeam ? (
+        {serverNotice && currentTeam && !currentProject ? (
           <Alert>
             <TriangleAlertIcon />
             <AlertTitle className="truncate">{serverNotice.title}</AlertTitle>
             <AlertDescription>{serverNotice.description}</AlertDescription>
             <AlertAction>
-              <Button asChild size="sm" variant="outline">
+              <Button asChild variant="outline">
                 <Link
-                  to="/$teamSlug/servers"
-                  params={{ teamSlug: currentTeam.slug }}
+                  to="/$teamSlug/servers/$serverId"
+                  params={{
+                    teamSlug: currentTeam.slug,
+                    serverId: serverNotice.targetServerId,
+                  }}
                 >
                   View
                 </Link>
@@ -279,76 +299,6 @@ export function TeamPage({
             </AlertAction>
           </Alert>
         ) : null}
-        {children}
-      </div>
-    </main>
-  )
-}
-
-function getServerAvailabilityNotice(servers: Array<ServerSummary>) {
-  if (servers.length === 0) {
-    return null
-  }
-
-  const disconnectedServers = servers.filter(
-    (server) => server.status === 'disconnected',
-  )
-
-  if (disconnectedServers.length === 0) {
-    return null
-  }
-
-  const disconnectedCount = disconnectedServers.length
-
-  return {
-    title: `${disconnectedCount} ${disconnectedCount === 1 ? 'server is' : 'servers are'} disconnected`,
-    description: `${formatServerList(disconnectedServers)} ${disconnectedCount === 1 ? 'is' : 'are'} disconnected.`,
-  }
-}
-
-function formatServerList(servers: Array<ServerSummary>) {
-  return new Intl.ListFormat('en', {
-    style: 'long',
-    type: 'conjunction',
-  }).format(servers.map((server) => server.name))
-}
-
-export function ProjectPage({
-  children,
-  contentClassName,
-  userContext,
-  currentTeam,
-  currentProject,
-  currentProjects = [],
-  currentDeployment,
-  currentDeployments = [],
-}: {
-  children: ReactNode
-  contentClassName?: string
-  userContext: AuthUserContext
-  currentTeam: TeamSummary
-  currentProject: ProjectContext['project']
-  currentProjects?: Array<ProjectSummary>
-  currentDeployment?: {
-    id: string
-    status: ProjectContext['deployments'][number]['status']
-  }
-  currentDeployments?: ProjectContext['deployments']
-}) {
-  return (
-    <main className="min-h-screen bg-background text-foreground">
-      <TeamHeader
-        currentProject
-        userContext={userContext}
-        currentTeam={currentTeam}
-        currentProjectContext={currentProject}
-        currentProjects={currentProjects}
-        currentDeployment={currentDeployment}
-        currentDeployments={currentDeployments}
-      />
-      <div
-        className={cn('mx-auto w-full max-w-screen-xl p-8', contentClassName)}
-      >
         {children}
       </div>
     </main>
@@ -369,6 +319,7 @@ function TeamSwitcher({
       <Button asChild variant="ghost" size="sm" className="gap-1.5 px-1.5">
         <Link to="/$teamSlug" params={{ teamSlug: currentTeam.slug }}>
           <ResourceAvatar
+            data-icon="inline-start"
             name={currentTeam.name}
             color={currentTeam.color}
             size="xs"
@@ -516,7 +467,9 @@ function NewTeamDialogLauncher({
             disabled={!name.trim() || isCreating}
             onClick={() => void createTeam()}
           >
-            {isCreating ? <LoaderIcon className="animate-spin" /> : null}
+            {isCreating ? (
+              <LoaderIcon data-icon="inline-start" className="animate-spin" />
+            ) : null}
             Create team
           </Button>
         </DialogFooter>
@@ -531,7 +484,7 @@ function ProjectSwitcher({
   projects,
 }: {
   teamSlug: string
-  project: ProjectContext['project']
+  project: ProjectSummary
   projects: Array<ProjectSummary>
 }) {
   const params = useParams({ strict: false })
@@ -545,7 +498,12 @@ function ProjectSwitcher({
           to="/$teamSlug/projects/$projectName"
           params={{ teamSlug, projectName }}
         >
-          <ResourceAvatar name={project.name} color={project.color} size="xs" />
+          <ResourceAvatar
+            data-icon="inline-start"
+            name={project.name}
+            color={project.color}
+            size="xs"
+          />
           <span>{project.name}</span>
         </Link>
       </Button>
@@ -639,7 +597,10 @@ function DeploymentSwitcher({
           to="/$teamSlug/projects/$projectName/deployments/$deploymentId"
           params={{ teamSlug, projectName, deploymentId: deployment.id }}
         >
-          <DeploymentStatusIcon status={deployment.status} />
+          <DeploymentStatusIcon
+            data-icon="inline-start"
+            status={deployment.status}
+          />
           <span className="font-mono text-[13px]">
             {shortId(deployment.id)}
           </span>
@@ -902,7 +863,9 @@ function NotificationsMenu({
               disabled={busyInviteId !== null}
               onClick={acceptInvite}
             >
-              {busyInviteId ? <LoaderIcon className="animate-spin" /> : null}
+              {busyInviteId ? (
+                <LoaderIcon data-icon="inline-start" className="animate-spin" />
+              ) : null}
               Accept invitation
             </Button>
           </DialogFooter>
@@ -930,7 +893,7 @@ function UserMenu({ userContext }: { userContext: AuthUserContext }) {
         <Button
           variant="ghost"
           size="icon-sm"
-          className="rounded-full border-0 p-0"
+          className="rounded-full border-0"
           aria-label="User menu"
         >
           <Avatar className="size-6">
@@ -982,27 +945,54 @@ function UserMenu({ userContext }: { userContext: AuthUserContext }) {
 }
 
 function DeploymentStatusIcon({
+  'data-icon': dataIcon,
   status,
 }: {
+  'data-icon'?: 'inline-start' | 'inline-end'
   status: ProjectContext['deployments'][number]['status']
 }) {
   if (status === 'succeeded') {
-    return <CircleCheckIcon className="size-4 text-green-500" />
+    return (
+      <CircleCheckIcon
+        data-icon={dataIcon}
+        className="size-4 shrink-0 text-green-500"
+      />
+    )
   }
 
   if (status === 'failed') {
-    return <CircleXIcon className="size-4 text-destructive" />
+    return (
+      <CircleXIcon
+        data-icon={dataIcon}
+        className="size-4 shrink-0 text-destructive"
+      />
+    )
   }
 
   if (status === 'canceled') {
-    return <XIcon className="size-4 text-muted-foreground" />
+    return (
+      <XIcon
+        data-icon={dataIcon}
+        className="size-4 shrink-0 text-muted-foreground"
+      />
+    )
   }
 
   if (status === 'queued') {
-    return <Clock3Icon className="size-4 text-muted-foreground" />
+    return (
+      <Clock3Icon
+        data-icon={dataIcon}
+        className="size-4 shrink-0 text-muted-foreground"
+      />
+    )
   }
 
-  return <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
+  return (
+    <LoaderIcon
+      data-icon={dataIcon}
+      className="size-4 shrink-0 animate-spin text-muted-foreground"
+    />
+  )
 }
 
 function shortId(id: string) {
@@ -1021,12 +1011,17 @@ function isProjectTabActive(pathname: string, label: string) {
     return (
       !pathname.includes('/deployments') &&
       !pathname.includes('/logs') &&
+      !pathname.includes('/backups') &&
       !pathname.includes('/settings')
     )
   }
 
   if (label === 'Logs') {
     return pathname.includes('/logs')
+  }
+
+  if (label === 'Backups') {
+    return pathname.includes('/backups')
   }
 
   return pathname.includes(label.toLowerCase())

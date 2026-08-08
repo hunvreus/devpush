@@ -100,7 +100,7 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
                 teamSlug: context.team.slug,
                 projectName: project.name,
               }}
-              className="truncate"
+              className="truncate hover:underline"
             >
               Deployments
             </Link>
@@ -114,13 +114,13 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
             {canVisit ? (
               <Button asChild>
                 <a href={visitUrl} target="_blank" rel="noreferrer">
-                  <Link2Icon />
+                  <Link2Icon data-icon="inline-start" />
                   Visit
                 </a>
               </Button>
             ) : (
               <Button disabled>
-                <Link2Icon />
+                <Link2Icon data-icon="inline-start" />
                 Visit
               </Button>
             )}
@@ -174,7 +174,7 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
             {deploymentAlias === 'current' ? (
               <li className="h-5">
                 <span className="inline-flex h-5 items-center gap-x-1 rounded-md bg-secondary px-2 text-xs font-medium text-secondary-foreground">
-                  <SparkleIcon className="size-3" />
+                  <SparkleIcon className="size-3 shrink-0" />
                   Current
                 </span>
               </li>
@@ -211,15 +211,34 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
             <li>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="flex items-center gap-x-2 text-muted-foreground">
-                    <ServerAvatar
-                      name={deployment.serverName}
-                      status={deployment.serverStatus}
-                    />
-                    {deployment.serverName}
-                  </span>
+                  {deployment.serverId ? (
+                    <Link
+                      to="/$teamSlug/servers/$serverId"
+                      params={{
+                        teamSlug: context.team.slug,
+                        serverId: deployment.serverId,
+                      }}
+                      className="flex items-center gap-x-2 text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <ServerAvatar
+                        name={deployment.serverName}
+                        status={deployment.serverStatus}
+                      />
+                      {deployment.serverName}
+                    </Link>
+                  ) : (
+                    <span className="flex items-center gap-x-2 text-muted-foreground">
+                      <ServerAvatar
+                        name={deployment.serverName}
+                        status={deployment.serverStatus}
+                      />
+                      {deployment.serverName}
+                    </span>
+                  )}
                 </TooltipTrigger>
-                <TooltipContent>Server</TooltipContent>
+                <TooltipContent>
+                  {deployment.serverId ? 'View server' : 'Server'}
+                </TooltipContent>
               </Tooltip>
             </li>
 
@@ -308,7 +327,7 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
             ))
           ) : (
             <div className="flex h-full items-center justify-center gap-x-2 text-muted-foreground">
-              <CircleXIcon className="size-4" />
+              <CircleXIcon className="size-4 shrink-0" />
               No logs found
             </div>
           )}
@@ -324,7 +343,7 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
               search={{ deploymentId: deployment.id }}
             >
               All logs
-              <ArrowRightIcon />
+              <ArrowRightIcon data-icon="inline-end" />
             </Link>
           </Button>
         </footer>
@@ -341,7 +360,7 @@ function DeploymentStatus({
   if (status === 'succeeded') {
     return (
       <span className="flex items-center gap-2 text-green-500">
-        <CircleCheckIcon className="size-4" />
+        <CircleCheckIcon className="size-4 shrink-0" />
         Succeeded
       </span>
     )
@@ -350,7 +369,7 @@ function DeploymentStatus({
   if (status === 'failed') {
     return (
       <span className="flex items-center gap-2 text-red-500">
-        <CircleXIcon className="size-4" />
+        <CircleXIcon className="size-4 shrink-0" />
         Failed
       </span>
     )
@@ -359,7 +378,7 @@ function DeploymentStatus({
   if (status === 'canceled') {
     return (
       <span className="flex items-center gap-2 text-muted-foreground">
-        <XIcon className="size-4" />
+        <XIcon className="size-4 shrink-0" />
         Canceled
       </span>
     )
@@ -368,7 +387,7 @@ function DeploymentStatus({
   if (status === 'queued') {
     return (
       <span className="flex items-center gap-2 text-muted-foreground">
-        <Clock3Icon className="size-4" />
+        <Clock3Icon className="size-4 shrink-0" />
         Queued
       </span>
     )
@@ -376,7 +395,7 @@ function DeploymentStatus({
 
   return (
     <span className="flex items-center gap-2 text-muted-foreground">
-      <LoaderIcon className="size-4 animate-spin" />
+      <LoaderIcon className="size-4 shrink-0 animate-spin" />
       Running
     </span>
   )

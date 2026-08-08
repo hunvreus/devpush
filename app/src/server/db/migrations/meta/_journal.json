@@ -8,6 +8,90 @@
       "when": 1782802079509,
       "tag": "0000_mute_drax",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783482194000,
+      "tag": "0001_backup_retention_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783560000000,
+      "tag": "0002_backup_artifact_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785705592756,
+      "tag": "0003_brief_giant_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785723908631,
+      "tag": "0004_damp_prowler",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785726041371,
+      "tag": "0005_salty_terrax",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785731673410,
+      "tag": "0006_remarkable_boomerang",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786029654803,
+      "tag": "0007_simplify_deployments",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786062503198,
+      "tag": "0008_pink_electro",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786062795262,
+      "tag": "0009_robust_tenebrous",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786075179922,
+      "tag": "0010_worthless_fat_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786119576123,
+      "tag": "0011_funny_expediter",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786162849598,
+      "tag": "0012_equal_turbo",
+      "breakpoints": true
     }
   ]
 }

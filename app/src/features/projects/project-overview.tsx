@@ -1,6 +1,7 @@
 import { Link, useParams } from '@tanstack/react-router'
 import {
   ArrowRightIcon,
+  BoxesIcon,
   CloudUploadIcon,
   GitBranchIcon,
   Link2Icon,
@@ -8,6 +9,7 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Empty,
   EmptyContent,
@@ -19,6 +21,7 @@ import { ResourceAvatar } from '@/components/resource-avatar'
 import { DeploymentList } from '@/features/deployments/deployment-list'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
 import { ManualDeployDialog } from '@/features/projects/manual-deploy-dialog'
+import { formatAge } from '@/features/servers/team-servers'
 import {
   getDeployBlockReason,
   hasActiveDeployment,
@@ -46,13 +49,13 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
       <section className="space-y-4">
         <header className="flex h-8 items-center justify-between gap-x-4">
           <h2 className="text-base font-medium">Environments</h2>
-          <Button size="sm" asChild>
+          <Button asChild>
             <Link
               to="/$teamSlug/projects/$projectName/settings"
               hash="environments"
               params={{ teamSlug, projectName: project.name }}
             >
-              <SettingsIcon />
+              <SettingsIcon data-icon="inline-start" />
               Manage environments
             </Link>
           </Button>
@@ -111,6 +114,49 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
         </ul>
       </section>
 
+      {environment.runtime ? (
+        <section className="space-y-4">
+          <header>
+            <h2 className="text-base font-medium">Runtime services</h2>
+            <p className="text-sm text-muted-foreground">
+              Latest Compose state reported{' '}
+              {formatAge(environment.runtime.observedAt)}.
+            </p>
+          </header>
+          <ul className="divide-y rounded-xl border bg-card text-sm text-card-foreground shadow-sm">
+            {environment.runtime.services.length > 0 ? (
+              environment.runtime.services.map((service) => {
+                const status = getRuntimeServiceStatus(service)
+                return (
+                  <li
+                    key={service.containerName}
+                    className="flex items-center justify-between gap-4 px-4 py-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <BoxesIcon className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{service.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {service.containerName}
+                          {service.restartCount > 0
+                            ? ` · ${service.restartCount} restarts`
+                            : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant={status.variant}>{status.label}</Badge>
+                  </li>
+                )
+              })
+            ) : (
+              <li className="px-4 py-6 text-center text-muted-foreground">
+                No Compose services reported.
+              </li>
+            )}
+          </ul>
+        </section>
+      ) : null}
+
       <section className="space-y-4">
         <header className="flex h-8 items-center justify-between gap-x-4">
           <h2 className="text-base font-medium">Latest deployments</h2>
@@ -125,9 +171,8 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
               <Button
                 disabled={Boolean(deployBlockReason)}
                 title={deployBlockReason ?? undefined}
-                size="sm"
               >
-                <CloudUploadIcon />
+                <CloudUploadIcon data-icon="inline-start" />
                 Deploy
               </Button>
             </ManualDeployDialog>
@@ -137,13 +182,13 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
           <div className="space-y-4">
             <DeploymentList deployments={deployments} limit={4} />
             <footer className="flex justify-end">
-              <Button variant="outline" size="sm" asChild>
+              <Button variant="outline" asChild>
                 <Link
                   to="/$teamSlug/projects/$projectName/deployments"
                   params={{ teamSlug, projectName: project.name }}
                 >
                   All deployments
-                  <ArrowRightIcon />
+                  <ArrowRightIcon data-icon="inline-end" />
                 </Link>
               </Button>
             </footer>
@@ -167,9 +212,8 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
                 <Button
                   disabled={Boolean(deployBlockReason)}
                   title={deployBlockReason ?? undefined}
-                  size="sm"
                 >
-                  <CloudUploadIcon />
+                  <CloudUploadIcon data-icon="inline-start" />
                   Deploy
                 </Button>
               </ManualDeployDialog>
@@ -179,4 +223,33 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
       </section>
     </>
   )
+}
+
+function getRuntimeServiceStatus(
+  service: NonNullable<
+    ProjectContext['environment']['runtime']
+  >['services'][number],
+): {
+  label: string
+  variant: 'default' | 'secondary' | 'destructive' | 'outline'
+} {
+  if (service.state !== 'running') {
+    return {
+      label:
+        service.state === 'exited'
+          ? `Exited (${service.exitCode})`
+          : service.state,
+      variant: 'destructive',
+    }
+  }
+  if (service.health === 'unhealthy') {
+    return { label: 'Unhealthy', variant: 'destructive' }
+  }
+  if (service.health === 'starting') {
+    return { label: 'Starting', variant: 'secondary' }
+  }
+  return {
+    label: service.health === 'healthy' ? 'Healthy' : 'Running',
+    variant: service.health === 'healthy' ? 'default' : 'outline',
+  }
 }

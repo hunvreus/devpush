@@ -5,7 +5,6 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import {
-  BanIcon,
   CircleCheckIcon,
   CircleXIcon,
   Clock3Icon,
@@ -18,6 +17,13 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from '@/components/ui/empty'
 import {
   InputGroup,
   InputGroupAddon,
@@ -41,7 +47,7 @@ import { EnvironmentDot } from '@/features/projects/environment-dot'
 import type { ProjectLogsContext } from '@/server/projects/service'
 
 export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
-  const { deployments, filters, logs, project } = context
+  const { deployments, filters, hasAnyLogs, logs, project } = context
   const params = useParams({ strict: false })
   const router = useRouter()
   const isFiltering = useRouterState({
@@ -198,7 +204,7 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
                 })
               }}
             >
-              <SelectTrigger size="sm">
+              <SelectTrigger>
                 <SelectValue>
                   <DeploymentFilterLabel
                     label={selectedDeploymentLabel}
@@ -230,7 +236,7 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
                 })
               }}
             >
-              <SelectTrigger size="sm">
+              <SelectTrigger>
                 <SelectValue>
                   <EnvironmentFilterLabel
                     color={selectedEnvironment?.color}
@@ -258,7 +264,7 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
                 })
               }}
             >
-              <SelectTrigger size="sm">
+              <SelectTrigger>
                 <SelectValue>{selectedDateLabel}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -277,7 +283,7 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
                 })
               }}
             >
-              <SelectTrigger size="sm">
+              <SelectTrigger>
                 <SelectValue>{selectedBranchLabel}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -292,7 +298,6 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
             {hasFilters ? (
               <Button
                 variant="ghost"
-                size="sm"
                 onClick={() => {
                   updateFilters({
                     branch: null,
@@ -308,7 +313,7 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
             ) : null}
             {isFiltering ? (
               <div className="flex items-center gap-x-1.5 text-xs text-muted-foreground">
-                <LoaderIcon className="size-3.5 animate-spin" />
+                <LoaderIcon className="size-3.5 shrink-0 animate-spin" />
                 Filtering
               </div>
             ) : null}
@@ -323,29 +328,34 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
             {logs.length > 0 ? (
               <LogList logs={logs} />
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center p-4">
-                <div className="max-w-sm text-center">
-                  <div className="flex justify-center text-muted-foreground">
-                    <BanIcon className="size-5" />
-                  </div>
-                  <h2 className="mt-3 font-medium">No logs</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    There are no logs matching the selected filters.
-                  </p>
-                  <div className="mt-4 flex items-center justify-center gap-x-2">
+              <div className="absolute inset-0 flex p-4">
+                <Empty className="border-0">
+                  <EmptyHeader>
+                    <EmptyTitle>
+                      {hasAnyLogs ? 'No logs for these filters' : 'No logs yet'}
+                    </EmptyTitle>
+                    <EmptyDescription>
+                      {hasAnyLogs
+                        ? 'Try changing or clearing the selected filters.'
+                        : 'Deploy the project or reconnect the server to collect runtime logs.'}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                  <EmptyContent className="flex-row justify-center">
                     <Button variant="outline" onClick={refresh}>
                       Refresh logs
                     </Button>
-                    <Button asChild>
-                      <Link
-                        to="/$teamSlug/projects/$projectName/logs"
-                        params={{ teamSlug, projectName }}
-                      >
-                        Reset filters
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
+                    {hasFilters ? (
+                      <Button asChild>
+                        <Link
+                          to="/$teamSlug/projects/$projectName/logs"
+                          params={{ teamSlug, projectName }}
+                        >
+                          Reset filters
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </EmptyContent>
+                </Empty>
               </div>
             )}
           </LogScrollArea>
@@ -392,24 +402,35 @@ function StatusFilterIcon({
 }) {
   if (status === 'succeeded') {
     return (
-      <CircleCheckIcon className="size-4 text-green-500" data-preserve-color />
+      <CircleCheckIcon
+        className="size-4 shrink-0 text-green-500"
+        data-preserve-color
+      />
     )
   }
 
   if (status === 'failed') {
-    return <CircleXIcon className="size-4 text-red-500" data-preserve-color />
+    return (
+      <CircleXIcon
+        className="size-4 shrink-0 text-red-500"
+        data-preserve-color
+      />
+    )
   }
 
   if (status === 'canceled') {
     return (
-      <XIcon className="size-4 text-muted-foreground" data-preserve-color />
+      <XIcon
+        className="size-4 shrink-0 text-muted-foreground"
+        data-preserve-color
+      />
     )
   }
 
   if (status === 'queued') {
     return (
       <Clock3Icon
-        className="size-4 text-muted-foreground"
+        className="size-4 shrink-0 text-muted-foreground"
         data-preserve-color
       />
     )
@@ -417,7 +438,7 @@ function StatusFilterIcon({
 
   return (
     <LoaderIcon
-      className="size-4 animate-spin text-muted-foreground"
+      className="size-4 shrink-0 animate-spin text-muted-foreground"
       data-preserve-color
     />
   )
@@ -449,7 +470,7 @@ function KeywordFilter({
   }, [draft, onChange, value])
 
   return (
-    <InputGroup className="h-8 w-48">
+    <InputGroup className="w-48">
       <InputGroupAddon>
         <SearchIcon />
       </InputGroupAddon>

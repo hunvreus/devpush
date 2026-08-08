@@ -1,9 +1,15 @@
+import { randomUUID } from 'node:crypto'
+
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
+
+import { config } from '@/server/config'
 
 import { getAuthSession } from '@/server/auth/session.server'
 import {
   createManualDeployment,
+  createManualBackupRun,
+  createBackupRestoreJob,
   createProjectFromGitHub,
   createRedeployDeployment,
   createRollbackDeployment,
@@ -19,7 +25,7 @@ import {
   updateProjectEnvVars,
   updateProjectRoutes,
   updateProjectSettings,
-  updateProjectServerAssignments,
+  updateProjectEnvironmentServers,
   updateProjectBackupConfigs,
 } from '@/server/projects/service'
 import {
@@ -79,11 +85,42 @@ const deleteProjectSchema = projectRouteSchema.extend({
 })
 
 const deployProjectSchema = projectRouteSchema.extend({
+  environmentId: z.string().trim().min(1),
+  gitBranch: z.string().trim().min(1),
   gitSha: z.string().trim().min(1).optional(),
+})
+
+const deployOptionsSchema = projectRouteSchema.extend({
+  environmentId: z.string().trim().min(1),
 })
 
 const deploymentRouteSchema = projectRouteSchema.extend({
   deploymentId: z.string().min(1),
+})
+
+const backupRouteSchema = projectRouteSchema.extend({
+  backupConfigId: z.string().min(1),
+})
+
+const backupRestoreSchema = projectRouteSchema.extend({
+  backupRunId: z.string().min(1),
+  artifacts: z
+    .array(
+      z.discriminatedUnion('type', [
+        z.object({
+          artifactId: z.string().min(1),
+          type: z.literal('volume'),
+          targetVolume: z.string().trim().min(1).max(128),
+        }),
+        z.object({
+          artifactId: z.string().min(1),
+          type: z.literal('database'),
+          targetService: z.string().trim().min(1).max(128),
+          restoreCommand: z.string().trim().min(1).max(2_000),
+        }),
+      ]),
+    )
+    .min(1),
 })
 
 const projectLogsSchema = projectRouteSchema.extend({
@@ -108,12 +145,10 @@ const projectEnvironmentSchema = z.object({
     ),
   branch: z.string().trim().min(1).max(255),
   color: z.string().trim().min(1).max(32),
+  position: z.number().int().nonnegative(),
   status: z.enum(['active', 'deleted']),
-})
-
-const serverAssignmentSchema = z.object({
-  environment: z.string().trim(),
-  serverId: z.string().trim().min(1),
+  effectiveServerId: z.string().trim().min(1).nullable(),
+  serverId: z.string().trim().min(1).nullable(),
 })
 
 const routeSchema = z.object({
@@ -172,6 +207,7 @@ const projectSettingsSchema = projectRouteSchema.extend({
   deleteAvatar: z.boolean().optional(),
   composePath: z.string().trim().min(1).max(255),
   releaseCommand: z.string().trim().nullable(),
+  releaseService: z.string().trim().min(1).nullable(),
   readinessPath: z
     .string()
     .trim()
@@ -191,8 +227,14 @@ const projectEnvironmentsSchema = projectRouteSchema.extend({
   environments: z.array(projectEnvironmentSchema).min(1),
 })
 
-const projectServerAssignmentsSchema = projectRouteSchema.extend({
-  serverAssignments: z.array(serverAssignmentSchema),
+const projectEnvironmentServersSchema = projectRouteSchema.extend({
+  defaultServerId: z.string().trim().min(1).nullable(),
+  environmentServers: z.array(
+    z.object({
+      environmentId: z.string().trim().min(1),
+      serverId: z.string().trim().min(1).nullable(),
+    }),
+  ),
 })
 
 const projectEnvVarsSchema = projectRouteSchema.extend({
@@ -210,20 +252,39 @@ const backupDatabaseDumpSchema = z.object({
       'Backup dump services can only contain letters, numbers, dots, underscores, and hyphens.',
     ),
   command: z.string().trim().min(1).max(2_000),
-  output: z
+})
+
+const backupScheduleSchema = z.object({
+  cron: z
     .string()
     .trim()
-    .min(1)
-    .max(512)
     .regex(
-      /^databases\/[^/\s][^\s]*\.(?:sql|dump)\.zst$/,
-      'Backup dump outputs must live under databases/ and end in .sql.zst or .dump.zst.',
+      /^(\S+\s+){4}\S+$/,
+      'Backup schedules must use a five-field cron expression.',
     ),
 })
 
+const backupVolumesSchema = z.object({
+  mode: z.enum(['none', 'allNamed', 'selected']),
+  names: z.array(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .regex(
+        /^[A-Za-z0-9._-]+$/,
+        'Backup volume names can only contain letters, numbers, dots, underscores, and hyphens.',
+      ),
+  ),
+})
+
 const backupConfigSchema = z.object({
+  id: z.string().trim().optional(),
+  name: z.string().trim().min(1).max(100),
   environmentId: z.string().trim().min(1),
   enabled: z.boolean(),
+  schedule: backupScheduleSchema,
   destination: z.object({
     bucket: z
       .string()
@@ -237,12 +298,24 @@ const backupConfigSchema = z.object({
     region: z.string().trim().min(1).max(100).optional(),
     endpoint: z.string().trim().url().optional(),
     prefix: z.string().trim().max(512).optional(),
+    accessKeyId: z.string().trim().min(1).max(256).optional(),
+    secretAccessKey: z.string().trim().min(1).max(1_024).optional(),
+    clearSecretAccessKey: z.boolean().optional(),
   }),
   retention: z.object({
-    daily: z.number().int().min(0).max(365),
-    weekly: z.number().int().min(0).max(260),
-    monthly: z.number().int().min(0).max(120),
+    local: z.object({
+      count: z.number().int().min(0).max(10_000),
+      days: z.number().int().min(0).max(3650),
+      maxStorageGb: z.number().min(0).max(100_000),
+    }),
+    remote: z.object({
+      enabled: z.boolean(),
+      count: z.number().int().min(0).max(10_000),
+      days: z.number().int().min(0).max(3650),
+      maxStorageGb: z.number().min(0).max(100_000),
+    }),
   }),
+  volumes: backupVolumesSchema,
   databaseDumps: z.array(backupDatabaseDumpSchema),
 })
 
@@ -418,6 +491,7 @@ export const saveProjectSettings = createServerFn({ method: 'POST' })
       repoFullName: string
       readinessPath: string | null
       releaseCommand: string | null
+      releaseService: string | null
       teamSlug: string
     }) => projectSettingsSchema.parse(data),
   )
@@ -439,6 +513,7 @@ export const saveProjectSettings = createServerFn({ method: 'POST' })
       deleteAvatar: data.deleteAvatar,
       composePath: data.composePath,
       releaseCommand: data.releaseCommand || null,
+      releaseService: data.releaseService || null,
       readinessPath: data.readinessPath || null,
     })
   })
@@ -532,8 +607,10 @@ export const saveProjectEnvironments = createServerFn({ method: 'POST' })
         color: string
         id: string
         name: string
+        position: number
         slug: string
         status: 'active' | 'deleted'
+        serverId: string | null
       }>
       projectName: string
       teamSlug: string
@@ -554,13 +631,17 @@ export const saveProjectEnvironments = createServerFn({ method: 'POST' })
     })
   })
 
-export const saveProjectServerAssignments = createServerFn({ method: 'POST' })
+export const saveProjectEnvironmentServers = createServerFn({ method: 'POST' })
   .validator(
     (data: {
+      defaultServerId: string | null
       projectName: string
-      serverAssignments: Array<{ environment: string; serverId: string }>
+      environmentServers: Array<{
+        environmentId: string
+        serverId: string | null
+      }>
       teamSlug: string
-    }) => projectServerAssignmentsSchema.parse(data),
+    }) => projectEnvironmentServersSchema.parse(data),
   )
   .handler(async ({ data }) => {
     const session = await getAuthSession()
@@ -569,11 +650,12 @@ export const saveProjectServerAssignments = createServerFn({ method: 'POST' })
       throw new Error('Sign in before saving project servers.')
     }
 
-    return updateProjectServerAssignments({
+    return updateProjectEnvironmentServers({
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
-      serverAssignments: data.serverAssignments,
+      defaultServerId: data.defaultServerId,
+      environmentServers: data.environmentServers,
     })
   })
 
@@ -606,21 +688,40 @@ export const saveProjectBackupConfigs = createServerFn({ method: 'POST' })
       backupConfigs: Array<{
         databaseDumps: Array<{
           command: string
-          output: string
           service: string
         }>
         destination: {
+          accessKeyId?: string
           bucket: string
+          clearSecretAccessKey?: boolean
           endpoint?: string
           prefix?: string
           region?: string
+          secretAccessKey?: string
         }
         enabled: boolean
         environmentId: string
+        id?: string
+        name: string
         retention: {
-          daily: number
-          monthly: number
-          weekly: number
+          local: {
+            count: number
+            days: number
+            maxStorageGb: number
+          }
+          remote: {
+            enabled: boolean
+            count: number
+            days: number
+            maxStorageGb: number
+          }
+        }
+        schedule: {
+          cron: string
+        }
+        volumes: {
+          mode: 'none' | 'allNamed' | 'selected'
+          names: Array<string>
         }
       }>
       projectName: string
@@ -628,6 +729,7 @@ export const saveProjectBackupConfigs = createServerFn({ method: 'POST' })
     }) => projectBackupConfigsSchema.parse(data),
   )
   .handler(async ({ data }) => {
+    requireBackupsEnabled()
     const session = await getAuthSession()
 
     if (!session) {
@@ -638,14 +740,87 @@ export const saveProjectBackupConfigs = createServerFn({ method: 'POST' })
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
-      backupConfigs: data.backupConfigs,
+      backupConfigs: data.backupConfigs.map((backupConfig) => ({
+        ...backupConfig,
+        id: backupConfig.id ?? randomUUID(),
+      })),
     })
   })
 
+export const runProjectBackup = createServerFn({ method: 'POST' })
+  .validator(
+    (data: { backupConfigId: string; projectName: string; teamSlug: string }) =>
+      backupRouteSchema.parse(data),
+  )
+  .handler(async ({ data }) => {
+    requireBackupsEnabled()
+    const session = await getAuthSession()
+
+    if (!session) {
+      throw new Error('Sign in before running a backup.')
+    }
+
+    return createManualBackupRun({
+      backupConfigId: data.backupConfigId,
+      userId: session.user.id,
+      teamSlug: data.teamSlug,
+      projectName: data.projectName,
+    })
+  })
+
+export const restoreProjectBackup = createServerFn({ method: 'POST' })
+  .validator(
+    (data: {
+      backupRunId: string
+      artifacts: Array<
+        | {
+            artifactId: string
+            type: 'volume'
+            targetVolume: string
+          }
+        | {
+            artifactId: string
+            type: 'database'
+            targetService: string
+            restoreCommand: string
+          }
+      >
+      projectName: string
+      teamSlug: string
+    }) => backupRestoreSchema.parse(data),
+  )
+  .handler(async ({ data }) => {
+    requireBackupsEnabled()
+    const session = await getAuthSession()
+
+    if (!session) {
+      throw new Error('Sign in before restoring a backup.')
+    }
+
+    return createBackupRestoreJob({
+      userId: session.user.id,
+      teamSlug: data.teamSlug,
+      projectName: data.projectName,
+      backupRunId: data.backupRunId,
+      artifacts: data.artifacts,
+    })
+  })
+
+function requireBackupsEnabled() {
+  if (!config.DEVPUSH_BACKUPS_ENABLED) {
+    throw new Error('Backups are not enabled for this installation.')
+  }
+}
+
 export const deployProject = createServerFn({ method: 'POST' })
   .validator(
-    (data: { gitSha?: string; projectName: string; teamSlug: string }) =>
-      deployProjectSchema.parse(data),
+    (data: {
+      environmentId: string
+      gitBranch: string
+      gitSha?: string
+      projectName: string
+      teamSlug: string
+    }) => deployProjectSchema.parse(data),
   )
   .handler(async ({ data }) => {
     const session = await getAuthSession()
@@ -655,6 +830,8 @@ export const deployProject = createServerFn({ method: 'POST' })
     }
 
     return createManualDeployment({
+      environmentId: data.environmentId,
+      gitBranch: data.gitBranch,
       gitSha: data.gitSha,
       userId: session.user.id,
       teamSlug: data.teamSlug,
@@ -703,8 +880,9 @@ export const redeployProjectDeployment = createServerFn({ method: 'POST' })
   })
 
 export const getProjectDeployOptions = createServerFn({ method: 'GET' })
-  .validator((data: { projectName: string; teamSlug: string }) =>
-    projectRouteSchema.parse(data),
+  .validator(
+    (data: { environmentId: string; projectName: string; teamSlug: string }) =>
+      deployOptionsSchema.parse(data),
   )
   .handler(async ({ data }) => {
     const session = await getAuthSession()
@@ -714,6 +892,7 @@ export const getProjectDeployOptions = createServerFn({ method: 'GET' })
     }
 
     return getManualDeploymentOptions({
+      environmentId: data.environmentId,
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,

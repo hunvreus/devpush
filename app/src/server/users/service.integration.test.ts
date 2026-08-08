@@ -2,16 +2,15 @@ import { eq, inArray } from 'drizzle-orm'
 import { SignJWT } from 'jose'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
-import { authMethods } from '@/lib/auth'
-import { auth } from '@/lib/auth'
+import { auth, authMethods } from '@/lib/auth'
 import { config } from '@/server/config'
 import { closeDb, db } from '@/server/db'
 import {
   account,
   agentJobs,
+  aliases,
   deployments,
   environments,
-  hostnames,
   projects,
   servers,
   session,
@@ -122,10 +121,12 @@ describe('deleteUserAccount integration', () => {
     touchedUserIds.push(userId, otherUserId)
     touchedTeamIds.push(teamId)
 
-    await db.insert(user).values([
-      makeUser(userId, `${userId}@example.com`),
-      makeUser(otherUserId, `${otherUserId}@example.com`),
-    ])
+    await db
+      .insert(user)
+      .values([
+        makeUser(userId, `${userId}@example.com`),
+        makeUser(otherUserId, `${otherUserId}@example.com`),
+      ])
     await db.insert(teams).values({
       id: teamId,
       name: 'Shared team',
@@ -183,10 +184,12 @@ describe('deleteUserAccount integration', () => {
     touchedUserIds.push(userId, memberUserId)
     touchedTeamIds.push(teamId)
 
-    await db.insert(user).values([
-      makeUser(userId, `${userId}@example.com`),
-      makeUser(memberUserId, `${memberUserId}@example.com`),
-    ])
+    await db
+      .insert(user)
+      .values([
+        makeUser(userId, `${userId}@example.com`),
+        makeUser(memberUserId, `${memberUserId}@example.com`),
+      ])
     await db.insert(teams).values({
       id: teamId,
       name: 'Needs transfer',
@@ -233,9 +236,7 @@ describe('deleteUserAccount integration', () => {
 
     expect(userRows).toEqual([{ id: userId, status: 'active' }])
     expect(teamRows).toEqual([{ status: 'active' }])
-    expect(
-      new Map(memberRows.map((row) => [row.userId, row.role])),
-    ).toEqual(
+    expect(new Map(memberRows.map((row) => [row.userId, row.role]))).toEqual(
       new Map([
         [userId, 'owner'],
         [memberUserId, 'member'],
@@ -250,10 +251,12 @@ describe('deleteUserAccount integration', () => {
     touchedUserIds.push(userId, memberUserId)
     touchedTeamIds.push(teamId)
 
-    await db.insert(user).values([
-      makeUser(userId, `${userId}@example.com`),
-      makeUser(memberUserId, `${memberUserId}@example.com`),
-    ])
+    await db
+      .insert(user)
+      .values([
+        makeUser(userId, `${userId}@example.com`),
+        makeUser(memberUserId, `${memberUserId}@example.com`),
+      ])
     await db.insert(teams).values({
       id: teamId,
       name: 'Owned with members',
@@ -284,10 +287,7 @@ describe('deleteUserAccount integration', () => {
     )
 
     const [userRows, teamRows, memberRows] = await Promise.all([
-      db
-        .select({ status: user.status })
-        .from(user)
-        .where(eq(user.id, userId)),
+      db.select({ status: user.status }).from(user).where(eq(user.id, userId)),
       db
         .select({ status: teams.status })
         .from(teams)
@@ -376,23 +376,31 @@ describe('deleteUserAccount integration', () => {
     await db.insert(deployments).values({
       id: deploymentId,
       commitMeta: {},
-      configSnapshot: {},
+      config: {
+        version: 2,
+        composePath: 'compose.yml',
+        releaseCommand: null,
+        releaseService: 'web',
+        readinessPath: null,
+        routes: [],
+      },
       environmentId,
-      envVarsSnapshot: '[]',
+      envVars: '[]',
       gitBranch: 'main',
       gitSha: 'abc123',
       phase: 'deploying',
+      repoId: 1,
       repoFullName: 'example/owned',
       runtimeId: 'owned-runtime',
       serverId,
       status: 'running',
     })
-    await db.insert(hostnames).values({
+    await db.insert(aliases).values({
       id: hostnameId,
       hostname: `${makeSlug(projectId)}.example.test`,
       projectId,
-      status: 'active',
-      type: 'environment_alias',
+      environmentId,
+      type: 'environment',
     })
     await db.insert(teamInvites).values({
       id: inviteId,
@@ -430,7 +438,10 @@ describe('deleteUserAccount integration', () => {
         })
         .from(user)
         .where(eq(user.id, userId)),
-      db.select({ status: teams.status }).from(teams).where(eq(teams.id, teamId)),
+      db
+        .select({ status: teams.status })
+        .from(teams)
+        .where(eq(teams.id, teamId)),
       db
         .select({ status: projects.status })
         .from(projects)
@@ -448,9 +459,9 @@ describe('deleteUserAccount integration', () => {
         .from(deployments)
         .where(eq(deployments.id, deploymentId)),
       db
-        .select({ status: hostnames.status })
-        .from(hostnames)
-        .where(eq(hostnames.id, hostnameId)),
+        .select({ id: aliases.id })
+        .from(aliases)
+        .where(eq(aliases.id, hostnameId)),
       db
         .select({ id: teamInvites.id })
         .from(teamInvites)
@@ -489,7 +500,7 @@ describe('deleteUserAccount integration', () => {
         errorMessage: 'Canceled because the owning user was deleted.',
       },
     ])
-    expect(hostnameRows).toEqual([{ status: 'disabled' }])
+    expect(hostnameRows).toEqual([])
     expect(inviteRows).toEqual([])
     expect(accountRows).toEqual([])
     expect(sessionRows).toEqual([])
@@ -564,10 +575,12 @@ describe('leaveTeam integration', () => {
     touchedUserIds.push(ownerId, memberId)
     touchedTeamIds.push(defaultTeamId, teamId)
 
-    await db.insert(user).values([
-      makeUser(ownerId, `${ownerId}@example.com`),
-      makeUser(memberId, `${memberId}@example.com`),
-    ])
+    await db
+      .insert(user)
+      .values([
+        makeUser(ownerId, `${ownerId}@example.com`),
+        makeUser(memberId, `${memberId}@example.com`),
+      ])
     await db.insert(teams).values([
       {
         id: defaultTeamId,
@@ -580,10 +593,7 @@ describe('leaveTeam integration', () => {
         slug: makeSlug(teamId),
       },
     ])
-    await db
-      .update(user)
-      .set({ defaultTeamId })
-      .where(eq(user.id, ownerId))
+    await db.update(user).set({ defaultTeamId }).where(eq(user.id, ownerId))
     await db.insert(teamMembers).values([
       {
         id: makeId('member'),
@@ -614,7 +624,9 @@ describe('leaveTeam integration', () => {
       .from(teamMembers)
       .where(eq(teamMembers.teamId, teamId))
 
-    expect(new Map(membershipRows.map((row) => [row.userId, row.role]))).toEqual(
+    expect(
+      new Map(membershipRows.map((row) => [row.userId, row.role])),
+    ).toEqual(
       new Map([
         [ownerId, 'owner'],
         [memberId, 'member'],
@@ -630,10 +642,12 @@ describe('leaveTeam integration', () => {
     touchedUserIds.push(ownerId, otherOwnerId)
     touchedTeamIds.push(defaultTeamId, teamId)
 
-    await db.insert(user).values([
-      makeUser(ownerId, `${ownerId}@example.com`),
-      makeUser(otherOwnerId, `${otherOwnerId}@example.com`),
-    ])
+    await db
+      .insert(user)
+      .values([
+        makeUser(ownerId, `${ownerId}@example.com`),
+        makeUser(otherOwnerId, `${otherOwnerId}@example.com`),
+      ])
     await db.insert(teams).values([
       {
         id: defaultTeamId,
@@ -646,10 +660,7 @@ describe('leaveTeam integration', () => {
         slug: makeSlug(teamId),
       },
     ])
-    await db
-      .update(user)
-      .set({ defaultTeamId })
-      .where(eq(user.id, ownerId))
+    await db.update(user).set({ defaultTeamId }).where(eq(user.id, ownerId))
     await db.insert(teamMembers).values([
       {
         id: makeId('member'),
@@ -966,10 +977,12 @@ describe('updateUserGeneral integration', () => {
     const otherUserId = makeId('user')
     touchedUserIds.push(userId, otherUserId)
 
-    await db.insert(user).values([
-      makeUser(userId, `${userId}@example.com`, 'primary-user'),
-      makeUser(otherUserId, `${otherUserId}@example.com`, 'taken-name'),
-    ])
+    await db
+      .insert(user)
+      .values([
+        makeUser(userId, `${userId}@example.com`, 'primary-user'),
+        makeUser(otherUserId, `${otherUserId}@example.com`, 'taken-name'),
+      ])
 
     await expect(
       updateUserGeneral({
@@ -1093,23 +1106,31 @@ async function cleanupRows() {
   }
 
   if (touchedHostnameIds.length > 0) {
-    await db.delete(hostnames).where(inArray(hostnames.id, touchedHostnameIds))
+    await db.delete(aliases).where(inArray(aliases.id, touchedHostnameIds))
   }
 
   if (touchedDeploymentIds.length > 0) {
-    await db.delete(deployments).where(inArray(deployments.id, touchedDeploymentIds))
+    await db
+      .delete(deployments)
+      .where(inArray(deployments.id, touchedDeploymentIds))
   }
 
   if (touchedEnvironmentIds.length > 0) {
-    await db.delete(environments).where(inArray(environments.id, touchedEnvironmentIds))
+    await db
+      .delete(environments)
+      .where(inArray(environments.id, touchedEnvironmentIds))
   }
 
   if (touchedTeamIds.length > 0) {
-    await db.delete(teamMembers).where(inArray(teamMembers.teamId, touchedTeamIds))
+    await db
+      .delete(teamMembers)
+      .where(inArray(teamMembers.teamId, touchedTeamIds))
   }
 
   if (touchedInviteIds.length > 0) {
-    await db.delete(teamInvites).where(inArray(teamInvites.id, touchedInviteIds))
+    await db
+      .delete(teamInvites)
+      .where(inArray(teamInvites.id, touchedInviteIds))
   }
 
   if (touchedUserIds.length > 0) {

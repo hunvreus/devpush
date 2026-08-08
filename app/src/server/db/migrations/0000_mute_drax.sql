@@ -84,12 +84,15 @@ CREATE TABLE "backup_artifacts" (
 --> statement-breakpoint
 CREATE TABLE "backup_configs" (
 	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
 	"project_id" text NOT NULL,
 	"environment_id" text NOT NULL,
 	"enabled" boolean DEFAULT true NOT NULL,
 	"destination_type" "backup_destination_type" DEFAULT 's3' NOT NULL,
+	"schedule" jsonb NOT NULL,
 	"destination" jsonb NOT NULL,
 	"retention" jsonb NOT NULL,
+	"volumes" jsonb DEFAULT '{"mode":"allNamed","names":[]}'::jsonb NOT NULL,
 	"database_dumps" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -393,7 +396,7 @@ CREATE INDEX "allowlist_type_idx" ON "allowlist" USING btree ("type");--> statem
 CREATE UNIQUE INDEX "allowlist_type_value_idx" ON "allowlist" USING btree ("type",lower("value"));--> statement-breakpoint
 CREATE UNIQUE INDEX "backup_artifacts_run_object_idx" ON "backup_artifacts" USING btree ("backup_run_id","object_key");--> statement-breakpoint
 CREATE INDEX "backup_artifacts_run_idx" ON "backup_artifacts" USING btree ("backup_run_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "backup_configs_environment_idx" ON "backup_configs" USING btree ("environment_id");--> statement-breakpoint
+CREATE INDEX "backup_configs_environment_idx" ON "backup_configs" USING btree ("environment_id");--> statement-breakpoint
 CREATE INDEX "backup_configs_project_idx" ON "backup_configs" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "backup_runs_environment_status_idx" ON "backup_runs" USING btree ("environment_id","status");--> statement-breakpoint
 CREATE INDEX "backup_runs_project_idx" ON "backup_runs" USING btree ("project_id");--> statement-breakpoint

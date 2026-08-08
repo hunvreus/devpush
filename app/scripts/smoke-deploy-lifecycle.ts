@@ -9,13 +9,12 @@ import {
 } from '@/server/agents/jobs'
 import { db } from '@/server/db'
 import {
+  aliases,
   environments,
   deployments,
   deploymentLogs,
   githubInstallations,
-  hostnames,
   projects,
-  projectServers,
   servers,
   teamMembers,
   teams,
@@ -29,7 +28,7 @@ import {
 import {
   buildComposeProjectName,
   encryptDeploymentEnvVars,
-} from '@/server/projects/deployment-snapshot'
+} from '@/server/projects/deployment-config'
 import {
   createPendingServer,
   recordAgentHeartbeat,
@@ -44,6 +43,15 @@ function extractAgentToken(installCommand: string) {
   }
 
   return decodeURIComponent(match[1])
+}
+
+function hasCommitMessage(value: unknown, message: string) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'message' in value &&
+    value.message === message
+  )
 }
 
 async function main() {
@@ -85,7 +93,7 @@ async function main() {
       teamSlug,
       name: serverName,
     })
-    const token = extractAgentToken(createdServer.installCommand)
+    let token = extractAgentToken(createdServer.installCommand)
 
     await db.insert(githubInstallations).values({
       installationId,
@@ -107,21 +115,6 @@ async function main() {
       routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
       envVars: [{ key: 'SMOKE_VALUE', value: 'ok', environment: '' }],
     })
-    await db.insert(projectServers).values({
-      id: `smoke-project-server-${suffix}`,
-      projectId,
-      environmentId: null,
-      serverId: createdServer.id,
-    })
-		await db.insert(hostnames).values({
-			id: `smoke-hostname-${suffix}`,
-			projectId,
-			hostname: `${projectName}.devpush.local`,
-			type: 'environment_alias',
-			environmentId,
-			https: false,
-			status: 'active',
-		})
     await db.insert(environments).values({
       id: environmentId,
       projectId,
@@ -130,26 +123,23 @@ async function main() {
       slug: 'production',
       branch: 'main',
       isProduction: true,
-			defaultHost: `${projectName}.devpush.local`,
-			runtimeId: buildComposeProjectName({ projectId, environmentId }),
-			publicRoutes: [
-				{
-					host: `${projectName}.devpush.local`,
-					service: 'web',
-					port: 3000,
-					path: '/',
-					https: false,
-					stripPrefix: false,
-				},
-			],
-		})
+      runtimeId: buildComposeProjectName({ projectId, environmentId }),
+    })
+    await db.insert(aliases).values({
+      id: `smoke-hostname-${suffix}`,
+      projectId,
+      hostname: `${projectName}.devpush.local`,
+      type: 'environment',
+      environmentId,
+      https: false,
+    })
 
     await expectDeploymentToFail({
+      environmentId,
       userId,
       teamSlug,
       projectName,
-      message:
-        'Wait until every assigned server is connected before deploying.',
+      message: 'Wait until the assigned server is connected before deploying.',
     })
 
     const registration = await registerAgent({
@@ -157,6 +147,7 @@ async function main() {
       agentVersion: 'smoke',
       publicAddress: '203.0.113.10',
     })
+    token = registration.credential ?? token
 
     const registeredServerRows = await db
       .select()
@@ -187,12 +178,16 @@ async function main() {
     }
 
     const canceledDeployment = await createManualDeployment({
+      environmentId,
+      gitBranch: 'main',
       userId,
       teamSlug,
       projectName,
     })
 
     const deployment = await createManualDeployment({
+      environmentId,
+      gitBranch: 'main',
       userId,
       teamSlug,
       projectName,
@@ -370,7 +365,7 @@ async function main() {
     if (
       pushDeploymentRow.status !== 'queued' ||
       pushDeploymentRow.gitSha !== 'feed1234' ||
-      pushDeploymentRow.commitMessage !== 'Webhook smoke deploy' ||
+      !hasCommitMessage(pushDeploymentRow.commitMeta, 'Webhook smoke deploy') ||
       pushDeploymentRow.trigger !== 'webhook'
     ) {
       throw new Error(
@@ -429,8 +424,8 @@ async function main() {
       name: `Broken smoke app ${suffix}`,
       githubRepoId: 987654321,
       githubRepo: 'devpush/broken-smoke-compose',
-      githubInstallationId: null,
       composePath: 'compose.yml',
+      routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
     })
     await db.insert(environments).values({
       id: brokenEnvironmentId,
@@ -440,21 +435,18 @@ async function main() {
       slug: 'production',
       branch: 'main',
       isProduction: true,
-      defaultHost: `${brokenProjectSlug}.devpush.local`,
       runtimeId: buildComposeProjectName({
         projectId: brokenProjectId,
         environmentId: brokenEnvironmentId,
       }),
-      envVars: [],
-      publicRoutes: [
-        {
-          host: `${brokenProjectSlug}.devpush.local`,
-          service: 'web',
-          port: 3000,
-          path: '/',
-          https: false,
-        },
-      ],
+    })
+    await db.insert(aliases).values({
+      id: `smoke-broken-hostname-${suffix}`,
+      projectId: brokenProjectId,
+      environmentId: brokenEnvironmentId,
+      hostname: `${brokenProjectSlug}.devpush.local`,
+      type: 'environment',
+      https: false,
     })
     const brokenDeploymentId = `smoke-broken-deployment-${suffix}`
     await db.insert(deployments).values({
@@ -468,60 +460,30 @@ async function main() {
       repoFullName: 'devpush/broken-smoke-compose',
       gitSha: 'broken-sha',
       gitBranch: 'main',
-      commitMessage: 'Broken smoke deployment',
       commitMeta: {
         message: 'Broken smoke deployment',
         authorName: null,
         authoredAt: null,
         url: null,
       },
-      configSnapshot: {
-        version: 1,
-        repo: {
-          id: 987654321,
-          fullName: 'devpush/broken-smoke-compose',
-          installationId: null,
-        },
-        project: {
-          id: brokenProjectId,
-          slug: brokenProjectSlug,
-          name: `Broken smoke app ${suffix}`,
-        },
-        environment: {
-          id: brokenEnvironmentId,
-          name: 'Production',
-          slug: 'production',
-          branch: 'main',
-          color: 'blue',
-          defaultHost: `${brokenProjectSlug}.devpush.local`,
-        },
-        server: {
-          id: registration.serverId,
-          name: serverName,
-          status: 'connected',
-        },
-        compose: {
-          path: 'compose.yml',
-          projectName: buildComposeProjectName({
-            projectId: brokenProjectId,
-            environmentId: brokenEnvironmentId,
-          }),
-          releaseCommand: null,
-          releaseService: 'web',
-          readinessPath: null,
-          routes: [
-            {
-              host: `${brokenProjectSlug}.devpush.local`,
-              service: 'web',
-              port: 3000,
-              path: '/',
-              https: false,
-              stripPrefix: false,
-            },
-          ],
-        },
+      config: {
+        version: 2,
+        composePath: 'compose.yml',
+        releaseCommand: null,
+        releaseService: 'web',
+        readinessPath: null,
+        routes: [
+          {
+            host: `${brokenProjectSlug}.devpush.local`,
+            service: 'web',
+            port: 3000,
+            path: '/',
+            https: false,
+            stripPrefix: false,
+          },
+        ],
       },
-      envVarsSnapshot: encryptDeploymentEnvVars([]),
+      envVars: encryptDeploymentEnvVars([]),
       runtimeId: buildComposeProjectName({
         projectId: brokenProjectId,
         environmentId: brokenEnvironmentId,
@@ -589,59 +551,30 @@ async function main() {
       repoFullName: 'devpush/smoke-compose',
       gitSha: 'pending',
       gitBranch: 'main',
-      commitMessage: 'Stale smoke deployment',
       commitMeta: {
         message: 'Stale smoke deployment',
         authorName: null,
         authoredAt: null,
         url: null,
       },
-      configSnapshot: {
-        version: 1,
-        repo: {
-          id: 123456789,
-          fullName: 'devpush/smoke-compose',
-          installationId,
-        },
-        project: {
-          id: projectId,
-          slug: projectName,
-          name: `Smoke app ${suffix}`,
-        },
-        environment: {
-          id: environmentId,
-          name: 'Production',
-          slug: 'production',
-          branch: 'main',
-          color: 'blue',
-          defaultHost: `${projectName}.devpush.local`,
-        },
-        server: {
-          id: registration.serverId,
-          name: serverName,
-          status: 'connected',
-        },
-        compose: {
-          path: 'compose.yml',
-          projectName: buildComposeProjectName({ projectId, environmentId }),
-          releaseCommand: 'echo release',
-          releaseService: 'web',
-          readinessPath: null,
-          routes: [
-            {
-              host: `${projectName}.devpush.local`,
-              service: 'web',
-              port: 3000,
-              path: '/',
-              https: false,
-              stripPrefix: false,
-            },
-          ],
-        },
+      config: {
+        version: 2,
+        composePath: 'compose.yml',
+        releaseCommand: 'echo release',
+        releaseService: 'web',
+        readinessPath: null,
+        routes: [
+          {
+            host: `${projectName}.devpush.local`,
+            service: 'web',
+            port: 3000,
+            path: '/',
+            https: false,
+            stripPrefix: false,
+          },
+        ],
       },
-      envVarsSnapshot: encryptDeploymentEnvVars([
-        { key: 'SMOKE_VALUE', value: 'ok' },
-      ]),
+      envVars: encryptDeploymentEnvVars([{ key: 'SMOKE_VALUE', value: 'ok' }]),
       runtimeId: buildComposeProjectName({ projectId, environmentId }),
       startedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
     })
@@ -692,18 +625,26 @@ async function main() {
 }
 
 async function expectDeploymentToFail({
+  environmentId,
   userId,
   teamSlug,
   projectName,
   message,
 }: {
+  environmentId: string
   userId: string
   teamSlug: string
   projectName: string
   message: string
 }) {
   try {
-    await createManualDeployment({ userId, teamSlug, projectName })
+    await createManualDeployment({
+      environmentId,
+      gitBranch: 'main',
+      userId,
+      teamSlug,
+      projectName,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === message) {
       return

@@ -1,7 +1,12 @@
 import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 
 import type { db } from '@/server/db'
-import { agentJobs, deployments, environments, projects } from '@/server/db/schema'
+import {
+  agentJobs,
+  deployments,
+  environments,
+  projects,
+} from '@/server/db/schema'
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -72,7 +77,12 @@ async function listProjectRuntimeTargets(
       serverId: environments.serverId,
     })
     .from(environments)
-    .where(and(eq(environments.projectId, projectId), isNotNull(environments.serverId)))
+    .where(
+      and(
+        eq(environments.projectId, projectId),
+        isNotNull(environments.serverId),
+      ),
+    )
   const deploymentRows = await tx
     .select({
       runtimeId: deployments.runtimeId,
@@ -116,7 +126,10 @@ async function listTeamRuntimeTargets(
     })
     .from(environments)
     .where(
-      and(inArray(environments.projectId, projectIds), isNotNull(environments.serverId)),
+      and(
+        inArray(environments.projectId, projectIds),
+        isNotNull(environments.serverId),
+      ),
     )
   const deploymentRows = await tx
     .select({

@@ -42,6 +42,13 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from '@/components/ui/empty'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -55,13 +62,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -103,7 +115,6 @@ export function AdminSettings({
 }) {
   const router = useRouter()
   const [userQuery, setUserQuery] = useState('')
-  const [allowlistQuery, setAllowlistQuery] = useState('')
   const [allowlistType, setAllowlistType] = useState<
     'email' | 'domain' | 'pattern'
   >('email')
@@ -125,16 +136,6 @@ export function AdminSettings({
         .some((value) => value.toLowerCase().includes(query)),
     )
   }, [overview.users, userQuery])
-  const filteredAllowlist = useMemo(() => {
-    const query = allowlistQuery.trim().toLowerCase()
-    if (!query) return overview.allowlist
-
-    return overview.allowlist.filter((entry) =>
-      [entry.type, entry.value].some((value) =>
-        value.toLowerCase().includes(query),
-      ),
-    )
-  }, [overview.allowlist, allowlistQuery])
   const userPageCount = getPageCount(filteredUsers.length)
   const pagedUsers = useMemo(
     () => getPageItems(filteredUsers, userPage),
@@ -255,6 +256,13 @@ export function AdminSettings({
     }
   }
 
+  const allowlistPlaceholder =
+    allowlistType === 'domain'
+      ? 'example.com'
+      : allowlistType === 'pattern'
+        ? String.raw`^[^@]+@example\.com$`
+        : 'user@example.com'
+
   const allowlistActions = (
     <>
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
@@ -262,13 +270,14 @@ export function AdminSettings({
           <DialogHeader>
             <DialogTitle>Add an allowlist rule</DialogTitle>
             <DialogDescription>
-              Add an email address, domain, or regular expression pattern that
-              can sign up and sign in.
+              Add a new rule to allow sign up/sign in. You can add email
+              addresses (e.g., user@example.com), domains (e.g., example.com) or
+              regex patterns (e.g., ^[^@]+@example\.com$).
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 sm:grid-cols-[140px_1fr]">
-            <div className="space-y-2">
-              <Label htmlFor="allowlist-type">Type</Label>
+          <Field>
+            <FieldLabel htmlFor="allowlist-value">Rule</FieldLabel>
+            <ButtonGroup className="w-full">
               <Select
                 value={allowlistType}
                 onValueChange={(value) =>
@@ -281,7 +290,7 @@ export function AdminSettings({
                   )
                 }
               >
-                <SelectTrigger id="allowlist-type">
+                <SelectTrigger id="allowlist-type" className="w-32 shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -290,17 +299,17 @@ export function AdminSettings({
                   <SelectItem value="pattern">Pattern</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="allowlist-value">Value</Label>
               <Input
                 id="allowlist-value"
-                placeholder="Enter value..."
+                placeholder={allowlistPlaceholder}
                 value={allowlistValue}
                 onChange={(event) => setAllowlistValue(event.target.value)}
               />
-            </div>
-          </div>
+            </ButtonGroup>
+            <FieldDescription>
+              Add an email address, a domain, or a regular expression pattern.
+            </FieldDescription>
+          </Field>
           <DialogFooter>
             <Button
               type="button"
@@ -316,7 +325,7 @@ export function AdminSettings({
               disabled={isAddingAllowlist || !allowlistValue.trim()}
             >
               {isAddingAllowlist ? (
-                <LoaderIcon className="animate-spin" />
+                <LoaderIcon data-icon="inline-start" className="animate-spin" />
               ) : null}
               Add rule
             </Button>
@@ -331,12 +340,20 @@ export function AdminSettings({
               Paste email addresses separated by commas, spaces, or new lines.
             </DialogDescription>
           </DialogHeader>
-          <Textarea
-            value={importEmails}
-            onChange={(event) => setImportEmails(event.target.value)}
-            placeholder="alice@example.com&#10;bob@example.com, carol@example.com"
-            rows={5}
-          />
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="allowlist-import-emails">
+                Email addresses
+              </FieldLabel>
+              <Textarea
+                id="allowlist-import-emails"
+                value={importEmails}
+                onChange={(event) => setImportEmails(event.target.value)}
+                placeholder="alice@example.com&#10;bob@example.com, carol@example.com"
+                rows={5}
+              />
+            </Field>
+          </FieldGroup>
           <DialogFooter>
             <Button
               type="button"
@@ -352,7 +369,7 @@ export function AdminSettings({
               disabled={isImportingAllowlist || !importEmails.trim()}
             >
               {isImportingAllowlist ? (
-                <LoaderIcon className="animate-spin" />
+                <LoaderIcon data-icon="inline-start" className="animate-spin" />
               ) : null}
               Import
             </Button>
@@ -363,10 +380,9 @@ export function AdminSettings({
         <Button
           type="button"
           variant="outline"
-          size="sm"
           onClick={() => setAddDialogOpen(true)}
         >
-          <PlusIcon />
+          <PlusIcon data-icon="inline-start" />
           Add rule
         </Button>
         <DropdownMenu>
@@ -374,7 +390,7 @@ export function AdminSettings({
             <Button
               type="button"
               variant="outline"
-              size="icon-sm"
+              size="icon"
               aria-label="More allowlist actions"
             >
               <ChevronDownIcon />
@@ -414,7 +430,6 @@ export function AdminSettings({
               <Button
                 asChild
                 variant="ghost"
-                size="sm"
                 className="justify-start font-normal"
                 key={item}
               >
@@ -531,7 +546,7 @@ export function AdminSettings({
                   </p>
                 ) : (
                   <>
-                    <InputGroup className="mr-auto h-8 max-w-72">
+                    <InputGroup className="mr-auto max-w-72">
                       <InputGroupAddon>
                         <SearchIcon />
                       </InputGroupAddon>
@@ -698,11 +713,10 @@ export function AdminSettings({
                                             <TooltipTrigger asChild>
                                               <AlertDialogTrigger asChild>
                                                 <Button
-                                                  variant="ghost"
+                                                  variant="destructive"
                                                   size="icon-sm"
                                                   type="button"
-                                                  aria-label="Delete user"
-                                                  className="text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
+                                                  aria-label="Remove user"
                                                   disabled={busyId === user.id}
                                                 >
                                                   <Trash2Icon />
@@ -710,7 +724,7 @@ export function AdminSettings({
                                               </AlertDialogTrigger>
                                             </TooltipTrigger>
                                             <TooltipContent>
-                                              Delete user
+                                              Remove user
                                             </TooltipContent>
                                           </Tooltip>
                                           <AlertDialogContent>
@@ -776,111 +790,104 @@ export function AdminSettings({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between gap-2">
-                  <InputGroup className="h-8 max-w-72">
-                    <InputGroupAddon>
-                      <SearchIcon />
-                    </InputGroupAddon>
-                    <InputGroupInput
-                      placeholder="Search..."
-                      value={allowlistQuery}
-                      onChange={(event) =>
-                        setAllowlistQuery(event.target.value)
-                      }
-                    />
-                  </InputGroup>
-                  {allowlistActions}
-                </div>
-                {filteredAllowlist.length === 0 ? (
-                  <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                    No allowlist entries found.
-                  </p>
+                {overview.allowlist.length === 0 ? (
+                  <Empty className="min-h-40">
+                    <EmptyHeader>
+                      <EmptyTitle>No allowlist entries.</EmptyTitle>
+                      <EmptyDescription>
+                        Add a rule to restrict who can sign up and sign in.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>{allowlistActions}</EmptyContent>
+                  </Empty>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Value</TableHead>
-                          <TableHead>Added</TableHead>
-                          <TableHead className="w-16">
-                            <span className="sr-only">Actions</span>
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredAllowlist.map((entry) => (
-                          <TableRow key={entry.id}>
-                            <TableCell>
-                              <Badge variant="secondary">
-                                {formatAllowlistType(entry.type)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="truncate font-medium">
-                              {entry.value}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {formatAge(entry.createdAt)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <AlertDialog>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <AlertDialogTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        type="button"
-                                        aria-label="Delete allowlist rule"
-                                        className="text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
+                  <>
+                    <div className="flex justify-end">{allowlistActions}</div>
+                    <div className="overflow-hidden rounded-xl border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Value</TableHead>
+                            <TableHead>Added</TableHead>
+                            <TableHead className="w-16">
+                              <span className="sr-only">Actions</span>
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {overview.allowlist.map((entry) => (
+                            <TableRow key={entry.id}>
+                              <TableCell>
+                                <Badge variant="secondary">
+                                  {formatAllowlistType(entry.type)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="truncate font-medium">
+                                {entry.value}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {formatAge(entry.createdAt)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <AlertDialog>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="destructive"
+                                          size="icon-sm"
+                                          type="button"
+                                          aria-label="Remove allowlist rule"
+                                          disabled={busyId === entry.id}
+                                        >
+                                          <Trash2Icon />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Remove allowlist rule
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>
+                                        Delete allowlist rule?
+                                      </AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        This removes {entry.value} from the
+                                        allowlist.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel
                                         disabled={busyId === entry.id}
                                       >
-                                        <Trash2Icon />
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    Delete allowlist rule
-                                  </TooltipContent>
-                                </Tooltip>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Delete allowlist rule?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This removes {entry.value} from the
-                                      allowlist.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel
-                                      disabled={busyId === entry.id}
-                                    >
-                                      Cancel
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      variant="destructive"
-                                      disabled={busyId === entry.id}
-                                      onClick={(event) => {
-                                        event.preventDefault()
-                                        void removeAllowlistRule(entry.id)
-                                      }}
-                                    >
-                                      {busyId === entry.id ? (
-                                        <LoaderIcon className="animate-spin" />
-                                      ) : null}
-                                      Delete rule
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                                        Cancel
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction
+                                        variant="destructive"
+                                        disabled={busyId === entry.id}
+                                        onClick={(event) => {
+                                          event.preventDefault()
+                                          void removeAllowlistRule(entry.id)
+                                        }}
+                                      >
+                                        {busyId === entry.id ? (
+                                          <LoaderIcon className="animate-spin" />
+                                        ) : null}
+                                        Delete rule
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>

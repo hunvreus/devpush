@@ -51,7 +51,7 @@ export function TeamHome({
 
       {hasProjects ? (
         <section className="space-y-4">
-          <header className="flex items-center justify-between gap-4">
+          <header className="flex h-8 items-center justify-between gap-4">
             <h2 className="text-base font-medium">Recent projects</h2>
             <NewProjectButton teamSlug={team.slug} />
           </header>
@@ -69,7 +69,9 @@ export function TeamHome({
 
       {deployments.length > 0 ? (
         <section className="space-y-4">
-          <h2 className="text-base font-medium">Latest deployments</h2>
+          <header className="flex h-8 items-center">
+            <h2 className="text-base font-medium">Latest deployments</h2>
+          </header>
           <DeploymentList deployments={deployments} displayProject />
         </section>
       ) : null}
@@ -126,8 +128,8 @@ function EmptyServers({ onAddServer }: { onAddServer: () => void }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button type="button" size="sm" onClick={onAddServer}>
-          <PlusIcon />
+        <Button type="button" onClick={onAddServer}>
+          <PlusIcon data-icon="inline-start" />
           Add server
         </Button>
       </EmptyContent>
@@ -315,7 +317,7 @@ function EmptyProjects({ teamSlug }: { teamSlug: string }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <NewProjectButton teamSlug={teamSlug} size="sm" />
+        <NewProjectButton teamSlug={teamSlug} />
       </EmptyContent>
     </Empty>
   )
@@ -332,7 +334,7 @@ function NewProjectButton({
     <NewProjectDialogLauncher teamSlug={teamSlug}>
       {(open) => (
         <Button onClick={open} size={size} type="button">
-          <PlusIcon />
+          <PlusIcon data-icon="inline-start" />
           New project
         </Button>
       )}

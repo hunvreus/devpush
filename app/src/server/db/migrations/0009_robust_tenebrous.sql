@@ -1,0 +1,1 @@
+ALTER TABLE "aliases" ADD COLUMN "branch" text;

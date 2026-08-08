@@ -9,29 +9,12 @@ import {
   AlertTitle,
 } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { ProjectPage } from '@/features/teams/team-header'
-import type {
-  DeploymentSummary,
-  ProjectContext,
-} from '@/server/projects/service'
+import type { ProjectContext } from '@/server/projects/service'
 
 type ProjectLayoutContext = Pick<
   ProjectContext,
-  | 'userContext'
-  | 'team'
-  | 'project'
-  | 'teamProjects'
-  | 'environment'
-  | 'serverAssignments'
-  | 'servers'
-> & {
-  deployment?: {
-    id: string
-    status: ProjectContext['deployments'][number]['status']
-  }
-  deployments?: Array<DeploymentSummary>
-  latestDeployments?: Array<DeploymentSummary>
-}
+  'team' | 'project' | 'environment' | 'environments' | 'servers'
+>
 
 export function ProjectLayout({
   children,
@@ -42,20 +25,11 @@ export function ProjectLayout({
   contentClassName?: string
   context: ProjectLayoutContext
 }) {
-  const deployments = context.deployments ?? context.latestDeployments ?? []
   const serverBlockReason = getServerBlockReason(context)
   const missingComposeFile = context.project.composePath === null
 
   return (
-    <ProjectPage
-      userContext={context.userContext}
-      currentTeam={context.team}
-      currentProject={context.project}
-      currentProjects={context.teamProjects}
-      currentDeployment={context.deployment}
-      currentDeployments={deployments}
-      contentClassName={contentClassName}
-    >
+    <div className={contentClassName}>
       {missingComposeFile ? (
         <Alert variant="destructive">
           <TriangleAlertIcon />
@@ -103,12 +77,20 @@ export function ProjectLayout({
         </Alert>
       ) : null}
       {children}
-    </ProjectPage>
+    </div>
   )
 }
 
 function getServerBlockReason(context: ProjectLayoutContext) {
-  if (context.serverAssignments.length === 0) {
+  const configuredEnvironments = context.environments.filter(
+    (environment) => environment.status === 'active',
+  )
+
+  if (
+    configuredEnvironments.every(
+      (environment) => !environment.effectiveServerId,
+    )
+  ) {
     return {
       title: 'No server assigned',
       description: 'Assign a server before deploying this project.',
@@ -117,8 +99,8 @@ function getServerBlockReason(context: ProjectLayoutContext) {
 
   const assignedServerIds = Array.from(
     new Set(
-      context.serverAssignments
-        .map((assignment) => assignment.serverId)
+      configuredEnvironments
+        .map((environment) => environment.effectiveServerId)
         .filter(Boolean),
     ),
   )

@@ -2,24 +2,30 @@ import {
   HeadContent,
   Outlet,
   Scripts,
-  createRootRoute,
+  createRootRouteWithContext,
 } from '@tanstack/react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
-import { useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { RouteErrorState, RouteNotFoundState } from '@/components/route-error-state'
+import {
+  RouteErrorState,
+  RouteNotFoundState,
+} from '@/components/route-error-state'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { createQueryClient } from '@/lib/query'
 import appCss from '../styles.css?url'
 
 const appName = 'devpush'
 const appDescription = 'Docker Compose deployments through devpush agents.'
 const socialImage = '/social.png'
 
-export const Route = createRootRoute({
+type RouterContext = {
+  queryClient: QueryClient
+}
+
+export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
     meta: [
       {
@@ -120,7 +126,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
-  const [queryClient] = useState(() => createQueryClient())
+  const { queryClient } = Route.useRouteContext()
 
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>

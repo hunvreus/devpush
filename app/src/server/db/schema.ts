@@ -55,14 +55,18 @@ export const deploymentTrigger = pgEnum('deployment_trigger', [
   'rollback',
 ])
 
-export const hostnameType = pgEnum('hostname_type', [
-  'custom_domain',
-  'deployment_alias',
-  'environment_alias',
-  'branch_alias',
+export const environmentStatus = pgEnum('environment_status', [
+  'active',
+  'deleted',
 ])
 
-export const hostnameStatus = pgEnum('hostname_status', [
+export const aliasType = pgEnum('alias_type', [
+  'deployment',
+  'environment',
+  'branch',
+])
+
+export const domainStatus = pgEnum('domain_status', [
   'pending',
   'active',
   'disabled',
@@ -120,6 +124,11 @@ export const backupArtifactType = pgEnum('backup_artifact_type', [
   'manifest',
   'volume',
   'database',
+])
+
+export const backupArtifactStorage = pgEnum('backup_artifact_storage', [
+  'local',
+  'remote',
 ])
 
 export const teams = pgTable(
@@ -361,8 +370,19 @@ export const servers = pgTable(
     status: serverStatus('status').notNull().default('pending'),
     agentVersion: text('agent_version'),
     publicAddress: text('public_address'),
+    hostname: text('hostname'),
+    operatingSystem: text('operating_system'),
+    kernelVersion: text('kernel_version'),
+    architecture: text('architecture'),
+    cpuCoreCount: integer('cpu_core_count'),
+    hostUptimeSeconds: bigint('host_uptime_seconds', { mode: 'number' }),
     enrollmentTokenHash: text('enrollment_token_hash'),
     enrollmentTokenExpiresAt: timestamp('enrollment_token_expires_at', {
+      withTimezone: true,
+    }),
+    agentCredentialHash: text('agent_credential_hash'),
+    pendingAgentCredentialHash: text('pending_agent_credential_hash'),
+    agentCredentialRotatedAt: timestamp('agent_credential_rotated_at', {
       withTimezone: true,
     }),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
@@ -407,6 +427,27 @@ export const serverHeartbeats = pgTable(
   ],
 )
 
+export const serverAvailabilityWindows = pgTable(
+  'server_availability_windows',
+  {
+    id: text('id').primaryKey(),
+    serverId: text('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('server_availability_windows_server_started_idx').on(
+      table.serverId,
+      table.startedAt,
+    ),
+  ],
+)
+
 export const serverMetrics = pgTable(
   'server_metrics',
   {
@@ -421,6 +462,14 @@ export const serverMetrics = pgTable(
     memoryTotalBytes: bigint('memory_total_bytes', { mode: 'number' }),
     diskUsedBytes: bigint('disk_used_bytes', { mode: 'number' }),
     diskTotalBytes: bigint('disk_total_bytes', { mode: 'number' }),
+    networkReceiveBytesPerSecond: doublePrecision(
+      'network_receive_bytes_per_second',
+    ),
+    networkTransmitBytesPerSecond: doublePrecision(
+      'network_transmit_bytes_per_second',
+    ),
+    diskReadBytesPerSecond: doublePrecision('disk_read_bytes_per_second'),
+    diskWriteBytesPerSecond: doublePrecision('disk_write_bytes_per_second'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -451,12 +500,15 @@ export const projects = pgTable(
     }).references(() => githubInstallations.installationId, {
       onDelete: 'restrict',
     }),
+    defaultServerId: text('default_server_id').references(() => servers.id, {
+      onDelete: 'restrict',
+    }),
     avatarPath: text('avatar_path'),
-    environments: jsonb('environments'),
     routes: jsonb('routes'),
     envVars: jsonb('env_vars'),
     composePath: text('compose_path'),
     releaseCommand: text('release_command'),
+    releaseService: text('release_service'),
     readinessPath: text('readiness_path'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -471,33 +523,7 @@ export const projects = pgTable(
       .where(sql`${table.status} <> 'deleted'`),
     index('projects_team_idx').on(table.teamId),
     index('projects_github_installation_idx').on(table.githubInstallationId),
-  ],
-)
-
-export const projectServers = pgTable(
-  'project_servers',
-  {
-    id: text('id').primaryKey(),
-    projectId: text('project_id')
-      .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
-    environmentId: text('environment_id'),
-    serverId: text('server_id')
-      .notNull()
-      .references(() => servers.id, { onDelete: 'restrict' }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('project_servers_project_environment_idx').on(
-      table.projectId,
-      sql`COALESCE(${table.environmentId}, '')`,
-    ),
-    index('project_servers_server_idx').on(table.serverId),
+    index('projects_default_server_idx').on(table.defaultServerId),
   ],
 )
 
@@ -515,10 +541,10 @@ export const environments = pgTable(
     slug: text('slug').notNull(),
     branch: text('branch').notNull(),
     isProduction: boolean('is_production').notNull().default(false),
-    defaultHost: text('default_host'),
+    position: integer('position').notNull().default(0),
+    color: text('color').notNull().default('blue'),
+    status: environmentStatus('status').notNull().default('active'),
     runtimeId: text('runtime_id').notNull(),
-    envVars: jsonb('env_vars'),
-    publicRoutes: jsonb('public_routes'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -581,6 +607,7 @@ export const agentRuntimeObservations = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     runtimeId: text('runtime_id').notNull(),
+    services: jsonb('services'),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
     cleanupQueuedAt: timestamp('cleanup_queued_at', { withTimezone: true }),
@@ -640,6 +667,7 @@ export const backupConfigs = pgTable(
   'backup_configs',
   {
     id: text('id').primaryKey(),
+    name: text('name').notNull(),
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
@@ -650,8 +678,12 @@ export const backupConfigs = pgTable(
     destinationType: backupDestinationType('destination_type')
       .notNull()
       .default('s3'),
+    schedule: jsonb('schedule').notNull(),
     destination: jsonb('destination').notNull(),
     retention: jsonb('retention').notNull(),
+    volumes: jsonb('volumes')
+      .notNull()
+      .default({ mode: 'allNamed', names: [] }),
     databaseDumps: jsonb('database_dumps').notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -661,7 +693,7 @@ export const backupConfigs = pgTable(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex('backup_configs_environment_idx').on(table.environmentId),
+    index('backup_configs_environment_idx').on(table.environmentId),
     index('backup_configs_project_idx').on(table.projectId),
   ],
 )
@@ -679,16 +711,14 @@ export const deployments = pgTable(
     status: deploymentStatus('status').notNull().default('queued'),
     phase: text('phase'),
     trigger: deploymentTrigger('trigger').notNull().default('user'),
-    repoId: bigint('repo_id', { mode: 'number' }),
+    repoId: bigint('repo_id', { mode: 'number' }).notNull(),
     repoFullName: text('repo_full_name').notNull(),
     gitSha: text('git_sha').notNull(),
     gitBranch: text('git_branch').notNull(),
-    commitMessage: text('commit_message'),
-    commitMeta: jsonb('commit_meta'),
-    configSnapshot: jsonb('config_snapshot').notNull(),
-    envVarsSnapshot: text('env_vars_snapshot').notNull(),
+    commitMeta: jsonb('commit_meta').notNull().default({}),
+    config: jsonb('config').notNull(),
+    envVars: text('env_vars').notNull(),
     runtimeId: text('runtime_id').notNull(),
-    jobId: text('job_id'),
     errorMessage: text('error_message'),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
@@ -760,6 +790,7 @@ export const backupArtifacts = pgTable(
       .notNull()
       .references(() => backupRuns.id, { onDelete: 'cascade' }),
     type: backupArtifactType('type').notNull(),
+    storage: backupArtifactStorage('storage').notNull().default('remote'),
     objectKey: text('object_key').notNull(),
     checksumSha256: text('checksum_sha256').notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
@@ -825,22 +856,56 @@ export const runtimeLogs = pgTable(
   ],
 )
 
-export const hostnames = pgTable(
-  'hostnames',
+export const aliases = pgTable(
+  'aliases',
   {
     id: text('id').primaryKey(),
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
+    environmentId: text('environment_id')
+      .notNull()
+      .references(() => environments.id, { onDelete: 'cascade' }),
     deploymentId: text('deployment_id').references(() => deployments.id, {
-      onDelete: 'cascade',
+      onDelete: 'set null',
     }),
+    previousDeploymentId: text('previous_deployment_id').references(
+      () => deployments.id,
+      { onDelete: 'set null' },
+    ),
     hostname: text('hostname').notNull(),
-    type: hostnameType('type').notNull(),
-    environmentId: text('environment_id'),
+    type: aliasType('type').notNull(),
+    branch: text('branch'),
+    https: boolean('https').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('aliases_hostname_idx').on(table.hostname),
+    index('aliases_project_idx').on(table.projectId),
+    index('aliases_environment_idx').on(table.environmentId),
+    index('aliases_deployment_idx').on(table.deploymentId),
+  ],
+)
+
+export const domains = pgTable(
+  'domains',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    environmentId: text('environment_id')
+      .notNull()
+      .references(() => environments.id, { onDelete: 'cascade' }),
+    hostname: text('hostname').notNull(),
     basePath: text('base_path'),
     https: boolean('https').notNull().default(true),
-    status: hostnameStatus('status').notNull().default('active'),
+    status: domainStatus('status').notNull().default('pending'),
     message: text('message'),
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -851,8 +916,8 @@ export const hostnames = pgTable(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex('hostnames_hostname_idx').on(table.hostname),
-    index('hostnames_project_idx').on(table.projectId),
-    index('hostnames_deployment_idx').on(table.deploymentId),
+    uniqueIndex('domains_hostname_idx').on(table.hostname),
+    index('domains_project_idx').on(table.projectId),
+    index('domains_environment_idx').on(table.environmentId),
   ],
 )

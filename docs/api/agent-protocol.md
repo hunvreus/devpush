@@ -6,13 +6,16 @@ container console, where bidirectional low-latency traffic is required.
 
 ## Connection lifecycle
 
-1. Agent registers with its server token at `POST /api/agents/register`.
-2. Control plane authenticates the token and returns the server ID.
-3. Agent sends periodic heartbeats to `POST /api/agents/heartbeat`.
+1. Agent registers with an expiring enrollment token at
+   `POST /api/agents/register`.
+2. Control plane returns the server ID and a dedicated agent credential.
+3. Agent atomically stores that credential and sends periodic heartbeats to
+   `POST /api/agents/heartbeat`.
 4. Agent polls `POST /api/agents/jobs/next` for queued agent work.
 
-Heartbeat payloads may include host `metrics` and `runtimeIds`, a cached list of
-Docker Compose project names observed from containers with the
+Heartbeat payloads may include host `system` identity, `metrics`, `runtimeIds`,
+and current Compose `runtimes`. `runtimeIds` is a cached list of Docker Compose
+project names observed from containers with the
 `com.docker.compose.project` label. If Docker runtime discovery fails, the agent
 omits `runtimeIds`; omitted means unknown, while an empty array means the agent
 observed no matching container-backed runtimes.
@@ -22,15 +25,42 @@ observed no matching container-backed runtimes.
   "serverId": "srv_123",
   "token": "agent_token",
   "agentVersion": "0.1.0",
+  "system": {
+    "hostname": "app-01",
+    "operatingSystem": "Ubuntu 24.04.2 LTS",
+    "kernelVersion": "6.8.0-64-generic",
+    "architecture": "amd64",
+    "cpuCoreCount": 4,
+    "uptimeSeconds": 22140
+  },
   "metrics": {
     "cpuPercent": 12.5,
-    "load1": 0.42,
     "memoryUsedBytes": 2147483648,
     "memoryTotalBytes": 8589934592,
     "diskUsedBytes": 53687091200,
-    "diskTotalBytes": 214748364800
+    "diskTotalBytes": 214748364800,
+    "networkReceiveBytesPerSecond": 18432,
+    "networkTransmitBytesPerSecond": 4096,
+    "diskReadBytesPerSecond": 8192,
+    "diskWriteBytesPerSecond": 16384
   },
-  "runtimeIds": ["dp_fb3167db1f_a1b2c3d4e5"]
+  "runtimeIds": ["dp_fb3167db1f_a1b2c3d4e5"],
+  "runtimes": [
+    {
+      "runtimeId": "dp_fb3167db1f_a1b2c3d4e5",
+      "services": [
+        {
+          "name": "web",
+          "containerName": "dp-web-1",
+          "state": "running",
+          "health": "healthy",
+          "restartCount": 0,
+          "startedAt": "2026-08-02T20:00:00Z",
+          "exitCode": 0
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -53,6 +83,14 @@ the agent should tail for runtime/application logs:
 }
 ```
 
+Registration and heartbeat responses may include `credential`. Enrollment and
+rotation use a staged handshake: the server accepts the current and pending
+credential until the agent successfully authenticates with the pending value.
+That request promotes the pending credential and retires the previous one.
+The host initiates rotation with `POST /api/agents/credentials/rotate` using its
+current server ID and credential. The plaintext replacement is returned once
+for the agent to persist; the app does not initiate rotation.
+
 ## Deploy jobs
 
 Deploy jobs target one server and include a deployment snapshot plus a
@@ -70,7 +108,6 @@ deployment was queued do not mutate the claimed job.
     "token": "github_installation_token"
   },
   "project": {
-    "slug": "flask-basics",
     "name": "flask-basics"
   },
   "compose": {
@@ -82,7 +119,7 @@ deployment was queued do not mutate the claimed job.
     "envVars": [],
     "routes": [
       {
-        "host": "flask-basics.203-0-113-10.nip.io",
+        "host": "flask-basics-203-0-113-10.nip.io",
         "service": "web",
         "port": 3000,
         "path": "/",

@@ -44,7 +44,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
-import { Field, FieldError } from '@/components/ui/field'
+import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   InputGroup,
@@ -93,25 +93,9 @@ export function TeamServers({
   const router = useRouter()
   const [items, setItems] = useState<Array<ServerItem>>(servers)
   const [addServerOpen, setAddServerOpen] = useState(false)
-  const shouldRefresh = items.some(
-    (server) => server.status === 'pending' || server.status === 'disconnected',
-  )
-
   useEffect(() => {
     setItems(servers)
   }, [servers])
-
-  useEffect(() => {
-    if (!shouldRefresh) {
-      return
-    }
-
-    const interval = window.setInterval(() => {
-      void router.invalidate()
-    }, 2000)
-
-    return () => window.clearInterval(interval)
-  }, [router, shouldRefresh])
 
   return (
     <>
@@ -125,7 +109,7 @@ export function TeamServers({
         </h1>
         {items.length > 0 ? (
           <Button onClick={() => setAddServerOpen(true)}>
-            <PlusIcon />
+            <PlusIcon data-icon="inline-start" />
             Add server
           </Button>
         ) : null}
@@ -194,21 +178,6 @@ export function TeamServers({
                   </Tooltip>
                 ) : null}
 
-                {'monitoring' in server &&
-                server.status === 'connected' &&
-                server.monitoring.uptime24h !== null ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="whitespace-nowrap text-muted-foreground">
-                        {formatUptime(server.monitoring.uptime24h)} uptime
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Uptime over the last 24 hours
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-
                 <div className="ml-auto flex items-center gap-1">
                   <ServerActionsMenu
                     server={server}
@@ -228,8 +197,8 @@ export function TeamServers({
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <Button size="sm" onClick={() => setAddServerOpen(true)}>
-                <PlusIcon />
+              <Button onClick={() => setAddServerOpen(true)}>
+                <PlusIcon data-icon="inline-start" />
                 Add server
               </Button>
             </EmptyContent>
@@ -271,18 +240,6 @@ export function formatAge(value: string) {
 
 export function formatServerStatus(status: ServerItem['status']) {
   return status.charAt(0).toUpperCase() + status.slice(1)
-}
-
-export function formatUptime(value: number) {
-  if (value >= 99.95) {
-    return '100%'
-  }
-
-  if (value >= 10) {
-    return `${value.toFixed(1)}%`
-  }
-
-  return `${value.toFixed(2)}%`
 }
 
 function formatCount(count: number, singular: string) {
@@ -428,18 +385,29 @@ function ServerActionsMenu({
             <EllipsisIcon />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => setInstallOpen(true)}>
-            Install agent
-          </DropdownMenuItem>
+        <DropdownMenuContent align="end" className="w-auto">
+          {server.status === 'connected' ? null : (
+            <>
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onSelect={() => setInstallOpen(true)}
+              >
+                Install agent
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {isDisabled ? (
-            <DropdownMenuItem onSelect={() => setStatusOpen(true)}>
+            <DropdownMenuItem
+              className="whitespace-nowrap"
+              onSelect={() => setStatusOpen(true)}
+            >
               Enable server
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuSeparator />
           {!isDisabled ? (
             <DropdownMenuItem
+              className="whitespace-nowrap"
               variant="destructive"
               onSelect={() => setStatusOpen(true)}
             >
@@ -448,6 +416,7 @@ function ServerActionsMenu({
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem
+            className="whitespace-nowrap"
             variant="destructive"
             onSelect={() => setDeleteOpen(true)}
           >
@@ -756,8 +725,8 @@ export function AddServerDialog({
         ) : (
           <form className="space-y-4" onSubmit={(event) => void submit(event)}>
             <Field data-invalid={Boolean(nameError)}>
+              <FieldLabel htmlFor="server-name">Name</FieldLabel>
               <Input
-                aria-label="Name"
                 aria-invalid={Boolean(nameError)}
                 id="server-name"
                 onChange={(event) => {
@@ -779,7 +748,12 @@ export function AddServerDialog({
                 Cancel
               </Button>
               <Button disabled={!name || isCreating} type="submit">
-                {isCreating ? <LoaderIcon className="animate-spin" /> : null}
+                {isCreating ? (
+                  <LoaderIcon
+                    data-icon="inline-start"
+                    className="animate-spin"
+                  />
+                ) : null}
                 Create server
               </Button>
             </div>

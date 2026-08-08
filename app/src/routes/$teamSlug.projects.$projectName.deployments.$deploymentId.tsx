@@ -1,7 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { DeploymentDetail } from '@/features/deployments/deployment-detail'
-import { ProjectLayout } from '@/features/projects/project-layout'
 import { getDeployment } from '@/server/projects/functions'
 
 export const Route = createFileRoute(
@@ -28,9 +27,5 @@ export const Route = createFileRoute(
 function DeploymentRoute() {
   const context = Route.useLoaderData()
 
-  return (
-    <ProjectLayout context={context} contentClassName="space-y-8">
-      <DeploymentDetail context={context} />
-    </ProjectLayout>
-  )
+  return <DeploymentDetail context={context} />
 }

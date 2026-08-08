@@ -1,5 +1,6 @@
 import { constants } from 'node:fs'
-import { access, stat } from 'node:fs/promises'
+import { access, readFile, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 import { config } from '@/server/config'
@@ -81,6 +82,17 @@ export async function getAgentBinaryStatus(): Promise<AgentBinaryStatus> {
           : 'Unable to read configured agent binary.',
     }
   }
+}
+
+export async function getAgentBinaryChecksum(
+  platform: AgentBinaryPlatform = {},
+) {
+  const binary = await getAgentBinary(platform)
+  const digest = createHash('sha256')
+    .update(await readFile(binary.path))
+    .digest('hex')
+
+  return { ...binary, digest }
 }
 
 function getAgentBinaryPath(platform: Required<AgentBinaryPlatform>) {

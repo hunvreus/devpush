@@ -20,6 +20,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -52,9 +53,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { authClient } from '@/lib/auth/client'
 import { getErrorMessage } from '@/lib/error-message'
+import { useVisibleRefresh } from '@/lib/use-visible-refresh'
 import {
   createProject,
   getNewProjectContext,
@@ -121,7 +124,7 @@ export function NewProjectDialog({
         }
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-2xl">
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
         <NewProjectDialogContent
           team={team}
           servers={servers}
@@ -342,34 +345,40 @@ function NewProjectDialogContent({
 
   return (
     <>
-      <DialogHeader>
+      <DialogHeader
+        className={
+          step === 'configure'
+            ? '-mx-4 -mt-4 border-b px-4 pt-4 pb-4'
+            : undefined
+        }
+      >
         <DialogTitle>Create project</DialogTitle>
         <DialogDescription>
           Select a repository, then confirm the initial deployment defaults.
         </DialogDescription>
       </DialogHeader>
 
-      <div className="scrollbar max-h-[calc(85vh-9rem)] overflow-y-auto pr-2">
-        {github.connected ? (
-          step === 'repository' ? (
-            <RepositoryStep
-              appConfigured={github.appConfigured}
-              filteredRepos={filteredRepos}
-              installUrl={getInstallGitHubAppUrl()}
-              installations={installations}
-              isLoading={isDebouncing || isLoadingRepos}
-              onInstallAccountChange={(installationId) => {
-                setSelectedInstallationId(installationId)
-                setSelectedRepo(null)
-              }}
-              onQueryChange={setQuery}
-              onSelectRepo={selectRepository}
-              query={query}
-              selectedInstallation={selectedInstallation}
-              selectedInstallationId={selectedInstallationId}
-            />
-          ) : (
-            <>
+      {github.connected ? (
+        step === 'repository' ? (
+          <RepositoryStep
+            appConfigured={github.appConfigured}
+            filteredRepos={filteredRepos}
+            installUrl={getInstallGitHubAppUrl()}
+            installations={installations}
+            isLoading={isDebouncing || isLoadingRepos}
+            onInstallAccountChange={(installationId) => {
+              setSelectedInstallationId(installationId)
+              setSelectedRepo(null)
+            }}
+            onQueryChange={setQuery}
+            onSelectRepo={selectRepository}
+            query={query}
+            selectedInstallation={selectedInstallation}
+            selectedInstallationId={selectedInstallationId}
+          />
+        ) : (
+          <>
+            <div className="scrollbar -m-4 min-h-0 overflow-y-auto p-4">
               <ConfigureStep
                 projectName={projectName}
                 repository={selectedRepo}
@@ -432,34 +441,35 @@ function NewProjectDialogContent({
                 }
                 onServerChange={setServerId}
               />
-              <div className="flex items-center justify-between gap-2">
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={() => setStep('repository')}
-                >
-                  <ArrowLeftIcon />
-                  Back
-                </Button>
-                <div className="flex justify-end">
-                  <Button
-                    disabled={!selectedRepo || !projectName || isCreating}
-                    type="button"
-                    onClick={() => void submitProject()}
-                  >
-                    {isCreating ? (
-                      <LoaderIcon className="animate-spin" />
-                    ) : null}
-                    Create project
-                  </Button>
-                </div>
-              </div>
-            </>
-          )
-        ) : (
-          <ConnectGitHub onConnect={() => void connectGitHub()} />
-        )}
-      </div>
+            </div>
+            <DialogFooter className="sm:justify-between">
+              <Button
+                variant="ghost"
+                type="button"
+                onClick={() => setStep('repository')}
+              >
+                <ArrowLeftIcon data-icon="inline-start" />
+                Back
+              </Button>
+              <Button
+                disabled={!selectedRepo || !projectName || isCreating}
+                type="button"
+                onClick={() => void submitProject()}
+              >
+                {isCreating ? (
+                  <LoaderIcon
+                    data-icon="inline-start"
+                    className="animate-spin"
+                  />
+                ) : null}
+                Create project
+              </Button>
+            </DialogFooter>
+          </>
+        )
+      ) : (
+        <ConnectGitHub onConnect={() => void connectGitHub()} />
+      )}
     </>
   )
 }
@@ -477,25 +487,30 @@ export function NewProjectDialogLauncher({
   > | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  async function loadContext() {
+    try {
+      const nextContext = await getNewProjectContext({ data: { teamSlug } })
+      setContext(nextContext)
+      setError(
+        nextContext ? null : 'You need to sign in before creating a project.',
+      )
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Unable to load project form.',
+      )
+    }
+  }
+
+  useVisibleRefresh(loadContext, open)
+
   function openDialog() {
     setContext(null)
     setError(null)
     setOpen(true)
 
-    void getNewProjectContext({ data: { teamSlug } })
-      .then((nextContext) => {
-        setContext(nextContext)
-        if (!nextContext) {
-          setError('You need to sign in before creating a project.')
-        }
-      })
-      .catch((loadError) => {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : 'Unable to load project form.',
-        )
-      })
+    void loadContext()
   }
 
   function closeDialog() {
@@ -507,7 +522,7 @@ export function NewProjectDialogLauncher({
       {children(openDialog)}
       {open ? (
         <Dialog open onOpenChange={(nextOpen) => !nextOpen && closeDialog()}>
-          <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-2xl">
+          <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
             {context ? (
               <NewProjectDialogContent
                 team={context.team}
@@ -552,11 +567,9 @@ function NewProjectLoadingContent() {
           Select a repository, then confirm the initial deployment defaults.
         </DialogDescription>
       </DialogHeader>
-      <div className="scrollbar max-h-[calc(85vh-9rem)] overflow-y-auto pr-2">
-        <div className="space-y-4">
-          <RepositoryToolbarSkeleton />
-          <RepoListSkeleton />
-        </div>
+      <div className="space-y-4">
+        <RepositoryToolbarSkeleton />
+        <RepoListSkeleton />
       </div>
     </>
   )
@@ -621,9 +634,9 @@ function RepositoryStep({
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
-          <Button asChild size="sm" type="button">
+          <Button asChild type="button">
             <a href={installUrl}>
-              <GithubIcon />
+              <GithubIcon data-icon="inline-start" />
               Install GitHub App
             </a>
           </Button>
@@ -655,14 +668,14 @@ function RepositoryStep({
         </InputGroup>
       </div>
 
-      <div className="h-50">
+      <div>
         {isLoading ? (
           <RepoListSkeleton />
         ) : filteredRepos.length > 0 ? (
           <ul role="listbox" aria-label="Repository list" aria-live="polite">
             {filteredRepos.map((repo, index) => (
               <li
-                className={`flex h-10 items-center gap-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
+                className={`flex h-12 items-center gap-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
                   index > 0 ? 'border-t-0' : 'rounded-t-lg'
                 } ${index === filteredRepos.length - 1 ? 'rounded-b-lg' : ''}`}
                 key={`${repo.installationId}:${repo.id}`}
@@ -720,27 +733,33 @@ function AccountDropdown({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          className="w-40 justify-start gap-1.5 pr-2 pl-2.5"
-          size="sm"
+          className="w-40 justify-start gap-1.5"
           variant="outline"
           type="button"
         >
           {selectedInstallation ? (
             <img
+              data-icon="inline-start"
               alt=""
               className="size-5 rounded"
               src={`https://github.com/${selectedInstallation.accountLogin}.png`}
             />
           ) : (
-            <GithubIcon />
+            <GithubIcon data-icon="inline-start" />
           )}
           <span className="min-w-0 flex-1 truncate text-left">
             {selectedInstallation?.accountLogin ?? 'GitHub'}
           </span>
-          <ChevronsUpDownIcon className="text-muted-foreground group-hover/button:text-muted-foreground" />
+          <ChevronsUpDownIcon
+            data-icon="inline-end"
+            className="text-muted-foreground group-hover/button:text-muted-foreground"
+          />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent
+        align="start"
+        className="w-max min-w-(--radix-dropdown-menu-trigger-width)"
+      >
         {installations.map((installation) => (
           <DropdownMenuItem
             className="whitespace-nowrap"
@@ -932,24 +951,23 @@ function ConfigureStep({
                 key={envVar.id}
               >
                 <Input
+                  className="font-mono text-[13px]"
                   value={envVar.key}
                   placeholder="KEY"
                   onChange={(event) =>
                     onEnvVarChange(envVar.id, { key: event.target.value })
                   }
                 />
-                <Input
+                <NewProjectEnvVarValueTextarea
                   value={envVar.value}
-                  placeholder="value"
-                  onChange={(event) =>
-                    onEnvVarChange(envVar.id, { value: event.target.value })
-                  }
+                  onChange={(value) => onEnvVarChange(envVar.id, { value })}
                 />
                 <Button
                   aria-label="Remove variable"
                   size="icon"
                   type="button"
                   variant="ghost"
+                  className="text-muted-foreground hover:text-foreground"
                   onClick={() => onRemoveEnvVar(envVar.id)}
                 >
                   <Trash2Icon />
@@ -959,13 +977,51 @@ function ConfigureStep({
           </div>
         ) : null}
         <FieldError>{fieldErrors.envVars}</FieldError>
-        <Button type="button" variant="outline" onClick={onAddEnvVar}>
-          <PlusIcon />
-          Add variable
-        </Button>
+        <div className="flex">
+          <Button type="button" variant="outline" onClick={onAddEnvVar}>
+            <PlusIcon data-icon="inline-start" />
+            Add variable
+          </Button>
+        </div>
       </Field>
     </div>
   )
+}
+
+function NewProjectEnvVarValueTextarea({
+  onChange,
+  value,
+}: {
+  onChange: (value: string) => void
+  value: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    resizeTextarea(ref.current)
+  }, [value])
+
+  return (
+    <Textarea
+      ref={ref}
+      className="min-h-8 resize-none overflow-hidden break-all py-1.5 font-mono text-[13px]"
+      placeholder="value"
+      value={value}
+      onChange={(event) => {
+        onChange(event.target.value)
+        resizeTextarea(event.currentTarget)
+      }}
+    />
+  )
+}
+
+function resizeTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) {
+    return
+  }
+
+  textarea.style.height = 'auto'
+  textarea.style.height = `${textarea.scrollHeight}px`
 }
 
 function ConnectGitHub({ onConnect }: { onConnect: () => void }) {
@@ -978,8 +1034,8 @@ function ConnectGitHub({ onConnect }: { onConnect: () => void }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button onClick={onConnect} size="sm" type="button">
-          <GithubIcon />
+        <Button onClick={onConnect} type="button">
+          <GithubIcon data-icon="inline-start" />
           Connect account
         </Button>
       </EmptyContent>
@@ -1011,10 +1067,10 @@ function getNewProjectFieldErrors(error: unknown): NewProjectFieldErrors {
 
 function RepoListSkeleton() {
   return (
-    <ul className="h-50" aria-label="Loading repositories" aria-live="polite">
+    <ul aria-label="Loading repositories" aria-live="polite">
       {Array.from({ length: 5 }).map((_, index) => (
         <li
-          className={`flex h-10 items-center justify-between gap-x-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
+          className={`flex h-12 items-center justify-between gap-x-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
             index > 0 ? 'border-t-0' : 'rounded-t-lg'
           } ${index === 4 ? 'rounded-b-lg' : ''}`}
           key={index}

@@ -118,11 +118,8 @@ export const updateServer = createServerFn({ method: 'POST' })
 
 export const disableServer = createServerFn({ method: 'POST' })
   .validator(
-    (data: {
-      confirmationName: string
-      serverId: string
-      teamSlug: string
-    }) => disableServerSchema.parse(data),
+    (data: { confirmationName: string; serverId: string; teamSlug: string }) =>
+      disableServerSchema.parse(data),
   )
   .handler(async ({ data }) => {
     const session = await getAuthSession()

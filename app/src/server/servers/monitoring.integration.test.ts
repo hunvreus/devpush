@@ -32,7 +32,7 @@ afterAll(async () => {
 })
 
 describe('server monitoring integration', () => {
-  test('records heartbeat history and returns uptime summaries', async () => {
+  test('records heartbeat history and returns availability summaries', async () => {
     const { serverId } = await createFixture()
     const now = new Date('2026-06-28T10:00:00.000Z')
 
@@ -62,8 +62,8 @@ describe('server monitoring integration', () => {
 
     const summary = summaries.get(serverId)
 
-    expect(summary?.heartbeatCount24h).toBe(2)
-    expect(summary?.uptime24h).toBeCloseTo(75)
+    expect(summary?.availabilityPercent).toBeCloseTo(75)
+    expect(summary?.availabilityWindowMs).toBe(4 * 60_000)
   })
 
   test('records latest host metrics in monitoring summaries', async () => {
@@ -75,11 +75,14 @@ describe('server monitoring integration', () => {
       observedAt: new Date('2026-06-28T09:59:00.000Z'),
       metrics: {
         cpuPercent: 12.5,
-        load1: 0.42,
         memoryUsedBytes: 1024,
         memoryTotalBytes: 4096,
         diskUsedBytes: 2048,
         diskTotalBytes: 8192,
+        networkReceiveBytesPerSecond: 512,
+        networkTransmitBytesPerSecond: 256,
+        diskReadBytesPerSecond: 128,
+        diskWriteBytesPerSecond: 64,
       },
     })
 
@@ -97,11 +100,15 @@ describe('server monitoring integration', () => {
     expect(summaries.get(serverId)?.latestMetrics).toEqual({
       observedAt: '2026-06-28T09:59:00.000Z',
       cpuPercent: 12.5,
-      load1: 0.42,
+      load1: null,
       memoryUsedBytes: 1024,
       memoryTotalBytes: 4096,
       diskUsedBytes: 2048,
       diskTotalBytes: 8192,
+      networkReceiveBytesPerSecond: 512,
+      networkTransmitBytesPerSecond: 256,
+      diskReadBytesPerSecond: 128,
+      diskWriteBytesPerSecond: 64,
     })
   })
 
@@ -121,7 +128,6 @@ describe('server monitoring integration', () => {
       observedAt: new Date('2026-06-28T09:58:00.000Z'),
       metrics: {
         cpuPercent: 10,
-        load1: 0.1,
       },
     })
     await recordServerMetrics({
@@ -129,7 +135,6 @@ describe('server monitoring integration', () => {
       observedAt: new Date('2026-06-28T09:59:00.000Z'),
       metrics: {
         cpuPercent: 20,
-        load1: 0.2,
       },
     })
 

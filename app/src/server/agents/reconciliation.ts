@@ -17,13 +17,30 @@ const observedRuntimeGraceMs = 10 * 60 * 1000
 const maxReportedRuntimeIds = 200
 const runtimeIdPrefix = 'dp_'
 
+export type ReportedRuntimeService = {
+  name: string
+  containerName: string
+  state: string
+  health: string | null
+  restartCount: number
+  startedAt: string | null
+  exitCode: number
+}
+
+export type ReportedRuntime = {
+  runtimeId: string
+  services: Array<ReportedRuntimeService>
+}
+
 export async function reconcileReportedRuntimes({
   serverId,
   runtimeIds,
+  runtimes = [],
   now = new Date(),
 }: {
   serverId: string
   runtimeIds: Array<string>
+  runtimes?: Array<ReportedRuntime>
   now?: Date
 }) {
   const normalizedRuntimeIds = normalizeRuntimeIds(runtimeIds)
@@ -38,6 +55,7 @@ export async function reconcileReportedRuntimes({
     await recordRuntimeObservations(tx, {
       serverId,
       runtimeIds: normalizedRuntimeIds,
+      runtimes,
       now,
     })
 
@@ -67,8 +85,12 @@ export async function reconcileReportedRuntimes({
 
     if (orphanRuntimeIds.length > 0) {
       await enqueueRuntimeCleanupJobs(tx, {
-        reason: 'devpush detected a Compose runtime that is no longer assigned.',
-        runtimes: orphanRuntimeIds.map((runtimeId) => ({ serverId, runtimeId })),
+        reason:
+          'devpush detected a Compose runtime that is no longer assigned.',
+        runtimes: orphanRuntimeIds.map((runtimeId) => ({
+          serverId,
+          runtimeId,
+        })),
         includePurge: false,
       })
 
@@ -188,13 +210,18 @@ async function recordRuntimeObservations(
   {
     serverId,
     runtimeIds,
+    runtimes,
     now,
   }: {
     serverId: string
     runtimeIds: Array<string>
+    runtimes: Array<ReportedRuntime>
     now: Date
   },
 ) {
+  const servicesByRuntimeId = new Map(
+    runtimes.map((runtime) => [runtime.runtimeId, runtime.services]),
+  )
   const existingRows = await tx
     .select({
       runtimeId: agentRuntimeObservations.runtimeId,
@@ -219,6 +246,7 @@ async function recordRuntimeObservations(
         runtimeId,
         firstSeenAt: now,
         lastSeenAt: now,
+        services: servicesByRuntimeId.get(runtimeId) ?? null,
         createdAt: now,
         updatedAt: now,
       })),
@@ -235,7 +263,26 @@ async function recordRuntimeObservations(
       .where(
         and(
           eq(agentRuntimeObservations.serverId, serverId),
-          inArray(agentRuntimeObservations.runtimeId, Array.from(existingRuntimeIds)),
+          inArray(
+            agentRuntimeObservations.runtimeId,
+            Array.from(existingRuntimeIds),
+          ),
+        ),
+      )
+  }
+
+  for (const [runtimeId, services] of servicesByRuntimeId) {
+    if (!existingRuntimeIds.has(runtimeId)) {
+      continue
+    }
+
+    await tx
+      .update(agentRuntimeObservations)
+      .set({ services, lastSeenAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(agentRuntimeObservations.serverId, serverId),
+          eq(agentRuntimeObservations.runtimeId, runtimeId),
         ),
       )
   }

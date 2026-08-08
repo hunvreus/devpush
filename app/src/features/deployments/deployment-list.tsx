@@ -208,7 +208,7 @@ function DeploymentRow({
 
       {alias === 'current' ? (
         <span className="inline-flex h-5 items-center gap-x-1 rounded-md bg-secondary px-2 text-xs font-medium text-secondary-foreground max-sm:hidden">
-          <SparkleIcon className="size-3" />
+          <SparkleIcon className="size-3 shrink-0" />
           Current
         </span>
       ) : alias === 'previous' ? (
@@ -267,22 +267,24 @@ function DeploymentStatusIcon({
   status: DeploymentSummary['status']
 }) {
   if (status === 'succeeded') {
-    return <CircleCheckIcon className="size-4 text-green-500" />
+    return <CircleCheckIcon className="size-4 shrink-0 text-green-500" />
   }
 
   if (status === 'failed') {
-    return <CircleXIcon className="size-4 text-red-500" />
+    return <CircleXIcon className="size-4 shrink-0 text-red-500" />
   }
 
   if (status === 'canceled') {
-    return <XIcon className="size-4 text-muted-foreground" />
+    return <XIcon className="size-4 shrink-0 text-muted-foreground" />
   }
 
   if (status === 'queued') {
-    return <Clock3Icon className="size-4 text-muted-foreground" />
+    return <Clock3Icon className="size-4 shrink-0 text-muted-foreground" />
   }
 
-  return <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
+  return (
+    <LoaderIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+  )
 }
 
 function shortDeploymentId(id: string) {

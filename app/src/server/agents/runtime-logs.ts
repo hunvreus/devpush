@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt } from 'drizzle-orm'
 
 import { db } from '@/server/db'
 import { environments, projects, runtimeLogs } from '@/server/db/schema'
@@ -15,6 +15,9 @@ export type RuntimeLogLine = {
 
 const maxRuntimeLogLines = 500
 const maxRuntimeLogContentLength = 16_384
+const runtimeLogRetentionMs = 24 * 60 * 60 * 1000
+const maxRuntimeLogRowsPerRuntime = 10_000
+const runtimeLogPruneBatchSize = 1_000
 
 export async function recordRuntimeLogs({
   serverId,
@@ -69,6 +72,12 @@ export async function recordRuntimeLogs({
       ],
     })
     .returning({ id: runtimeLogs.id })
+
+  await pruneRuntimeLogs({
+    serverId,
+    runtimeIds: Array.from(new Set(rows.map((row) => row.runtimeId))),
+    now: new Date(),
+  })
 
   return { ok: true, inserted: inserted.length }
 }
@@ -126,6 +135,58 @@ async function listAllowedRuntimeIds({
     )
 
   return new Set(rows.map((row) => row.runtimeId))
+}
+
+async function pruneRuntimeLogs({
+  serverId,
+  runtimeIds,
+  now,
+}: {
+  serverId: string
+  runtimeIds: Array<string>
+  now: Date
+}) {
+  if (runtimeIds.length === 0) {
+    return
+  }
+
+  const cutoff = new Date(now.getTime() - runtimeLogRetentionMs)
+
+  await db
+    .delete(runtimeLogs)
+    .where(
+      and(
+        eq(runtimeLogs.serverId, serverId),
+        inArray(runtimeLogs.runtimeId, runtimeIds),
+        lt(runtimeLogs.observedAt, cutoff),
+      ),
+    )
+
+  for (const runtimeId of runtimeIds) {
+    const overflowRows = await db
+      .select({ id: runtimeLogs.id })
+      .from(runtimeLogs)
+      .where(
+        and(
+          eq(runtimeLogs.serverId, serverId),
+          eq(runtimeLogs.runtimeId, runtimeId),
+        ),
+      )
+      .orderBy(desc(runtimeLogs.observedAt), desc(runtimeLogs.createdAt))
+      .offset(maxRuntimeLogRowsPerRuntime)
+      .limit(runtimeLogPruneBatchSize)
+
+    if (overflowRows.length === 0) {
+      continue
+    }
+
+    await db.delete(runtimeLogs).where(
+      inArray(
+        runtimeLogs.id,
+        overflowRows.map((row) => row.id),
+      ),
+    )
+  }
 }
 
 function hashRuntimeLogLine({

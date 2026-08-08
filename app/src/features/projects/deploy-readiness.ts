@@ -1,6 +1,8 @@
 import type { ProjectContext } from '@/server/projects/service'
 
-export function getDeployBlockReason(environment: ProjectContext['environment']) {
+export function getDeployBlockReason(
+  environment: ProjectContext['environment'],
+) {
   if (!environment.serverId) {
     return 'Assign a server before deploying.'
   }
@@ -16,7 +18,9 @@ export function getDeployBlockReason(environment: ProjectContext['environment'])
   return null
 }
 
-export function hasActiveDeployment(deployments: ProjectContext['deployments']) {
+export function hasActiveDeployment(
+  deployments: ProjectContext['deployments'],
+) {
   return deployments.some(
     (deployment) =>
       deployment.status === 'queued' || deployment.status === 'running',

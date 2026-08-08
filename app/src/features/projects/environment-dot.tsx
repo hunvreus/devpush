@@ -68,10 +68,10 @@ export function EnvironmentColorOption({
 }) {
   return (
     <span
-      className={`flex size-6 items-center justify-center rounded-full ${environmentColorClasses[color] ?? environmentColorClasses.zinc}`}
+      className={`flex size-5 items-center justify-center rounded-full ${environmentColorClasses[color] ?? environmentColorClasses.zinc}`}
     >
       {checked ? (
-        <CheckIcon className="size-3.5 text-background drop-shadow" />
+        <CheckIcon className="size-3.5 text-foreground drop-shadow" />
       ) : null}
     </span>
   )

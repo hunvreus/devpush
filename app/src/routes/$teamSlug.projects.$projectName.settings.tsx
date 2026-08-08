@@ -1,35 +1,25 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, useParams } from '@tanstack/react-router'
+import { useSuspenseQuery } from '@tanstack/react-query'
 
-import { ProjectLayout } from '@/features/projects/project-layout'
 import { ProjectSettings } from '@/features/projects/project-settings'
-import { getProject } from '@/server/projects/functions'
+import { projectContextQueryOptions } from '@/lib/project-context-query'
 
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/settings',
 )({
-  loader: async ({ params }) => {
-    const context = await getProject({
-      data: {
-        teamSlug: params.teamSlug,
-        projectName: params.projectName,
-      },
-    })
-
-    if (!context) {
-      throw redirect({ to: '/auth/login' })
-    }
-
-    return context
-  },
   component: SettingsRoute,
 })
 
 function SettingsRoute() {
-  const context = Route.useLoaderData()
-
-  return (
-    <ProjectLayout context={context} contentClassName="space-y-8">
-      <ProjectSettings context={context} />
-    </ProjectLayout>
+  const params = useParams({
+    from: '/$teamSlug/projects/$projectName/settings',
+  })
+  const { data: context } = useSuspenseQuery(
+    projectContextQueryOptions({
+      teamSlug: params.teamSlug,
+      projectName: params.projectName,
+    }),
   )
+
+  return <ProjectSettings context={context} />
 }

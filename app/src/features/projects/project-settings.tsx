@@ -1,4 +1,5 @@
 import { Link, useParams, useRouter } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRightIcon,
   ArrowUpRightIcon,
@@ -6,6 +7,7 @@ import {
   ChevronsUpDownIcon,
   CopyIcon,
   FileTextIcon,
+  GithubIcon,
   LoaderIcon,
   LockIcon,
   PlusIcon,
@@ -29,6 +31,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { ButtonGroup } from '@/components/ui/button-group'
 import {
   Card,
   CardContent,
@@ -50,8 +53,23 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from '@/components/ui/empty'
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   InputGroup,
@@ -59,7 +77,6 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -67,6 +84,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -83,6 +101,7 @@ import {
 } from '@/features/projects/environment-dot'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { getErrorMessage } from '@/lib/error-message'
+import { setProjectContextQueryData } from '@/lib/project-context-query'
 import {
   getNewProjectContext,
   getRepositorySelectionRepositories,
@@ -90,9 +109,8 @@ import {
   saveProjectEnvironments,
   saveProjectDomains,
   saveProjectEnvVars,
-  saveProjectBackupConfigs,
   saveProjectRoutes,
-  saveProjectServerAssignments,
+  saveProjectEnvironmentServers,
   saveProjectSettings,
 } from '@/server/projects/functions'
 import type {
@@ -100,17 +118,20 @@ import type {
   ProjectDomain,
   ProjectEnvironmentConfig,
   ProjectEnvironmentVariable,
-  ProjectBackupConfig,
   ProjectRoute,
-  ProjectServerAssignment,
   RepositorySelectionContext,
 } from '@/server/projects/service'
 
 export function ProjectSettings({ context }: { context: ProjectContext }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const params = useParams({ strict: false })
   const { project } = context
   const initialRoutes = context.routes
+  const autoReleaseService =
+    context.routes.find((route) =>
+      context.composeMetadata?.services.includes(route.service),
+    )?.service ?? context.composeMetadata?.services.at(0)
   const initialDomains = context.domains.map(mapProjectDomainAlias)
   const [projectName, setProjectName] = useState(project.name)
   const [selectedRepo, setSelectedRepo] = useState<ProjectRepository>({
@@ -133,6 +154,9 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
   const [releaseCommand, setReleaseCommand] = useState(
     project.releaseCommand ?? '',
   )
+  const [releaseService, setReleaseService] = useState(
+    project.releaseService ?? '__auto__',
+  )
   const [readinessPath, setReadinessPath] = useState(
     project.readinessPath ?? '',
   )
@@ -148,32 +172,39 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     projectName: project.name,
     composePath: project.composePath ?? 'compose.yml',
     releaseCommand: project.releaseCommand ?? '',
+    releaseService: project.releaseService ?? '__auto__',
     readinessPath: project.readinessPath ?? '',
   })
   const [isSaving, setIsSaving] = useState(false)
   const [isDeletingProject, setIsDeletingProject] = useState(false)
   const [deleteProjectConfirmation, setDeleteProjectConfirmation] = useState('')
   const [removeProjectDeployments, setRemoveProjectDeployments] = useState(true)
-  const hasSettingsChanges =
+  const hasGeneralChanges =
     projectName !== savedSettings.projectName ||
     selectedRepo.fullName !== savedRepo.fullName ||
     selectedRepo.installationId !== savedRepo.installationId ||
     Boolean(avatarDataUrl) ||
-    deleteAvatar ||
+    deleteAvatar
+  const hasBuildChanges =
     composePath !== savedSettings.composePath ||
     releaseCommand !== savedSettings.releaseCommand ||
+    releaseService !== savedSettings.releaseService ||
     readinessPath !== savedSettings.readinessPath
   const hasRouteChanges = JSON.stringify(routes) !== JSON.stringify(savedRoutes)
   const hasDomainChanges =
     JSON.stringify(domains) !== JSON.stringify(savedDomains)
 
-  function resetSettings() {
+  function resetGeneralSettings() {
     setProjectName(savedSettings.projectName)
     setSelectedRepo(savedRepo)
     setAvatarDataUrl(null)
     setDeleteAvatar(false)
+  }
+
+  function resetBuildSettings() {
     setComposePath(savedSettings.composePath)
     setReleaseCommand(savedSettings.releaseCommand)
+    setReleaseService(savedSettings.releaseService)
     setReadinessPath(savedSettings.readinessPath)
   }
 
@@ -189,17 +220,33 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     onSuccess,
     message = 'Project settings saved.',
     includeGeneralChanges = false,
+    includeBuildChanges = false,
   }: {
     onSuccess?: (nextContext: ProjectContext) => void
     message?: string
     includeGeneralChanges?: boolean
+    includeBuildChanges?: boolean
   } = {}) {
     setIsSaving(true)
 
     try {
-      const settings = includeGeneralChanges
-        ? { projectName, composePath, releaseCommand, readinessPath }
-        : savedSettings
+      const settings = {
+        projectName: includeGeneralChanges
+          ? projectName
+          : savedSettings.projectName,
+        composePath: includeBuildChanges
+          ? composePath
+          : savedSettings.composePath,
+        releaseCommand: includeBuildChanges
+          ? releaseCommand
+          : savedSettings.releaseCommand,
+        releaseService: includeBuildChanges
+          ? releaseService
+          : savedSettings.releaseService,
+        readinessPath: includeBuildChanges
+          ? readinessPath
+          : savedSettings.readinessPath,
+      }
       const repo = includeGeneralChanges ? selectedRepo : savedRepo
 
       const nextContext = await saveProjectSettings({
@@ -213,9 +260,14 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           deleteAvatar: includeGeneralChanges ? deleteAvatar : false,
           composePath: settings.composePath,
           releaseCommand: settings.releaseCommand.trim() || null,
+          releaseService:
+            settings.releaseService === '__auto__'
+              ? null
+              : settings.releaseService,
           readinessPath: settings.readinessPath.trim() || null,
         },
       })
+      setProjectContextQueryData(queryClient, nextContext)
       onSuccess?.(nextContext)
       toast.success(message)
     } catch (error) {
@@ -225,20 +277,15 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     }
   }
 
-  async function saveProjectFields() {
+  async function saveGeneralSettings() {
     await saveSettings({
       includeGeneralChanges: true,
       onSuccess: (nextContext) => {
-        setSavedSettings({
+        setSavedSettings((current) => ({
+          ...current,
           projectName: nextContext.project.name,
-          composePath: nextContext.project.composePath ?? 'compose.yml',
-          releaseCommand: nextContext.project.releaseCommand ?? '',
-          readinessPath: nextContext.project.readinessPath ?? '',
-        })
+        }))
         setProjectName(nextContext.project.name)
-        setComposePath(nextContext.project.composePath ?? 'compose.yml')
-        setReleaseCommand(nextContext.project.releaseCommand ?? '')
-        setReadinessPath(nextContext.project.readinessPath ?? '')
         setSavedRepo(selectedRepo)
         setSavedAvatarUrl(nextContext.project.avatarUrl)
         setAvatarDataUrl(null)
@@ -252,6 +299,29 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
             },
           })
         }
+      },
+    })
+  }
+
+  async function saveBuildSettings() {
+    await saveSettings({
+      includeBuildChanges: true,
+      onSuccess: (nextContext) => {
+        const nextBuildSettings = {
+          composePath: nextContext.project.composePath ?? 'compose.yml',
+          releaseCommand: nextContext.project.releaseCommand ?? '',
+          releaseService: nextContext.project.releaseService ?? '__auto__',
+          readinessPath: nextContext.project.readinessPath ?? '',
+        }
+
+        setSavedSettings((current) => ({
+          ...current,
+          ...nextBuildSettings,
+        }))
+        setComposePath(nextBuildSettings.composePath)
+        setReleaseCommand(nextBuildSettings.releaseCommand)
+        setReleaseService(nextBuildSettings.releaseService)
+        setReadinessPath(nextBuildSettings.readinessPath)
       },
     })
   }
@@ -321,6 +391,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           routes,
         },
       })
+      setProjectContextQueryData(queryClient, nextContext)
       const aliases = nextContext.domains.map(mapProjectDomainAlias)
       setSavedRoutes(nextContext.routes)
       setRoutes(nextContext.routes)
@@ -352,6 +423,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           })),
         },
       })
+      setProjectContextQueryData(queryClient, nextContext)
       const aliases = nextContext.domains.map(mapProjectDomainAlias)
       setSavedDomains(aliases)
       setDomains(aliases)
@@ -365,7 +437,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
 
   function mapProjectDomainAlias(domain: ProjectDomain): ProjectDomainAlias {
     return {
-      generated: domain.generated,
       id: domain.id,
       host: domain.host,
       environment: domain.environmentId,
@@ -375,423 +446,442 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-      <div className="space-y-8">
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link
-            to="/$teamSlug/projects/$projectName"
-            params={{
-              teamSlug:
-                typeof params.teamSlug === 'string' ? params.teamSlug : '',
-              projectName: project.name,
-            }}
-            className="shrink-0"
-          >
-            <ResourceAvatar
-              name={project.name}
-              src={avatarUrl}
-              color={project.color}
-              size="md"
-            />
-          </Link>
-          <span className="font-normal text-muted-foreground/25">/</span>
-          <span>Project settings</span>
-        </h1>
-
-        <SettingsSection
-          id="general"
-          title="General"
-          description="General settings for the project including the Git repository."
-          footer={
-            <SettingsActions
-              hasChanges={hasSettingsChanges}
-              isSaving={isSaving}
-              onCancel={resetSettings}
-              onSave={saveProjectFields}
-            />
-          }
+    <div className="space-y-8">
+      <h1 className="flex items-center gap-x-3 text-2xl font-medium">
+        <Link
+          to="/$teamSlug/projects/$projectName"
+          params={{
+            teamSlug:
+              typeof params.teamSlug === 'string' ? params.teamSlug : '',
+            projectName: project.name,
+          }}
+          className="shrink-0"
         >
-          <div className="space-y-8">
-            <div className="space-y-3">
-              <Label>Avatar</Label>
-              <div className="flex items-center gap-x-2">
-                <ResourceAvatar
-                  name={project.name}
-                  src={avatarUrl}
-                  color={project.color}
-                  size="md"
-                />
-                <input
-                  ref={avatarInputRef}
-                  className="sr-only"
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  onChange={(event) =>
-                    void chooseAvatar(event.target.files?.[0])
-                  }
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  onClick={() => avatarInputRef.current?.click()}
-                >
-                  <UploadIcon />
-                  Upload image
-                </Button>
-                {avatarUrl ? (
+          <ResourceAvatar
+            name={project.name}
+            src={avatarUrl}
+            color={project.color}
+            size="md"
+          />
+        </Link>
+        <span className="font-normal text-muted-foreground/25">/</span>
+        <span>Project settings</span>
+      </h1>
+
+      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
+        <div className="space-y-8">
+          <SettingsSection
+            id="general"
+            title="General"
+            description="General settings for the project including the Git repository."
+            footer={
+              <SettingsActions
+                hasChanges={hasGeneralChanges}
+                isSaving={isSaving}
+                onCancel={resetGeneralSettings}
+                onSave={saveGeneralSettings}
+              />
+            }
+          >
+            <div className="space-y-8">
+              <Field>
+                <FieldLabel>Avatar</FieldLabel>
+                <div className="flex items-center gap-x-2">
+                  <ResourceAvatar
+                    name={project.name}
+                    src={avatarUrl}
+                    color={project.color}
+                    size="md"
+                  />
+                  <input
+                    ref={avatarInputRef}
+                    className="sr-only"
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    onChange={(event) =>
+                      void chooseAvatar(event.target.files?.[0])
+                    }
+                  />
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     type="button"
-                    onClick={() => {
-                      setAvatarDataUrl(null)
-                      setDeleteAvatar(true)
-                    }}
+                    onClick={() => avatarInputRef.current?.click()}
                   >
-                    Remove
+                    <UploadIcon data-icon="inline-start" />
+                    Upload image
                   </Button>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label htmlFor="project-name">Project name</Label>
-              <Input
-                id="project-name"
-                value={projectName}
-                onChange={(event) => setProjectName(event.target.value)}
-              />
-            </div>
-            <div className="space-y-3">
-              <Label>Git repository</Label>
-              <div className="flex items-center">
-                <RepositoryPickerDialog
-                  teamSlug={
-                    typeof params.teamSlug === 'string' ? params.teamSlug : ''
-                  }
-                  currentRepo={selectedRepo}
-                  onSelect={setSelectedRepo}
-                >
-                  <Button
-                    variant="outline"
-                    type="button"
-                    className="rounded-r-none border-r-0 px-3 font-normal"
-                  >
-                    <img
-                      src={`https://github.com/${selectedRepoOwner}.png`}
-                      alt=""
-                      className="size-5 rounded"
-                    />
-                    {selectedRepo.fullName}
-                    <ChevronsUpDownIcon className="text-muted-foreground group-hover/button:text-muted-foreground" />
-                  </Button>
-                </RepositoryPickerDialog>
-                <IconActionTooltip label="View on GitHub">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="rounded-l-none text-muted-foreground hover:text-foreground"
-                    asChild
-                  >
-                    <a
-                      href={`https://github.com/${selectedRepo.fullName}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label="View on GitHub"
-                    >
-                      <ArrowUpRightIcon />
-                    </a>
-                  </Button>
-                </IconActionTooltip>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <Label htmlFor="project-id">Project ID</Label>
-              <InputGroup>
-                <InputGroupInput
-                  id="project-id"
-                  className="font-mono text-[13px] text-muted-foreground"
-                  value={project.id}
-                  readOnly
-                />
-                <InputGroupAddon align="inline-end">
-                  <IconActionTooltip label="Copy project ID">
-                    <InputGroupButton
-                      size="icon-sm"
-                      type="button"
-                      aria-label="Copy project ID"
-                      onClick={() =>
-                        void navigator.clipboard.writeText(project.id)
-                      }
-                    >
-                      <CopyIcon />
-                    </InputGroupButton>
-                  </IconActionTooltip>
-                </InputGroupAddon>
-              </InputGroup>
-              <p className="text-sm text-muted-foreground">
-                A unique identifier used in API, environment variables, etc.
-              </p>
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          id="build-and-deploy"
-          title="Build and Deploy"
-          description="Configuration for deploying the Compose project: compose file, release command, readiness check, etc."
-          footer={
-            <SettingsActions
-              hasChanges={hasSettingsChanges}
-              isSaving={isSaving}
-              onCancel={resetSettings}
-              onSave={saveProjectFields}
-            />
-          }
-        >
-          <div className="grid gap-5">
-            <div className="space-y-2">
-              <Label htmlFor="compose-path">Compose file path</Label>
-              <Input
-                id="compose-path"
-                value={composePath}
-                onChange={(event) => setComposePath(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="release-command">Release command</Label>
-              <Input
-                id="release-command"
-                value={releaseCommand}
-                placeholder="php artisan migrate --force"
-                onChange={(event) => setReleaseCommand(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="readiness">Readiness path</Label>
-              <Input
-                id="readiness"
-                value={readinessPath}
-                placeholder="/health"
-                onChange={(event) => setReadinessPath(event.target.value)}
-              />
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          id="environments"
-          title="Environments"
-          description="Deployments will be associated with the first environment with a matching branch pattern."
-        >
-          <EnvironmentSettingsTable context={context} />
-        </SettingsSection>
-
-        <SettingsSection
-          id="environment-variables"
-          title="Environment variables"
-          description="Variables available at build time and runtime. Changes will take effect after a new deployment."
-        >
-          <EnvironmentVariablesSettingsTable context={context} />
-        </SettingsSection>
-
-        <SettingsSection
-          id="servers"
-          title="Servers"
-          description="Server assignments for this project's environments."
-        >
-          <ServerAssignmentSettingsTable context={context} />
-        </SettingsSection>
-
-        <SettingsSection
-          id="routes"
-          title="Routes"
-          description="Routes map project paths to Compose services and internal ports."
-          footer={
-            <SettingsActions
-              hasChanges={hasRouteChanges}
-              isSaving={isSaving}
-              onCancel={resetRoutes}
-              onSave={saveRoutes}
-            />
-          }
-        >
-          <RouteSettingsTable routes={routes} onChange={setRoutes} />
-        </SettingsSection>
-
-        <SettingsSection
-          id="domains"
-          title="Domains"
-          description="Custom domain names associated with this project's environments."
-          footer={
-            <SettingsActions
-              hasChanges={hasDomainChanges}
-              isSaving={isSaving}
-              onCancel={resetDomains}
-              onSave={saveDomains}
-            />
-          }
-        >
-          <DomainSettingsTable
-            domains={domains}
-            environments={context.environments}
-            routes={savedRoutes}
-            onChange={setDomains}
-          />
-        </SettingsSection>
-
-        <SettingsSection
-          id="backups"
-          title="Backups"
-          description="Backup configuration for project environments, including storage destination, retention, and database dumps."
-        >
-          <BackupSettingsTable context={context} />
-        </SettingsSection>
-
-        <SettingsSection
-          id="danger"
-          title="Danger"
-          description="Permanently delete the project and all of its configuration, environments and deployments."
-        >
-          {context.team.role === 'owner' || context.team.role === 'admin' ? (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  disabled={isDeletingProject}
-                  onClick={() => {
-                    setDeleteProjectConfirmation('')
-                    setRemoveProjectDeployments(true)
-                  }}
-                >
-                  {isDeletingProject ? (
-                    <LoaderIcon className="animate-spin" />
-                  ) : (
-                    <Trash2Icon />
-                  )}
-                  Delete project
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this project?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This permanently deletes the project, its environments,
-                    routes, domains, variables, backups, and deployments. This
-                    cannot be undone. {`Type "${project.name}" to confirm.`}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <div className="grid gap-2">
-                  <label
-                    htmlFor="delete-project-remove-deployments"
-                    className="flex items-start gap-2 rounded-md border p-3 text-sm"
-                  >
-                    <Checkbox
-                      id="delete-project-remove-deployments"
-                      checked={removeProjectDeployments}
-                      onCheckedChange={(checked) =>
-                        setRemoveProjectDeployments(checked === true)
-                      }
-                    />
-                    <span className="grid gap-1">
-                      <span className="font-medium">
-                        Remove deployed Docker Compose runtimes
-                      </span>
-                      <span className="text-muted-foreground">
-                        Persistent volumes are retained for 7 days. If
-                        unchecked, deployments may keep running on connected
-                        servers, but devpush will stop managing them.
-                      </span>
-                    </span>
-                  </label>
-                  <Input
-                    aria-label={`Type ${project.name} to confirm`}
-                    id="delete-project-confirmation"
-                    placeholder={project.name}
-                    value={deleteProjectConfirmation}
-                    onChange={(event) =>
-                      setDeleteProjectConfirmation(event.target.value)
-                    }
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === 'Enter' &&
-                        !isDeletingProject &&
-                        deleteProjectConfirmation === project.name
-                      ) {
-                        event.preventDefault()
-                        void deleteCurrentProject()
-                      }
-                    }}
-                  />
+                  {avatarUrl ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          size="icon-sm"
+                          type="button"
+                          aria-label="Remove image"
+                          onClick={() => {
+                            setAvatarDataUrl(null)
+                            setDeleteAvatar(true)
+                          }}
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Remove image</TooltipContent>
+                    </Tooltip>
+                  ) : null}
                 </div>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={isDeletingProject}>
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
-                    disabled={
-                      isDeletingProject ||
-                      deleteProjectConfirmation !== project.name
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="project-name">Project name</FieldLabel>
+                <Input
+                  id="project-name"
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel>Git repository</FieldLabel>
+                <div className="flex items-center">
+                  <RepositoryPickerDialog
+                    teamSlug={
+                      typeof params.teamSlug === 'string' ? params.teamSlug : ''
                     }
-                    onClick={(event) => {
-                      event.preventDefault()
-                      void deleteCurrentProject()
+                    currentRepo={selectedRepo}
+                    onSelect={setSelectedRepo}
+                  >
+                    <Button
+                      variant="outline"
+                      type="button"
+                      className="rounded-r-none border-r-0 font-normal"
+                    >
+                      <img
+                        data-icon="inline-start"
+                        src={`https://github.com/${selectedRepoOwner}.png`}
+                        alt=""
+                        className="size-5 rounded"
+                      />
+                      {selectedRepo.fullName}
+                      <ChevronsUpDownIcon
+                        data-icon="inline-end"
+                        className="text-muted-foreground group-hover/button:text-muted-foreground"
+                      />
+                    </Button>
+                  </RepositoryPickerDialog>
+                  <IconActionTooltip label="View on GitHub">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="rounded-l-none text-muted-foreground hover:text-foreground"
+                      asChild
+                    >
+                      <a
+                        href={`https://github.com/${selectedRepo.fullName}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="View on GitHub"
+                      >
+                        <ArrowUpRightIcon />
+                      </a>
+                    </Button>
+                  </IconActionTooltip>
+                </div>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="project-id">Project ID</FieldLabel>
+                <InputGroup>
+                  <InputGroupInput
+                    id="project-id"
+                    className="font-mono text-[13px] text-muted-foreground"
+                    value={project.id}
+                    readOnly
+                  />
+                  <InputGroupAddon align="inline-end">
+                    <IconActionTooltip label="Copy project ID">
+                      <InputGroupButton
+                        size="icon-sm"
+                        type="button"
+                        aria-label="Copy project ID"
+                        onClick={() =>
+                          void navigator.clipboard.writeText(project.id)
+                        }
+                      >
+                        <CopyIcon />
+                      </InputGroupButton>
+                    </IconActionTooltip>
+                  </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>
+                  A unique identifier used in API, environment variables, etc.
+                </FieldDescription>
+              </Field>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            id="build-and-deploy"
+            title="Build and Deploy"
+            description="Configuration for deploying the Compose project: compose file, release command, readiness check, etc."
+            footer={
+              <SettingsActions
+                hasChanges={hasBuildChanges}
+                isSaving={isSaving}
+                onCancel={resetBuildSettings}
+                onSave={saveBuildSettings}
+              />
+            }
+          >
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="compose-path">
+                  Compose file path
+                </FieldLabel>
+                <Input
+                  id="compose-path"
+                  value={composePath}
+                  onChange={(event) => setComposePath(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="release-command">
+                  Release command
+                </FieldLabel>
+                <Input
+                  id="release-command"
+                  value={releaseCommand}
+                  placeholder="php artisan migrate --force"
+                  onChange={(event) => setReleaseCommand(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="release-service">
+                  Release service
+                </FieldLabel>
+                <Select
+                  value={releaseService}
+                  onValueChange={setReleaseService}
+                >
+                  <SelectTrigger id="release-service" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__auto__">
+                      First valid service
+                      {autoReleaseService ? ` (${autoReleaseService})` : ''}
+                    </SelectItem>
+                    {context.composeMetadata?.services.map((service) => (
+                      <SelectItem key={service} value={service}>
+                        {service}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  The service used to run the release command. Automatic uses
+                  the first routed service, then the first Compose service.
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="readiness">Readiness path</FieldLabel>
+                <Input
+                  id="readiness"
+                  value={readinessPath}
+                  placeholder="/health"
+                  onChange={(event) => setReadinessPath(event.target.value)}
+                />
+              </Field>
+            </FieldGroup>
+          </SettingsSection>
+
+          <EnvironmentSettingsSection context={context} />
+
+          <EnvironmentVariablesSettingsSection context={context} />
+
+          <EnvironmentServersSettingsSection context={context} />
+
+          <SettingsSection
+            id="routes"
+            title="Routes"
+            description="Routes map project paths to Compose services and internal ports."
+            footer={
+              <SettingsActions
+                hasChanges={hasRouteChanges}
+                isSaving={isSaving}
+                onCancel={resetRoutes}
+                onSave={saveRoutes}
+              />
+            }
+          >
+            <RouteSettingsTable routes={routes} onChange={setRoutes} />
+          </SettingsSection>
+
+          <SettingsSection
+            id="domains"
+            title="Domains"
+            description="Custom domain names associated with this project's environments."
+            footer={
+              <SettingsActions
+                hasChanges={hasDomainChanges}
+                isSaving={isSaving}
+                onCancel={resetDomains}
+                onSave={saveDomains}
+              />
+            }
+          >
+            <DomainSettingsTable
+              domains={domains}
+              environments={context.environments}
+              routes={savedRoutes}
+              onChange={setDomains}
+            />
+          </SettingsSection>
+
+          <SettingsSection
+            id="danger"
+            title="Danger"
+            description="Permanently delete the project and all of its configuration, environments and deployments."
+          >
+            {context.team.role === 'owner' || context.team.role === 'admin' ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    disabled={isDeletingProject}
+                    onClick={() => {
+                      setDeleteProjectConfirmation('')
+                      setRemoveProjectDeployments(true)
                     }}
                   >
                     {isDeletingProject ? (
-                      <LoaderIcon className="animate-spin" />
-                    ) : null}
+                      <LoaderIcon
+                        data-icon="inline-start"
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Trash2Icon data-icon="inline-start" />
+                    )}
                     Delete project
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Only team owners and admins can delete projects.
-            </p>
-          )}
-        </SettingsSection>
-      </div>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this project?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This permanently deletes the project, its environments,
+                      routes, domains, variables, backups, and deployments. This
+                      cannot be undone. {`Type "${project.name}" to confirm.`}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <div className="grid gap-2">
+                    <label
+                      htmlFor="delete-project-remove-deployments"
+                      className="flex items-start gap-2 rounded-md border p-3 text-sm"
+                    >
+                      <Checkbox
+                        id="delete-project-remove-deployments"
+                        checked={removeProjectDeployments}
+                        onCheckedChange={(checked) =>
+                          setRemoveProjectDeployments(checked === true)
+                        }
+                      />
+                      <span className="grid gap-1">
+                        <span className="font-medium">
+                          Remove deployed Docker Compose runtimes
+                        </span>
+                        <span className="text-muted-foreground">
+                          Persistent volumes are retained for 7 days. If
+                          unchecked, deployments may keep running on connected
+                          servers, but devpush will stop managing them.
+                        </span>
+                      </span>
+                    </label>
+                    <Field>
+                      <Input
+                        aria-label={`Type ${project.name} to confirm`}
+                        id="delete-project-confirmation"
+                        placeholder={project.name}
+                        value={deleteProjectConfirmation}
+                        onChange={(event) =>
+                          setDeleteProjectConfirmation(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === 'Enter' &&
+                            !isDeletingProject &&
+                            deleteProjectConfirmation === project.name
+                          ) {
+                            event.preventDefault()
+                            void deleteCurrentProject()
+                          }
+                        }}
+                      />
+                    </Field>
+                  </div>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingProject}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      disabled={
+                        isDeletingProject ||
+                        deleteProjectConfirmation !== project.name
+                      }
+                      onClick={(event) => {
+                        event.preventDefault()
+                        void deleteCurrentProject()
+                      }}
+                    >
+                      {isDeletingProject ? (
+                        <LoaderIcon className="animate-spin" />
+                      ) : null}
+                      Delete project
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Only team owners and admins can delete projects.
+              </p>
+            )}
+          </SettingsSection>
+        </div>
 
-      <aside className="hidden pt-16 text-sm lg:block">
-        <nav className="sticky top-[122px] flex flex-col gap-y-1">
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#general">General</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#build-and-deploy">Build and Deploy</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#environments">Environments</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#environment-variables">Environment variables</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#servers">Servers</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#routes">Routes</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#domains">Domains</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#backups">Backups</a>
-          </Button>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            <a href="#danger">Danger</a>
-          </Button>
-        </nav>
-      </aside>
+        <aside className="hidden text-sm lg:block">
+          <nav className="sticky top-[122px] flex flex-col gap-y-1">
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#general">General</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#build-and-deploy">Build and Deploy</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#environments">Environments</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#environment-variables">Environment variables</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#servers">Servers</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#routes">Routes</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#domains">Domains</a>
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <a href="#danger">Danger</a>
+            </Button>
+          </nav>
+        </aside>
+      </div>
     </div>
   )
 }
@@ -799,7 +889,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
 type ProjectRouteDefinition = ProjectRoute
 
 type ProjectDomainAlias = {
-  generated: boolean
   id: string
   host: string
   environment: string
@@ -817,6 +906,11 @@ type Repository = Extract<
   RepositorySelectionContext['github'],
   { connected: true }
 >['repositories'][number]
+
+type Installation = Extract<
+  RepositorySelectionContext['github'],
+  { connected: true }
+>['installations'][number]
 
 function RepositoryPickerDialog({
   children,
@@ -841,6 +935,9 @@ function RepositoryPickerDialog({
   const [isLoadingRepos, setIsLoadingRepos] = useState(false)
   const github = repositorySelection?.github
   const installations = github?.connected ? github.installations : []
+  const selectedInstallation = installations.find(
+    (installation) => installation.id === selectedInstallationId,
+  )
   const filteredRepositories = repositories
     .filter((repo) => {
       if (repo.installationId !== selectedInstallationId) {
@@ -854,7 +951,7 @@ function RepositoryPickerDialog({
         new Date(second.updatedAt).getTime() -
         new Date(first.updatedAt).getTime(),
     )
-    .slice(0, 8)
+    .slice(0, 5)
 
   useEffect(() => {
     if (!open) {
@@ -940,7 +1037,7 @@ function RepositoryPickerDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Select repository</DialogTitle>
           <DialogDescription>
@@ -948,107 +1045,244 @@ function RepositoryPickerDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {isLoadingContext ? (
-          <p className="text-sm text-muted-foreground">
-            Loading repositories...
-          </p>
-        ) : github?.connected ? (
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Select
-                value={selectedInstallationId?.toString() ?? ''}
-                onValueChange={(value) =>
-                  setSelectedInstallationId(Number(value))
-                }
-              >
-                <SelectTrigger size="sm" className="w-auto min-w-40">
-                  <SelectValue placeholder="GitHub account" />
-                </SelectTrigger>
-                <SelectContent>
-                  {installations.map((installation) => (
-                    <SelectItem
-                      key={installation.id}
-                      value={installation.id.toString()}
-                    >
-                      <span className="flex items-center gap-2">
-                        <img
-                          src={`https://github.com/${installation.accountLogin}.png`}
-                          alt=""
-                          className="size-5 rounded"
-                        />
-                        {installation.accountLogin}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <InputGroup className="h-8 flex-1">
-                <InputGroupAddon>
-                  <SearchIcon />
-                </InputGroupAddon>
-                <InputGroupInput
-                  value={query}
-                  placeholder="Search by name"
-                  onChange={(event) => setQuery(event.target.value)}
+        <div className="scrollbar -m-4 min-h-0 overflow-y-auto p-4">
+          {isLoadingContext ? (
+            <div className="space-y-4">
+              <RepositoryToolbarSkeleton />
+              <RepoListSkeleton />
+            </div>
+          ) : github?.connected ? (
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <RepositoryAccountDropdown
+                  installations={installations}
+                  installUrl={`/api/github/install?next=${encodeURIComponent(
+                    `/${teamSlug}/settings`,
+                  )}`}
+                  selectedInstallation={selectedInstallation}
+                  selectedInstallationId={selectedInstallationId}
+                  onChange={setSelectedInstallationId}
                 />
-              </InputGroup>
-            </div>
+                <InputGroup className="h-8 flex-1">
+                  <InputGroupAddon>
+                    <SearchIcon />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    value={query}
+                    placeholder="Search by name"
+                    onChange={(event) => setQuery(event.target.value)}
+                  />
+                </InputGroup>
+              </div>
 
-            <div className="min-h-60">
-              {isLoadingRepos ? (
-                <p className="flex h-60 items-center justify-center rounded-lg border text-sm text-muted-foreground">
-                  Loading repositories...
-                </p>
-              ) : filteredRepositories.length > 0 ? (
-                <ul aria-label="Repository list">
-                  {filteredRepositories.map((repo, index) => (
-                    <li
-                      className={`flex h-12 items-center gap-2 border px-4 text-sm ${
-                        index > 0 ? 'border-t-0' : 'rounded-t-lg'
-                      } ${
-                        index === filteredRepositories.length - 1
-                          ? 'rounded-b-lg'
-                          : ''
-                      }`}
-                      key={`${repo.installationId}:${repo.id}`}
-                    >
-                      <span className="truncate font-medium">
-                        {repo.fullName}
-                      </span>
-                      {repo.private ? (
-                        <LockIcon className="size-4 shrink-0 text-muted-foreground" />
-                      ) : null}
-                      {repo.fullName === currentRepo.fullName ? (
-                        <CheckIcon className="ml-auto size-4" />
-                      ) : (
-                        <Button
-                          className="ml-auto"
-                          variant="outline"
-                          size="sm"
-                          type="button"
-                          onClick={() => selectRepository(repo)}
+              <div>
+                {isLoadingRepos ? (
+                  <RepoListSkeleton />
+                ) : filteredRepositories.length > 0 ? (
+                  <ul
+                    aria-label="Repository list"
+                    aria-live="polite"
+                    role="listbox"
+                  >
+                    {filteredRepositories.map((repo, index) => (
+                      <li
+                        className={`flex h-12 items-center gap-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
+                          index > 0 ? 'border-t-0' : 'rounded-t-lg'
+                        } ${
+                          index === filteredRepositories.length - 1
+                            ? 'rounded-b-lg'
+                            : ''
+                        }`}
+                        key={`${repo.installationId}:${repo.id}`}
+                        role="option"
+                      >
+                        <a
+                          className="truncate font-medium hover:underline"
+                          href={`https://github.com/${repo.fullName}`}
+                          rel="noreferrer"
+                          target="_blank"
                         >
-                          Select
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="flex h-60 items-center justify-center rounded-lg border text-sm text-muted-foreground">
-                  No repositories found
-                </p>
-              )}
+                          {repo.name}
+                        </a>
+                        {repo.private ? (
+                          <LockIcon className="size-4 shrink-0 text-muted-foreground" />
+                        ) : null}
+                        <p className="truncate text-muted-foreground">
+                          {formatRepositoryUpdatedAt(repo.updatedAt)}
+                        </p>
+                        {repo.fullName === currentRepo.fullName ? (
+                          <CheckIcon className="ml-auto size-4" />
+                        ) : (
+                          <Button
+                            className="ml-auto"
+                            size="xs"
+                            type="button"
+                            onClick={() => selectRepository(repo)}
+                          >
+                            Select
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="flex h-50 items-center justify-center rounded-lg bg-muted px-4 text-sm text-muted-foreground">
+                    No repositories found
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex min-h-40 items-center justify-center rounded-lg border text-sm text-muted-foreground">
-            Connect GitHub before selecting a repository.
-          </div>
-        )}
+          ) : (
+            <Empty className="min-h-60">
+              <EmptyHeader>
+                <EmptyTitle>Connect GitHub.</EmptyTitle>
+                <EmptyDescription>
+                  Connect GitHub before selecting a repository.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )
+}
+
+function RepositoryToolbarSkeleton() {
+  return (
+    <div className="flex gap-2">
+      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
+      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
+    </div>
+  )
+}
+
+function RepoListSkeleton() {
+  return (
+    <ul aria-label="Loading repositories" aria-live="polite">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <li
+          className={`flex h-12 items-center justify-between gap-x-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
+            index > 0 ? 'border-t-0' : 'rounded-t-lg'
+          } ${index === 4 ? 'rounded-b-lg' : ''}`}
+          key={index}
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <Skeleton className="h-4 w-32 rounded bg-muted-foreground/20" />
+            <Skeleton className="h-4 w-24 rounded bg-muted-foreground/20" />
+          </span>
+          <Button disabled size="xs" type="button">
+            Select
+          </Button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function RepositoryAccountDropdown({
+  installations,
+  installUrl,
+  selectedInstallation,
+  selectedInstallationId,
+  onChange,
+}: {
+  installations: Array<Installation>
+  installUrl: string
+  selectedInstallation: Installation | undefined
+  selectedInstallationId: number | null
+  onChange: (installationId: number) => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className="w-40 justify-start gap-1.5"
+          variant="outline"
+          type="button"
+        >
+          {selectedInstallation ? (
+            <img
+              data-icon="inline-start"
+              alt=""
+              className="size-5 rounded"
+              src={`https://github.com/${selectedInstallation.accountLogin}.png`}
+            />
+          ) : (
+            <GithubIcon data-icon="inline-start" />
+          )}
+          <span className="min-w-0 flex-1 truncate text-left">
+            {selectedInstallation?.accountLogin ?? 'GitHub'}
+          </span>
+          <ChevronsUpDownIcon
+            data-icon="inline-end"
+            className="text-muted-foreground group-hover/button:text-muted-foreground"
+          />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-max min-w-(--radix-dropdown-menu-trigger-width)"
+      >
+        {installations.map((installation) => (
+          <DropdownMenuItem
+            className="whitespace-nowrap"
+            key={installation.id}
+            onClick={() => onChange(installation.id)}
+          >
+            <img
+              alt=""
+              className="size-5 rounded"
+              src={`https://github.com/${installation.accountLogin}.png`}
+            />
+            {installation.accountLogin}
+            {selectedInstallationId === installation.id ? (
+              <CheckIcon className="ml-auto" />
+            ) : null}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild className="whitespace-nowrap">
+          <a href={installUrl}>
+            <PlusIcon />
+            Add GitHub account
+          </a>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function formatRepositoryUpdatedAt(value: string) {
+  const updatedAt = new Date(value)
+
+  if (Number.isNaN(updatedAt.getTime())) {
+    return 'Updated recently'
+  }
+
+  const diffMs = Date.now() - updatedAt.getTime()
+  const diffDays = Math.round(diffMs / 86_400_000)
+
+  if (diffDays < 1) {
+    return 'Updated today'
+  }
+
+  if (diffDays === 1) {
+    return 'Updated yesterday'
+  }
+
+  if (diffDays < 30) {
+    return `Updated ${diffDays} days ago`
+  }
+
+  return updatedAt.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year:
+      updatedAt.getFullYear() === new Date().getFullYear()
+        ? undefined
+        : 'numeric',
+  })
 }
 
 function readFileAsDataUrl(file: File) {
@@ -1096,73 +1330,101 @@ function RouteSettingsTable({
   return (
     <div className="space-y-4">
       {routes.length > 0 ? (
-        <div>
-          <div className="grid grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)_minmax(96px,0.4fr)_7rem_2rem] gap-x-2 border-b pb-2 text-sm font-medium">
-            <div>Path</div>
-            <div />
-            <div>Service</div>
-            <div>Port</div>
-            <div>Strip</div>
-            <div />
-          </div>
-          {routes.map((route, index) => (
-            <div
-              className="grid grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)_minmax(96px,0.4fr)_7rem_2rem] items-center gap-x-2 border-b py-2"
-              key={index}
-            >
-              <Input
-                value={route.path}
-                onChange={(event) =>
-                  updateRoute(index, { path: event.target.value })
-                }
-                placeholder="/"
-              />
-              <ArrowRightIcon className="mx-auto size-4 text-muted-foreground" />
-              <Input
-                value={route.service}
-                onChange={(event) =>
-                  updateRoute(index, { service: event.target.value })
-                }
-                placeholder="web"
-              />
-              <Input
-                type="number"
-                min={1}
-                max={65535}
-                value={route.port}
-                onChange={(event) =>
-                  updateRoute(index, { port: Number(event.target.value) })
-                }
-                placeholder="3000"
-              />
-              <div className="flex h-9 items-center gap-2">
-                <Switch
-                  aria-label="Strip route prefix"
-                  checked={route.stripPrefix}
-                  onCheckedChange={(checked) =>
-                    updateRoute(index, { stripPrefix: checked })
-                  }
-                />
-              </div>
-              <IconActionTooltip label="Remove route">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  type="button"
-                  aria-label="Remove route"
-                  onClick={() => removeRoute(index)}
-                >
-                  <Trash2Icon />
-                </Button>
-              </IconActionTooltip>
+        <>
+          <div>
+            <div className="grid w-full grid-cols-[minmax(0,1.35fr)_1rem_minmax(0,1.35fr)_minmax(5.5rem,0.45fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
+              <div>Path</div>
+              <div />
+              <div>Service</div>
+              <div>Port</div>
+              <div>Strip</div>
+              <div />
             </div>
-          ))}
-        </div>
-      ) : null}
-      <Button variant="outline" size="sm" type="button" onClick={addRoute}>
-        <PlusIcon />
-        Add route
-      </Button>
+            {routes.map((route, index) => (
+              <div
+                className="grid w-full grid-cols-[minmax(0,1.35fr)_1rem_minmax(0,1.35fr)_minmax(5.5rem,0.45fr)_3.5rem_2.5rem] items-center gap-x-2 border-b py-2"
+                key={index}
+              >
+                <Field className="gap-0">
+                  <Input
+                    aria-label="Route path"
+                    value={route.path}
+                    onChange={(event) =>
+                      updateRoute(index, { path: event.target.value })
+                    }
+                    placeholder="/"
+                  />
+                </Field>
+                <ArrowRightIcon className="mx-auto size-4 text-muted-foreground" />
+                <Field className="gap-0">
+                  <Input
+                    aria-label="Route service"
+                    value={route.service}
+                    onChange={(event) =>
+                      updateRoute(index, { service: event.target.value })
+                    }
+                    placeholder="web"
+                  />
+                </Field>
+                <Field className="gap-0">
+                  <Input
+                    aria-label="Route port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={route.port}
+                    onChange={(event) =>
+                      updateRoute(index, { port: Number(event.target.value) })
+                    }
+                    placeholder="3000"
+                  />
+                </Field>
+                <div className="flex h-full items-center gap-2">
+                  <Switch
+                    aria-label="Strip route prefix"
+                    checked={route.stripPrefix}
+                    onCheckedChange={(checked) =>
+                      updateRoute(index, { stripPrefix: checked })
+                    }
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <IconActionTooltip label="Remove route">
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      type="button"
+                      aria-label="Remove route"
+                      onClick={() => removeRoute(index)}
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </IconActionTooltip>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" type="button" onClick={addRoute}>
+            <PlusIcon data-icon="inline-start" />
+            Add route
+          </Button>
+        </>
+      ) : (
+        <Empty className="min-h-40">
+          <EmptyHeader>
+            <EmptyTitle>No routes configured.</EmptyTitle>
+            <EmptyDescription>
+              Add a route to expose a Compose service.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button variant="outline" type="button" onClick={addRoute}>
+              <PlusIcon data-icon="inline-start" />
+              Add route
+            </Button>
+          </EmptyContent>
+        </Empty>
+      )}
     </div>
   )
 }
@@ -1178,8 +1440,6 @@ function DomainSettingsTable({
   routes: Array<ProjectRouteDefinition>
   onChange: (domains: Array<ProjectDomainAlias>) => void
 }) {
-  const editableDomains = domains.filter((domain) => !domain.generated)
-
   function updateDomain(id: string, next: Partial<ProjectDomainAlias>) {
     onChange(
       domains.map((domain) =>
@@ -1192,7 +1452,6 @@ function DomainSettingsTable({
     onChange([
       ...domains,
       {
-        generated: false,
         id: crypto.randomUUID(),
         host: '',
         environment: environments.at(0)?.id ?? 'production',
@@ -1208,100 +1467,133 @@ function DomainSettingsTable({
 
   return (
     <div className="space-y-4">
-      {editableDomains.length > 0 ? (
-        <div>
-          <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_4rem_2rem] gap-x-2 border-b pb-2 text-sm font-medium">
-            <div>Host</div>
-            <div>Environment</div>
-            <div>Base route</div>
-            <div>HTTPS</div>
-            <div />
-          </div>
-          {editableDomains.map((domain) => (
-            <div
-              className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_4rem_2rem] items-start gap-x-2 border-b py-2"
-              key={domain.id}
-            >
-              <Input
-                value={domain.host}
-                onChange={(event) =>
-                  updateDomain(domain.id, { host: event.target.value })
-                }
-                placeholder="myapp.com"
-              />
-              <Select
-                value={domain.environment}
-                onValueChange={(value) =>
-                  updateDomain(domain.id, { environment: value })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {environments.map((environment) => (
-                    <SelectItem value={environment.id} key={environment.id}>
-                      <EnvironmentOptionLabel
-                        color={environment.color}
-                        label={environment.name}
-                      />
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={domain.baseRoute || 'all'}
-                onValueChange={(value) =>
-                  updateDomain(domain.id, {
-                    baseRoute: value === 'all' ? '' : value,
-                  })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All routes</SelectItem>
-                  {routes.map((route) => (
-                    <SelectItem value={route.path} key={route.path}>
-                      {route.path}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="flex h-9 items-center justify-center">
-                <Switch
-                  aria-label="HTTPS"
-                  checked={domain.https}
-                  onCheckedChange={(checked) =>
-                    updateDomain(domain.id, { https: checked })
-                  }
-                />
-              </div>
-              <IconActionTooltip label="Remove domain">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  type="button"
-                  aria-label="Remove domain"
-                  onClick={() => removeDomain(domain.id)}
-                >
-                  <Trash2Icon />
-                </Button>
-              </IconActionTooltip>
+      {domains.length > 0 ? (
+        <>
+          <div>
+            <div className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
+              <div>Host</div>
+              <div>Environment</div>
+              <div>Base route</div>
+              <div>HTTPS</div>
+              <div />
             </div>
-          ))}
-        </div>
-      ) : null}
-      <Button variant="outline" size="sm" type="button" onClick={addDomain}>
-        <PlusIcon />
-        Add domain
-      </Button>
+            {domains.map((domain) => (
+              <div
+                className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_2.5rem] items-center gap-x-2 border-b py-2"
+                key={domain.id}
+              >
+                <Field className="gap-0">
+                  <Input
+                    aria-label="Domain host"
+                    value={domain.host}
+                    onChange={(event) =>
+                      updateDomain(domain.id, { host: event.target.value })
+                    }
+                    placeholder="myapp.com"
+                  />
+                </Field>
+                <Field className="gap-0">
+                  <Select
+                    value={domain.environment}
+                    onValueChange={(value) =>
+                      updateDomain(domain.id, { environment: value })
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label="Domain environment"
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {environments.map((environment) => (
+                        <SelectItem value={environment.id} key={environment.id}>
+                          <EnvironmentOptionLabel
+                            color={environment.color}
+                            label={environment.name}
+                          />
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field className="gap-0">
+                  <Select
+                    value={domain.baseRoute || 'all'}
+                    onValueChange={(value) =>
+                      updateDomain(domain.id, {
+                        baseRoute: value === 'all' ? '' : value,
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label="Domain base route"
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All routes</SelectItem>
+                      {routes.map((route) => (
+                        <SelectItem value={route.path} key={route.path}>
+                          {route.path}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <div className="flex h-full items-center justify-center">
+                  <Switch
+                    aria-label="HTTPS"
+                    checked={domain.https}
+                    onCheckedChange={(checked) =>
+                      updateDomain(domain.id, { https: checked })
+                    }
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <IconActionTooltip label="Remove domain">
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      type="button"
+                      aria-label="Remove domain"
+                      onClick={() => removeDomain(domain.id)}
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </IconActionTooltip>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" type="button" onClick={addDomain}>
+            <PlusIcon data-icon="inline-start" />
+            Add domain
+          </Button>
+        </>
+      ) : (
+        <Empty className="min-h-40">
+          <EmptyHeader>
+            <EmptyTitle>No custom domains.</EmptyTitle>
+            <EmptyDescription>
+              Add a domain and map it to an environment route.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button variant="outline" type="button" onClick={addDomain}>
+              <PlusIcon data-icon="inline-start" />
+              Add domain
+            </Button>
+          </EmptyContent>
+        </Empty>
+      )}
     </div>
   )
 }
 
-function EnvironmentSettingsTable({ context }: { context: ProjectContext }) {
+function EnvironmentSettingsSection({ context }: { context: ProjectContext }) {
+  const queryClient = useQueryClient()
   const params = useParams({ strict: false })
   const [items, setItems] = useState(context.environments)
   const [savedItems, setSavedItems] = useState(context.environments)
@@ -1332,7 +1624,10 @@ function EnvironmentSettingsTable({ context }: { context: ProjectContext }) {
         slug: '',
         branch: '',
         color: getEnvironmentColor(current.length + 1),
+        position: current.length,
         status: 'active',
+        effectiveServerId: context.project.defaultServerId,
+        serverId: null,
       },
     ])
   }
@@ -1349,14 +1644,16 @@ function EnvironmentSettingsTable({ context }: { context: ProjectContext }) {
     setIsSaving(true)
 
     try {
-      await saveProjectEnvironments({
+      const nextContext = await saveProjectEnvironments({
         data: {
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: context.project.name,
           environments: items,
         },
       })
-      setSavedItems(items)
+      setProjectContextQueryData(queryClient, nextContext)
+      setItems(nextContext.environments)
+      setSavedItems(nextContext.environments)
       toast.success('Environments saved.')
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to save environments.'))
@@ -1366,129 +1663,153 @@ function EnvironmentSettingsTable({ context }: { context: ProjectContext }) {
   }
 
   return (
-    <div>
-      <div className="grid grid-cols-[1.5rem_repeat(3,minmax(0,1fr))_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
-        <span className="w-6" />
-        <span>Name</span>
-        <span>Identifier</span>
-        <span>Branch</span>
-        <span />
-      </div>
-      {items.map((environment) => (
-        <div
-          className="grid min-h-12 grid-cols-[1.5rem_repeat(3,minmax(0,1fr))_2rem] items-center gap-x-2 border-b py-2 text-sm"
-          key={environment.id}
-        >
-          <ColorSelect
-            value={environment.color}
-            onChange={(color) => update(environment.id, { color })}
-          />
-          <Input
-            value={environment.name}
-            placeholder="Production"
-            onChange={(event) =>
-              update(environment.id, { name: event.target.value })
-            }
-          />
-          <Input
-            value={environment.slug}
-            placeholder="production"
-            readOnly={environment.slug === 'production'}
-            onChange={(event) =>
-              update(environment.id, { slug: event.target.value })
-            }
-          />
-          <Input
-            value={environment.branch}
-            placeholder="main"
-            onChange={(event) =>
-              update(environment.id, { branch: event.target.value })
-            }
-          />
-          <div className="flex items-center justify-end">
-            <IconActionTooltip label="Delete environment">
-              <Button
-                size="icon"
-                variant="ghost"
-                type="button"
-                onClick={() => remove(environment)}
-                disabled={isSaving || environment.slug === 'production'}
-                aria-label="Delete environment"
-              >
-                <Trash2Icon />
-              </Button>
-            </IconActionTooltip>
-          </div>
-        </div>
-      ))}
-      <Button
-        className="mt-3"
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={add}
-        disabled={isSaving}
-      >
-        <PlusIcon />
-        Add environment
-      </Button>
-      <div className="mt-6 flex justify-end gap-x-2">
+    <SettingsSection
+      id="environments"
+      title="Environments"
+      description="Deployments will be associated with the first environment with a matching branch pattern."
+      footer={
         <SettingsActions
           hasChanges={hasChanges}
           isSaving={isSaving}
           onCancel={() => setItems(savedItems)}
           onSave={save}
         />
+      }
+    >
+      <div>
+        <div className="grid grid-cols-[repeat(3,minmax(0,1fr))_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
+          <span>Name</span>
+          <span>Identifier</span>
+          <span>Branch</span>
+          <span />
+        </div>
+        {items.map((environment) => (
+          <div
+            className="grid min-h-12 grid-cols-[repeat(3,minmax(0,1fr))_2rem] items-center gap-x-2 border-b py-2 text-sm"
+            key={environment.id}
+          >
+            <Field className="gap-0">
+              <div className="flex min-w-0 items-center">
+                <ColorSelect
+                  value={environment.color}
+                  onChange={(color) => update(environment.id, { color })}
+                />
+                <Input
+                  aria-label="Environment name"
+                  className="rounded-l-none"
+                  value={environment.name}
+                  placeholder="Production"
+                  onChange={(event) =>
+                    update(environment.id, { name: event.target.value })
+                  }
+                />
+              </div>
+            </Field>
+            <Field className="gap-0">
+              <Input
+                aria-label="Environment identifier"
+                value={environment.slug}
+                placeholder="production"
+                readOnly={environment.slug === 'production'}
+                onChange={(event) =>
+                  update(environment.id, { slug: event.target.value })
+                }
+              />
+            </Field>
+            <Field className="gap-0">
+              <Input
+                aria-label="Environment branch"
+                value={environment.branch}
+                placeholder="main"
+                onChange={(event) =>
+                  update(environment.id, { branch: event.target.value })
+                }
+              />
+            </Field>
+            <div className="flex items-center justify-end">
+              <IconActionTooltip label="Remove environment">
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  type="button"
+                  onClick={() => remove(environment)}
+                  disabled={isSaving || environment.slug === 'production'}
+                  aria-label="Remove environment"
+                >
+                  <Trash2Icon />
+                </Button>
+              </IconActionTooltip>
+            </div>
+          </div>
+        ))}
+        <Button
+          className="mt-3"
+          type="button"
+          variant="outline"
+          onClick={add}
+          disabled={isSaving}
+        >
+          <PlusIcon data-icon="inline-start" />
+          Add environment
+        </Button>
       </div>
-    </div>
+    </SettingsSection>
   )
 }
 
-function ServerAssignmentSettingsTable({
+function EnvironmentServersSettingsSection({
   context,
 }: {
   context: ProjectContext
 }) {
+  const queryClient = useQueryClient()
   const params = useParams({ strict: false })
-  const [items, setItems] = useState(context.serverAssignments)
-  const [savedItems, setSavedItems] = useState(context.serverAssignments)
+  const initialItems = context.environments.map((environment) => ({
+    environmentId: environment.id,
+    serverId: environment.serverId,
+  }))
+  const [defaultServerId, setDefaultServerId] = useState(
+    context.project.defaultServerId,
+  )
+  const [savedDefaultServerId, setSavedDefaultServerId] = useState(
+    context.project.defaultServerId,
+  )
+  const [items, setItems] = useState(initialItems)
+  const [savedItems, setSavedItems] = useState(initialItems)
   const [isSaving, setIsSaving] = useState(false)
-  const hasChanges = JSON.stringify(items) !== JSON.stringify(savedItems)
+  const hasChanges =
+    defaultServerId !== savedDefaultServerId ||
+    JSON.stringify(items) !== JSON.stringify(savedItems)
 
-  function add() {
-    setItems((current) => [
-      ...current,
-      {
-        environment: context.environments.at(0)?.id ?? '',
-        serverId: context.servers.at(0)?.id ?? '',
-      },
-    ])
-  }
-
-  function update(index: number, patch: Partial<ProjectServerAssignment>) {
+  function update(environmentId: string, serverId: string | null) {
     setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, ...patch } : item,
+      current.map((item) =>
+        item.environmentId === environmentId ? { ...item, serverId } : item,
       ),
     )
-  }
-
-  function remove(index: number) {
-    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
   async function save() {
     setIsSaving(true)
 
     try {
-      await saveProjectServerAssignments({
+      const nextContext = await saveProjectEnvironmentServers({
         data: {
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: context.project.name,
-          serverAssignments: items,
+          defaultServerId,
+          environmentServers: items,
         },
       })
-      setSavedItems(items)
+      setProjectContextQueryData(queryClient, nextContext)
+      const nextItems = nextContext.environments.map((environment) => ({
+        environmentId: environment.id,
+        serverId: environment.serverId,
+      }))
+      setItems(nextItems)
+      setSavedItems(nextItems)
+      setDefaultServerId(nextContext.project.defaultServerId)
+      setSavedDefaultServerId(nextContext.project.defaultServerId)
       toast.success('Servers saved.')
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to save servers.'))
@@ -1498,503 +1819,160 @@ function ServerAssignmentSettingsTable({
   }
 
   return (
-    <div>
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-x-2 border-b pb-3 text-sm font-medium">
-        <span>Environment</span>
-        <span>Server</span>
-        <span />
-      </div>
-      {items.map((assignment, index) => (
-        <div
-          className="grid min-h-12 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] items-center gap-x-2 border-b py-2 text-sm"
-          key={`server-assignment:${index}`}
-        >
-          <Select
-            value={assignment.environment || '__all__'}
-            onValueChange={(environment) =>
-              update(index, {
-                environment: environment === '__all__' ? '' : environment,
-              })
-            }
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="All environments" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">
-                <EnvironmentOptionLabel label="All environments" />
-              </SelectItem>
-              {context.environments.map((environment) => (
-                <SelectItem
-                  key={environment.id}
-                  value={environment.id}
-                  textValue={environment.name}
-                >
-                  <EnvironmentOptionLabel
-                    color={environment.color}
-                    label={environment.name}
-                  />
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={assignment.serverId}
-            onValueChange={(serverId) => update(index, { serverId })}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a server" />
-            </SelectTrigger>
-            <SelectContent>
-              {context.servers.map((server) => (
-                <SelectItem key={server.id} value={server.id}>
-                  <span className="flex items-center gap-x-2">
-                    <ServerAvatar name={server.name} status={server.status} />
-                    {server.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex items-center justify-end">
-            <IconActionTooltip label="Delete server assignment">
-              <Button
-                size="icon"
-                variant="ghost"
-                type="button"
-                onClick={() => remove(index)}
-                disabled={isSaving}
-                aria-label="Delete server assignment"
-              >
-                <Trash2Icon />
-              </Button>
-            </IconActionTooltip>
-          </div>
-        </div>
-      ))}
-      <Button
-        className="mt-3"
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={add}
-        disabled={isSaving || context.servers.length === 0}
-      >
-        <PlusIcon />
-        Add server
-      </Button>
-      <div className="mt-6 flex justify-end gap-x-2">
+    <SettingsSection
+      id="servers"
+      title="Servers"
+      description="Choose a default server, then override individual environments when needed."
+      footer={
         <SettingsActions
           hasChanges={hasChanges}
           isSaving={isSaving}
-          onCancel={() => setItems(savedItems)}
+          onCancel={() => {
+            setDefaultServerId(savedDefaultServerId)
+            setItems(savedItems)
+          }}
           onSave={save}
         />
+      }
+    >
+      <div>
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-b pb-3 text-sm font-medium">
+          <span>Scope</span>
+          <span>Server</span>
+        </div>
+        <div className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 border-b py-2 text-sm">
+          <span className="font-medium">Default</span>
+          <ServerAssignmentControl
+            ariaLabel="Default server"
+            context={context}
+            serverId={defaultServerId}
+            onChange={setDefaultServerId}
+          />
+        </div>
+        {context.environments.map((environment) => {
+          const assignment = items.find(
+            (item) => item.environmentId === environment.id,
+          )
+
+          return (
+            <div
+              className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 border-b py-2 text-sm"
+              key={environment.id}
+            >
+              <EnvironmentOptionLabel
+                color={environment.color}
+                label={environment.name}
+              />
+              <ServerAssignmentControl
+                ariaLabel={`${environment.name} server override`}
+                context={context}
+                defaultServerId={defaultServerId}
+                serverId={assignment?.serverId ?? null}
+                onChange={(serverId) => update(environment.id, serverId)}
+              />
+            </div>
+          )
+        })}
       </div>
-    </div>
+    </SettingsSection>
   )
 }
 
-function BackupSettingsTable({ context }: { context: ProjectContext }) {
-  const params = useParams({ strict: false })
-  const [items, setItems] = useState(context.backupConfigs)
-  const [savedItems, setSavedItems] = useState(context.backupConfigs)
-  const [isSaving, setIsSaving] = useState(false)
-  const hasChanges = JSON.stringify(items) !== JSON.stringify(savedItems)
-
-  function add() {
-    const usedEnvironmentIds = new Set(items.map((item) => item.environmentId))
-    const environment =
-      context.environments.find(
-        (candidate) => !usedEnvironmentIds.has(candidate.id),
-      ) ?? context.environments[0]
-
-    setItems((current) => [
-      ...current,
-      {
-        environmentId: environment.id,
-        enabled: true,
-        destination: {
-          bucket: '',
-          prefix: `projects/${context.project.id}/environments/${environment.id}`,
-        },
-        retention: {
-          daily: 7,
-          weekly: 4,
-          monthly: 3,
-        },
-        databaseDumps: [],
-      },
-    ])
-  }
-
-  function update(index: number, patch: Partial<ProjectBackupConfig>) {
-    setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, ...patch } : item,
-      ),
-    )
-  }
-
-  function updateDestination(
-    index: number,
-    patch: Partial<ProjectBackupConfig['destination']>,
-  ) {
-    setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index
-          ? { ...item, destination: { ...item.destination, ...patch } }
-          : item,
-      ),
-    )
-  }
-
-  function updateRetention(
-    index: number,
-    patch: Partial<ProjectBackupConfig['retention']>,
-  ) {
-    setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index
-          ? { ...item, retention: { ...item.retention, ...patch } }
-          : item,
-      ),
-    )
-  }
-
-  function addDump(index: number) {
-    setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index
-          ? {
-              ...item,
-              databaseDumps: [
-                ...item.databaseDumps,
-                {
-                  service: '',
-                  command: '',
-                  output: 'databases/service.sql.zst',
-                },
-              ],
-            }
-          : item,
-      ),
-    )
-  }
-
-  function updateDump(
-    configIndex: number,
-    dumpIndex: number,
-    patch: Partial<ProjectBackupConfig['databaseDumps'][number]>,
-  ) {
-    setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === configIndex
-          ? {
-              ...item,
-              databaseDumps: item.databaseDumps.map((dump, index) =>
-                index === dumpIndex ? { ...dump, ...patch } : dump,
-              ),
-            }
-          : item,
-      ),
-    )
-  }
-
-  function removeDump(configIndex: number, dumpIndex: number) {
-    setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === configIndex
-          ? {
-              ...item,
-              databaseDumps: item.databaseDumps.filter(
-                (_, index) => index !== dumpIndex,
-              ),
-            }
-          : item,
-      ),
-    )
-  }
-
-  async function save() {
-    setIsSaving(true)
-
-    try {
-      const nextContext = await saveProjectBackupConfigs({
-        data: {
-          teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
-          projectName: context.project.name,
-          backupConfigs: items.map((item) => ({
-            ...item,
-            destination: {
-              bucket: item.destination.bucket,
-              ...(item.destination.region?.trim()
-                ? { region: item.destination.region.trim() }
-                : {}),
-              ...(item.destination.endpoint?.trim()
-                ? { endpoint: item.destination.endpoint.trim() }
-                : {}),
-              ...(item.destination.prefix?.trim()
-                ? { prefix: item.destination.prefix.trim() }
-                : {}),
-            },
-          })),
-        },
-      })
-      setItems(nextContext.backupConfigs)
-      setSavedItems(nextContext.backupConfigs)
-      toast.success('Backup settings saved.')
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to save backups.'))
-    } finally {
-      setIsSaving(false)
-    }
-  }
+function ServerAssignmentControl({
+  ariaLabel,
+  context,
+  defaultServerId,
+  serverId,
+  onChange,
+}: {
+  ariaLabel: string
+  context: ProjectContext
+  defaultServerId?: string | null
+  serverId: string | null
+  onChange: (serverId: string | null) => void
+}) {
+  const effectiveServerId = serverId ?? defaultServerId ?? null
+  const selectedServer = context.servers.find(
+    (server) => server.id === effectiveServerId,
+  )
+  const defaultServer = context.servers.find(
+    (server) => server.id === defaultServerId,
+  )
+  const inheritedLabel = defaultServer
+    ? `Use default (${defaultServer.name})`
+    : 'Use default (none)'
 
   return (
-    <div>
-      {items.length > 0 ? (
-        <div className="space-y-4">
-          {items.map((backupConfig, index) => (
-            <div
-              key={`backup:${backupConfig.environmentId}:${index}`}
-              className="space-y-4 border-b pb-4 last:border-b-0 last:pb-0"
-            >
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_2rem]">
-                <Select
-                  value={backupConfig.environmentId}
-                  onValueChange={(environmentId) =>
-                    update(index, { environmentId })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select environment" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {context.environments.map((environment) => (
-                      <SelectItem
-                        key={environment.id}
-                        value={environment.id}
-                        textValue={environment.name}
-                      >
-                        <EnvironmentOptionLabel
-                          color={environment.color}
-                          label={environment.name}
-                        />
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="flex h-9 items-center gap-x-2">
-                  <Switch
-                    checked={backupConfig.enabled}
-                    onCheckedChange={(enabled) => update(index, { enabled })}
-                    aria-label="Enable backups"
-                  />
-                </div>
-                <IconActionTooltip label="Delete backup configuration">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    type="button"
-                    onClick={() =>
-                      setItems((current) =>
-                        current.filter((_, itemIndex) => itemIndex !== index),
-                      )
-                    }
-                    disabled={isSaving}
-                    aria-label="Delete backup configuration"
-                  >
-                    <Trash2Icon />
-                  </Button>
-                </IconActionTooltip>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Bucket</Label>
-                  <Input
-                    value={backupConfig.destination.bucket}
-                    placeholder="devpush-backups"
-                    onChange={(event) =>
-                      updateDestination(index, { bucket: event.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Prefix</Label>
-                  <Input
-                    value={backupConfig.destination.prefix ?? ''}
-                    placeholder="projects/app/production"
-                    onChange={(event) =>
-                      updateDestination(index, { prefix: event.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Region</Label>
-                  <Input
-                    value={backupConfig.destination.region ?? ''}
-                    placeholder="us-east-1"
-                    onChange={(event) =>
-                      updateDestination(index, { region: event.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Endpoint</Label>
-                  <Input
-                    value={backupConfig.destination.endpoint ?? ''}
-                    placeholder="https://s3.amazonaws.com"
-                    onChange={(event) =>
-                      updateDestination(index, { endpoint: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label>Daily</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={backupConfig.retention.daily}
-                    onChange={(event) =>
-                      updateRetention(index, {
-                        daily: Number(event.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Weekly</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={backupConfig.retention.weekly}
-                    onChange={(event) =>
-                      updateRetention(index, {
-                        weekly: Number(event.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Monthly</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={backupConfig.retention.monthly}
-                    onChange={(event) =>
-                      updateRetention(index, {
-                        monthly: Number(event.target.value),
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              {backupConfig.databaseDumps.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,1fr)_2rem] gap-x-2 border-b pb-2 text-sm font-medium">
-                    <span>Service</span>
-                    <span>Command</span>
-                    <span>Output</span>
-                    <span />
-                  </div>
-                  {backupConfig.databaseDumps.map((dump, dumpIndex) => (
-                    <div
-                      key={`backup-dump:${index}:${dumpIndex}`}
-                      className="grid min-h-12 grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,1fr)_2rem] items-start gap-x-2 border-b py-2"
-                    >
-                      <Input
-                        value={dump.service}
-                        placeholder="postgres"
-                        onChange={(event) =>
-                          updateDump(index, dumpIndex, {
-                            service: event.target.value,
-                          })
-                        }
-                      />
-                      <Input
-                        value={dump.command}
-                        placeholder='pg_dumpall -U "$POSTGRES_USER"'
-                        onChange={(event) =>
-                          updateDump(index, dumpIndex, {
-                            command: event.target.value,
-                          })
-                        }
-                      />
-                      <Input
-                        value={dump.output}
-                        placeholder="databases/postgres.sql.zst"
-                        onChange={(event) =>
-                          updateDump(index, dumpIndex, {
-                            output: event.target.value,
-                          })
-                        }
-                      />
-                      <IconActionTooltip label="Delete database dump">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          type="button"
-                          onClick={() => removeDump(index, dumpIndex)}
-                          disabled={isSaving}
-                          aria-label="Delete database dump"
-                        >
-                          <Trash2Icon />
-                        </Button>
-                      </IconActionTooltip>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => addDump(index)}
-                disabled={isSaving}
-              >
-                <PlusIcon />
-                Add database dump
-              </Button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <Button
-        className={items.length > 0 ? 'mt-4' : ''}
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={add}
-        disabled={isSaving || context.environments.length === 0}
+    <ButtonGroup className="min-w-0 w-full">
+      <Select
+        value={
+          serverId ??
+          (defaultServerId === undefined ? '__none__' : '__default__')
+        }
+        onValueChange={(value) =>
+          onChange(
+            value === '__none__' || value === '__default__' ? null : value,
+          )
+        }
       >
-        <PlusIcon />
-        Add backup
-      </Button>
-      <div className="mt-6 flex justify-end gap-x-2">
-        <SettingsActions
-          hasChanges={hasChanges}
-          isSaving={isSaving}
-          onCancel={() => setItems(savedItems)}
-          onSave={save}
-        />
-      </div>
-    </div>
+        <SelectTrigger aria-label={ariaLabel} className="min-w-0 flex-1 w-auto">
+          <SelectValue placeholder="Select a server" />
+        </SelectTrigger>
+        <SelectContent>
+          {defaultServerId === undefined ? (
+            <SelectItem value="__none__">No default server</SelectItem>
+          ) : (
+            <SelectItem value="__default__">{inheritedLabel}</SelectItem>
+          )}
+          {context.servers.map((server) => (
+            <SelectItem
+              key={server.id}
+              value={server.id}
+              textValue={server.name}
+            >
+              <span className="flex items-center gap-x-2">
+                <ServerAvatar name={server.name} status={server.status} />
+                {server.name}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <IconActionTooltip label="Server details">
+        <Button
+          size="icon"
+          variant="outline"
+          className="text-muted-foreground hover:text-foreground"
+          type="button"
+          disabled={!selectedServer}
+          aria-label="Server details"
+          asChild={Boolean(selectedServer)}
+        >
+          {selectedServer ? (
+            <Link
+              to="/$teamSlug/servers/$serverId"
+              params={{
+                teamSlug: context.team.slug,
+                serverId: selectedServer.id,
+              }}
+            >
+              <ArrowRightIcon />
+            </Link>
+          ) : (
+            <ArrowRightIcon />
+          )}
+        </Button>
+      </IconActionTooltip>
+    </ButtonGroup>
   )
 }
 
-function EnvironmentVariablesSettingsTable({
+function EnvironmentVariablesSettingsSection({
   context,
 }: {
   context: ProjectContext
 }) {
+  const queryClient = useQueryClient()
   const params = useParams({ strict: false })
   const [items, setItems] = useState(context.envVars)
   const [savedItems, setSavedItems] = useState(context.envVars)
@@ -2041,14 +2019,16 @@ function EnvironmentVariablesSettingsTable({
     setIsSaving(true)
 
     try {
-      await saveProjectEnvVars({
+      const nextContext = await saveProjectEnvVars({
         data: {
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: context.project.name,
           envVars: items,
         },
       })
-      setSavedItems(items)
+      setProjectContextQueryData(queryClient, nextContext)
+      setItems(nextContext.envVars)
+      setSavedItems(nextContext.envVars)
       toast.success('Environment variables saved.')
     } catch (error) {
       toast.error(
@@ -2060,104 +2040,145 @@ function EnvironmentVariablesSettingsTable({
   }
 
   return (
-    <div>
-      {items.length > 0 ? (
-        <div>
-          <div className="grid grid-cols-[200px_minmax(0,1fr)_220px_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
-            <span>Key</span>
-            <span>Value</span>
-            <span>Environment</span>
-            <span />
-          </div>
-          {items.map((envVar, index) => (
-            <div
-              className="grid min-h-12 grid-cols-[200px_minmax(0,1fr)_220px_2rem] items-start gap-x-2 border-b py-2 text-sm"
-              key={`env-var:${index}`}
-            >
-              <Input
-                value={envVar.key}
-                placeholder="e.g. MY_VAR"
-                onChange={(event) => update(index, { key: event.target.value })}
-                onPaste={handleEnvFilePaste}
-              />
-              <EnvVarValueTextarea
-                value={envVar.value}
-                onChange={(value) => update(index, { value })}
-                onPaste={handleEnvFilePaste}
-              />
-              <Select
-                value={envVar.environment || '__all__'}
-                onValueChange={(environment) =>
-                  update(index, {
-                    environment: environment === '__all__' ? '' : environment,
-                  })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="All environments" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">
-                    <EnvironmentOptionLabel label="All environments" />
-                  </SelectItem>
-                  {context.environments.map((environment) => (
-                    <SelectItem
-                      key={environment.id}
-                      value={environment.id}
-                      textValue={environment.name}
-                    >
-                      <EnvironmentOptionLabel
-                        color={environment.color}
-                        label={environment.name}
-                      />
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="flex items-center justify-end">
-                <IconActionTooltip label="Delete environment variable">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    type="button"
-                    onClick={() =>
-                      setItems((current) =>
-                        current.filter((_, itemIndex) => itemIndex !== index),
-                      )
-                    }
-                    disabled={isSaving}
-                    aria-label="Delete environment variable"
-                  >
-                    <Trash2Icon />
-                  </Button>
-                </IconActionTooltip>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <div className="mt-3 flex gap-x-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={add}
-          disabled={isSaving}
-        >
-          <PlusIcon />
-          Add variable
-        </Button>
-        <PasteEnvFileDialog onInsert={insertEnvFile} />
-      </div>
-      <div className="mt-6 flex justify-end gap-x-2">
+    <SettingsSection
+      id="environment-variables"
+      title="Environment variables"
+      description="Variables available at build time and runtime. Changes will take effect after a new deployment."
+      footer={
         <SettingsActions
           hasChanges={hasChanges}
           isSaving={isSaving}
           onCancel={() => setItems(savedItems)}
           onSave={save}
         />
+      }
+    >
+      <div>
+        {items.length > 0 ? (
+          <div>
+            <div className="grid grid-cols-[200px_minmax(0,1fr)_220px_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
+              <span>Key</span>
+              <span>Value</span>
+              <span>Environment</span>
+              <span />
+            </div>
+            {items.map((envVar, index) => (
+              <div
+                className="grid min-h-12 grid-cols-[200px_minmax(0,1fr)_220px_2rem] items-start gap-x-2 border-b py-2 text-sm"
+                key={`env-var:${index}`}
+              >
+                <Field className="gap-0">
+                  <Input
+                    aria-label="Environment variable key"
+                    value={envVar.key}
+                    placeholder="e.g. MY_VAR"
+                    onChange={(event) =>
+                      update(index, { key: event.target.value })
+                    }
+                    onPaste={handleEnvFilePaste}
+                  />
+                </Field>
+                <Field className="gap-0">
+                  <EnvVarValueTextarea
+                    value={envVar.value}
+                    onChange={(value) => update(index, { value })}
+                    onPaste={handleEnvFilePaste}
+                  />
+                </Field>
+                <Field className="gap-0">
+                  <Select
+                    value={envVar.environment || '__all__'}
+                    onValueChange={(environment) =>
+                      update(index, {
+                        environment:
+                          environment === '__all__' ? '' : environment,
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label="Environment variable environment"
+                      className="w-full"
+                    >
+                      <SelectValue placeholder="All environments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">
+                        <EnvironmentOptionLabel label="All environments" />
+                      </SelectItem>
+                      {context.environments.map((environment) => (
+                        <SelectItem
+                          key={environment.id}
+                          value={environment.id}
+                          textValue={environment.name}
+                        >
+                          <EnvironmentOptionLabel
+                            color={environment.color}
+                            label={environment.name}
+                          />
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <div className="flex items-center justify-end">
+                  <IconActionTooltip label="Remove environment variable">
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      type="button"
+                      onClick={() =>
+                        setItems((current) =>
+                          current.filter((_, itemIndex) => itemIndex !== index),
+                        )
+                      }
+                      disabled={isSaving}
+                      aria-label="Remove environment variable"
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </IconActionTooltip>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty className="min-h-40">
+            <EmptyHeader>
+              <EmptyTitle>No environment variables.</EmptyTitle>
+              <EmptyDescription>
+                Add variables available to builds and deployments.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent className="flex-row justify-center">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={add}
+                disabled={isSaving}
+              >
+                <PlusIcon data-icon="inline-start" />
+                Add variable
+              </Button>
+              <PasteEnvFileDialog onInsert={insertEnvFile} />
+            </EmptyContent>
+          </Empty>
+        )}
+        {items.length > 0 ? (
+          <div className="mt-3 flex gap-x-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={add}
+              disabled={isSaving}
+            >
+              <PlusIcon data-icon="inline-start" />
+              Add variable
+            </Button>
+            <PasteEnvFileDialog onInsert={insertEnvFile} />
+          </div>
+        ) : null}
       </div>
-    </div>
+    </SettingsSection>
   )
 }
 
@@ -2179,7 +2200,9 @@ function EnvVarValueTextarea({
   return (
     <Textarea
       ref={ref}
-      className="min-h-9 resize-none overflow-hidden break-all py-2 font-mono text-[13px]"
+      aria-label="Environment variable value"
+      className="min-h-8 resize-none overflow-hidden break-all py-1.5 font-mono text-[13px]"
+      placeholder="value"
       value={value}
       onPaste={onPaste}
       onChange={(event) => {
@@ -2229,11 +2252,15 @@ function PasteEnvFileDialog({
             project.
           </DialogDescription>
         </DialogHeader>
-        <Textarea
-          className="max-h-36 min-h-24 overflow-y-auto break-all font-mono text-[13px]"
-          value={envFile}
-          onChange={(event) => setEnvFile(event.target.value)}
-        />
+        <Field>
+          <FieldLabel htmlFor="env-file-content">.env content</FieldLabel>
+          <Textarea
+            id="env-file-content"
+            className="max-h-36 min-h-24 overflow-y-auto break-all font-mono text-[13px]"
+            value={envFile}
+            onChange={(event) => setEnvFile(event.target.value)}
+          />
+        </Field>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
@@ -2330,9 +2357,10 @@ function ColorSelect({
       <DropdownMenuTrigger asChild>
         <Button
           aria-label="Environment color"
+          className="rounded-r-none border-r-0 text-foreground hover:bg-input/50 hover:text-foreground"
           size="icon"
           type="button"
-          variant="ghost"
+          variant="outline"
         >
           <EnvironmentDot color={value} />
         </Button>
@@ -2345,7 +2373,7 @@ function ColorSelect({
           {environmentColors.map((color) => (
             <button
               aria-label={`Set environment color to ${color}`}
-              className="flex size-6 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="flex size-7 items-center justify-center rounded-full border border-transparent transition-colors hover:border-foreground/40 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               key={color}
               onClick={() => onChange(color)}
               type="button"
@@ -2416,7 +2444,6 @@ function SettingsActions({
     <>
       <Button
         variant="ghost"
-        size="sm"
         type="button"
         onClick={onCancel}
         disabled={!hasChanges || isSaving}
@@ -2424,12 +2451,13 @@ function SettingsActions({
         Cancel
       </Button>
       <Button
-        size="sm"
         type="button"
         onClick={() => void onSave()}
         disabled={!hasChanges || isSaving}
       >
-        {isSaving ? <LoaderIcon className="animate-spin" /> : null}
+        {isSaving ? (
+          <LoaderIcon data-icon="inline-start" className="animate-spin" />
+        ) : null}
         Save
       </Button>
     </>

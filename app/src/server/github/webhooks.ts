@@ -61,9 +61,15 @@ export function getBranchFromGitHubRef(ref: string | undefined) {
 }
 
 function safeEqualHex(actualHex: string, expectedHex: string) {
-  if (!/^[a-f0-9]+$/i.test(actualHex) || actualHex.length !== expectedHex.length) {
+  if (
+    !/^[a-f0-9]+$/i.test(actualHex) ||
+    actualHex.length !== expectedHex.length
+  ) {
     return false
   }
 
-  return timingSafeEqual(Buffer.from(actualHex, 'hex'), Buffer.from(expectedHex, 'hex'))
+  return timingSafeEqual(
+    Buffer.from(actualHex, 'hex'),
+    Buffer.from(expectedHex, 'hex'),
+  )
 }

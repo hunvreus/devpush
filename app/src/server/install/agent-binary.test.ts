@@ -101,7 +101,6 @@ describe('agent binary status', () => {
       getAgentBinary({ arch: 's390x', os: 'linux' }),
     ).rejects.toBeInstanceOf(AgentBinaryUnsupportedPlatformError)
   })
-
 })
 
 function writeExecutable(path: string) {

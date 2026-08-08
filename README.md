@@ -13,15 +13,15 @@ the first remote deployment against a real server.
 
 ## Current status
 
-This branch contains the MVP scaffold:
+This repository contains the V1 implementation:
 
-- `app/`: TanStack Start control plane scaffold.
-- `agent/`: Go agent for server registration, heartbeats, and basic Compose deploy jobs.
+- `app/`: TanStack Start control plane and PostgreSQL data model.
+- `agent/`: Go agent for server monitoring, Compose deployments, and backups.
 - `docs/`: protocol, feature, and development notes.
 - `deploy/`: local and production Compose files.
 - `legacy/`: old implementation.
 
-Current deploy support is intentionally narrow: manual deploys and GitHub push
+Current deploy support is intentionally focused: manual deploys and GitHub push
 webhooks create queued deployments. The agent polls for jobs, clones the GitHub
 repo with a short-lived installation token, runs Docker Compose on the target
 server, incrementally reports deploy logs/events, and posts final status back.
@@ -82,7 +82,11 @@ GITHUB_APP_WEBHOOK_SECRET=...
 
 DEVPUSH_AGENT_BINARY_DIR=/absolute/path/to/devpush/bin
 DEVPUSH_TRAEFIK_EMAIL=ops@example.com
-DEVPUSH_DEFAULT_APP_DOMAIN=devpush.app
+DEVPUSH_AGENT_AUTO_UPDATE=false
+DEVPUSH_BACKUPS_ENABLED=false
+VITE_DEVPUSH_BACKUPS_ENABLED=false
+DEVPUSH_CRON_SECRET=
+DEVPUSH_SECRET_ENCRYPTION_KEY=
 ```
 
 The GitHub OAuth credentials should come from the GitHub App OAuth settings.
@@ -146,18 +150,18 @@ detects the server architecture, downloads the matching binary from the control
 plane, creates the `devpush` system user, writes `/etc/devpush/agent.env`,
 installs a systemd service, and starts `devpush-agent`.
 
-When the selected server reports a public IPv4 address, new projects default to
-an exact nip.io host such as `my-app.167-11-3-44.nip.io`. Otherwise,
-`DEVPUSH_DEFAULT_APP_DOMAIN` is used for new project route defaults. Hosted
-devpush can use `devpush.app`; self-hosted installs may set it to a wildcard
-domain they control. Per-project route hosts can still be changed in project
-settings.
+New projects use an exact nip.io host derived from the assigned server, such as
+`my-app-167-11-3-44.nip.io`. Local control planes fall back to
+`my-app-127-0-0-1.nip.io` until the agent reports an IPv4 address. Generated
+aliases use HTTP for private and loopback addresses. Custom project domains are
+managed separately in project settings.
 `DEVPUSH_TRAEFIK_EMAIL` is passed to installed agents for Let's Encrypt account
 registration when HTTPS routes are enabled.
 
-Server install commands contain a time-limited enrollment token. devpush stores
-only the token hash, so the Servers page can generate a fresh install command
-for an existing server when you need to reconnect or reinstall the agent.
+Server install commands contain a time-limited enrollment token. Registration
+exchanges it for a dedicated agent credential. If needed, rotate that credential
+on the host with `sudo devpush-agent credential rotate`; this does not reinstall
+the agent.
 
 ## Production control plane
 
@@ -173,11 +177,19 @@ If your host exposes Compose as the standalone v2 binary, use `docker-compose`
 with the same arguments.
 
 Set `BETTER_AUTH_URL` to the public HTTPS URL of the control plane before adding
-servers. The app container currently runs `pnpm --dir app db:push` on startup;
-replace that with explicit migrations before treating this as a stable
-production deployment. The production Compose file mounts `app_uploads` at
-`/app/app/public/uploads` so user and team avatar uploads survive app container
+servers. The app applies reviewed SQL migrations before startup. Upgrade,
+rollback, health, maintenance, database backup, and agent update procedures are
+documented in
+[Production operations](./docs/development/production-operations.md). The
+production Compose file mounts `app_uploads` at
+`/repo/app/public/uploads` so user and team avatar uploads survive app container
 recreates.
+
+Project backup controls are opt-in. Set `DEVPUSH_BACKUPS_ENABLED=true`; local
+Vite development must also set `VITE_DEVPUSH_BACKUPS_ENABLED=true`. Production
+Compose forwards the client build flag automatically and requires
+`DEVPUSH_CRON_SECRET` for maintenance whether project backups are enabled or
+not.
 
 ## Commands
 
@@ -186,6 +198,8 @@ pnpm --dir app dev
 pnpm --dir app build
 pnpm --dir app typecheck
 pnpm --dir app lint
+pnpm --dir app db:generate
+pnpm --dir app db:migrate
 pnpm smoke:deploy
 pnpm smoke:agent
 pnpm validate:local
@@ -221,8 +235,7 @@ smoke-mode config validation, and the real Docker/Traefik agent smoke. Set
 
 `pnpm validate:config` checks the local MVP configuration before a real run:
 auth URL, OAuth credentials, GitHub App private key, Resend OTP settings,
-default app domain, and the agent binary path. Use remote mode before adding a
-real VPS:
+and the agent binary path. Use remote mode before adding a real VPS:
 
 ```bash
 pnpm validate:config -- --env deploy/.env.production --remote
@@ -230,7 +243,7 @@ pnpm validate:config -- --env deploy/.env.production --remote
 
 `pnpm validate:production` checks the production Compose config, builds the
 control-plane image, and verifies that the runtime image contains the Linux
-agent binary, the built server entrypoint, and `drizzle-kit`.
+agent binary, the built server entrypoint, and the migration tooling.
 
 `pnpm validate:remote` validates the generated server installer against a real
 remote host over SSH. It requires `DEVPUSH_SERVER_URL`, `DEVPUSH_REMOTE_HOST`,

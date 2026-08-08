@@ -1,28 +1,37 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, desc, eq, gte, inArray } from 'drizzle-orm'
+import { and, desc, eq, gt, gte, inArray, isNull, lt, or } from 'drizzle-orm'
 
 import { db } from '@/server/db'
-import { serverHeartbeats, serverMetrics } from '@/server/db/schema'
+import {
+  serverAvailabilityWindows,
+  serverHeartbeats,
+  serverMetrics,
+} from '@/server/db/schema'
 import { serverDisconnectedAfterMs } from '@/server/servers/status'
+import type { ServerStatus } from '@/server/servers/status'
 
-const uptimeWindowMs = 24 * 60 * 60 * 1000
+const availabilityWindowMaxMs = 24 * 60 * 60 * 1000
 const metricsWindowMs = 24 * 60 * 60 * 1000
-const defaultMetricsLimit = 240
+const defaultMetricsLimit = 3_000
+const metricGapAfterMs = 75_000
 
 export type ServerMonitoringSummary = {
-  heartbeatCount24h: number
-  uptime24h: number | null
+  availabilityPercent: number | null
+  availabilityWindowMs: number
   latestMetrics: ServerMetricsSample | null
 }
 
 export type ServerMetricsInput = {
   cpuPercent?: number
-  load1?: number
   memoryUsedBytes?: number
   memoryTotalBytes?: number
   diskUsedBytes?: number
   diskTotalBytes?: number
+  networkReceiveBytesPerSecond?: number
+  networkTransmitBytesPerSecond?: number
+  diskReadBytesPerSecond?: number
+  diskWriteBytesPerSecond?: number
 }
 
 export type ServerMetricsSample = {
@@ -33,16 +42,26 @@ export type ServerMetricsSample = {
   memoryTotalBytes: number | null
   diskUsedBytes: number | null
   diskTotalBytes: number | null
+  networkReceiveBytesPerSecond: number | null
+  networkTransmitBytesPerSecond: number | null
+  diskReadBytesPerSecond: number | null
+  diskWriteBytesPerSecond: number | null
 }
 
 type ServerWindow = {
   id: string
   createdAt: Date
+  status?: ServerStatus
 }
 
 type HeartbeatRow = {
   serverId: string
   observedAt: Date
+}
+
+type AvailabilityWindow = {
+  startedAt: Date
+  endedAt: Date | null
 }
 
 export async function recordServerHeartbeat({
@@ -83,11 +102,15 @@ export async function recordServerMetrics({
     serverId,
     observedAt,
     cpuPercent: metrics.cpuPercent ?? null,
-    load1: metrics.load1 ?? null,
     memoryUsedBytes: metrics.memoryUsedBytes ?? null,
     memoryTotalBytes: metrics.memoryTotalBytes ?? null,
     diskUsedBytes: metrics.diskUsedBytes ?? null,
     diskTotalBytes: metrics.diskTotalBytes ?? null,
+    networkReceiveBytesPerSecond: metrics.networkReceiveBytesPerSecond ?? null,
+    networkTransmitBytesPerSecond:
+      metrics.networkTransmitBytesPerSecond ?? null,
+    diskReadBytesPerSecond: metrics.diskReadBytesPerSecond ?? null,
+    diskWriteBytesPerSecond: metrics.diskWriteBytesPerSecond ?? null,
   })
 }
 
@@ -100,8 +123,8 @@ export async function listServerMonitoringSummaries(
 
   for (const server of servers) {
     summaries.set(server.id, {
-      heartbeatCount24h: 0,
-      uptime24h: null,
+      availabilityPercent: null,
+      availabilityWindowMs: 0,
       latestMetrics: null,
     })
   }
@@ -121,7 +144,30 @@ export async function listServerMonitoringSummaries(
         inArray(serverHeartbeats.serverId, serverIds),
         gte(
           serverHeartbeats.observedAt,
-          new Date(now.getTime() - uptimeWindowMs),
+          new Date(
+            now.getTime() - availabilityWindowMaxMs - serverDisconnectedAfterMs,
+          ),
+        ),
+      ),
+    )
+
+  const availabilityRows = await db
+    .select({
+      serverId: serverAvailabilityWindows.serverId,
+      startedAt: serverAvailabilityWindows.startedAt,
+      endedAt: serverAvailabilityWindows.endedAt,
+    })
+    .from(serverAvailabilityWindows)
+    .where(
+      and(
+        inArray(serverAvailabilityWindows.serverId, serverIds),
+        lt(serverAvailabilityWindows.startedAt, now),
+        or(
+          isNull(serverAvailabilityWindows.endedAt),
+          gt(
+            serverAvailabilityWindows.endedAt,
+            new Date(now.getTime() - availabilityWindowMaxMs),
+          ),
         ),
       ),
     )
@@ -138,6 +184,12 @@ export async function listServerMonitoringSummaries(
           memoryTotalBytes: serverMetrics.memoryTotalBytes,
           diskUsedBytes: serverMetrics.diskUsedBytes,
           diskTotalBytes: serverMetrics.diskTotalBytes,
+          networkReceiveBytesPerSecond:
+            serverMetrics.networkReceiveBytesPerSecond,
+          networkTransmitBytesPerSecond:
+            serverMetrics.networkTransmitBytesPerSecond,
+          diskReadBytesPerSecond: serverMetrics.diskReadBytesPerSecond,
+          diskWriteBytesPerSecond: serverMetrics.diskWriteBytesPerSecond,
         })
         .from(serverMetrics)
         .where(eq(serverMetrics.serverId, serverId))
@@ -157,14 +209,28 @@ export async function listServerMonitoringSummaries(
     const heartbeats = heartbeatRows
       .filter((row) => row.serverId === server.id)
       .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime())
+    const persistedWindows = availabilityRows
+      .filter((row) => row.serverId === server.id)
+      .map((row) => ({
+        startedAt: row.startedAt,
+        endedAt: row.endedAt,
+      }))
+    const availabilityWindows =
+      persistedWindows.length > 0
+        ? persistedWindows
+        : server.status === 'disabled'
+          ? []
+          : [{ startedAt: server.createdAt, endedAt: null }]
+
+    const availability = calculateHeartbeatAvailability({
+      availabilityWindows,
+      heartbeats,
+      now,
+    })
 
     summaries.set(server.id, {
-      heartbeatCount24h: heartbeats.length,
-      uptime24h: calculateHeartbeatUptime({
-        createdAt: server.createdAt,
-        heartbeats,
-        now,
-      }),
+      availabilityPercent: availability.percent,
+      availabilityWindowMs: availability.windowMs,
       latestMetrics: latestMetrics.get(server.id) ?? null,
     })
   }
@@ -172,93 +238,255 @@ export async function listServerMonitoringSummaries(
   return summaries
 }
 
+export function calculateHeartbeatAvailability({
+  availabilityWindows,
+  heartbeats,
+  now,
+}: {
+  availabilityWindows: Array<AvailabilityWindow>
+  heartbeats: Array<Pick<HeartbeatRow, 'observedAt'>>
+  now: Date
+}) {
+  const windowStart = now.getTime() - availabilityWindowMaxMs
+  const eligibleIntervals = mergeIntervals(
+    availabilityWindows
+      .map((window) => ({
+        start: Math.max(window.startedAt.getTime(), windowStart),
+        end: Math.min(
+          window.endedAt?.getTime() ?? now.getTime(),
+          now.getTime(),
+        ),
+      }))
+      .filter((interval) => interval.end > interval.start),
+  )
+  const eligibleMs = sumIntervals(eligibleIntervals)
+
+  if (eligibleMs <= 0) {
+    return { percent: null, windowMs: 0 }
+  }
+
+  const heartbeatIntervals = mergeIntervals(
+    heartbeats
+      .map((heartbeat) => ({
+        start: Math.max(heartbeat.observedAt.getTime(), windowStart),
+        end: Math.min(
+          heartbeat.observedAt.getTime() + serverDisconnectedAfterMs,
+          now.getTime(),
+        ),
+      }))
+      .filter((interval) => interval.end > interval.start),
+  )
+  const coveredMs = sumIntervals(
+    intersectIntervals(heartbeatIntervals, eligibleIntervals),
+  )
+
+  return {
+    percent: Math.min(100, Math.max(0, (coveredMs / eligibleMs) * 100)),
+    windowMs: eligibleMs,
+  }
+}
+
 export async function listServerMetricSeries({
   serverId,
   now = new Date(),
+  startAt,
   limit = defaultMetricsLimit,
 }: {
   serverId: string
   now?: Date
+  startAt?: Date
   limit?: number
 }): Promise<Array<ServerMetricsSample>> {
-  const rows = await db
-    .select({
-      observedAt: serverMetrics.observedAt,
-      cpuPercent: serverMetrics.cpuPercent,
-      load1: serverMetrics.load1,
-      memoryUsedBytes: serverMetrics.memoryUsedBytes,
-      memoryTotalBytes: serverMetrics.memoryTotalBytes,
-      diskUsedBytes: serverMetrics.diskUsedBytes,
-      diskTotalBytes: serverMetrics.diskTotalBytes,
-    })
-    .from(serverMetrics)
-    .where(
-      and(
-        eq(serverMetrics.serverId, serverId),
-        gte(
-          serverMetrics.observedAt,
-          new Date(now.getTime() - metricsWindowMs),
+  const seriesStart = new Date(
+    Math.max(
+      startAt?.getTime() ?? Number.NEGATIVE_INFINITY,
+      now.getTime() - metricsWindowMs,
+    ),
+  )
+  const [rows, availabilityWindows] = await Promise.all([
+    db
+      .select({
+        observedAt: serverMetrics.observedAt,
+        cpuPercent: serverMetrics.cpuPercent,
+        load1: serverMetrics.load1,
+        memoryUsedBytes: serverMetrics.memoryUsedBytes,
+        memoryTotalBytes: serverMetrics.memoryTotalBytes,
+        diskUsedBytes: serverMetrics.diskUsedBytes,
+        diskTotalBytes: serverMetrics.diskTotalBytes,
+        networkReceiveBytesPerSecond:
+          serverMetrics.networkReceiveBytesPerSecond,
+        networkTransmitBytesPerSecond:
+          serverMetrics.networkTransmitBytesPerSecond,
+        diskReadBytesPerSecond: serverMetrics.diskReadBytesPerSecond,
+        diskWriteBytesPerSecond: serverMetrics.diskWriteBytesPerSecond,
+      })
+      .from(serverMetrics)
+      .where(
+        and(
+          eq(serverMetrics.serverId, serverId),
+          gte(serverMetrics.observedAt, seriesStart),
+        ),
+      )
+      .orderBy(desc(serverMetrics.observedAt))
+      .limit(limit),
+    db
+      .select({
+        startedAt: serverAvailabilityWindows.startedAt,
+        endedAt: serverAvailabilityWindows.endedAt,
+      })
+      .from(serverAvailabilityWindows)
+      .where(
+        and(
+          eq(serverAvailabilityWindows.serverId, serverId),
+          lt(serverAvailabilityWindows.startedAt, now),
+          or(
+            isNull(serverAvailabilityWindows.endedAt),
+            gt(serverAvailabilityWindows.endedAt, seriesStart),
+          ),
         ),
       ),
-    )
-    .orderBy(desc(serverMetrics.observedAt))
-    .limit(limit)
+  ])
 
-  return rows.reverse().map(formatMetricSample)
+  return insertMetricGaps(
+    rows.reverse().map(formatMetricSample),
+    metricGapAfterMs,
+    availabilityWindows,
+  )
 }
 
-export function calculateHeartbeatUptime({
-  createdAt,
-  heartbeats,
-  now,
-}: {
-  createdAt: Date
-  heartbeats: Array<Pick<HeartbeatRow, 'observedAt'>>
-  now: Date
-}) {
-  const windowStart = new Date(
-    Math.max(createdAt.getTime(), now.getTime() - uptimeWindowMs),
+export function insertMetricGaps(
+  samples: Array<ServerMetricsSample>,
+  gapAfterMs = metricGapAfterMs,
+  availabilityWindows: Array<AvailabilityWindow> = [],
+) {
+  const points: Array<ServerMetricsSample> = []
+  const windows = [...availabilityWindows].sort(
+    (left, right) => left.startedAt.getTime() - right.startedAt.getTime(),
   )
-  const windowMs = now.getTime() - windowStart.getTime()
+  const visibleSamples =
+    windows.length === 0
+      ? samples
+      : samples.filter((sample) => {
+          const observedAt = new Date(sample.observedAt).getTime()
+          return windows.some(
+            (window) =>
+              observedAt >= window.startedAt.getTime() &&
+              observedAt <=
+                (window.endedAt?.getTime() ?? Number.POSITIVE_INFINITY),
+          )
+        })
 
-  if (windowMs <= 0) {
-    return null
+  for (const sample of visibleSamples) {
+    const previous = points.at(-1)
+    if (
+      previous &&
+      new Date(sample.observedAt).getTime() -
+        new Date(previous.observedAt).getTime() >
+        gapAfterMs
+    ) {
+      points.push({
+        observedAt: new Date(
+          (new Date(previous.observedAt).getTime() +
+            new Date(sample.observedAt).getTime()) /
+            2,
+        ).toISOString(),
+        cpuPercent: null,
+        load1: null,
+        memoryUsedBytes: null,
+        memoryTotalBytes: null,
+        diskUsedBytes: null,
+        diskTotalBytes: null,
+        networkReceiveBytesPerSecond: null,
+        networkTransmitBytesPerSecond: null,
+        diskReadBytesPerSecond: null,
+        diskWriteBytesPerSecond: null,
+      })
+    }
+
+    points.push(sample)
   }
 
-  const intervals = heartbeats
-    .map((heartbeat) => ({
-      start: Math.max(heartbeat.observedAt.getTime(), windowStart.getTime()),
-      end: Math.min(
-        heartbeat.observedAt.getTime() + serverDisconnectedAfterMs,
-        now.getTime(),
-      ),
-    }))
-    .filter((interval) => interval.end > interval.start)
-    .sort((a, b) => a.start - b.start)
-
-  let coveredMs = 0
-  let current: { start: number; end: number } | null = null
-
-  for (const interval of intervals) {
-    if (!current) {
-      current = interval
+  for (let index = 1; index < windows.length; index += 1) {
+    const disabledAt = windows[index - 1]?.endedAt?.getTime()
+    if (disabledAt === undefined) {
       continue
     }
 
-    if (interval.start <= current.end) {
-      current.end = Math.max(current.end, interval.end)
+    const enabledAt = windows[index].startedAt.getTime()
+    points.push(emptyMetricSample(new Date((disabledAt + enabledAt) / 2)))
+  }
+
+  return points.sort(
+    (left, right) =>
+      new Date(left.observedAt).getTime() -
+      new Date(right.observedAt).getTime(),
+  )
+}
+
+function emptyMetricSample(observedAt: Date): ServerMetricsSample {
+  return {
+    observedAt: observedAt.toISOString(),
+    cpuPercent: null,
+    load1: null,
+    memoryUsedBytes: null,
+    memoryTotalBytes: null,
+    diskUsedBytes: null,
+    diskTotalBytes: null,
+    networkReceiveBytesPerSecond: null,
+    networkTransmitBytesPerSecond: null,
+    diskReadBytesPerSecond: null,
+    diskWriteBytesPerSecond: null,
+  }
+}
+
+function mergeIntervals(intervals: Array<{ start: number; end: number }>) {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start)
+  const merged: Array<{ start: number; end: number }> = []
+
+  for (const interval of sorted) {
+    const current = merged.at(-1)
+    if (!current || interval.start > current.end) {
+      merged.push({ ...interval })
       continue
     }
 
-    coveredMs += current.end - current.start
-    current = interval
+    current.end = Math.max(current.end, interval.end)
   }
 
-  if (current) {
-    coveredMs += current.end - current.start
+  return merged
+}
+
+function intersectIntervals(
+  left: Array<{ start: number; end: number }>,
+  right: Array<{ start: number; end: number }>,
+) {
+  const intersections: Array<{ start: number; end: number }> = []
+  let leftIndex = 0
+  let rightIndex = 0
+
+  while (leftIndex < left.length && rightIndex < right.length) {
+    const start = Math.max(left[leftIndex].start, right[rightIndex].start)
+    const end = Math.min(left[leftIndex].end, right[rightIndex].end)
+
+    if (end > start) {
+      intersections.push({ start, end })
+    }
+
+    if (left[leftIndex].end < right[rightIndex].end) {
+      leftIndex += 1
+    } else {
+      rightIndex += 1
+    }
   }
 
-  return Math.min(100, Math.max(0, (coveredMs / windowMs) * 100))
+  return intersections
+}
+
+function sumIntervals(intervals: Array<{ start: number; end: number }>) {
+  return intervals.reduce(
+    (total, interval) => total + interval.end - interval.start,
+    0,
+  )
 }
 
 function hasMetrics(metrics: ServerMetricsInput) {
@@ -273,6 +501,10 @@ function formatMetricSample(row: {
   memoryTotalBytes: number | null
   diskUsedBytes: number | null
   diskTotalBytes: number | null
+  networkReceiveBytesPerSecond: number | null
+  networkTransmitBytesPerSecond: number | null
+  diskReadBytesPerSecond: number | null
+  diskWriteBytesPerSecond: number | null
 }): ServerMetricsSample {
   return {
     observedAt: row.observedAt.toISOString(),
@@ -282,5 +514,9 @@ function formatMetricSample(row: {
     memoryTotalBytes: row.memoryTotalBytes,
     diskUsedBytes: row.diskUsedBytes,
     diskTotalBytes: row.diskTotalBytes,
+    networkReceiveBytesPerSecond: row.networkReceiveBytesPerSecond,
+    networkTransmitBytesPerSecond: row.networkTransmitBytesPerSecond,
+    diskReadBytesPerSecond: row.diskReadBytesPerSecond,
+    diskWriteBytesPerSecond: row.diskWriteBytesPerSecond,
   }
 }

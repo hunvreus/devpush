@@ -57,7 +57,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Field, FieldError } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   InputGroup,
@@ -65,7 +71,6 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -440,868 +445,885 @@ export function TeamSettings({
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-      <div className="space-y-8">
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-            <ResourceAvatar
-              name={team.name}
-              src={team.image ?? undefined}
-              color={team.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span>Team settings</span>
-        </h1>
+    <div className="space-y-8">
+      <h1 className="flex items-center gap-x-3 text-2xl font-medium">
+        <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
+          <ResourceAvatar
+            name={team.name}
+            src={team.image ?? undefined}
+            color={team.color}
+            size="md"
+          />
+        </Link>
+        <span className="text-muted-foreground/25 font-normal">/</span>
+        <span>Team settings</span>
+      </h1>
 
-        <SettingsSection
-          id="general"
-          title="General"
-          description="General settings for the team."
-          footer={
-            <SettingsActions
-              disabled={!generalDirty || isSavingGeneral}
-              isSaving={isSavingGeneral}
-              onCancel={resetGeneral}
-              onSave={saveGeneral}
-            />
-          }
-        >
-          <div className="space-y-8">
-            <div className="space-y-3">
-              <Label>Avatar</Label>
-              <div className="flex items-center gap-x-2">
-                <ResourceAvatar
-                  name={name}
-                  src={avatarUrl ?? undefined}
-                  color={team.color}
-                  size="md"
-                />
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  className="hidden"
-                  onChange={(event) => {
-                    void chooseAvatar(event.target.files?.[0])
-                    event.target.value = ''
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <UploadIcon />
-                  Upload image
-                </Button>
-                {avatarUrl ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        type="button"
-                        aria-label="Remove image"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
-                        onClick={() => {
-                          setAvatarDataUrl(null)
-                          setDeleteAvatar(true)
-                        }}
-                      >
-                        <Trash2Icon />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Remove image</TooltipContent>
-                  </Tooltip>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label htmlFor="team-name">Display name</Label>
-              <Input
-                id="team-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
+        <div className="space-y-8">
+          <SettingsSection
+            id="general"
+            title="General"
+            description="General settings for the team."
+            footer={
+              <SettingsActions
+                disabled={!generalDirty || isSavingGeneral}
+                isSaving={isSavingGeneral}
+                onCancel={resetGeneral}
+                onSave={saveGeneral}
               />
-            </div>
-
-            <div className="space-y-3">
-              <Label htmlFor="team-slug">Slug</Label>
-              <Input
-                id="team-slug"
-                value={slug}
-                onChange={(event) => setSlug(event.target.value)}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <Label htmlFor="team-id">Team ID</Label>
-              <InputGroup>
-                <InputGroupInput
-                  id="team-id"
-                  className="font-mono text-[13px] text-muted-foreground"
-                  value={team.id}
-                  readOnly
-                />
-                <InputGroupAddon align="inline-end">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <InputGroupButton
-                        size="icon-sm"
-                        type="button"
-                        aria-label="Copy team ID"
-                        onClick={() =>
-                          void navigator.clipboard.writeText(team.id)
-                        }
-                      >
-                        <CopyIcon />
-                      </InputGroupButton>
-                    </TooltipTrigger>
-                    <TooltipContent>Copy team ID</TooltipContent>
-                  </Tooltip>
-                </InputGroupAddon>
-              </InputGroup>
-              <p className="text-sm text-muted-foreground">
-                A unique identifier used in API, environment variables, etc.
-              </p>
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          id="members"
-          title="Members"
-          description="Manage the members of the team."
-        >
-          <div className="space-y-6">
-            <div className="space-y-4">
-              <Dialog
-                open={inviteDialogOpen}
-                onOpenChange={setInviteDialogOpen}
-              >
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Add member</DialogTitle>
-                    <DialogDescription>
-                      Invite a member to join this team.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <Field data-invalid={Boolean(inviteEmailError)}>
-                      <Label htmlFor="invite-email">Email</Label>
-                      <Input
-                        id="invite-email"
-                        type="email"
-                        placeholder="name@example.com"
-                        value={inviteEmail}
-                        aria-invalid={Boolean(inviteEmailError)}
-                        onChange={(event) => {
-                          setInviteEmail(event.target.value)
-                          if (inviteAttempted) {
-                            setInviteAttempted(false)
-                          }
-                        }}
-                      />
-                      <FieldError>{inviteEmailError}</FieldError>
-                    </Field>
-                    <div className="space-y-2">
-                      <Label htmlFor="invite-role">Role</Label>
-                      <Select
-                        value={inviteRole}
-                        onValueChange={(value) =>
-                          setInviteRole(value === 'admin' ? 'admin' : 'member')
-                        }
-                      >
-                        <SelectTrigger id="invite-role">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="member">Member</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setInviteDialogOpen(false)}
-                      disabled={isInviting}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={sendInvite}
-                      disabled={isInviting}
-                    >
-                      Invite
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-              <Dialog
-                open={bulkInviteDialogOpen}
-                onOpenChange={setBulkInviteDialogOpen}
-              >
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Bulk invite members</DialogTitle>
-                    <DialogDescription>
-                      Paste email addresses separated by commas, spaces, or new
-                      lines. Each invite will use the selected role.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="bulk-invite-role">Role</Label>
-                      <Select
-                        value={bulkInviteRole}
-                        onValueChange={(value) =>
-                          setBulkInviteRole(
-                            value === 'admin' ? 'admin' : 'member',
-                          )
-                        }
-                      >
-                        <SelectTrigger id="bulk-invite-role">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="member">Member</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="bulk-invite-emails">
-                        Email addresses
-                      </Label>
-                      <Textarea
-                        id="bulk-invite-emails"
-                        value={bulkInviteEmails}
-                        onChange={(event) =>
-                          setBulkInviteEmails(event.target.value)
-                        }
-                        placeholder="alice@example.com&#10;bob@example.com, carol@example.com"
-                        rows={5}
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setBulkInviteDialogOpen(false)}
-                      disabled={isBulkInviting}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={sendBulkInvites}
-                      disabled={isBulkInviting || !bulkInviteEmails.trim()}
-                    >
-                      {isBulkInviting ? (
-                        <LoaderIcon className="animate-spin" />
-                      ) : null}
-                      Invite members
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-              <div className="flex items-center justify-between gap-2">
-                <InputGroup className="h-8 max-w-72">
-                  <InputGroupAddon>
-                    <SearchIcon />
-                  </InputGroupAddon>
-                  <InputGroupInput
-                    placeholder="Search..."
-                    value={memberQuery}
-                    onChange={(event) => setMemberQuery(event.target.value)}
+            }
+          >
+            <div className="space-y-8">
+              <Field>
+                <FieldLabel>Avatar</FieldLabel>
+                <div className="flex items-center gap-x-2">
+                  <ResourceAvatar
+                    name={name}
+                    src={avatarUrl ?? undefined}
+                    color={team.color}
+                    size="md"
                   />
-                </InputGroup>
-                <ButtonGroup>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    className="hidden"
+                    onChange={(event) => {
+                      void chooseAvatar(event.target.files?.[0])
+                      event.target.value = ''
+                    }}
+                  />
                   <Button
-                    type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setInviteDialogOpen(true)}
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
                   >
-                    <PlusIcon />
-                    Add member
+                    <UploadIcon data-icon="inline-start" />
+                    Upload image
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                  {avatarUrl ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          size="icon-sm"
+                          type="button"
+                          aria-label="Remove image"
+                          onClick={() => {
+                            setAvatarDataUrl(null)
+                            setDeleteAvatar(true)
+                          }}
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Remove image</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </div>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="team-name">Display name</FieldLabel>
+                <Input
+                  id="team-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="team-slug">Slug</FieldLabel>
+                <Input
+                  id="team-slug"
+                  value={slug}
+                  onChange={(event) => setSlug(event.target.value)}
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="team-id">Team ID</FieldLabel>
+                <InputGroup>
+                  <InputGroupInput
+                    id="team-id"
+                    className="font-mono text-[13px] text-muted-foreground"
+                    value={team.id}
+                    readOnly
+                  />
+                  <InputGroupAddon align="inline-end">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <InputGroupButton
+                          size="icon-sm"
+                          type="button"
+                          aria-label="Copy team ID"
+                          onClick={() =>
+                            void navigator.clipboard.writeText(team.id)
+                          }
+                        >
+                          <CopyIcon />
+                        </InputGroupButton>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy team ID</TooltipContent>
+                    </Tooltip>
+                  </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>
+                  A unique identifier used in API, environment variables, etc.
+                </FieldDescription>
+              </Field>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            id="members"
+            title="Members"
+            description="Manage the members of the team."
+          >
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <Dialog
+                  open={inviteDialogOpen}
+                  onOpenChange={setInviteDialogOpen}
+                >
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Add member</DialogTitle>
+                      <DialogDescription>
+                        Invite a member to join this team.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <FieldGroup>
+                      <Field data-invalid={Boolean(inviteEmailError)}>
+                        <FieldLabel htmlFor="invite-email">Email</FieldLabel>
+                        <Input
+                          id="invite-email"
+                          type="email"
+                          placeholder="name@example.com"
+                          value={inviteEmail}
+                          aria-invalid={Boolean(inviteEmailError)}
+                          onChange={(event) => {
+                            setInviteEmail(event.target.value)
+                            if (inviteAttempted) {
+                              setInviteAttempted(false)
+                            }
+                          }}
+                        />
+                        <FieldError>{inviteEmailError}</FieldError>
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="invite-role">Role</FieldLabel>
+                        <Select
+                          value={inviteRole}
+                          onValueChange={(value) =>
+                            setInviteRole(
+                              value === 'admin' ? 'admin' : 'member',
+                            )
+                          }
+                        >
+                          <SelectTrigger id="invite-role">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="member">Member</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </FieldGroup>
+                    <DialogFooter>
                       <Button
                         type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        aria-label="More member actions"
+                        variant="ghost"
+                        onClick={() => setInviteDialogOpen(false)}
+                        disabled={isInviting}
                       >
-                        <ChevronDownIcon />
+                        Cancel
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onSelect={() => setBulkInviteDialogOpen(true)}
+                      <Button
+                        type="button"
+                        onClick={sendInvite}
+                        disabled={isInviting}
                       >
-                        Bulk invite
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </ButtonGroup>
-              </div>
+                        Invite
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                <Dialog
+                  open={bulkInviteDialogOpen}
+                  onOpenChange={setBulkInviteDialogOpen}
+                >
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Bulk invite members</DialogTitle>
+                      <DialogDescription>
+                        Paste email addresses separated by commas, spaces, or
+                        new lines. Each invite will use the selected role.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <FieldGroup>
+                      <Field>
+                        <FieldLabel htmlFor="bulk-invite-role">Role</FieldLabel>
+                        <Select
+                          value={bulkInviteRole}
+                          onValueChange={(value) =>
+                            setBulkInviteRole(
+                              value === 'admin' ? 'admin' : 'member',
+                            )
+                          }
+                        >
+                          <SelectTrigger id="bulk-invite-role">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="member">Member</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="bulk-invite-emails">
+                          Email addresses
+                        </FieldLabel>
+                        <Textarea
+                          id="bulk-invite-emails"
+                          value={bulkInviteEmails}
+                          onChange={(event) =>
+                            setBulkInviteEmails(event.target.value)
+                          }
+                          placeholder="alice@example.com&#10;bob@example.com, carol@example.com"
+                          rows={5}
+                        />
+                      </Field>
+                    </FieldGroup>
+                    <DialogFooter>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setBulkInviteDialogOpen(false)}
+                        disabled={isBulkInviting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={sendBulkInvites}
+                        disabled={isBulkInviting || !bulkInviteEmails.trim()}
+                      >
+                        {isBulkInviting ? (
+                          <LoaderIcon
+                            data-icon="inline-start"
+                            className="animate-spin"
+                          />
+                        ) : null}
+                        Invite members
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                <div className="flex items-center justify-between gap-2">
+                  <InputGroup className="max-w-72">
+                    <InputGroupAddon>
+                      <SearchIcon />
+                    </InputGroupAddon>
+                    <InputGroupInput
+                      placeholder="Search..."
+                      value={memberQuery}
+                      onChange={(event) => setMemberQuery(event.target.value)}
+                    />
+                  </InputGroup>
+                  <ButtonGroup>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setInviteDialogOpen(true)}
+                    >
+                      <PlusIcon data-icon="inline-start" />
+                      Add member
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          aria-label="More member actions"
+                        >
+                          <ChevronDownIcon />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onSelect={() => setBulkInviteDialogOpen(true)}
+                        >
+                          Bulk invite
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </ButtonGroup>
+                </div>
 
-              {filteredMembers.length === 0 ? (
-                <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                  No members found.
-                </p>
-              ) : (
-                <div className="overflow-hidden rounded-xl border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead className="w-[120px]">Role</TableHead>
-                        <TableHead className="w-28">
-                          <span className="sr-only">Actions</span>
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pagedMembers.map((member) => {
-                        const displayName =
-                          member.user.name || member.user.email.split('@')[0]
-                        const isLastOwner =
-                          member.role === 'owner' && ownerCount <= 1
-                        const canManageMember =
-                          canManageMembers &&
-                          (canManageOwners || member.role !== 'owner')
-                        const canTransferToMember =
-                          canManageOwners &&
-                          member.user.id !== currentUserId &&
-                          member.role !== 'owner'
+                {filteredMembers.length === 0 ? (
+                  <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
+                    No members found.
+                  </p>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead className="w-[120px]">Role</TableHead>
+                          <TableHead className="w-28">
+                            <span className="sr-only">Actions</span>
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedMembers.map((member) => {
+                          const displayName =
+                            member.user.name || member.user.email.split('@')[0]
+                          const isLastOwner =
+                            member.role === 'owner' && ownerCount <= 1
+                          const canManageMember =
+                            canManageMembers &&
+                            (canManageOwners || member.role !== 'owner')
+                          const canTransferToMember =
+                            canManageOwners &&
+                            member.user.id !== currentUserId &&
+                            member.role !== 'owner'
 
-                        return (
-                          <TableRow key={member.id}>
-                            <TableCell>
-                              <div className="flex items-center gap-3">
-                                <Avatar className="size-8">
-                                  <AvatarImage
-                                    src={member.user.image ?? undefined}
-                                    alt={displayName}
-                                  />
-                                  <AvatarFallback>
-                                    {displayName.charAt(0).toLocaleUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="min-w-0">
-                                  <div className="truncate font-medium">
-                                    {displayName}
-                                  </div>
-                                  <div className="truncate text-xs text-muted-foreground">
-                                    {member.user.username}
+                          return (
+                            <TableRow key={member.id}>
+                              <TableCell>
+                                <div className="flex items-center gap-3">
+                                  <Avatar className="size-8">
+                                    <AvatarImage
+                                      src={member.user.image ?? undefined}
+                                      alt={displayName}
+                                    />
+                                    <AvatarFallback>
+                                      {displayName
+                                        .charAt(0)
+                                        .toLocaleUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="min-w-0">
+                                    <div className="truncate font-medium">
+                                      {displayName}
+                                    </div>
+                                    <div className="truncate text-xs text-muted-foreground">
+                                      {member.user.username}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="truncate text-muted-foreground">
-                              {member.user.email}
-                            </TableCell>
-                            <TableCell>
-                              {canManageMember ? (
-                                <Select
-                                  value={member.role}
-                                  onValueChange={(value) => {
-                                    const nextRole = value as TeamRole
-                                    if (nextRole === member.role) return
-                                    setPendingRoleChange({
-                                      member,
-                                      role: nextRole,
-                                    })
-                                  }}
-                                  disabled={
-                                    busyId === member.user.id || isLastOwner
-                                  }
-                                >
-                                  <SelectTrigger size="sm">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {canManageOwners ? (
-                                      <SelectItem value="owner">
-                                        Owner
+                              </TableCell>
+                              <TableCell className="truncate text-muted-foreground">
+                                {member.user.email}
+                              </TableCell>
+                              <TableCell>
+                                {canManageMember ? (
+                                  <Select
+                                    value={member.role}
+                                    onValueChange={(value) => {
+                                      const nextRole = value as TeamRole
+                                      if (nextRole === member.role) return
+                                      setPendingRoleChange({
+                                        member,
+                                        role: nextRole,
+                                      })
+                                    }}
+                                    disabled={
+                                      busyId === member.user.id || isLastOwner
+                                    }
+                                  >
+                                    <SelectTrigger size="sm">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {canManageOwners ? (
+                                        <SelectItem value="owner">
+                                          Owner
+                                        </SelectItem>
+                                      ) : null}
+                                      <SelectItem value="admin">
+                                        Admin
                                       </SelectItem>
-                                    ) : null}
-                                    <SelectItem value="admin">Admin</SelectItem>
-                                    <SelectItem value="member">
-                                      Member
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <span className="capitalize text-muted-foreground">
-                                  {member.role}
-                                </span>
-                              )}
+                                      <SelectItem value="member">
+                                        Member
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                ) : (
+                                  <span className="capitalize text-muted-foreground">
+                                    {member.role}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="ml-auto flex items-center justify-end gap-1">
+                                  {canTransferToMember ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          type="button"
+                                          aria-label={`Transfer ownership to ${displayName}`}
+                                          disabled={busyId === member.user.id}
+                                          onClick={() =>
+                                            setPendingOwnershipTransfer(member)
+                                          }
+                                        >
+                                          <UserRoundCheckIcon />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        Transfer ownership
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  ) : null}
+                                  {canManageMember ? (
+                                    <AlertDialog>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <AlertDialogTrigger asChild>
+                                            <Button
+                                              variant="destructive"
+                                              size="icon"
+                                              type="button"
+                                              aria-label="Remove member"
+                                              disabled={
+                                                busyId === member.user.id ||
+                                                isLastOwner
+                                              }
+                                              onClick={() =>
+                                                setRemoveMemberConfirmation('')
+                                              }
+                                            >
+                                              <Trash2Icon />
+                                            </Button>
+                                          </AlertDialogTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Remove member
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>
+                                            Remove {displayName}?
+                                          </AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This removes the member from the
+                                            team. They will no longer have
+                                            access to this team or its projects.{' '}
+                                            {`Type "${member.user.email}" to confirm.`}
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <Field>
+                                          <Input
+                                            aria-label={`Type ${member.user.email} to confirm`}
+                                            id={`remove-member-${member.user.id}`}
+                                            placeholder={member.user.email}
+                                            value={removeMemberConfirmation}
+                                            onChange={(event) =>
+                                              setRemoveMemberConfirmation(
+                                                event.target.value,
+                                              )
+                                            }
+                                            onKeyDown={(event) => {
+                                              if (
+                                                event.key === 'Enter' &&
+                                                busyId !== member.user.id &&
+                                                removeMemberConfirmation ===
+                                                  member.user.email
+                                              ) {
+                                                event.preventDefault()
+                                                void removeMember(
+                                                  member.user.id,
+                                                )
+                                              }
+                                            }}
+                                          />
+                                        </Field>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel
+                                            disabled={busyId === member.user.id}
+                                          >
+                                            Cancel
+                                          </AlertDialogCancel>
+                                          <AlertDialogAction
+                                            variant="destructive"
+                                            disabled={
+                                              busyId === member.user.id ||
+                                              removeMemberConfirmation !==
+                                                member.user.email
+                                            }
+                                            onClick={(event) => {
+                                              event.preventDefault()
+                                              void removeMember(member.user.id)
+                                            }}
+                                          >
+                                            {busyId === member.user.id ? (
+                                              <LoaderIcon className="animate-spin" />
+                                            ) : null}
+                                            Remove member
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  ) : null}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                <TablePager
+                  page={memberPage}
+                  pageCount={memberPageCount}
+                  onPageChange={setMemberPage}
+                />
+              </div>
+              {invites.length > 0 ? (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-medium">
+                    {invites.length}{' '}
+                    {invites.length === 1
+                      ? 'pending invite'
+                      : 'pending invites'}
+                  </h3>
+                  <div className="overflow-hidden rounded-xl border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Email</TableHead>
+                          <TableHead className="w-[120px]">Role</TableHead>
+                          <TableHead className="w-[120px]">Expires</TableHead>
+                          <TableHead className="w-28">
+                            <span className="sr-only">Actions</span>
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {invites.map((invite) => (
+                          <TableRow key={invite.id}>
+                            <TableCell className="truncate font-medium text-foreground">
+                              {invite.email}
+                            </TableCell>
+                            <TableCell className="capitalize text-muted-foreground">
+                              {invite.role}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {formatInviteDate(invite.expiresAt)}
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="ml-auto flex items-center justify-end gap-1">
-                                {canTransferToMember ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      type="button"
+                                      aria-label="Resend invite"
+                                      disabled={busyId === invite.id}
+                                      onClick={() =>
+                                        void resendInvite(invite.id)
+                                      }
+                                    >
+                                      <RefreshCwIcon />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Resend invite</TooltipContent>
+                                </Tooltip>
+                                <AlertDialog>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        type="button"
-                                        aria-label={`Transfer ownership to ${displayName}`}
-                                        disabled={busyId === member.user.id}
-                                        onClick={() =>
-                                          setPendingOwnershipTransfer(member)
-                                        }
-                                      >
-                                        <UserRoundCheckIcon />
-                                      </Button>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="destructive"
+                                          size="icon"
+                                          type="button"
+                                          aria-label="Remove invite"
+                                          disabled={busyId === invite.id}
+                                        >
+                                          <Trash2Icon />
+                                        </Button>
+                                      </AlertDialogTrigger>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                      Transfer ownership
+                                      Remove invite
                                     </TooltipContent>
                                   </Tooltip>
-                                ) : null}
-                                {canManageMember ? (
-                                  <AlertDialog>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <AlertDialogTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            type="button"
-                                            aria-label="Remove member"
-                                            className="text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
-                                            disabled={
-                                              busyId === member.user.id ||
-                                              isLastOwner
-                                            }
-                                            onClick={() =>
-                                              setRemoveMemberConfirmation('')
-                                            }
-                                          >
-                                            <Trash2Icon />
-                                          </Button>
-                                        </AlertDialogTrigger>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        Remove member
-                                      </TooltipContent>
-                                    </Tooltip>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>
-                                          Remove {displayName}?
-                                        </AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          This removes the member from the team.
-                                          They will no longer have access to
-                                          this team or its projects.{' '}
-                                          {`Type "${member.user.email}" to confirm.`}
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <div className="space-y-3">
-                                        <Input
-                                          aria-label={`Type ${member.user.email} to confirm`}
-                                          id={`remove-member-${member.user.id}`}
-                                          placeholder={member.user.email}
-                                          value={removeMemberConfirmation}
-                                          onChange={(event) =>
-                                            setRemoveMemberConfirmation(
-                                              event.target.value,
-                                            )
-                                          }
-                                          onKeyDown={(event) => {
-                                            if (
-                                              event.key === 'Enter' &&
-                                              busyId !== member.user.id &&
-                                              removeMemberConfirmation ===
-                                                member.user.email
-                                            ) {
-                                              event.preventDefault()
-                                              void removeMember(member.user.id)
-                                            }
-                                          }}
-                                        />
-                                      </div>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel
-                                          disabled={busyId === member.user.id}
-                                        >
-                                          Cancel
-                                        </AlertDialogCancel>
-                                        <AlertDialogAction
-                                          variant="destructive"
-                                          disabled={
-                                            busyId === member.user.id ||
-                                            removeMemberConfirmation !==
-                                              member.user.email
-                                          }
-                                          onClick={(event) => {
-                                            event.preventDefault()
-                                            void removeMember(member.user.id)
-                                          }}
-                                        >
-                                          {busyId === member.user.id ? (
-                                            <LoaderIcon className="animate-spin" />
-                                          ) : null}
-                                          Remove member
-                                        </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                                ) : null}
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>
+                                        Revoke invite?
+                                      </AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        This revokes the pending invitation for{' '}
+                                        {invite.email}.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel
+                                        disabled={busyId === invite.id}
+                                      >
+                                        Cancel
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction
+                                        variant="destructive"
+                                        disabled={busyId === invite.id}
+                                        onClick={(event) => {
+                                          event.preventDefault()
+                                          void revokeInvite(invite.id)
+                                        }}
+                                      >
+                                        {busyId === invite.id ? (
+                                          <LoaderIcon className="animate-spin" />
+                                        ) : null}
+                                        Revoke invite
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
                               </div>
                             </TableCell>
                           </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
-              )}
-              <TablePager
-                page={memberPage}
-                pageCount={memberPageCount}
-                onPageChange={setMemberPage}
-              />
-            </div>
-            {invites.length > 0 ? (
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium">
-                  {invites.length}{' '}
-                  {invites.length === 1 ? 'pending invite' : 'pending invites'}
-                </h3>
-                <div className="overflow-hidden rounded-xl border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Email</TableHead>
-                        <TableHead className="w-[120px]">Role</TableHead>
-                        <TableHead className="w-[120px]">Expires</TableHead>
-                        <TableHead className="w-28">
-                          <span className="sr-only">Actions</span>
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {invites.map((invite) => (
-                        <TableRow key={invite.id}>
-                          <TableCell className="truncate font-medium text-foreground">
-                            {invite.email}
-                          </TableCell>
-                          <TableCell className="capitalize text-muted-foreground">
-                            {invite.role}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatInviteDate(invite.expiresAt)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="ml-auto flex items-center justify-end gap-1">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    type="button"
-                                    aria-label="Resend invite"
-                                    disabled={busyId === invite.id}
-                                    onClick={() => void resendInvite(invite.id)}
-                                  >
-                                    <RefreshCwIcon />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Resend invite</TooltipContent>
-                              </Tooltip>
-                              <AlertDialog>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <AlertDialogTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        type="button"
-                                        aria-label="Revoke invite"
-                                        className="text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
-                                        disabled={busyId === invite.id}
-                                      >
-                                        <Trash2Icon />
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Revoke invite</TooltipContent>
-                                </Tooltip>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Revoke invite?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This revokes the pending invitation for{' '}
-                                      {invite.email}.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel
-                                      disabled={busyId === invite.id}
-                                    >
-                                      Cancel
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      variant="destructive"
-                                      disabled={busyId === invite.id}
-                                      onClick={(event) => {
-                                        event.preventDefault()
-                                        void revokeInvite(invite.id)
-                                      }}
-                                    >
-                                      {busyId === invite.id ? (
-                                        <LoaderIcon className="animate-spin" />
-                                      ) : null}
-                                      Revoke invite
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            ) : null}
-            <AlertDialog
-              open={Boolean(pendingRoleChange)}
-              onOpenChange={(open) => {
-                if (!open) setPendingRoleChange(null)
-              }}
-            >
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Change member role?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {pendingRoleChange ? (
-                      <>
-                        This will change{' '}
-                        {pendingRoleChange.member.user.name ||
-                          pendingRoleChange.member.user.email}{' '}
-                        to {pendingRoleChange.role}.
-                      </>
-                    ) : null}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel
-                    disabled={
-                      pendingRoleChange
-                        ? busyId === pendingRoleChange.member.user.id
-                        : false
-                    }
-                  >
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    disabled={
-                      pendingRoleChange
-                        ? busyId === pendingRoleChange.member.user.id
-                        : true
-                    }
-                    onClick={(event) => {
-                      event.preventDefault()
-                      if (!pendingRoleChange) return
-                      void updateRole(
-                        pendingRoleChange.member.user.id,
-                        pendingRoleChange.role,
-                      ).then(() => setPendingRoleChange(null))
-                    }}
-                  >
-                    {pendingRoleChange &&
-                    busyId === pendingRoleChange.member.user.id ? (
-                      <LoaderIcon className="animate-spin" />
-                    ) : null}
-                    Change role
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <AlertDialog
-              open={Boolean(pendingOwnershipTransfer)}
-              onOpenChange={(open) => {
-                if (!open) setPendingOwnershipTransfer(null)
-              }}
-            >
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Transfer ownership?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {pendingOwnershipTransfer ? (
-                      <>
-                        This will make{' '}
-                        {pendingOwnershipTransfer.user.name ||
-                          pendingOwnershipTransfer.user.email}{' '}
-                        the team owner and change your role to admin.
-                      </>
-                    ) : null}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel
-                    disabled={
-                      pendingOwnershipTransfer
-                        ? busyId === pendingOwnershipTransfer.user.id
-                        : false
-                    }
-                  >
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    disabled={
-                      pendingOwnershipTransfer
-                        ? busyId === pendingOwnershipTransfer.user.id
-                        : true
-                    }
-                    onClick={(event) => {
-                      event.preventDefault()
-                      if (!pendingOwnershipTransfer) return
-                      void transferOwnership(pendingOwnershipTransfer.user.id)
-                    }}
-                  >
-                    {pendingOwnershipTransfer &&
-                    busyId === pendingOwnershipTransfer.user.id ? (
-                      <LoaderIcon className="animate-spin" />
-                    ) : null}
-                    Transfer ownership
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          id="danger"
-          title="Danger zone"
-          description="Permanently delete the team and all of its settings, projects and deployments."
-        >
-          {!canDeleteTeamByRole(team.role) ? (
-            <Alert>
-              <InfoIcon />
-              <AlertTitle>Only team owners can delete a team.</AlertTitle>
-            </Alert>
-          ) : !canDeleteTeam ? (
-            <Alert>
-              <InfoIcon />
-              <AlertTitle>
-                {isDefaultTeam
-                  ? 'This is your default team, you cannot leave or delete it.'
-                  : 'This team is a default team, it cannot be deleted.'}
-              </AlertTitle>
-            </Alert>
-          ) : (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  disabled={isDeletingTeam}
-                  onClick={() => setDeleteTeamConfirmation('')}
-                >
-                  {isDeletingTeam ? (
-                    <LoaderIcon className="animate-spin" />
-                  ) : (
-                    <Trash2Icon />
-                  )}
-                  Delete team
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this team?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This permanently deletes the team, its projects, servers,
-                    members, and pending invites. This cannot be undone.{' '}
-                    {`Type "${team.slug}" to confirm.`}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <div className="space-y-3">
-                  <Input
-                    aria-label={`Type ${team.slug} to confirm`}
-                    id="delete-team-confirmation"
-                    placeholder={team.slug}
-                    value={deleteTeamConfirmation}
-                    onChange={(event) =>
-                      setDeleteTeamConfirmation(event.target.value)
-                    }
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === 'Enter' &&
-                        !isDeletingTeam &&
-                        deleteTeamConfirmation === team.slug
-                      ) {
-                        event.preventDefault()
-                        void deleteCurrentTeam()
+              ) : null}
+              <AlertDialog
+                open={Boolean(pendingRoleChange)}
+                onOpenChange={(open) => {
+                  if (!open) setPendingRoleChange(null)
+                }}
+              >
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Change member role?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {pendingRoleChange ? (
+                        <>
+                          This will change{' '}
+                          {pendingRoleChange.member.user.name ||
+                            pendingRoleChange.member.user.email}{' '}
+                          to {pendingRoleChange.role}.
+                        </>
+                      ) : null}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel
+                      disabled={
+                        pendingRoleChange
+                          ? busyId === pendingRoleChange.member.user.id
+                          : false
                       }
-                    }}
-                  />
-                </div>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={isDeletingTeam}>
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
+                    >
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={
+                        pendingRoleChange
+                          ? busyId === pendingRoleChange.member.user.id
+                          : true
+                      }
+                      onClick={(event) => {
+                        event.preventDefault()
+                        if (!pendingRoleChange) return
+                        void updateRole(
+                          pendingRoleChange.member.user.id,
+                          pendingRoleChange.role,
+                        ).then(() => setPendingRoleChange(null))
+                      }}
+                    >
+                      {pendingRoleChange &&
+                      busyId === pendingRoleChange.member.user.id ? (
+                        <LoaderIcon className="animate-spin" />
+                      ) : null}
+                      Change role
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <AlertDialog
+                open={Boolean(pendingOwnershipTransfer)}
+                onOpenChange={(open) => {
+                  if (!open) setPendingOwnershipTransfer(null)
+                }}
+              >
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Transfer ownership?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {pendingOwnershipTransfer ? (
+                        <>
+                          This will make{' '}
+                          {pendingOwnershipTransfer.user.name ||
+                            pendingOwnershipTransfer.user.email}{' '}
+                          the team owner and change your role to admin.
+                        </>
+                      ) : null}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel
+                      disabled={
+                        pendingOwnershipTransfer
+                          ? busyId === pendingOwnershipTransfer.user.id
+                          : false
+                      }
+                    >
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={
+                        pendingOwnershipTransfer
+                          ? busyId === pendingOwnershipTransfer.user.id
+                          : true
+                      }
+                      onClick={(event) => {
+                        event.preventDefault()
+                        if (!pendingOwnershipTransfer) return
+                        void transferOwnership(pendingOwnershipTransfer.user.id)
+                      }}
+                    >
+                      {pendingOwnershipTransfer &&
+                      busyId === pendingOwnershipTransfer.user.id ? (
+                        <LoaderIcon className="animate-spin" />
+                      ) : null}
+                      Transfer ownership
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            id="danger"
+            title="Danger zone"
+            description="Permanently delete the team and all of its settings, projects and deployments."
+          >
+            {!canDeleteTeamByRole(team.role) ? (
+              <Alert>
+                <InfoIcon />
+                <AlertTitle>Only team owners can delete a team.</AlertTitle>
+              </Alert>
+            ) : !canDeleteTeam ? (
+              <Alert>
+                <InfoIcon />
+                <AlertTitle>
+                  {isDefaultTeam
+                    ? 'This is your default team, you cannot leave or delete it.'
+                    : 'This team is a default team, it cannot be deleted.'}
+                </AlertTitle>
+              </Alert>
+            ) : (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
                     variant="destructive"
-                    disabled={
-                      isDeletingTeam || deleteTeamConfirmation !== team.slug
-                    }
-                    onClick={(event) => {
-                      event.preventDefault()
-                      void deleteCurrentTeam()
-                    }}
+                    disabled={isDeletingTeam}
+                    onClick={() => setDeleteTeamConfirmation('')}
                   >
                     {isDeletingTeam ? (
-                      <LoaderIcon className="animate-spin" />
-                    ) : null}
+                      <LoaderIcon
+                        data-icon="inline-start"
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Trash2Icon data-icon="inline-start" />
+                    )}
                     Delete team
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </SettingsSection>
-      </div>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this team?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This permanently deletes the team, its projects, servers,
+                      members, and pending invites. This cannot be undone.{' '}
+                      {`Type "${team.slug}" to confirm.`}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <Field>
+                    <Input
+                      aria-label={`Type ${team.slug} to confirm`}
+                      id="delete-team-confirmation"
+                      placeholder={team.slug}
+                      value={deleteTeamConfirmation}
+                      onChange={(event) =>
+                        setDeleteTeamConfirmation(event.target.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === 'Enter' &&
+                          !isDeletingTeam &&
+                          deleteTeamConfirmation === team.slug
+                        ) {
+                          event.preventDefault()
+                          void deleteCurrentTeam()
+                        }
+                      }}
+                    />
+                  </Field>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingTeam}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      disabled={
+                        isDeletingTeam || deleteTeamConfirmation !== team.slug
+                      }
+                      onClick={(event) => {
+                        event.preventDefault()
+                        void deleteCurrentTeam()
+                      }}
+                    >
+                      {isDeletingTeam ? (
+                        <LoaderIcon className="animate-spin" />
+                      ) : null}
+                      Delete team
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </SettingsSection>
+        </div>
 
-      <aside className="hidden pt-16 text-sm lg:block">
-        <nav className="sticky top-[122px] flex flex-col gap-y-1">
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#general">General</a>
-          </Button>
-          <Button asChild variant="ghost" size="sm" className="justify-start">
-            <a href="#members">Members</a>
-          </Button>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            <a href="#danger">Danger</a>
-          </Button>
-        </nav>
-      </aside>
+        <aside className="hidden text-sm lg:block">
+          <nav className="sticky top-[122px] flex flex-col gap-y-1">
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#general">General</a>
+            </Button>
+            <Button asChild variant="ghost" className="justify-start">
+              <a href="#members">Members</a>
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <a href="#danger">Danger</a>
+            </Button>
+          </nav>
+        </aside>
+      </div>
     </div>
   )
 }
@@ -1348,15 +1370,16 @@ function SettingsActions({
     <>
       <Button
         variant="ghost"
-        size="sm"
         type="button"
         onClick={onCancel}
         disabled={disabled || isSaving}
       >
         Cancel
       </Button>
-      <Button size="sm" type="button" onClick={onSave} disabled={disabled}>
-        {isSaving ? <LoaderIcon className="animate-spin" /> : null}
+      <Button type="button" onClick={onSave} disabled={disabled}>
+        {isSaving ? (
+          <LoaderIcon data-icon="inline-start" className="animate-spin" />
+        ) : null}
         Save
       </Button>
     </>

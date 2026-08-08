@@ -9,11 +9,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -22,6 +18,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.app
+      args:
+        VITE_DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
+        DEVPUSH_AGENT_VERSION: ${DEVPUSH_AGENT_VERSION:-0.1.0}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -29,7 +28,7 @@ services:
     ports:
       - "${DEVPUSH_HTTP_PORT:-7429}:3000"
     volumes:
-      - app_uploads:/app/app/public/uploads
+      - app_uploads:/repo/app/public/uploads
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-devpush}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-devpush}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
@@ -45,8 +44,71 @@ services:
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
       GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
       DEVPUSH_TRAEFIK_EMAIL: ${DEVPUSH_TRAEFIK_EMAIL:-}
-      DEVPUSH_DEFAULT_APP_DOMAIN: ${DEVPUSH_DEFAULT_APP_DOMAIN:-devpush.app}
+      DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
+      DEVPUSH_AGENT_AUTO_UPDATE: ${DEVPUSH_AGENT_AUTO_UPDATE:-false}
+      DEVPUSH_CRON_SECRET: ${DEVPUSH_CRON_SECRET:?DEVPUSH_CRON_SECRET is required}
+      DEVPUSH_SECRET_ENCRYPTION_KEY: ${DEVPUSH_SECRET_ENCRYPTION_KEY:?DEVPUSH_SECRET_ENCRYPTION_KEY is required}
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  scheduler:
+    image: alpine:3.22
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
+      DEVPUSH_CRON_SECRET: ${DEVPUSH_CRON_SECRET:?DEVPUSH_CRON_SECRET is required}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        apk add --no-cache curl
+        tick=0
+        while true; do
+          if [ "$$DEVPUSH_BACKUPS_ENABLED" = "true" ]; then
+            curl --fail --silent --show-error --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/backups
+          fi
+          if [ "$$tick" -eq 0 ]; then
+            curl --fail --silent --show-error --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/maintenance
+          fi
+          tick=$$(( (tick + 1) % 60 ))
+          sleep 60
+        done
+
+  db-backup:
+    image: postgres:17-alpine
+    profiles: ["backups"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-devpush}
+      PGUSER: ${POSTGRES_USER:-devpush}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      BACKUP_RETENTION_DAYS: ${DEVPUSH_DB_BACKUP_RETENTION_DAYS:-7}
+    volumes:
+      - control_plane_backups:/backups
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          stamp=$$(date -u +%Y%m%dT%H%M%SZ)
+          pg_dump --format=custom --file="/backups/devpush-$$stamp.dump"
+          find /backups -type f -name 'devpush-*.dump' -mtime "+$$BACKUP_RETENTION_DAYS" -delete
+          sleep 86400
+        done
 
 volumes:
   postgres_data:
   app_uploads:
+  control_plane_backups:

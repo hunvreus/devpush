@@ -35,6 +35,7 @@ describe('runtime log ingestion', () => {
   test('records assigned runtime logs and deduplicates repeated batches', async () => {
     const { projectName, serverId, teamSlug, token, userId } =
       await createFixture()
+    const observedAt = new Date().toISOString()
     const payload = {
       serverId,
       token,
@@ -42,13 +43,13 @@ describe('runtime log ingestion', () => {
         {
           runtimeId: 'dp_project_production',
           service: 'web',
-          observedAt: '2026-06-01T00:00:00.000Z',
+          observedAt,
           content: 'Listening on 3000',
         },
         {
           runtimeId: 'dp_project_other',
           service: 'web',
-          observedAt: '2026-06-01T00:00:00.000Z',
+          observedAt,
           content: 'Should be ignored',
         },
       ],
@@ -94,6 +95,55 @@ describe('runtime log ingestion', () => {
         content: 'Listening on 3000',
       }),
     )
+  })
+
+  test('prunes runtime logs older than 24 hours during ingestion', async () => {
+    const { serverId, token } = await createFixture()
+    const oldObservedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
+    const currentObservedAt = new Date()
+    const oldLogId = `runtime-log-${crypto.randomUUID()}`
+
+    touchedRuntimeLogIds.push(oldLogId)
+    await db.insert(runtimeLogs).values({
+      id: oldLogId,
+      serverId,
+      runtimeId: 'dp_project_production',
+      service: 'web',
+      observedAt: oldObservedAt,
+      content: 'old runtime line',
+      contentHash: hashRuntimeLogLine({
+        runtimeId: 'dp_project_production',
+        service: 'web',
+        observedAt: oldObservedAt,
+        content: 'old runtime line',
+      }),
+    })
+
+    await recordRuntimeLogs({
+      serverId,
+      token,
+      logs: [
+        {
+          runtimeId: 'dp_project_production',
+          service: 'web',
+          observedAt: currentObservedAt.toISOString(),
+          content: 'current runtime line',
+        },
+      ],
+    })
+
+    const rows = await db
+      .select({
+        id: runtimeLogs.id,
+        content: runtimeLogs.content,
+      })
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    touchedRuntimeLogIds.push(...rows.map((row) => row.id))
+
+    expect(rows.map((row) => row.content).sort()).toEqual([
+      'current runtime line',
+    ])
   })
 })
 
@@ -157,7 +207,13 @@ async function createFixture() {
     runtimeId: 'dp_project_production',
   })
 
-  return { projectName: `project-${suffix}`, serverId, teamSlug: `team-${suffix}`, token, userId }
+  return {
+    projectName: `project-${suffix}`,
+    serverId,
+    teamSlug: `team-${suffix}`,
+    token,
+    userId,
+  }
 }
 
 async function cleanupRows() {
@@ -186,7 +242,9 @@ async function cleanupRows() {
   }
 
   if (touchedTeamIds.length > 0) {
-    await db.delete(teamMembers).where(inArray(teamMembers.teamId, touchedTeamIds))
+    await db
+      .delete(teamMembers)
+      .where(inArray(teamMembers.teamId, touchedTeamIds))
     await db.delete(teams).where(inArray(teams.id, touchedTeamIds))
     touchedTeamIds.length = 0
   }
@@ -199,4 +257,26 @@ async function cleanupRows() {
 
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
+}
+
+function hashRuntimeLogLine({
+  runtimeId,
+  service,
+  observedAt,
+  content,
+}: {
+  runtimeId: string
+  service: string
+  observedAt: Date
+  content: string
+}) {
+  return createHash('sha256')
+    .update(runtimeId)
+    .update('\0')
+    .update(service)
+    .update('\0')
+    .update(observedAt.toISOString())
+    .update('\0')
+    .update(content)
+    .digest('hex')
 }

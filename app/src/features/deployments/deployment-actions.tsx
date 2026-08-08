@@ -1,5 +1,12 @@
 import { useRouter } from '@tanstack/react-router'
-import { Redo2Icon, Undo2Icon } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowUpRightIcon,
+  GitBranchIcon,
+  GitCommitHorizontalIcon,
+  Redo2Icon,
+  Undo2Icon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -22,6 +29,8 @@ import {
   rollbackProjectDeployment,
 } from '@/server/projects/functions'
 import { getErrorMessage } from '@/lib/error-message'
+import { invalidateProjectContext } from '@/lib/project-context-query'
+import { EnvironmentDot } from '@/features/projects/environment-dot'
 import type { DeploymentSummary } from '@/server/projects/service'
 
 export function DeploymentActions({
@@ -32,6 +41,7 @@ export function DeploymentActions({
   teamSlug: string
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [redeployOpen, setRedeployOpen] = useState(false)
   const [isRedeploying, setIsRedeploying] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
@@ -53,6 +63,10 @@ export function DeploymentActions({
       })
 
       setRedeployOpen(false)
+      await invalidateProjectContext(queryClient, {
+        teamSlug,
+        projectName: deployment.projectName,
+      })
       await router.navigate({
         to: '/$teamSlug/projects/$projectName/deployments/$deploymentId',
         params: {
@@ -81,6 +95,10 @@ export function DeploymentActions({
       })
 
       setRollbackOpen(false)
+      await invalidateProjectContext(queryClient, {
+        teamSlug,
+        projectName: deployment.projectName,
+      })
       await router.navigate({
         to: '/$teamSlug/projects/$projectName/deployments/$deploymentId',
         params: {
@@ -111,7 +129,7 @@ export function DeploymentActions({
           }}
         >
           <Undo2Icon />
-          Roll back to this deployment
+          Roll back
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!canRedeploy}
@@ -132,13 +150,16 @@ export function DeploymentActions({
       <AlertDialog open={redeployOpen} onOpenChange={setRedeployOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Redeploy this snapshot?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Redeploy {deployment.gitSha.slice(0, 7)}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will queue a new deployment using the same snapshot from{' '}
-              {deployment.id.slice(0, 7)}. Any queued or running deployment for{' '}
-              {deployment.environmentName} will be canceled.
+              Deploy this commit again using its saved configuration. Any queued
+              or running deployment for {deployment.environmentName} will be
+              canceled.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <DeploymentActionSummary deployment={deployment} />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isRedeploying}>
               Cancel
@@ -159,14 +180,16 @@ export function DeploymentActions({
       <AlertDialog open={rollbackOpen} onOpenChange={setRollbackOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Roll back deployment?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Roll back to {deployment.gitSha.slice(0, 7)}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will queue {deployment.id.slice(0, 7)} again with its
-              original snapshot, including build inputs, environment variables,
-              server, and routing settings. Any queued or running deployment for{' '}
-              {deployment.environmentName} will be canceled.
+              Make this commit current for {deployment.environmentName} using
+              its saved configuration. Any queued or running deployment for the
+              environment will be canceled.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <DeploymentActionSummary deployment={deployment} />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isRollingBack}>
               Cancel
@@ -184,5 +207,55 @@ export function DeploymentActions({
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+function DeploymentActionSummary({
+  deployment,
+}: {
+  deployment: DeploymentSummary
+}) {
+  const hasCommit = deployment.gitSha !== 'pending'
+
+  return (
+    <div className="min-w-0 space-y-4">
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium">Deploy to</h3>
+        <div className="flex h-12 min-w-0 items-center gap-x-2 rounded-lg border px-3 text-sm">
+          <EnvironmentDot color={deployment.environmentColor} />
+          {deployment.environmentName}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium">Commit</h3>
+        <div className="grid h-12 min-w-0 grid-cols-[auto_minmax(0,auto)_minmax(0,1fr)_auto] items-center gap-x-4 overflow-hidden rounded-lg border px-3 text-sm">
+          <span className="shrink-0 font-mono font-medium">
+            {deployment.gitSha.slice(0, 7)}
+          </span>
+          <span className="flex min-w-0 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
+            <GitBranchIcon />
+            <span className="truncate">{deployment.gitBranch}</span>
+          </span>
+          <span className="flex min-w-0 flex-1 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
+            <GitCommitHorizontalIcon />
+            <span className="truncate">
+              {deployment.commitMessage ?? 'Commit message unavailable'}
+            </span>
+          </span>
+          {hasCommit ? (
+            <a
+              href={`https://github.com/${deployment.githubRepo}/commit/${deployment.gitSha}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="View commit on GitHub"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowUpRightIcon className="size-4" />
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
   )
 }

@@ -2,11 +2,11 @@ import {
   Outlet,
   Link,
   createFileRoute,
-  redirect,
   useParams,
   useRouter,
   useRouterState,
 } from '@tanstack/react-router'
+import { useSuspenseQuery } from '@tanstack/react-query'
 import {
   CircleCheckIcon,
   CircleXIcon,
@@ -34,13 +34,12 @@ import {
 import { DeploymentList } from '@/features/deployments/deployment-list'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
 import { ManualDeployDialog } from '@/features/projects/manual-deploy-dialog'
+import { projectContextQueryOptions } from '@/lib/project-context-query'
 import {
   getDeployBlockReason,
   hasActiveDeployment,
 } from '@/features/projects/deploy-readiness'
-import { ProjectLayout } from '@/features/projects/project-layout'
 import { ResourceAvatar } from '@/components/resource-avatar'
-import { getProject } from '@/server/projects/functions'
 import type { ProjectContext } from '@/server/projects/service'
 
 export const Route = createFileRoute(
@@ -52,29 +51,20 @@ export const Route = createFileRoute(
     environment: z.string().optional().catch(undefined),
     status: z.string().optional().catch(undefined),
   }),
-  loader: async ({ params }) => {
-    const context = await getProject({
-      data: {
-        teamSlug: params.teamSlug,
-        projectName: params.projectName,
-      },
-    })
-
-    if (!context) {
-      throw redirect({ to: '/auth/login' })
-    }
-
-    return context
-  },
   component: DeploymentsRoute,
 })
 
 function DeploymentsRoute() {
-  const context = Route.useLoaderData()
   const filters = Route.useSearch()
   const params = useParams({
     from: '/$teamSlug/projects/$projectName/deployments',
   })
+  const { data: context } = useSuspenseQuery(
+    projectContextQueryOptions({
+      teamSlug: params.teamSlug,
+      projectName: params.projectName,
+    }),
+  )
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
@@ -90,7 +80,7 @@ function DeploymentsRoute() {
   }
 
   return (
-    <ProjectLayout context={context} contentClassName="space-y-8">
+    <>
       <section className="flex items-center justify-between gap-4">
         <h1 className="flex min-w-0 items-center gap-x-3 text-2xl font-medium">
           <Link
@@ -122,7 +112,7 @@ function DeploymentsRoute() {
               disabled={Boolean(deployBlockReason)}
               title={deployBlockReason ?? undefined}
             >
-              <CloudUploadIcon />
+              <CloudUploadIcon data-icon="inline-start" />
               Deploy
             </Button>
           </ManualDeployDialog>
@@ -151,11 +141,10 @@ function DeploymentsRoute() {
                 disabled={Boolean(deployBlockReason)}
               >
                 <Button
-                  size="sm"
                   disabled={Boolean(deployBlockReason)}
                   title={deployBlockReason ?? undefined}
                 >
-                  <CloudUploadIcon />
+                  <CloudUploadIcon data-icon="inline-start" />
                   Deploy
                 </Button>
               </ManualDeployDialog>
@@ -163,7 +152,7 @@ function DeploymentsRoute() {
           </Empty>
         )}
       </section>
-    </ProjectLayout>
+    </>
   )
 }
 
@@ -189,17 +178,11 @@ function DeploymentFilters({
     environment: filters.environment ?? 'all',
     status: filters.status ?? 'all',
   }
-  const environments = Array.from(
-    new Map(
-      context.deployments.map((deployment) => [
-        deployment.environmentSlug,
-        {
-          name: deployment.environmentName,
-          color: deployment.environmentColor,
-        },
-      ]),
-    ),
-  )
+  const environments = context.environments.map((environment) => ({
+    slug: environment.slug,
+    name: environment.name,
+    color: environment.color,
+  }))
   const branches = Array.from(
     new Set(
       context.deployments
@@ -213,8 +196,9 @@ function DeploymentFilters({
   const selectedEnvironmentLabel =
     activeFilters.environment === 'all'
       ? 'All environments'
-      : (environments.find(([slug]) => slug === activeFilters.environment)?.[1]
-          .name ?? 'All environments')
+      : (environments.find(
+          (environment) => environment.slug === activeFilters.environment,
+        )?.name ?? 'All environments')
   const selectedStatusLabel =
     activeFilters.status === 'all'
       ? 'All statuses'
@@ -246,13 +230,14 @@ function DeploymentFilters({
         value={activeFilters.environment}
         onValueChange={(value) => updateFilter('environment', value)}
       >
-        <SelectTrigger size="sm">
+        <SelectTrigger>
           <SelectValue>
             <EnvironmentFilterLabel
               color={
                 environments.find(
-                  ([slug]) => slug === activeFilters.environment,
-                )?.[1].color
+                  (environment) =>
+                    environment.slug === activeFilters.environment,
+                )?.color
               }
               label={selectedEnvironmentLabel}
             />
@@ -260,8 +245,8 @@ function DeploymentFilters({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All environments</SelectItem>
-          {environments.map(([slug, environment]) => (
-            <SelectItem value={slug} key={slug}>
+          {environments.map((environment) => (
+            <SelectItem value={environment.slug} key={environment.slug}>
               <EnvironmentFilterLabel
                 color={environment.color}
                 label={environment.name}
@@ -274,7 +259,7 @@ function DeploymentFilters({
         value={activeFilters.status}
         onValueChange={(value) => updateFilter('status', value)}
       >
-        <SelectTrigger size="sm">
+        <SelectTrigger>
           <SelectValue>
             <StatusFilterLabel
               status={activeFilters.status}
@@ -305,7 +290,7 @@ function DeploymentFilters({
         value={activeFilters.date}
         onValueChange={(value) => updateFilter('date', value)}
       >
-        <SelectTrigger size="sm">
+        <SelectTrigger>
           <SelectValue>{selectedDateLabel}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -320,7 +305,7 @@ function DeploymentFilters({
         value={activeFilters.branch}
         onValueChange={(value) => updateFilter('branch', value)}
       >
-        <SelectTrigger size="sm">
+        <SelectTrigger>
           <SelectValue>{selectedBranchLabel}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -333,7 +318,7 @@ function DeploymentFilters({
         </SelectContent>
       </Select>
       {hasFilters ? (
-        <Button variant="ghost" size="sm" onClick={resetFilters}>
+        <Button variant="ghost" onClick={resetFilters}>
           Reset filters
         </Button>
       ) : null}
@@ -374,22 +359,35 @@ function StatusFilterLabel({
 function StatusFilterIcon({ status }: { status: string }) {
   if (status === 'succeeded') {
     return (
-      <CircleCheckIcon className="size-4 text-green-500" data-preserve-color />
+      <CircleCheckIcon
+        className="size-4 shrink-0 text-green-500"
+        data-preserve-color
+      />
     )
   }
 
   if (status === 'failed') {
-    return <CircleXIcon className="size-4 text-red-500" data-preserve-color />
+    return (
+      <CircleXIcon
+        className="size-4 shrink-0 text-red-500"
+        data-preserve-color
+      />
+    )
   }
 
   if (status === 'canceled') {
-    return <CircleXIcon className="size-4 text-amber-500" data-preserve-color />
+    return (
+      <CircleXIcon
+        className="size-4 shrink-0 text-amber-500"
+        data-preserve-color
+      />
+    )
   }
 
   if (status === 'queued') {
     return (
       <Clock3Icon
-        className="size-4 text-muted-foreground"
+        className="size-4 shrink-0 text-muted-foreground"
         data-preserve-color
       />
     )
@@ -398,7 +396,7 @@ function StatusFilterIcon({ status }: { status: string }) {
   if (status === 'running') {
     return (
       <LoaderIcon
-        className="size-4 animate-spin text-muted-foreground"
+        className="size-4 shrink-0 animate-spin text-muted-foreground"
         data-preserve-color
       />
     )

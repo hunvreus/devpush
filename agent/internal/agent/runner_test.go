@@ -13,9 +13,83 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestAgentCredentialIsPersistedAndReloaded(t *testing.T) {
+	stateDir := t.TempDir()
+	runner := NewRunner(Config{StateDir: stateDir, Token: "enrollment"}, nil)
+
+	if err := runner.acceptCredential("dpa_replacement"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(stateDir, "credential"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("credential mode = %o, want 600", info.Mode().Perm())
+	}
+
+	restarted := NewRunner(Config{StateDir: stateDir, Token: "enrollment"}, nil)
+	if err := restarted.loadCredential(); err != nil {
+		t.Fatal(err)
+	}
+	if got := restarted.currentCredential(); got != "dpa_replacement" {
+		t.Fatalf("credential = %q, want replacement", got)
+	}
+}
+
+func TestRotateCredentialUsesCurrentCredentialAndPersistsReplacement(t *testing.T) {
+	stateDir := t.TempDir()
+	requests := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/agents/register", func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		var payload agentRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Token != "dpa_current" {
+			t.Fatalf("registration token = %q, want current credential", payload.Token)
+		}
+		writeJSON(t, response, agentResponse{ServerID: "server-1", Status: "connected"})
+	})
+	mux.HandleFunc("/api/agents/credentials/rotate", func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		var payload agentRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.ServerID != "server-1" || payload.Token != "dpa_current" {
+			t.Fatalf("rotation payload = %#v", payload)
+		}
+		writeJSON(t, response, agentResponse{
+			ServerID:   "server-1",
+			Status:     "connected",
+			Credential: "dpa_replacement",
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	runner := NewRunner(Config{
+		ServerURL: server.URL,
+		Token:     "dpa_current",
+		StateDir:  stateDir,
+	}, nil)
+	if err := runner.RotateCredential(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+	if got := strings.TrimSpace(readFile(t, filepath.Join(stateDir, "credential"))); got != "dpa_replacement" {
+		t.Fatalf("stored credential = %q, want replacement", got)
+	}
+}
 
 func TestWriteRouteOverrideCreatesHTTPRoute(t *testing.T) {
 	path := t.TempDir() + "/devpush.compose.yml"
@@ -627,6 +701,100 @@ exit 1
 
 	if strings.Join(runtimeIDs, ",") != "dp_project_production,dp_project_preview" {
 		t.Fatalf("unexpected runtime IDs: %#v", runtimeIDs)
+	}
+}
+
+func TestListComposeRuntimeStatesReportsServiceHealth(t *testing.T) {
+	tempDir := workspaceTempDir(t, "agent-runtime-state-")
+	binDir := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeExecutable(t, filepath.Join(binDir, "docker"), `#!/bin/sh
+if [ "$1" = "ps" ]; then
+  echo container-one
+  exit 0
+fi
+if [ "$1" = "inspect" ]; then
+  printf 'dp_project_production\tweb\tdp-web-1\trunning\thealthy\t2\t2026-06-01T00:00:00Z\t0\n'
+  exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	runner := NewRunner(Config{}, nil)
+	runtimes, err := runner.listComposeRuntimeStates(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimes) != 1 || len(runtimes[0].Services) != 1 {
+		t.Fatalf("unexpected runtime state: %#v", runtimes)
+	}
+	service := runtimes[0].Services[0]
+	if runtimes[0].RuntimeID != "dp_project_production" || service.Name != "web" || service.Health == nil || *service.Health != "healthy" || service.RestartCount != 2 {
+		t.Fatalf("unexpected service state: %#v", service)
+	}
+}
+
+func TestIsMonitoredNetworkInterfaceExcludesContainerBridges(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"lo", "docker0", "br-abcd", "veth123", "virbr0"} {
+		if isMonitoredNetworkInterface(name) {
+			t.Fatalf("expected %q to be excluded", name)
+		}
+	}
+	for _, name := range []string{"eth0", "ens5", "enp0s1", "wlan0"} {
+		if !isMonitoredNetworkInterface(name) {
+			t.Fatalf("expected %q to be monitored", name)
+		}
+	}
+}
+
+func TestIsMonitoredBlockDeviceExcludesVirtualDevices(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"", "loop0", "ram0", "sr0", "dm-0", "md0"} {
+		if isMonitoredBlockDevice(name) {
+			t.Fatalf("expected %q to be excluded", name)
+		}
+	}
+}
+
+func TestRunAgentLoopsKeepsHeartbeatsRunningDuringAJob(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var heartbeats atomic.Int32
+	jobStarted := make(chan struct{})
+	releaseJob := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runAgentLoops(
+			ctx,
+			10*time.Millisecond,
+			time.Hour,
+			func(context.Context) { heartbeats.Add(1) },
+			func(context.Context) {
+				close(jobStarted)
+				<-releaseJob
+			},
+		)
+	}()
+
+	<-jobStarted
+	time.Sleep(55 * time.Millisecond)
+	close(releaseJob)
+	cancel()
+	<-done
+
+	if count := heartbeats.Load(); count < 4 {
+		t.Fatalf("expected heartbeats during blocked job, got %d", count)
 	}
 }
 

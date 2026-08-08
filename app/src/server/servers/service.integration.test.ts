@@ -6,8 +6,8 @@ import {
   agentJobs,
   deployments,
   environments,
-  projectServers,
   projects,
+  serverAvailabilityWindows,
   serverHeartbeats,
   serverMetrics,
   servers,
@@ -24,6 +24,10 @@ import {
   disableTeamServer,
   enableTeamServer,
   getServerDeleteDiagnostic,
+  recordAgentHeartbeat,
+  registerAgent,
+  requireAgentServer,
+  rotateAgentCredential,
 } from '@/server/servers/service'
 
 const touchedServerIds: Array<string> = []
@@ -31,7 +35,6 @@ const touchedTeamIds: Array<string> = []
 const touchedUserIds: Array<string> = []
 const touchedProjectIds: Array<string> = []
 const touchedEnvironmentIds: Array<string> = []
-const touchedProjectServerIds: Array<string> = []
 const touchedDeploymentIds: Array<string> = []
 const touchedJobIds: Array<string> = []
 const touchedMetricIds: Array<string> = []
@@ -139,6 +142,12 @@ describe('server service integration', () => {
     })
 
     expect(disabled.status).toBe('disabled')
+    const disabledWindows = await db
+      .select({ endedAt: serverAvailabilityWindows.endedAt })
+      .from(serverAvailabilityWindows)
+      .where(eq(serverAvailabilityWindows.serverId, server.id))
+    expect(disabledWindows).toHaveLength(1)
+    expect(disabledWindows[0].endedAt).toBeInstanceOf(Date)
     await expect(
       createServerInstallCommand({
         userId,
@@ -146,6 +155,41 @@ describe('server service integration', () => {
         serverId: server.id,
       }),
     ).rejects.toThrow('Disabled servers cannot be enrolled.')
+  })
+
+  test('does not rotate the credential of a connected server', async () => {
+    const { teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'connected-server',
+    })
+    touchedServerIds.push(server.id)
+
+    await db
+      .update(servers)
+      .set({ status: 'connected', lastSeenAt: new Date() })
+      .where(eq(servers.id, server.id))
+
+    const [before] = await db
+      .select({ tokenHash: servers.enrollmentTokenHash })
+      .from(servers)
+      .where(eq(servers.id, server.id))
+
+    await expect(
+      createServerInstallCommand({
+        userId,
+        teamSlug,
+        serverId: server.id,
+      }),
+    ).rejects.toThrow('Connected servers cannot be re-enrolled.')
+
+    const [after] = await db
+      .select({ tokenHash: servers.enrollmentTokenHash })
+      .from(servers)
+      .where(eq(servers.id, server.id))
+
+    expect(after.tokenHash).toBe(before.tokenHash)
   })
 
   test('enables a disabled server as pending', async () => {
@@ -176,6 +220,72 @@ describe('server service integration', () => {
     })
 
     expect(enabled.status).toBe('pending')
+    const availabilityWindows = await db
+      .select({ endedAt: serverAvailabilityWindows.endedAt })
+      .from(serverAvailabilityWindows)
+      .where(eq(serverAvailabilityWindows.serverId, server.id))
+    expect(availabilityWindows).toHaveLength(2)
+    expect(
+      availabilityWindows.filter((window) => window.endedAt === null),
+    ).toHaveLength(1)
+  })
+
+  test('exchanges enrollment for a persisted credential and rotates safely', async () => {
+    const { teamSlug, userId } = await createFixture()
+    const created = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'credential-server',
+    })
+    touchedServerIds.push(created.id)
+    const enrollmentToken = created.installCommand.match(/dps_[\w-]+/)?.[0]
+    expect(enrollmentToken).toBeTruthy()
+
+    const registration = await registerAgent({
+      token: enrollmentToken!,
+      agentVersion: '0.1.0',
+      publicAddress: null,
+    })
+    expect(registration.credential).toMatch(/^dpa_/)
+
+    await recordAgentHeartbeat({
+      serverId: created.id,
+      token: registration.credential!,
+      agentVersion: '0.1.0',
+      publicAddress: null,
+    })
+    await expect(
+      requireAgentServer({
+        serverId: created.id,
+        token: enrollmentToken!,
+      }),
+    ).rejects.toThrow('Invalid or expired agent credential.')
+
+    const rotation = await rotateAgentCredential({
+      serverId: created.id,
+      token: registration.credential!,
+    })
+    expect(rotation.credential).toMatch(/^dpa_/)
+
+    const retriedRotation = await rotateAgentCredential({
+      serverId: created.id,
+      token: rotation.credential!,
+    })
+    expect(retriedRotation.credential).toMatch(/^dpa_/)
+    expect(retriedRotation.credential).not.toBe(rotation.credential)
+
+    await recordAgentHeartbeat({
+      serverId: created.id,
+      token: retriedRotation.credential!,
+      agentVersion: '0.1.0',
+      publicAddress: null,
+    })
+    await expect(
+      requireAgentServer({
+        serverId: created.id,
+        token: registration.credential!,
+      }),
+    ).rejects.toThrow('Invalid or expired agent credential.')
   })
 
   test('allows reusing server names after soft delete', async () => {
@@ -223,7 +333,6 @@ describe('server service integration', () => {
     touchedServerIds.push(server.id)
     const projectId = `server-delete-project-${crypto.randomUUID()}`
     const environmentId = `server-delete-environment-${crypto.randomUUID()}`
-    const projectServerId = `server-delete-assignment-${crypto.randomUUID()}`
     const queuedDeploymentId = `server-delete-deployment-${crypto.randomUUID()}`
     const runningDeploymentId = `server-delete-deployment-${crypto.randomUUID()}`
     const succeededDeploymentId = `server-delete-deployment-${crypto.randomUUID()}`
@@ -234,7 +343,6 @@ describe('server service integration', () => {
 
     touchedProjectIds.push(projectId)
     touchedEnvironmentIds.push(environmentId)
-    touchedProjectServerIds.push(projectServerId)
     touchedDeploymentIds.push(
       queuedDeploymentId,
       runningDeploymentId,
@@ -259,12 +367,6 @@ describe('server service integration', () => {
       slug: 'production',
       branch: 'main',
       runtimeId: 'server-delete-runtime',
-    })
-    await db.insert(projectServers).values({
-      id: projectServerId,
-      projectId,
-      environmentId,
-      serverId: server.id,
     })
     await db.insert(deployments).values([
       makeDeployment({
@@ -449,14 +551,20 @@ function makeDeployment({
     serverId,
     status,
     phase: status === 'succeeded' ? 'complete' : null,
+    repoId: 1,
     repoFullName: 'example/server-delete-project',
+    commitMeta: {},
     gitSha: 'abc123',
     gitBranch: 'main',
-    configSnapshot: {
-      version: 1,
-      server: { id: serverId, name: 'server-to-delete', status: 'connected' },
+    config: {
+      version: 2,
+      composePath: 'compose.yml',
+      releaseCommand: null,
+      releaseService: 'web',
+      readinessPath: null,
+      routes: [],
     },
-    envVarsSnapshot: 'encrypted-env-vars',
+    envVars: 'encrypted-env-vars',
     runtimeId,
     finishedAt,
   }
@@ -487,13 +595,6 @@ async function cleanupRows() {
       .delete(deployments)
       .where(inArray(deployments.id, touchedDeploymentIds))
     touchedDeploymentIds.length = 0
-  }
-
-  if (touchedProjectServerIds.length > 0) {
-    await db
-      .delete(projectServers)
-      .where(inArray(projectServers.id, touchedProjectServerIds))
-    touchedProjectServerIds.length = 0
   }
 
   if (touchedEnvironmentIds.length > 0) {

@@ -19,6 +19,7 @@ fi
 AGENT_USER="\${DEVPUSH_AGENT_USER:-devpush}"
 INSTALL_ROOT="\${DEVPUSH_INSTALL_ROOT:-}"
 BINARY_URL="\${DEVPUSH_AGENT_BINARY_URL:-}"
+AUTO_UPDATE="\${DEVPUSH_AGENT_AUTO_UPDATE:-false}"
 
 detect_os() {
   case "$(uname -s)" in
@@ -102,6 +103,17 @@ if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev
   exit 1
 fi
 
+if ! command -v rclone >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y rclone
+  fi
+fi
+
+if ! command -v rclone >/dev/null 2>&1; then
+  echo "Warning: rclone is required for remote backups. Install rclone on this server or keep remote backups disabled." >&2
+fi
+
 if [ -z "\${INSTALL_ROOT}" ] && ! id -u "\${AGENT_USER}" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir /var/lib/devpush-agent --shell /usr/sbin/nologin "\${AGENT_USER}"
 fi
@@ -119,11 +131,13 @@ ETC_DIR="$(target_path /etc/devpush)"
 STATE_DIR="$(target_path /var/lib/devpush-agent)"
 BIN_DIR="$(target_path /usr/local/bin)"
 SYSTEMD_DIR="$(target_path /etc/systemd/system)"
+LIB_DIR="$(target_path /usr/local/lib/devpush)"
 
 install -d -m 0755 "\${ETC_DIR}"
 install_agent_dir 0750 "\${STATE_DIR}"
 install -d -m 0755 "\${BIN_DIR}"
 install -d -m 0755 "\${SYSTEMD_DIR}"
+install -d -m 0755 "\${LIB_DIR}"
 
 tmp_binary="$(mktemp)"
 trap 'rm -f "\${tmp_binary}"' EXIT
@@ -147,6 +161,30 @@ if [ -z "\${INSTALL_ROOT}" ]; then
 fi
 chmod 0640 "\${ETC_DIR}/agent.env"
 
+cat >"\${LIB_DIR}/update-agent" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /etc/devpush/agent.env
+
+case "$(uname -s)" in Linux) os=linux ;; *) echo "Unsupported OS." >&2; exit 1 ;; esac
+case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo "Unsupported architecture." >&2; exit 1 ;; esac
+base="\${DEVPUSH_SERVER_URL%/}/api/install/agent"
+tmp="$(mktemp -d)"
+trap 'rm -rf "\${tmp}"' EXIT
+curl -fsSL "\${base}/binary?os=\${os}&arch=\${arch}" -o "\${tmp}/devpush-agent-linux-\${arch}"
+curl -fsSL "\${base}/checksum?os=\${os}&arch=\${arch}" -o "\${tmp}/checksum"
+(cd "\${tmp}" && sha256sum -c checksum)
+if cmp -s "\${tmp}/devpush-agent-linux-\${arch}" /usr/local/bin/devpush-agent; then
+  echo "devpush agent is already current."
+  exit 0
+fi
+install -m 0755 "\${tmp}/devpush-agent-linux-\${arch}" /usr/local/bin/devpush-agent
+systemctl restart devpush-agent
+echo "devpush agent updated."
+EOF
+chmod 0755 "\${LIB_DIR}/update-agent"
+
 cat >"\${SYSTEMD_DIR}/devpush-agent.service" <<EOF
 [Unit]
 Description=devpush agent
@@ -166,6 +204,30 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+cat >"\${SYSTEMD_DIR}/devpush-agent-update.service" <<EOF
+[Unit]
+Description=Update devpush agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=\${LIB_DIR}/update-agent
+EOF
+
+cat >"\${SYSTEMD_DIR}/devpush-agent-update.timer" <<EOF
+[Unit]
+Description=Check for devpush agent updates daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
 if ! command -v systemctl >/dev/null 2>&1; then
   echo "systemctl is required to start devpush-agent automatically." >&2
   exit 1
@@ -175,5 +237,13 @@ systemctl daemon-reload
 systemctl enable devpush-agent
 systemctl restart devpush-agent
 
+if [ "\${AUTO_UPDATE}" = "true" ]; then
+  systemctl enable --now devpush-agent-update.timer
+else
+  systemctl disable --now devpush-agent-update.timer >/dev/null 2>&1 || true
+fi
+
 echo "devpush agent installed and started."
+echo "Update manually with: sudo \${LIB_DIR}/update-agent"
+echo "Rotate credentials with: sudo \${BIN_DIR}/devpush-agent credential rotate"
 `

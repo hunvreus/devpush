@@ -30,25 +30,25 @@ const userIdSchema = z.object({
   userId: z.string().min(1),
 })
 
-export const getAdminSettingsContext = createServerFn({ method: 'GET' }).handler(
-  async () => {
-    const session = await getAuthSession()
+export const getAdminSettingsContext = createServerFn({
+  method: 'GET',
+}).handler(async () => {
+  const session = await getAuthSession()
 
-    if (!session) {
-      return null
-    }
+  if (!session) {
+    return null
+  }
 
-    const [userContext, adminOverview] = await Promise.all([
-      getUserContext(session.user.id),
-      getAdminOverview(),
-    ])
+  const [userContext, adminOverview] = await Promise.all([
+    getUserContext(session.user.id),
+    getAdminOverview(),
+  ])
 
-    return {
-      userContext,
-      adminOverview,
-    }
-  },
-)
+  return {
+    userContext,
+    adminOverview,
+  }
+})
 
 export const addAllowlistRuleAction = createServerFn({ method: 'POST' })
   .validator((data: unknown) => allowlistRuleSchema.parse(data))

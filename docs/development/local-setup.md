@@ -50,10 +50,10 @@ Set `BETTER_AUTH_URL` in `deploy/.env.production` to the public HTTPS URL before
 adding servers. The server installer uses that URL to register agents and
 download `/api/install/agent/binary`.
 
-The app container currently runs `pnpm --dir app db:push` before starting the
-Node server. This is acceptable for MVP validation, but should become an
-explicit migration step later. It also mounts the `app_uploads` named volume at
-`/app/app/public/uploads` so uploaded avatars are not lost when the app
+The app container runs reviewed SQL migrations with `pnpm --dir app db:migrate`
+before starting the Node server. It never runs `drizzle-kit push` in
+production. It also mounts the `app_uploads` named volume at
+`/repo/app/public/uploads` so uploaded avatars are not lost when the app
 container is recreated.
 
 ## Auth
@@ -95,6 +95,10 @@ For local schema sync:
 ```bash
 pnpm --dir app db:push
 ```
+
+`db:push` is for disposable local databases and rapid schema iteration only.
+Commit generated migrations and apply them with `pnpm --dir app db:migrate` for
+production-compatible validation.
 
 The local Compose database is exposed on host port `7543` to avoid conflicts
 with local Postgres or SSH tunnels on `5432`.
@@ -166,10 +170,8 @@ pnpm validate:config -- --env deploy/.env.production --remote
 ```
 
 That verifies the public auth URL, OAuth credentials, GitHub App private key,
-Resend settings, default app domain, and packaged agent binary directory. Remote
-validation rejects localhost/private control-plane hosts, paths on
-`BETTER_AUTH_URL`, ports in `DEVPUSH_DEFAULT_APP_DOMAIN`, and localhost/private
-default app domains.
+Resend settings and the packaged agent binary directory. Remote validation
+rejects localhost/private control-plane hosts and paths on `BETTER_AUTH_URL`.
 
 Then validate the production image:
 
@@ -179,7 +181,7 @@ pnpm validate:production
 
 This checks the production Compose config, builds the app image, and verifies
 that the runtime image contains the Linux agent binary, the built server
-entrypoint, and `drizzle-kit`.
+entrypoint, and the migration tooling.
 
 ## Remote MVP validation
 
@@ -326,6 +328,14 @@ GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVA
 GITHUB_APP_WEBHOOK_SECRET=...
 ```
 
+Configure the GitHub App with repository **Contents: Read-only** permission and
+subscribe it to **Push** events. Enable webhooks, use the same webhook secret as
+`GITHUB_APP_WEBHOOK_SECRET`, generate a private key for
+`GITHUB_APP_PRIVATE_KEY`, and enable OAuth for the callback below. GitHub's
+[registration guide](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app)
+describes the corresponding app settings. Automated app provisioning is not yet
+implemented; the required manifest/helper remains tracked in `TODO.md`.
+
 Setup callback:
 
 ```text
@@ -337,6 +347,9 @@ Webhook URL:
 ```text
 http://localhost:7429/api/github/webhook
 ```
+
+Replace `http://localhost:7429` with the configured `BETTER_AUTH_URL` origin in
+production.
 
 ## Agent
 
@@ -356,7 +369,6 @@ Then set this in `app/.env`:
 ```bash
 DEVPUSH_AGENT_BINARY_DIR=/absolute/path/to/devpush/bin
 DEVPUSH_TRAEFIK_EMAIL=ops@example.com
-DEVPUSH_DEFAULT_APP_DOMAIN=devpush.app
 ```
 
 The server install command shown in the UI detects Linux `amd64` or `arm64`,
@@ -364,11 +376,16 @@ downloads the matching binary from `/api/install/agent/binary`, creates the
 `devpush` system user, writes `/etc/devpush/agent.env`, installs a systemd
 service, and starts the agent.
 
-When the selected server reports a public IPv4 address, new projects default to
-an exact nip.io host such as `my-app.167-11-3-44.nip.io`. If the server address
-is missing or not a public IPv4 address, `DEVPUSH_DEFAULT_APP_DOMAIN` controls
-the default host instead. You can also override the exact host later from the
-project settings Routes section.
+New projects default to an exact nip.io host derived from the assigned server,
+such as `my-app-167-11-3-44.nip.io`. A local control plane uses
+`127-0-0-1.nip.io` until the agent reports an IPv4 address. Generated aliases
+are persisted, and private or loopback aliases use HTTP.
+
+For a Lima-backed local server, add a custom domain such as
+`my-app.localhost` in the project Domains settings, assign it to the desired
+environment, and disable HTTPS. Names under `.localhost` resolve to the local
+machine, and Lima forwards Traefik's exposed ports, so the route is available at
+`http://my-app.localhost` without DNS or `/etc/hosts` changes.
 
 `DEVPUSH_TRAEFIK_EMAIL` is optional but recommended for HTTPS routes. The
 installer writes it to the agent environment so managed Traefik can register
