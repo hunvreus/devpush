@@ -17,6 +17,21 @@ export type GitHubPushWebhookPayload = {
   } | null
 }
 
+export type GitHubInstallationWebhookPayload = {
+  action: string
+  installationId: number
+}
+
+export type GitHubInstallationWebhookEvent =
+  | 'installation'
+  | 'installation_repositories'
+  | 'installation_target'
+
+export type GitHubInstallationChange =
+  | { type: 'refresh' }
+  | { type: 'status'; status: 'deleted' | 'suspended' }
+  | { type: 'ignore' }
+
 export function verifyGitHubWebhookSignature({
   body,
   signature,
@@ -48,6 +63,62 @@ export function parseGitHubPushPayload(body: string): GitHubPushWebhookPayload {
   }
 
   return payload
+}
+
+export function parseGitHubInstallationWebhookPayload(
+  body: string,
+): GitHubInstallationWebhookPayload {
+  const payload: unknown = JSON.parse(body)
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Invalid GitHub installation webhook payload.')
+  }
+
+  const record = payload as Record<string, unknown>
+  const installation = record.installation
+
+  if (
+    typeof record.action !== 'string' ||
+    !installation ||
+    typeof installation !== 'object' ||
+    Array.isArray(installation)
+  ) {
+    throw new Error('Invalid GitHub installation webhook payload.')
+  }
+
+  const installationId = (installation as Record<string, unknown>).id
+
+  if (
+    typeof installationId !== 'number' ||
+    !Number.isSafeInteger(installationId)
+  ) {
+    throw new Error('Invalid GitHub installation webhook payload.')
+  }
+
+  return { action: record.action, installationId }
+}
+
+export function getGitHubInstallationChange(
+  event: GitHubInstallationWebhookEvent,
+  action: string,
+): GitHubInstallationChange {
+  if (event === 'installation') {
+    if (action === 'deleted') {
+      return { type: 'status', status: 'deleted' }
+    }
+
+    if (action === 'suspend') {
+      return { type: 'status', status: 'suspended' }
+    }
+
+    if (
+      !['created', 'new_permissions_accepted', 'unsuspend'].includes(action)
+    ) {
+      return { type: 'ignore' }
+    }
+  }
+
+  return { type: 'refresh' }
 }
 
 export function getBranchFromGitHubRef(ref: string | undefined) {

@@ -12,7 +12,7 @@ type EmailPayload = {
   to: string
 }
 
-export async function sendEmail({ html, subject, text, to }: EmailPayload) {
+async function sendEmail({ html, subject, text, to }: EmailPayload) {
   if (!config.EMAIL_FROM) {
     throw new Error('EMAIL_FROM is not configured.')
   }

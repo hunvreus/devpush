@@ -1,8 +1,17 @@
 # Agent protocol
 
-The MVP agent uses outbound HTTP polling for durable deployment jobs. WebSocket
+The agent uses outbound HTTP polling for durable deployment jobs. WebSocket
 transport is intentionally deferred to future interactive sessions, such as a
 container console, where bidirectional low-latency traffic is required.
+
+`agentVersion` is informational release metadata. Compatibility is negotiated
+with `protocolVersion` and additive capability names. The control plane keeps
+registration and heartbeats available to older agents even when an update is
+required before they can claim newer job types. Unknown request fields are
+ignored so agents and control planes can roll out additive changes independently.
+Hub and agent builds use the same product release numbering when cut from a
+release, but their versions do not need to match. Development builds report
+`dev`; release strings never decide protocol compatibility.
 
 ## Connection lifecycle
 
@@ -24,7 +33,16 @@ observed no matching container-backed runtimes.
 {
   "serverId": "srv_123",
   "token": "agent_token",
-  "agentVersion": "0.1.0",
+  "agentVersion": "1.0.0",
+  "protocolVersion": 1,
+  "capabilities": [
+    "jobs.compose.deploy.v1",
+    "jobs.compose.cleanup.v1",
+    "jobs.backup.v1",
+    "jobs.backup.cleanup.v1",
+    "jobs.restore.v1",
+    "runtime.logs.v1"
+  ],
   "system": {
     "hostname": "app-01",
     "operatingSystem": "Ubuntu 24.04.2 LTS",
@@ -91,6 +109,12 @@ The host initiates rotation with `POST /api/agents/credentials/rotate` using its
 current server ID and credential. The plaintext replacement is returned once
 for the agent to persist; the app does not initiate rotation.
 
+Agent endpoints use consistent error statuses: `400` for malformed payloads,
+`401` for invalid credentials, `403` for disabled or deleted servers, `404` for
+unknown jobs, `409` for invalid job state, and `500` for unexpected control-plane
+failures. Unexpected exceptions are logged server-side and are not returned to
+the agent.
+
 ## Deploy jobs
 
 Deploy jobs target one server and include a deployment snapshot plus a
@@ -110,27 +134,34 @@ deployment was queued do not mutate the claimed job.
   "project": {
     "name": "flask-basics"
   },
-  "compose": {
+  "runtime": {
+    "type": "compose",
     "path": "compose.yml",
     "projectName": "dp_fb3167db1f_a1b2c3d4e5",
+    "strategy": "managed",
+    "action": "deploy",
     "releaseCommand": null,
     "releaseService": "web",
     "readinessPath": null,
-    "envVars": [],
-    "routes": [
-      {
-        "host": "flask-basics-203-0-113-10.nip.io",
-        "service": "web",
-        "port": 3000,
-        "path": "/",
-        "https": true,
-        "stripPrefix": false
-      }
-    ]
-  }
+    "deployCommand": null,
+    "rollbackCommand": null,
+    "timeoutSeconds": 1800
+  },
+  "envVars": [],
+  "routes": [
+    {
+      "host": "flask-basics-203-0-113-10.nip.io",
+      "service": "web",
+      "port": 3000,
+      "path": "/",
+      "https": true,
+      "stripPrefix": false
+    }
+  ]
 }
 ```
 
+`runtime.type` is the dispatch boundary for future runtime drivers.
 `projectName` is the devpush-controlled Compose runtime name. Agents pass it
 with `docker compose -p`, so user-provided top-level Compose `name:` values do
 not control runtime identity. Runtime names are intentionally short to avoid
@@ -230,6 +261,7 @@ status to `POST /api/agents/jobs/complete`.
 
 ```json
 {
+  "type": "deploy",
   "deploymentId": "dep_123",
   "status": "succeeded",
   "gitSha": "43ba6c5",

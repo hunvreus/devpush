@@ -1,5 +1,3 @@
-import { createReadStream } from 'node:fs'
-
 import { createFileRoute } from '@tanstack/react-router'
 
 import {
@@ -13,12 +11,12 @@ export const Route = createFileRoute('/api/install/agent/binary')({
     handlers: {
       HEAD: async ({ request }) => {
         try {
-          const { file, filename } = await getAgentBinary(
+          const { size, filename } = await getAgentBinary(
             getRequestedPlatform(request),
           )
 
           return new Response(null, {
-            headers: binaryHeaders(file.size, filename),
+            headers: binaryHeaders(size, filename),
           })
         } catch (error) {
           return binaryErrorResponse(error)
@@ -26,13 +24,12 @@ export const Route = createFileRoute('/api/install/agent/binary')({
       },
       GET: async ({ request }) => {
         try {
-          const { file, filename, path } = await getAgentBinary(
+          const { body, filename, size } = await getAgentBinary(
             getRequestedPlatform(request),
           )
-          const stream = createReadStream(path)
 
-          return new Response(stream as unknown as BodyInit, {
-            headers: binaryHeaders(file.size, filename),
+          return new Response(new Uint8Array(body), {
+            headers: binaryHeaders(size, filename),
           })
         } catch (error) {
           return binaryErrorResponse(error)

@@ -17,7 +17,7 @@ const observedRuntimeGraceMs = 10 * 60 * 1000
 const maxReportedRuntimeIds = 200
 const runtimeIdPrefix = 'dp_'
 
-export type ReportedRuntimeService = {
+type ReportedRuntimeService = {
   name: string
   containerName: string
   state: string

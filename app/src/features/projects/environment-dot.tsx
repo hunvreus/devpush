@@ -20,7 +20,7 @@ export const environmentColors = [
   'sky',
 ]
 
-export const environmentColorClasses: Record<string, string> = {
+const environmentColorClasses: Record<string, string> = {
   amber: 'bg-amber-500',
   blue: 'bg-blue-500',
   cyan: 'bg-cyan-500',

@@ -36,7 +36,7 @@ else
   exit 1
 fi
 
-pnpm --dir "$ROOT_DIR/app" db:push
+pnpm --dir "$ROOT_DIR/app" db:migrate
 
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "devpush is already listening on port $PORT."

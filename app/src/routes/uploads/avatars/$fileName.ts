@@ -1,7 +1,6 @@
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-
 import { createFileRoute } from '@tanstack/react-router'
+
+import { getObjectStore } from '@/server/storage/object-store'
 
 const avatarNamePattern =
   /^(?:user|team|project)_[A-Za-z0-9-]+\.(?:png|jpe?g|webp)$/
@@ -15,19 +14,14 @@ export const Route = createFileRoute('/uploads/avatars/$fileName')({
         }
 
         try {
-          const content = await readFile(
-            path.join(
-              process.cwd(),
-              'public',
-              'uploads',
-              'avatars',
-              params.fileName,
-            ),
+          const content = await getObjectStore().get(
+            `avatars/${params.fileName}`,
           )
-          return new Response(content, {
+          return new Response(new Uint8Array(content.body), {
             headers: {
               'cache-control': 'public, max-age=3600',
-              'content-type': contentType(params.fileName),
+              'content-type':
+                content.contentType ?? contentType(params.fileName),
             },
           })
         } catch {

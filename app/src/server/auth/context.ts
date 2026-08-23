@@ -21,6 +21,17 @@ import {
 
 export type AuthUserContext = Awaited<ReturnType<typeof getUserContext>>
 
+export const getLoginContext = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    const session = await getAuthSession()
+
+    return {
+      authMethods: getAuthMethods(),
+      userContext: session ? await getUserContext(session.user.id) : null,
+    }
+  },
+)
+
 export const getCurrentUserContext = createServerFn({ method: 'GET' }).handler(
   async () => {
     const session = await getAuthSession()

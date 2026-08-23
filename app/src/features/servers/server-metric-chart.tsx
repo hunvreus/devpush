@@ -1,4 +1,6 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
+import { useEffect, useState } from 'react'
+import { LoaderIcon } from 'lucide-react'
 
 import {
   ChartContainer,
@@ -65,6 +67,12 @@ export function ServerMetricChart({
     endedAt: string
   }
 }) {
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
+
   const data = points.flatMap((sample) => {
     const timestamp = new Date(sample.observedAt).getTime()
     if (!Number.isFinite(timestamp)) {
@@ -90,7 +98,15 @@ export function ServerMetricChart({
         <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
         <p className="text-sm font-medium tabular-nums">{latestValue}</p>
       </div>
-      {valueCount > 1 ? (
+      {valueCount > 1 && !isMounted ? (
+        <div
+          role="status"
+          className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground"
+        >
+          <LoaderIcon className="size-4 shrink-0 animate-spin" />
+          <span>Loading data…</span>
+        </div>
+      ) : valueCount > 1 ? (
         <ChartContainer config={config} className="h-40 w-full aspect-auto">
           <AreaChart
             accessibilityLayer

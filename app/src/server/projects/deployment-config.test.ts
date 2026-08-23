@@ -21,11 +21,18 @@ describe('deployment snapshots', () => {
 
   test('parses a valid deployment config', () => {
     const config = parseDeploymentConfig({
-      version: 2,
-      composePath: 'compose.yml',
-      releaseCommand: null,
-      releaseService: 'web',
-      readinessPath: null,
+      schemaVersion: 1,
+      runtime: {
+        type: 'compose',
+        path: 'compose.yml',
+        strategy: 'managed',
+        releaseCommand: null,
+        releaseService: 'web',
+        readinessPath: null,
+        deployCommand: null,
+        rollbackCommand: null,
+        timeoutSeconds: 1800,
+      },
       routes: [
         {
           host: 'project.devpush.app',
@@ -33,6 +40,7 @@ describe('deployment snapshots', () => {
           port: 3000,
           path: '/',
           https: true,
+          stripPrefix: false,
         },
       ],
     })
@@ -47,5 +55,35 @@ describe('deployment snapshots', () => {
         stripPrefix: false,
       },
     ])
+    expect(config?.runtime).toEqual({
+      type: 'compose',
+      path: 'compose.yml',
+      strategy: 'managed',
+      releaseCommand: null,
+      releaseService: 'web',
+      readinessPath: null,
+      deployCommand: null,
+      rollbackCommand: null,
+      timeoutSeconds: 1800,
+    })
+  })
+
+  test('rejects unsupported deployment config schemas', () => {
+    const config = parseDeploymentConfig({
+      runtime: {
+        type: 'compose',
+        path: 'compose.yml',
+        strategy: 'managed',
+        releaseCommand: null,
+        releaseService: null,
+        readinessPath: null,
+        deployCommand: null,
+        rollbackCommand: null,
+        timeoutSeconds: 1800,
+      },
+      routes: [],
+    })
+
+    expect(config).toBeNull()
   })
 })

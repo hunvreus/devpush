@@ -2,6 +2,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
+import { currentAgentCapabilities } from '@/server/agents/compatibility'
 import {
   agentJobs,
   aliases,
@@ -20,6 +21,7 @@ import {
   createRedeployDeployment,
   createRollbackDeployment,
   deleteProject,
+  getDeploymentContext,
   getProjectContext,
   updateProjectEnvironmentServers,
   updateProjectSettings,
@@ -29,6 +31,7 @@ import {
   decryptDeploymentEnvVars,
   parseDeploymentConfig,
 } from './deployment-config'
+import { createComposeRuntimeConfig } from './runtime-config'
 
 const touchedJobIds: Array<string> = []
 const touchedInstallationIds: Array<number> = []
@@ -211,6 +214,55 @@ describe('project settings integration', () => {
     expect(aliasRows[0]?.hostname).toMatch(/-127-0-0-1\.nip\.io$/)
   })
 
+  test('only verified custom domains receive public routes', async () => {
+    const { environmentId, ownerId, projectId, projectName, teamSlug } =
+      await createProjectFixture()
+    const domainId = makeId('domain')
+    const hostname = `${makeSlug(domainId)}.example.com`
+    touchedDomainIds.push(domainId)
+
+    await db
+      .update(projects)
+      .set({
+        routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
+      })
+      .where(eq(projects.id, projectId))
+    await db.insert(domains).values({
+      id: domainId,
+      environmentId,
+      hostname,
+      projectId,
+      status: 'pending',
+    })
+
+    const pendingContext = await getProjectContext({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+    })
+    expect(
+      pendingContext.environment.publicRoutes.some(
+        (route) => route.host === hostname,
+      ),
+    ).toBe(false)
+
+    await db
+      .update(domains)
+      .set({ status: 'active' })
+      .where(eq(domains.id, domainId))
+
+    const activeContext = await getProjectContext({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+    })
+    expect(
+      activeContext.environment.publicRoutes.some(
+        (route) => route.host === hostname,
+      ),
+    ).toBe(true)
+  })
+
   test('project machine names must be unique within a team', async () => {
     const { ownerId, projectName, teamId, teamSlug } =
       await createProjectFixture()
@@ -219,7 +271,7 @@ describe('project settings integration', () => {
 
     await db.insert(projects).values({
       id: duplicateProjectId,
-      composePath: 'compose.yml',
+      runtimeConfig: createComposeRuntimeConfig({ path: 'compose.yml' }),
       githubRepo: 'example/duplicate-project',
       name: 'duplicate-project',
       slug: 'duplicate-project',
@@ -234,10 +286,11 @@ describe('project settings integration', () => {
         projectName: 'duplicate-project',
         repoFullName: 'example/project',
         installationId: null,
-        composePath: 'compose.current.yml',
-        releaseCommand: 'current-release',
-        releaseService: null,
-        readinessPath: '/current-health',
+        runtimeConfig: createComposeRuntimeConfig({
+          path: 'compose.current.yml',
+          releaseCommand: 'current-release',
+          readinessPath: '/current-health',
+        }),
       }),
     ).rejects.toThrow('Project names must be unique within a team.')
   })
@@ -474,10 +527,12 @@ describe('project settings integration', () => {
       runtimeId: 'runtime-succeeded',
     })
     expect(deploymentConfig).toMatchObject({
-      composePath: 'compose.old.yml',
-      releaseCommand: 'old-release',
-      releaseService: 'old-worker',
-      readinessPath: '/old-health',
+      runtime: {
+        path: 'compose.old.yml',
+        releaseCommand: 'old-release',
+        releaseService: 'old-worker',
+        readinessPath: '/old-health',
+      },
     })
     expect(deploymentConfig?.routes).toEqual(
       expect.arrayContaining([
@@ -494,6 +549,32 @@ describe('project settings integration', () => {
     expect(hostnameRows.at(0)?.hostname).toMatch(
       new RegExp(`^${rollback.deploymentId.slice(0, 7)}-`),
     )
+    const context = await getDeploymentContext({
+      deploymentId: rollback.deploymentId,
+      projectName,
+      teamSlug,
+      userId: ownerId,
+    })
+    expect(context.deployment.deploymentHost).toBe(hostnameRows.at(0)?.hostname)
+  })
+
+  test('rollback is blocked when the server agent requires an update', async () => {
+    const { ownerId, projectName, serverId, succeededDeploymentId, teamSlug } =
+      await createProjectFixture()
+
+    await db
+      .update(servers)
+      .set({ agentCapabilities: [], agentProtocolVersion: null })
+      .where(eq(servers.id, serverId))
+
+    await expect(
+      createRollbackDeployment({
+        deploymentId: succeededDeploymentId,
+        userId: ownerId,
+        teamSlug,
+        projectName,
+      }),
+    ).rejects.toThrow('Update the deployment server agent before rolling back.')
   })
 
   test('redeploy reuses the source deployment config and env vars', async () => {
@@ -535,10 +616,12 @@ describe('project settings integration', () => {
       runtimeId: 'runtime-succeeded',
     })
     expect(deploymentConfig).toMatchObject({
-      composePath: 'compose.old.yml',
-      releaseCommand: 'old-release',
-      releaseService: 'old-worker',
-      readinessPath: '/old-health',
+      runtime: {
+        path: 'compose.old.yml',
+        releaseCommand: 'old-release',
+        releaseService: 'old-worker',
+        readinessPath: '/old-health',
+      },
     })
     expect(deploymentConfig?.routes).toEqual(
       expect.arrayContaining([
@@ -557,8 +640,9 @@ describe('project settings integration', () => {
     )
   })
 
-  test('push deployments snapshot saved project routes instead of stale environment routes', async () => {
-    const { projectId, projectName, serverId } = await createProjectFixture()
+  test('push deployments snapshot effective default and environment routes', async () => {
+    const { environmentId, projectId, projectName, serverId } =
+      await createProjectFixture()
     const installationId = 123_456_789
     const repoId = 987_654_321
 
@@ -575,9 +659,23 @@ describe('project settings integration', () => {
       .set({
         githubInstallationId: installationId,
         githubRepoId: repoId,
+        runtimeConfig: createComposeRuntimeConfig({
+          path: 'compose.current.yml',
+          strategy: 'command',
+          deployCommand: './scripts/deploy',
+          rollbackCommand: './scripts/rollback',
+          timeoutSeconds: 900,
+        }),
         routes: [
           { path: '/', service: 'web', port: 3000, stripPrefix: false },
           { path: '/api', service: 'api', port: 8080, stripPrefix: true },
+          {
+            path: '/api',
+            service: 'production-api',
+            port: 9090,
+            stripPrefix: false,
+            environmentId,
+          },
         ],
       })
       .where(eq(projects.id, projectId))
@@ -622,13 +720,20 @@ describe('project settings integration', () => {
           host: `${projectName}.example.devpush.app`,
           https: true,
           path: '/api',
-          port: 8080,
-          service: 'api',
-          stripPrefix: true,
+          port: 9090,
+          service: 'production-api',
+          stripPrefix: false,
         },
       ]),
     )
     expect(snapshot?.routes).toHaveLength(6)
+    expect(snapshot?.runtime).toMatchObject({
+      type: 'compose',
+      strategy: 'command',
+      deployCommand: './scripts/deploy',
+      rollbackCommand: './scripts/rollback',
+      timeoutSeconds: 900,
+    })
   })
 
   test('push deployments snapshot env vars using environment ids', async () => {
@@ -649,6 +754,14 @@ describe('project settings integration', () => {
       .set({
         githubInstallationId: installationId,
         githubRepoId: repoId,
+        routes: [
+          {
+            path: '/',
+            service: 'web',
+            port: 80,
+            stripPrefix: false,
+          },
+        ],
         envVars: [
           { key: 'SHARED', value: 'all-envs', environment: '' },
           {
@@ -905,14 +1018,18 @@ async function createProjectFixture() {
     status: 'connected',
     teamId,
     lastSeenAt: now,
+    agentCapabilities: [...currentAgentCapabilities],
+    agentProtocolVersion: 1,
   })
   await db.insert(projects).values({
     id: projectId,
-    composePath: 'compose.current.yml',
+    runtimeConfig: createComposeRuntimeConfig({
+      path: 'compose.current.yml',
+      readinessPath: '/current-health',
+      releaseCommand: 'current-release',
+    }),
     githubRepo: 'example/project',
     name: projectName,
-    readinessPath: '/current-health',
-    releaseCommand: 'current-release',
     slug: projectName,
     teamId,
   })
@@ -952,11 +1069,18 @@ async function createProjectFixture() {
       runtimeId: 'runtime-succeeded',
       serverId,
       snapshot: {
-        version: 2,
-        composePath: 'compose.old.yml',
-        releaseCommand: 'old-release',
-        releaseService: 'old-worker',
-        readinessPath: '/old-health',
+        schemaVersion: 1,
+        runtime: {
+          type: 'compose',
+          path: 'compose.old.yml',
+          strategy: 'managed',
+          releaseCommand: 'old-release',
+          releaseService: 'old-worker',
+          readinessPath: '/old-health',
+          deployCommand: null,
+          rollbackCommand: null,
+          timeoutSeconds: 1800,
+        },
         routes: [
           {
             host: 'old.example.devpush.app',

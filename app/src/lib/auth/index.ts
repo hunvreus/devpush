@@ -59,6 +59,9 @@ export const auth = betterAuth({
   secret: config.BETTER_AUTH_SECRET,
   baseURL: config.BETTER_AUTH_URL,
   basePath: '/api/auth',
+  advanced: {
+    cookiePrefix: 'devpush',
+  },
   database: drizzleAdapter(db, {
     provider: 'pg',
     schema,

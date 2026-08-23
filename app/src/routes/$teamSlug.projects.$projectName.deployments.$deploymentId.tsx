@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { DeploymentDetail } from '@/features/deployments/deployment-detail'
+import { ProjectRoutePending } from '@/features/projects/project-route-pending'
 import { getDeployment } from '@/server/projects/functions'
 
 export const Route = createFileRoute(
@@ -21,8 +22,15 @@ export const Route = createFileRoute(
 
     return context
   },
+  pendingMs: 0,
+  pendingMinMs: 300,
+  pendingComponent: DeploymentPending,
   component: DeploymentRoute,
 })
+
+function DeploymentPending() {
+  return <ProjectRoutePending section="deployment" />
+}
 
 function DeploymentRoute() {
   const context = Route.useLoaderData()

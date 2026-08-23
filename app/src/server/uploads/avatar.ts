@@ -1,5 +1,4 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import { getObjectStore } from '@/server/storage/object-store'
 
 export async function resolveAvatarUpdate({
   currentAvatarPath,
@@ -27,12 +26,14 @@ export async function resolveAvatarUpdate({
   }
 
   const parsed = parseAvatarDataUrl(avatarDataUrl)
-  const directory = path.join(process.cwd(), 'public', 'uploads', 'avatars')
   const fileName = `${filePrefix}_${resourceId}.${parsed.extension}`
   const publicPath = `/uploads/avatars/${fileName}`
 
-  await mkdir(directory, { recursive: true })
-  await writeFile(path.join(directory, fileName), parsed.buffer)
+  await getObjectStore().put(
+    `avatars/${fileName}`,
+    parsed.buffer,
+    parsed.mimeType,
+  )
 
   if (currentAvatarPath && currentAvatarPath !== publicPath) {
     await removePublicFile(currentAvatarPath)
@@ -60,6 +61,7 @@ function parseAvatarDataUrl(dataUrl: string) {
 
   return {
     buffer,
+    mimeType,
     extension:
       mimeType === 'image/jpeg'
         ? 'jpg'
@@ -81,7 +83,7 @@ export async function removePublicFile(publicPath: string | null | undefined) {
   }
 
   try {
-    await unlink(path.join(process.cwd(), 'public', publicPath))
+    await getObjectStore().delete(publicPath.slice('/uploads/'.length))
   } catch {
     // Missing old avatar files should not block saving settings.
   }

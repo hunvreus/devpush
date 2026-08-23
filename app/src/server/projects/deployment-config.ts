@@ -4,17 +4,32 @@ import {
   createHash,
   randomBytes,
 } from 'node:crypto'
+import { z } from 'zod'
 
 import { config } from '@/server/config'
+import { projectRuntimeConfigSchema } from './runtime-config'
 
-export type DeploymentRoute = {
-  host: string
-  service: string
-  port: number
-  path: string
-  https: boolean
-  stripPrefix: boolean
-}
+const deploymentRouteSchema = z.strictObject({
+  host: z.string().min(1),
+  service: z.string().min(1),
+  port: z.number().int().min(1).max(65_535),
+  path: z.string().regex(/^\//),
+  https: z.boolean(),
+  stripPrefix: z.boolean(),
+})
+
+const deploymentConfigSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  runtime: projectRuntimeConfigSchema,
+  routes: z.array(deploymentRouteSchema),
+})
+
+const deploymentEnvVarsSchema = z.array(
+  z.strictObject({
+    key: z.string(),
+    value: z.string(),
+  }),
+)
 
 export type DeploymentEnvVar = {
   key: string
@@ -28,16 +43,9 @@ export type DeploymentCommitMeta = {
   url: string | null
 }
 
-export type DeploymentConfig = {
-  version: 2
-  composePath: string
-  releaseCommand: string | null
-  releaseService: string
-  readinessPath: string | null
-  routes: Array<DeploymentRoute>
-}
+export type DeploymentConfig = z.infer<typeof deploymentConfigSchema>
 
-export function buildComposeProjectName({
+export function buildRuntimeId({
   environmentId,
   projectId,
 }: {
@@ -54,46 +62,12 @@ export function encryptDeploymentEnvVars(envVars: Array<DeploymentEnvVar>) {
 export function decryptDeploymentEnvVars(
   payload: string,
 ): Array<DeploymentEnvVar> {
-  const value = decryptJson(payload)
-
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value.filter(
-    (item): item is DeploymentEnvVar =>
-      typeof item === 'object' &&
-      item !== null &&
-      'key' in item &&
-      'value' in item &&
-      typeof item.key === 'string' &&
-      typeof item.value === 'string',
-  )
+  return deploymentEnvVarsSchema.parse(decryptJson(payload))
 }
 
 export function parseDeploymentConfig(value: unknown): DeploymentConfig | null {
-  if (!isRecord(value) || value.version !== 2) {
-    return null
-  }
-
-  if (
-    typeof value.composePath !== 'string' ||
-    typeof value.releaseService !== 'string' ||
-    !Array.isArray(value.routes)
-  ) {
-    return null
-  }
-
-  return {
-    version: 2,
-    composePath: value.composePath,
-    releaseCommand:
-      typeof value.releaseCommand === 'string' ? value.releaseCommand : null,
-    releaseService: value.releaseService,
-    readinessPath:
-      typeof value.readinessPath === 'string' ? value.readinessPath : null,
-    routes: normalizeRoutes(value.routes),
-  }
+  const result = deploymentConfigSchema.safeParse(value)
+  return result.success ? result.data : null
 }
 
 export function toDeploymentCommitMeta(commit: {
@@ -110,26 +84,21 @@ export function toDeploymentCommitMeta(commit: {
   }
 }
 
-function normalizeRoutes(value: unknown): Array<DeploymentRoute> {
-  if (!Array.isArray(value)) {
-    return []
+export function normalizeDeploymentCommitMeta(
+  value: unknown,
+): DeploymentCommitMeta {
+  if (typeof value === 'object' && value !== null && 'message' in value) {
+    const record = value as Record<string, unknown>
+    return {
+      message: typeof record.message === 'string' ? record.message : null,
+      authorName:
+        typeof record.authorName === 'string' ? record.authorName : null,
+      authoredAt:
+        typeof record.authoredAt === 'string' ? record.authoredAt : null,
+      url: typeof record.url === 'string' ? record.url : null,
+    }
   }
-
-  return value
-    .filter(
-      (item): item is DeploymentRoute =>
-        isRecord(item) &&
-        typeof item.host === 'string' &&
-        typeof item.service === 'string' &&
-        typeof item.port === 'number' &&
-        typeof item.path === 'string' &&
-        typeof item.https === 'boolean',
-    )
-    .map((route) => ({
-      ...route,
-      stripPrefix:
-        typeof route.stripPrefix === 'boolean' ? route.stripPrefix : false,
-    }))
+  return { message: null, authorName: null, authoredAt: null, url: null }
 }
 
 function encryptJson(value: unknown) {
@@ -182,8 +151,4 @@ function shortRuntimeId(value: string) {
   }
 
   return normalized.padEnd(10, '0')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }

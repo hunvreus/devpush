@@ -2,8 +2,6 @@ import { Link, useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   BanIcon,
-  CheckIcon,
-  ChevronsUpDownIcon,
   CircleCheckIcon,
   ClockIcon,
   CircleXIcon,
@@ -15,35 +13,9 @@ import {
   TrashIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,8 +36,6 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSet,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
@@ -74,12 +44,8 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import { ResourceAvatar } from '@/components/resource-avatar'
+import { SectionNavigation } from '@/components/section-navigation'
 import {
   Select,
   SelectContent,
@@ -91,7 +57,6 @@ import { Switch } from '@/components/ui/switch'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
 import { getErrorMessage } from '@/lib/error-message'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
-import { cn } from '@/lib/utils'
 import {
   runProjectBackup,
   restoreProjectBackup,
@@ -104,64 +69,37 @@ import type {
   ProjectContext,
 } from '@/server/projects/service'
 
-type BackupFilters = {
-  environment?: string
-  server?: string
-  status?: string
-  time?: string
-}
-
-type BackupPolicyDraft = {
-  accessKeyId: string
-  bucket: string
-  clearSecretAccessKey: boolean
-  cron: string
-  databaseDumps: ProjectBackupConfig['databaseDumps']
-  enabled: boolean
-  endpoint: string
-  environmentId: string
-  localRetentionCount: string
-  localRetentionDays: string
-  localRetentionMaxStorageGb: string
-  name: string
-  prefix: string
-  region: string
-  remoteRetentionEnabled: boolean
-  remoteRetentionCount: string
-  remoteRetentionDays: string
-  remoteRetentionMaxStorageGb: string
-  secretAccessKey: string
-  volumeMode: 'none' | 'allNamed' | 'selected'
-  volumeNames: Array<string>
-}
-
-type BackupPolicyErrorSection =
-  | 'general'
-  | 'destination'
-  | 'retention'
-  | 'volumes'
-  | 'databases'
-  | 'danger'
-
-type BackupPolicyErrorField =
-  | 'name'
-  | 'environment'
-  | 'schedule'
-  | 'bucket'
-  | 'endpoint'
-  | 'accessKeyId'
-  | 'secretAccessKey'
-  | 'retention'
-  | 'volumes'
-  | 'databases'
-  | 'danger'
-
-const cronPresets = [
-  { label: 'Daily at 02:00 UTC', value: '0 2 * * *' },
-  { label: 'Every 6 hours', value: '0 */6 * * *' },
-  { label: 'Weekly on Sunday (UTC)', value: '0 2 * * 0' },
-  { label: 'Monthly on the 1st (UTC)', value: '0 2 1 * *' },
-]
+import {
+  backupCronPresets as cronPresets,
+  filterBackupRuns,
+  formatBackupArtifacts,
+  formatBackupDate as formatDate,
+  formatBackupSchedule as formatSchedule,
+  formatBackupStatus as formatStatus,
+  getDatabaseServiceOptions,
+  getDefaultBackupPrefix,
+  getSchedulePresetValue,
+  inferArtifactName,
+  isCronSchedule,
+  isUrl,
+  isValidRetention,
+} from './project-backup-utils'
+import type { BackupFilters } from './project-backup-utils'
+import { BackupRunRestoreActions } from './backup-restore-actions'
+import {
+  BackupPolicyDialog,
+  BackupPolicySaveActions,
+  BackupPolicySection,
+  ComposeRequiredEmpty,
+  DatabaseDumpPresetMenu,
+  RetentionFieldGroup,
+  VolumeMultiSelect,
+} from './project-backup-policy'
+import type {
+  BackupPolicyDraft,
+  BackupPolicyErrorField,
+  BackupPolicyErrorSection,
+} from './project-backup-policy'
 
 const backupDetailSections = [
   { id: 'general', label: 'General' },
@@ -171,30 +109,6 @@ const backupDetailSections = [
   { id: 'databases', label: 'Databases' },
   { id: 'danger', label: 'Danger' },
 ]
-
-const databaseDumpPresets = [
-  {
-    label: 'Postgres',
-    service: 'postgres',
-    command: 'pg_dumpall -U "$POSTGRES_USER" | gzip',
-  },
-  {
-    label: 'MySQL',
-    service: 'mysql',
-    command:
-      'mysqldump --all-databases -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" | gzip',
-  },
-  {
-    label: 'MariaDB',
-    service: 'mariadb',
-    command:
-      'mariadb-dump --all-databases -u "$MARIADB_USER" -p"$MARIADB_PASSWORD" | gzip',
-  },
-]
-
-function getSchedulePresetValue(cron: string) {
-  return cronPresets.some((preset) => preset.value === cron) ? cron : 'custom'
-}
 
 export function ProjectBackups({
   context,
@@ -730,7 +644,7 @@ export function ProjectBackupDetails({
   } | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const isCustomSchedule = schedulePresetValue === 'custom'
-  const missingComposeFile = context.project.composePath === null
+  const missingComposeFile = context.project.runtimeConfig.path === null
   const composeServices =
     context.composeMetadata?.services ??
     context.routes.map((route) => route.service)
@@ -1750,859 +1664,18 @@ export function ProjectBackupDetails({
             ) : null}
           </BackupPolicySection>
         </div>
-        <aside className="hidden text-sm lg:block">
-          <nav className="sticky top-[122px] flex flex-col gap-y-1">
-            {backupDetailSections.map((section) => (
-              <Button
-                key={section.id}
-                asChild
-                variant="ghost"
-                className={cn(
-                  'justify-start',
-                  section.id === 'danger'
-                    ? 'text-destructive hover:bg-destructive/10 hover:text-destructive'
-                    : null,
-                )}
-              >
-                <a href={`#${section.id}`}>{section.label}</a>
-              </Button>
-            ))}
-          </nav>
+        <aside className="hidden lg:block">
+          <SectionNavigation
+            className="sticky top-[122px]"
+            items={backupDetailSections.map((section) => ({
+              href: `#${section.id}`,
+              label: section.label,
+              destructive: section.id === 'danger',
+            }))}
+          />
         </aside>
       </div>
     </div>
-  )
-}
-
-function ComposeRequiredEmpty() {
-  return (
-    <Empty className="min-h-40 border-0">
-      <EmptyHeader>
-        <EmptyTitle>No Compose file configured.</EmptyTitle>
-        <EmptyDescription>
-          Configure a Compose file before editing volume or database backups.
-        </EmptyDescription>
-      </EmptyHeader>
-    </Empty>
-  )
-}
-
-function VolumeMultiSelect({
-  disabled,
-  options,
-  onVolumeNamesChange,
-  volumeNames,
-}: {
-  disabled: boolean
-  options: Array<string>
-  onVolumeNamesChange: (value: Array<string>) => void
-  volumeNames: Array<string>
-}) {
-  const [open, setOpen] = useState(false)
-  const hasOptions = options.length > 0
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="min-h-9 justify-between font-normal"
-          disabled={disabled || !hasOptions}
-        >
-          <span className="min-w-0 truncate">
-            {volumeNames.length > 0
-              ? volumeNames.join(', ')
-              : hasOptions
-                ? 'Select volumes'
-                : 'No named volumes detected'}
-          </span>
-          <ChevronsUpDownIcon
-            data-icon="inline-end"
-            className="size-4 shrink-0 opacity-50"
-          />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-(--radix-popover-trigger-width) p-0"
-        align="start"
-      >
-        <Command shouldFilter={false}>
-          <CommandList>
-            <CommandEmpty>No named volumes detected.</CommandEmpty>
-            {hasOptions ? (
-              <CommandGroup heading="Volumes">
-                {options.map((volumeName) => {
-                  const selected = volumeNames.includes(volumeName)
-
-                  return (
-                    <CommandItem
-                      key={volumeName}
-                      value={volumeName}
-                      onSelect={() => {
-                        onVolumeNamesChange(
-                          selected
-                            ? volumeNames.filter((item) => item !== volumeName)
-                            : [...volumeNames, volumeName],
-                        )
-                      }}
-                    >
-                      <CheckIcon
-                        className={cn(
-                          'size-4',
-                          selected ? 'opacity-100' : 'opacity-0',
-                        )}
-                      />
-                      <span className="truncate font-mono text-[13px]">
-                        {volumeName}
-                      </span>
-                    </CommandItem>
-                  )
-                })}
-              </CommandGroup>
-            ) : null}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function DatabaseDumpPresetMenu({
-  onSelect,
-}: {
-  onSelect: (preset: ProjectBackupConfig['databaseDumps'][number]) => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" aria-label="Presets">
-          <MoreHorizontalIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        {databaseDumpPresets.map((preset) => (
-          <DropdownMenuItem
-            key={preset.label}
-            onSelect={() => onSelect(preset)}
-          >
-            {preset.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function BackupPolicyDialog({
-  backupConfigs,
-  children,
-  context,
-  onSaved,
-  projectName,
-  teamSlug,
-}: {
-  backupConfigs: Array<ProjectBackupConfig>
-  children: ReactNode
-  context: ProjectContext
-  onSaved: (backupConfigs: Array<ProjectBackupConfig>) => void
-  projectName: string
-  teamSlug: string
-}) {
-  const router = useRouter()
-  const queryClient = useQueryClient()
-  const firstEnvironmentId = context.environments[0]?.id ?? ''
-  const [open, setOpen] = useState(false)
-  const [id, setId] = useState(() => crypto.randomUUID())
-  const [name, setName] = useState('')
-  const [environmentId, setEnvironmentId] = useState(firstEnvironmentId)
-  const [cron, setCron] = useState('0 2 * * *')
-  const [schedulePresetValue, setSchedulePresetValue] = useState(
-    getSchedulePresetValue('0 2 * * *'),
-  )
-  const [fieldError, setFieldError] = useState<{
-    field: 'environment' | 'name' | 'schedule' | 'form'
-    message: string
-  } | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-
-  const isCustomSchedule = schedulePresetValue === 'custom'
-  const defaultVolumeMode =
-    (context.composeMetadata?.volumes.length ?? 0) > 0 ? 'allNamed' : 'none'
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    const nextId = crypto.randomUUID()
-    const nextEnvironmentId = firstEnvironmentId
-    const environment = context.environments.find(
-      (item) => item.id === nextEnvironmentId,
-    )
-
-    setId(nextId)
-    setEnvironmentId(nextEnvironmentId)
-    setName(`${environment?.name ?? 'Production'} backup`)
-    setCron('0 2 * * *')
-    setSchedulePresetValue(getSchedulePresetValue('0 2 * * *'))
-    setFieldError(null)
-  }, [context.environments, firstEnvironmentId, open])
-
-  async function save() {
-    const trimmedName = name.trim()
-    const trimmedCron = cron.trim()
-
-    if (!trimmedName) {
-      setFieldError({
-        field: 'name',
-        message: 'Backup policy name is required.',
-      })
-      return
-    }
-
-    if (!environmentId) {
-      setFieldError({ field: 'environment', message: 'Select an environment.' })
-      return
-    }
-
-    if (!isCronSchedule(trimmedCron)) {
-      setFieldError({
-        field: 'schedule',
-        message: 'Use a five-field cron schedule, e.g. 0 2 * * *.',
-      })
-      return
-    }
-
-    setIsSaving(true)
-
-    const nextConfig: ProjectBackupConfig = {
-      id,
-      name: trimmedName,
-      environmentId,
-      enabled: true,
-      schedule: { cron: trimmedCron },
-      destination: {
-        bucket: 'devpush-backups',
-        prefix: getDefaultBackupPrefix(context.project.id, environmentId, id),
-      },
-      retention: {
-        local: {
-          count: 7,
-          days: 0,
-          maxStorageGb: 0,
-        },
-        remote: {
-          enabled: false,
-          count: 7,
-          days: 0,
-          maxStorageGb: 0,
-        },
-      },
-      volumes: { mode: defaultVolumeMode, names: [] },
-      databaseDumps: [],
-    }
-
-    const nextConfigs = [...backupConfigs, nextConfig]
-
-    try {
-      const nextContext = await saveProjectBackupConfigs({
-        data: {
-          teamSlug,
-          projectName,
-          backupConfigs: nextConfigs,
-        },
-      })
-      setProjectContextQueryData(queryClient, nextContext)
-      onSaved(nextContext.backupConfigs)
-      toast.success('Backup policy created.')
-      setOpen(false)
-      void router.navigate({
-        to: '/$teamSlug/projects/$projectName/backups/$backupId',
-        params: { teamSlug, projectName, backupId: nextConfig.id },
-      })
-    } catch (error) {
-      setFieldError({
-        field: 'form',
-        message: getErrorMessage(error, 'Unable to save backup policy.'),
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Create backup policy</DialogTitle>
-          <DialogDescription>
-            Configure when the agent should run a backup policy for one
-            environment.
-          </DialogDescription>
-        </DialogHeader>
-
-        <FieldGroup>
-          <Field data-invalid={fieldError?.field === 'name' ? true : undefined}>
-            <FieldLabel htmlFor={`backup-name-${id}`}>Name</FieldLabel>
-            <Input
-              aria-invalid={fieldError?.field === 'name'}
-              id={`backup-name-${id}`}
-              value={name}
-              placeholder="Production backup"
-              onChange={(event) => {
-                setName(event.target.value)
-                if (fieldError?.field === 'name') {
-                  setFieldError(null)
-                }
-              }}
-            />
-            {fieldError?.field === 'name' ? (
-              <FieldError>{fieldError.message}</FieldError>
-            ) : null}
-          </Field>
-
-          <Field
-            data-invalid={
-              fieldError?.field === 'environment' ? true : undefined
-            }
-          >
-            <FieldLabel>Environment</FieldLabel>
-            <Select
-              value={environmentId}
-              onValueChange={(value) => {
-                setEnvironmentId(value)
-                if (fieldError?.field === 'environment') {
-                  setFieldError(null)
-                }
-              }}
-            >
-              <SelectTrigger
-                aria-invalid={fieldError?.field === 'environment'}
-                className="w-full"
-              >
-                <SelectValue placeholder="Select environment" />
-              </SelectTrigger>
-              <SelectContent>
-                {context.environments.map((environment) => (
-                  <SelectItem key={environment.id} value={environment.id}>
-                    <span className="inline-flex items-center gap-2">
-                      <EnvironmentDot color={environment.color} />
-                      {environment.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {fieldError?.field === 'environment' ? (
-              <FieldError>{fieldError.message}</FieldError>
-            ) : null}
-          </Field>
-
-          <Field
-            data-invalid={fieldError?.field === 'schedule' ? true : undefined}
-          >
-            <FieldLabel>Schedule</FieldLabel>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Select
-                value={schedulePresetValue}
-                onValueChange={(value) => {
-                  setSchedulePresetValue(value)
-                  if (fieldError?.field === 'schedule') {
-                    setFieldError(null)
-                  }
-                  if (value !== 'custom') {
-                    setCron(value)
-                  }
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Preset" />
-                </SelectTrigger>
-                <SelectContent>
-                  {cronPresets.map((preset) => (
-                    <SelectItem key={preset.value} value={preset.value}>
-                      {preset.label}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="custom">Custom (cron schedule)</SelectItem>
-                </SelectContent>
-              </Select>
-              <InputGroup
-                className={
-                  isCustomSchedule
-                    ? undefined
-                    : 'bg-accent/50 text-muted-foreground'
-                }
-              >
-                <InputGroupInput
-                  aria-invalid={fieldError?.field === 'schedule'}
-                  value={cron}
-                  placeholder="0 2 * * *"
-                  readOnly={!isCustomSchedule}
-                  onChange={(event) => {
-                    setCron(event.target.value)
-                    if (fieldError?.field === 'schedule') {
-                      setFieldError(null)
-                    }
-                  }}
-                />
-                {isCustomSchedule ? null : (
-                  <InputGroupAddon align="inline-end">
-                    <LockIcon />
-                  </InputGroupAddon>
-                )}
-              </InputGroup>
-            </div>
-            <FieldDescription>Backup schedules use UTC.</FieldDescription>
-            {fieldError?.field === 'schedule' ? (
-              <FieldError>{fieldError.message}</FieldError>
-            ) : null}
-          </Field>
-
-          {fieldError?.field === 'form' ? (
-            <FieldError>{fieldError.message}</FieldError>
-          ) : null}
-        </FieldGroup>
-
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="button" variant="ghost" disabled={isSaving}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button type="button" onClick={save} disabled={isSaving}>
-            {isSaving ? (
-              <LoaderIcon data-icon="inline-start" className="animate-spin" />
-            ) : null}
-            Create policy
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function RetentionFieldGroup({
-  count,
-  days,
-  description,
-  enabled = true,
-  fieldError,
-  maxStorageGb,
-  onCountChange,
-  onDaysChange,
-  onEnabledChange,
-  onMaxStorageGbChange,
-  title,
-}: {
-  count: string
-  days: string
-  description: string
-  enabled?: boolean
-  fieldError: boolean
-  maxStorageGb: string
-  onCountChange: (value: string) => void
-  onDaysChange: (value: string) => void
-  onEnabledChange?: (value: boolean) => void
-  onMaxStorageGbChange: (value: string) => void
-  title: string
-}) {
-  return (
-    <FieldSet>
-      <FieldLegend>{title}</FieldLegend>
-      <div className="flex items-start justify-between gap-4">
-        <FieldDescription>{description}</FieldDescription>
-        {onEnabledChange ? (
-          <Switch
-            checked={enabled}
-            onCheckedChange={onEnabledChange}
-            aria-label={`${title} enabled`}
-          />
-        ) : null}
-      </div>
-      <FieldGroup className="grid gap-3 sm:grid-cols-3">
-        <Field data-invalid={fieldError ? true : undefined}>
-          <FieldLabel>Number of backups to keep</FieldLabel>
-          <Input
-            aria-invalid={fieldError}
-            disabled={!enabled}
-            type="number"
-            min={0}
-            step={1}
-            value={count}
-            onChange={(event) => onCountChange(event.target.value)}
-          />
-        </Field>
-        <Field data-invalid={fieldError ? true : undefined}>
-          <FieldLabel>Days to keep backups</FieldLabel>
-          <Input
-            aria-invalid={fieldError}
-            disabled={!enabled}
-            type="number"
-            min={0}
-            step={1}
-            value={days}
-            onChange={(event) => onDaysChange(event.target.value)}
-          />
-        </Field>
-        <Field data-invalid={fieldError ? true : undefined}>
-          <FieldLabel>Maximum storage (GB)</FieldLabel>
-          <Input
-            aria-invalid={fieldError}
-            disabled={!enabled}
-            type="number"
-            min={0}
-            step="0.1"
-            value={maxStorageGb}
-            onChange={(event) => onMaxStorageGbChange(event.target.value)}
-          />
-        </Field>
-      </FieldGroup>
-    </FieldSet>
-  )
-}
-
-function BackupPolicySection({
-  children,
-  description,
-  footer,
-  id,
-  title,
-}: {
-  children: ReactNode
-  description: string
-  footer?: ReactNode
-  id: string
-  title: string
-}) {
-  return (
-    <Card id={id} className="scroll-mt-8">
-      <CardHeader className="border-b">
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-      {footer ? (
-        <CardFooter className="justify-end gap-x-2">{footer}</CardFooter>
-      ) : null}
-    </Card>
-  )
-}
-
-function BackupPolicySaveActions({
-  hasChanges,
-  isSaving,
-  onCancel,
-  onSave,
-}: {
-  hasChanges: boolean
-  isSaving: boolean
-  onCancel: () => void
-  onSave: () => Promise<void>
-}) {
-  return (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        disabled={!hasChanges || isSaving}
-        onClick={onCancel}
-      >
-        Cancel
-      </Button>
-      <Button
-        type="button"
-        disabled={!hasChanges || isSaving}
-        onClick={() => void onSave()}
-      >
-        {isSaving ? (
-          <LoaderIcon data-icon="inline-start" className="animate-spin" />
-        ) : null}
-        Save
-      </Button>
-    </>
-  )
-}
-
-function filterBackupRuns(
-  runs: Array<ProjectBackupRun>,
-  filters: BackupFilters,
-) {
-  const since = getSinceDate(filters.time)
-
-  return runs.filter((run) => {
-    if (filters.environment && run.environmentId !== filters.environment) {
-      return false
-    }
-    if (filters.server && run.serverId !== filters.server) {
-      return false
-    }
-    if (filters.status && run.status !== filters.status) {
-      return false
-    }
-    if (since && new Date(run.createdAt) < since) {
-      return false
-    }
-    return true
-  })
-}
-
-function getSinceDate(time: string | undefined) {
-  if (!time) {
-    return null
-  }
-  const days = time === '24h' ? 1 : time === '7d' ? 7 : time === '30d' ? 30 : 0
-  if (!days) {
-    return null
-  }
-  const date = new Date()
-  date.setDate(date.getDate() - days)
-  return date
-}
-
-function BackupRunRestoreActions({
-  artifacts,
-  composeServices,
-  composeVolumes,
-  disabled,
-  restoringArtifactId,
-  run,
-  onRestore,
-}: {
-  artifacts: Array<ProjectBackupArtifact>
-  composeServices: Array<string>
-  composeVolumes: Array<string>
-  disabled: boolean
-  restoringArtifactId: string | null
-  run: ProjectBackupRun
-  onRestore: (input: {
-    artifact: ProjectBackupArtifact
-    restoreCommand?: string
-    run: ProjectBackupRun
-    targetService?: string
-    targetVolume?: string
-  }) => void
-}) {
-  const restorableArtifacts = artifacts.filter(
-    (artifact) => artifact.type === 'volume' || artifact.type === 'database',
-  )
-  const [selectedArtifact, setSelectedArtifact] =
-    useState<ProjectBackupArtifact | null>(null)
-
-  if (run.status !== 'succeeded' || restorableArtifacts.length === 0) {
-    return <span />
-  }
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={disabled}
-            aria-label="Backup run actions"
-          >
-            <MoreHorizontalIcon />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          {restorableArtifacts.map((artifact) => (
-            <DropdownMenuItem
-              key={artifact.id}
-              onSelect={(event) => {
-                event.preventDefault()
-                setSelectedArtifact(artifact)
-              }}
-            >
-              Restore {formatArtifactLabel(artifact)}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {selectedArtifact ? (
-        <RestoreArtifactDialog
-          artifact={selectedArtifact}
-          composeServices={composeServices}
-          composeVolumes={composeVolumes}
-          isRestoring={restoringArtifactId === selectedArtifact.id}
-          open
-          run={run}
-          onOpenChange={(open) => {
-            if (!open) {
-              setSelectedArtifact(null)
-            }
-          }}
-          onRestore={(input) => {
-            onRestore(input)
-            setSelectedArtifact(null)
-          }}
-        />
-      ) : null}
-    </>
-  )
-}
-
-function RestoreArtifactDialog({
-  artifact,
-  composeServices,
-  composeVolumes,
-  isRestoring,
-  open,
-  run,
-  onOpenChange,
-  onRestore,
-}: {
-  artifact: ProjectBackupArtifact
-  composeServices: Array<string>
-  composeVolumes: Array<string>
-  isRestoring: boolean
-  open: boolean
-  run: ProjectBackupRun
-  onOpenChange: (open: boolean) => void
-  onRestore: (input: {
-    artifact: ProjectBackupArtifact
-    restoreCommand?: string
-    run: ProjectBackupRun
-    targetService?: string
-    targetVolume?: string
-  }) => void
-}) {
-  const artifactName = inferArtifactName(artifact)
-  const [targetVolume, setTargetVolume] = useState(
-    artifact.type === 'volume'
-      ? (composeVolumes.find((volume) => volume === artifactName) ??
-          composeVolumes.at(0) ??
-          artifactName)
-      : '',
-  )
-  const [targetService, setTargetService] = useState(
-    artifact.type === 'database'
-      ? (composeServices.find((service) => service === artifactName) ??
-          composeServices.at(0) ??
-          artifactName)
-      : '',
-  )
-  const [restoreCommand, setRestoreCommand] = useState(
-    artifact.type === 'database'
-      ? getDefaultRestoreCommand(targetService || artifactName)
-      : '',
-  )
-  const canRestore =
-    artifact.type === 'volume'
-      ? targetVolume.trim() !== ''
-      : targetService.trim() !== '' && restoreCommand.trim() !== ''
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Restore {formatArtifactLabel(artifact)}</DialogTitle>
-          <DialogDescription>
-            This queues a restore job against {run.environmentName}. Volume
-            restores stop the runtime while files are replaced.
-          </DialogDescription>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel>Source artifact</FieldLabel>
-            <Input
-              readOnly
-              value={`${artifact.storage} · ${artifact.objectKey}`}
-            />
-          </Field>
-          {artifact.type === 'volume' ? (
-            <Field>
-              <FieldLabel>Target volume</FieldLabel>
-              <Select value={targetVolume} onValueChange={setTargetVolume}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select volume" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from(new Set([artifactName, ...composeVolumes]))
-                    .filter(Boolean)
-                    .map((volume) => (
-                      <SelectItem key={volume} value={volume}>
-                        {volume}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : (
-            <>
-              <Field>
-                <FieldLabel>Target service</FieldLabel>
-                <Select
-                  value={targetService}
-                  onValueChange={(value) => {
-                    setTargetService(value)
-                    setRestoreCommand(getDefaultRestoreCommand(value))
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from(new Set([artifactName, ...composeServices]))
-                      .filter(Boolean)
-                      .map((service) => (
-                        <SelectItem key={service} value={service}>
-                          {service}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field>
-                <FieldLabel>Restore command</FieldLabel>
-                <Input
-                  className="font-mono text-[13px]"
-                  value={restoreCommand}
-                  onChange={(event) => setRestoreCommand(event.target.value)}
-                />
-                <FieldDescription>
-                  The decompressed dump is streamed to stdin.
-                </FieldDescription>
-              </Field>
-            </>
-          )}
-        </FieldGroup>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={isRestoring}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={!canRestore || isRestoring}
-            onClick={() =>
-              onRestore({
-                artifact,
-                run,
-                targetVolume,
-                targetService,
-                restoreCommand,
-              })
-            }
-          >
-            {isRestoring ? (
-              <LoaderIcon data-icon="inline-start" className="animate-spin" />
-            ) : null}
-            Queue restore
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 
@@ -2671,115 +1744,6 @@ function BackupStatusIcon({
   return <BanIcon className="size-4 shrink-0 text-muted-foreground" />
 }
 
-function formatSchedule(
-  schedule: ProjectContext['backupConfigs'][number]['schedule'],
-) {
-  return (
-    cronPresets.find((preset) => preset.value === schedule.cron)?.label ??
-    schedule.cron
-  )
-}
-
-function formatStatus(status: ProjectBackupRun['status']) {
-  return status.charAt(0).toUpperCase() + status.slice(1)
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
-}
-
-function formatBackupArtifacts(artifacts: ProjectBackupRun['artifacts']) {
-  if (artifacts.length === 0) {
-    return 'No artifacts'
-  }
-
-  const local = artifacts.filter(
-    (artifact) => artifact.storage === 'local',
-  ).length
-  const remote = artifacts.filter(
-    (artifact) => artifact.storage === 'remote',
-  ).length
-  const size = artifacts.reduce(
-    (total, artifact) => total + artifact.sizeBytes,
-    0,
-  )
-
-  return `${local} local, ${remote} remote · ${formatBytes(size)}`
-}
-
-function formatArtifactLabel(artifact: ProjectBackupArtifact) {
-  return `${artifact.type} ${inferArtifactName(artifact)}`
-}
-
-function inferArtifactName(artifact: ProjectBackupArtifact) {
-  const fileName = artifact.objectKey.split('/').at(-1) ?? artifact.objectKey
-  return fileName
-    .replace(/^\d+-/, '')
-    .replace(/\.sql\.gz$/, '')
-    .replace(/\.tar\.gz$/, '')
-    .replace(/\.json$/, '')
-}
-
-function getDefaultRestoreCommand(service: string) {
-  const normalized = service.toLowerCase()
-
-  if (normalized.includes('postgres')) {
-    return 'psql -U "$POSTGRES_USER"'
-  }
-  if (normalized.includes('mysql')) {
-    return 'mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD"'
-  }
-  if (normalized.includes('mariadb')) {
-    return 'mariadb -u "$MARIADB_USER" -p"$MARIADB_PASSWORD"'
-  }
-
-  return ''
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) {
-    return `${value} B`
-  }
-
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let size = value / 1024
-  let unitIndex = 0
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024
-    unitIndex += 1
-  }
-
-  return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`
-}
-
-function getDefaultBackupPrefix(
-  projectId: string,
-  environmentId: string,
-  backupId: string,
-) {
-  return `projects/${projectId}/environments/${environmentId}/backups/${backupId}`
-}
-
-function getDatabaseServiceOptions({
-  databaseDumps,
-  services,
-}: {
-  databaseDumps: ProjectBackupConfig['databaseDumps']
-  services: Array<string>
-}) {
-  return Array.from(
-    new Set(
-      [...services, ...databaseDumps.map((dump) => dump.service)]
-        .map((service) => service.trim())
-        .filter(Boolean),
-    ),
-  ).sort()
-}
-
 function toBackupDraft(backup: ProjectBackupConfig): BackupPolicyDraft {
   return {
     accessKeyId: backup.destination.accessKeyId ?? '',
@@ -2803,30 +1767,5 @@ function toBackupDraft(backup: ProjectBackupConfig): BackupPolicyDraft {
     volumeMode: backup.volumes.mode,
     volumeNames: backup.volumes.names,
     databaseDumps: backup.databaseDumps,
-  }
-}
-
-function isValidRetention(retention: ProjectBackupConfig['retention']) {
-  return [retention.local, retention.remote].every(
-    (item) =>
-      Number.isInteger(item.count) &&
-      item.count >= 0 &&
-      Number.isInteger(item.days) &&
-      item.days >= 0 &&
-      Number.isFinite(item.maxStorageGb) &&
-      item.maxStorageGb >= 0,
-  )
-}
-
-function isCronSchedule(value: string) {
-  return /^(\S+\s+){4}\S+$/.test(value.trim())
-}
-
-function isUrl(value: string) {
-  try {
-    new URL(value)
-    return true
-  } catch {
-    return false
   }
 }

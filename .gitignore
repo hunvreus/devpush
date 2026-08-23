@@ -13,7 +13,6 @@ backups/
 !app/src/server/backups/
 !app/src/server/backups/**
 __pycache__/
-legacy/
 
 # Dependencies and build output
 node_modules/

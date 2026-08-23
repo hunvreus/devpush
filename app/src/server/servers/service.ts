@@ -4,7 +4,10 @@ import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 
 import { reconcileReportedRuntimes } from '@/server/agents/reconciliation'
 import type { ReportedRuntime } from '@/server/agents/reconciliation'
-import { config } from '@/server/config'
+import { getAgentUpdate } from '@/server/agents/compatibility'
+import type { AgentUpdate } from '@/server/agents/compatibility'
+import { AgentRequestError } from '@/server/agents/protocol'
+import { config, currentAgentVersion } from '@/server/config'
 import { db } from '@/server/db'
 import {
   agentJobs,
@@ -48,6 +51,9 @@ export type ServerDetail = {
   name: string
   status: ServerStatus
   agentVersion: string | null
+  agentProtocolVersion: number | null
+  agentCapabilities: Array<string> | null
+  agentUpdate: AgentUpdate
   publicAddress: string | null
   lastSeenAt: string | null
   hostname: string | null
@@ -111,6 +117,8 @@ export async function requireTeamServer({
       name: servers.name,
       status: servers.status,
       agentVersion: servers.agentVersion,
+      agentProtocolVersion: servers.agentProtocolVersion,
+      agentCapabilities: servers.agentCapabilities,
       publicAddress: servers.publicAddress,
       lastSeenAt: servers.lastSeenAt,
       hostname: servers.hostname,
@@ -164,6 +172,15 @@ export async function requireTeamServer({
       lastSeenAt: server.lastSeenAt,
       now,
     }),
+    agentUpdate: server.lastSeenAt
+      ? getAgentUpdate({
+          agentVersion: server.agentVersion,
+          protocolVersion: server.agentProtocolVersion,
+          capabilities: server.agentCapabilities,
+          latestVersion: currentAgentVersion,
+          recommendedVersion: config.DEVPUSH_RECOMMENDED_AGENT_VERSION ?? null,
+        })
+      : { status: 'current', latestVersion: null, reason: null },
     lastSeenAt: server.lastSeenAt?.toISOString() ?? null,
     monitoring: monitoring.get(server.id) ?? {
       availabilityPercent: null,
@@ -478,27 +495,33 @@ export async function createServerInstallCommand({
 export async function registerAgent({
   token,
   agentVersion,
+  protocolVersion,
+  capabilities,
   publicAddress,
 }: {
   token: string
-  agentVersion: string | null
+  agentVersion?: string | null
+  protocolVersion?: number
+  capabilities?: Array<string>
   publicAddress: string | null
 }): Promise<AgentRegistration> {
-  const auth = await findServerForRegistrationToken(token)
+  const auth = await findServerForCredential(token)
   const server = auth.server
 
   if (server.status === 'deleted') {
-    throw new Error('Server was deleted.')
+    throw new AgentRequestError(403, 'Server was deleted.')
   }
 
   const now = new Date()
   const credential =
-    auth.kind === 'enrollment'
+    auth.credentialType === 'enrollment'
       ? `dpa_${randomBytes(32).toString('base64url')}`
       : undefined
   const updates = {
     status: 'connected' as const,
-    agentVersion,
+    ...(agentVersion ? { agentVersion } : {}),
+    ...(protocolVersion ? { agentProtocolVersion: protocolVersion } : {}),
+    ...(capabilities ? { agentCapabilities: capabilities } : {}),
     ...(publicAddress ? { publicAddress } : {}),
     lastSeenAt: now,
     ...(credential
@@ -511,7 +534,7 @@ export async function registerAgent({
   await recordServerHeartbeat({
     serverId: server.id,
     observedAt: now,
-    agentVersion,
+    agentVersion: agentVersion ?? null,
     publicAddress,
   })
 
@@ -526,6 +549,8 @@ export async function recordAgentHeartbeat({
   serverId,
   token,
   agentVersion,
+  protocolVersion,
+  capabilities,
   publicAddress,
   runtimeIds,
   runtimes,
@@ -534,7 +559,9 @@ export async function recordAgentHeartbeat({
 }: {
   serverId: string
   token: string
-  agentVersion: string | null
+  agentVersion?: string | null
+  protocolVersion?: number
+  capabilities?: Array<string>
   publicAddress: string | null
   runtimeIds?: Array<string>
   runtimes?: Array<ReportedRuntime>
@@ -545,12 +572,12 @@ export async function recordAgentHeartbeat({
   const server = auth.server
 
   if (server.id !== serverId) {
-    throw new Error('Agent token does not match this server.')
+    throw new AgentRequestError(401, 'Agent token does not match this server.')
   }
 
   const now = new Date()
   if (server.status !== 'deleted') {
-    if (auth.kind === 'pending') {
+    if (auth.credentialType === 'pending') {
       await db
         .update(servers)
         .set({
@@ -566,7 +593,9 @@ export async function recordAgentHeartbeat({
 
     const updates = {
       status: 'connected' as const,
-      agentVersion,
+      ...(agentVersion ? { agentVersion } : {}),
+      ...(protocolVersion ? { agentProtocolVersion: protocolVersion } : {}),
+      ...(capabilities ? { agentCapabilities: capabilities } : {}),
       ...(publicAddress ? { publicAddress } : {}),
       ...(system?.hostname ? { hostname: system.hostname } : {}),
       ...(system?.operatingSystem
@@ -586,7 +615,7 @@ export async function recordAgentHeartbeat({
     await recordServerHeartbeat({
       serverId: server.id,
       observedAt: now,
-      agentVersion,
+      agentVersion: agentVersion ?? null,
       publicAddress,
     })
     if (metrics) {
@@ -627,12 +656,15 @@ export async function rotateAgentCredential({
   const server = auth.server
 
   if (server.id !== serverId) {
-    throw new Error('Agent credential does not match this server.')
+    throw new AgentRequestError(
+      401,
+      'Agent credential does not match this server.',
+    )
   }
   if (server.status === 'deleted') {
-    throw new Error('Server was deleted.')
+    throw new AgentRequestError(403, 'Server was deleted.')
   }
-  if (auth.kind === 'pending') {
+  if (auth.credentialType === 'pending') {
     await db
       .update(servers)
       .set({
@@ -825,7 +857,7 @@ export async function requireAgentServer({
   const { server } = await requireAgentCredential(token)
 
   if (server.id !== serverId) {
-    throw new Error('Agent token does not match this server.')
+    throw new AgentRequestError(401, 'Agent token does not match this server.')
   }
 
   return server
@@ -859,7 +891,7 @@ function validateServerMachineName(name: string) {
   }
 }
 
-async function findServerForRegistrationToken(token: string) {
+async function findServerForCredential(token: string) {
   const tokenHash = hashToken(token)
   const rows = await db
     .select({
@@ -877,11 +909,6 @@ async function findServerForRegistrationToken(token: string) {
           eq(servers.enrollmentTokenHash, tokenHash),
           gt(servers.enrollmentTokenExpiresAt, new Date()),
         ),
-        and(
-          eq(servers.enrollmentTokenHash, tokenHash),
-          isNull(servers.enrollmentTokenExpiresAt),
-          inArray(servers.status, ['connected', 'disconnected']),
-        ),
         eq(servers.agentCredentialHash, tokenHash),
         eq(servers.pendingAgentCredentialHash, tokenHash),
       ),
@@ -890,20 +917,18 @@ async function findServerForRegistrationToken(token: string) {
   const server = rows.at(0)
 
   if (!server) {
-    throw new Error('Invalid or expired agent credential.')
+    throw new AgentRequestError(401, 'Invalid or expired agent credential.')
   }
 
   if (server.status === 'disabled') {
-    throw new Error('Server is disabled.')
+    throw new AgentRequestError(403, 'Server is disabled.')
   }
 
   return {
     server,
-    kind:
+    credentialType:
       server.enrollmentTokenHash === tokenHash
-        ? server.enrollmentTokenExpiresAt
-          ? ('enrollment' as const)
-          : ('legacy' as const)
+        ? ('enrollment' as const)
         : server.pendingAgentCredentialHash === tokenHash
           ? ('pending' as const)
           : ('active' as const),
@@ -911,21 +936,13 @@ async function findServerForRegistrationToken(token: string) {
 }
 
 async function requireAgentCredential(token: string) {
-  const auth = await findServerForRegistrationToken(token)
+  const auth = await findServerForCredential(token)
 
-  if (auth.kind === 'enrollment') {
-    throw new Error('Enrollment tokens cannot authenticate agent requests.')
-  }
-
-  if (auth.kind === 'legacy') {
-    await db
-      .update(servers)
-      .set({
-        agentCredentialHash: auth.server.enrollmentTokenHash,
-        enrollmentTokenHash: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(servers.id, auth.server.id))
+  if (auth.credentialType === 'enrollment') {
+    throw new AgentRequestError(
+      401,
+      'Enrollment tokens cannot authenticate agent requests.',
+    )
   }
 
   return auth

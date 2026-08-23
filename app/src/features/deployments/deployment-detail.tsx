@@ -40,10 +40,10 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
   const hasGitSha = deployment.gitSha !== 'pending'
   const shouldRefresh =
     deployment.status === 'queued' || deployment.status === 'running'
-  const visitUrl = environment.defaultHost
+  const visitUrl = deployment.deploymentHost
     ? routeUrl({
-        host: environment.defaultHost,
-        https: environment.publicRoutes.at(0)?.https ?? true,
+        host: deployment.deploymentHost,
+        https: deployment.deploymentRouteHttps,
       })
     : null
   const canVisit = deployment.status === 'succeeded' && visitUrl !== null

@@ -17,6 +17,7 @@ import {
   user,
 } from '@/server/db/schema'
 import { claimNextAgentJob } from '@/server/agents/jobs'
+import { currentAgentCapabilities } from '@/server/agents/compatibility'
 import {
   createBackupRun,
   listEnvironmentBackupRuns,
@@ -269,7 +270,14 @@ describe('backup service integration', () => {
         .where(inArray(backupRuns.id, [queued.backupRunId])),
     ])
 
-    const claimedJob = await claimNextAgentJob({ serverId, token })
+    await expect(claimNextAgentJob({ serverId, token })).resolves.toBeNull()
+
+    const claimedJob = await claimNextAgentJob({
+      serverId,
+      token,
+      protocolVersion: 1,
+      capabilities: [...currentAgentCapabilities],
+    })
 
     expect(jobRows).toHaveLength(1)
     expect(jobRows[0]).toMatchObject({

@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -176,6 +177,19 @@ export function TeamServers({
                     </TooltipTrigger>
                     <TooltipContent>Last seen</TooltipContent>
                   </Tooltip>
+                ) : null}
+
+                {'agentUpdate' in server &&
+                server.agentUpdate.status !== 'current' ? (
+                  <Badge
+                    variant={
+                      server.agentUpdate.status === 'required'
+                        ? 'destructive'
+                        : 'outline'
+                    }
+                  >
+                    Agent update {server.agentUpdate.status}
+                  </Badge>
                 ) : null}
 
                 <div className="ml-auto flex items-center gap-1">
@@ -565,7 +579,7 @@ function ServerActionsMenu({
   )
 }
 
-export function InstallServerDialog({
+function InstallServerDialog({
   open,
   teamSlug,
   server,

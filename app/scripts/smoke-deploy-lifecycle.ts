@@ -7,6 +7,10 @@ import {
   completeDeploymentJob,
   recordDeploymentProgress,
 } from '@/server/agents/jobs'
+import {
+  currentAgentCapabilities,
+  currentAgentProtocolVersion,
+} from '@/server/agents/compatibility'
 import { db } from '@/server/db'
 import {
   aliases,
@@ -26,9 +30,10 @@ import {
   getProjectContext,
 } from '@/server/projects/service'
 import {
-  buildComposeProjectName,
+  buildRuntimeId,
   encryptDeploymentEnvVars,
 } from '@/server/projects/deployment-config'
+import { createComposeRuntimeConfig } from '@/server/projects/runtime-config'
 import {
   createPendingServer,
   recordAgentHeartbeat,
@@ -110,8 +115,10 @@ async function main() {
       githubRepoId: 123456789,
       githubRepo: 'devpush/smoke-compose',
       githubInstallationId: installationId,
-      composePath: 'compose.yml',
-      releaseCommand: 'echo release',
+      runtimeConfig: createComposeRuntimeConfig({
+        path: 'compose.yml',
+        releaseCommand: 'echo release',
+      }),
       routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
       envVars: [{ key: 'SMOKE_VALUE', value: 'ok', environment: '' }],
     })
@@ -123,7 +130,7 @@ async function main() {
       slug: 'production',
       branch: 'main',
       isProduction: true,
-      runtimeId: buildComposeProjectName({ projectId, environmentId }),
+      runtimeId: buildRuntimeId({ projectId, environmentId }),
     })
     await db.insert(aliases).values({
       id: `smoke-hostname-${suffix}`,
@@ -145,6 +152,8 @@ async function main() {
     const registration = await registerAgent({
       token,
       agentVersion: 'smoke',
+      capabilities: [...currentAgentCapabilities],
+      protocolVersion: currentAgentProtocolVersion,
       publicAddress: '203.0.113.10',
     })
     token = registration.credential ?? token
@@ -163,6 +172,8 @@ async function main() {
       serverId: registration.serverId,
       token,
       agentVersion: 'smoke',
+      capabilities: [...currentAgentCapabilities],
+      protocolVersion: currentAgentProtocolVersion,
       publicAddress: null,
     })
     const heartbeatServerRows = await db
@@ -230,7 +241,7 @@ async function main() {
       )
     }
 
-    if (job.compose.envVars.at(0)?.key !== 'SMOKE_VALUE') {
+    if (job.envVars.at(0)?.key !== 'SMOKE_VALUE') {
       throw new Error('Expected environment variables in claimed job.')
     }
 
@@ -424,7 +435,7 @@ async function main() {
       name: `Broken smoke app ${suffix}`,
       githubRepoId: 987654321,
       githubRepo: 'devpush/broken-smoke-compose',
-      composePath: 'compose.yml',
+      runtimeConfig: createComposeRuntimeConfig({ path: 'compose.yml' }),
       routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
     })
     await db.insert(environments).values({
@@ -435,7 +446,7 @@ async function main() {
       slug: 'production',
       branch: 'main',
       isProduction: true,
-      runtimeId: buildComposeProjectName({
+      runtimeId: buildRuntimeId({
         projectId: brokenProjectId,
         environmentId: brokenEnvironmentId,
       }),
@@ -467,11 +478,18 @@ async function main() {
         url: null,
       },
       config: {
-        version: 2,
-        composePath: 'compose.yml',
-        releaseCommand: null,
-        releaseService: 'web',
-        readinessPath: null,
+        schemaVersion: 1,
+        runtime: {
+          type: 'compose',
+          path: 'compose.yml',
+          strategy: 'managed',
+          releaseCommand: null,
+          releaseService: 'web',
+          readinessPath: null,
+          deployCommand: null,
+          rollbackCommand: null,
+          timeoutSeconds: 1800,
+        },
         routes: [
           {
             host: `${brokenProjectSlug}.devpush.local`,
@@ -484,7 +502,7 @@ async function main() {
         ],
       },
       envVars: encryptDeploymentEnvVars([]),
-      runtimeId: buildComposeProjectName({
+      runtimeId: buildRuntimeId({
         projectId: brokenProjectId,
         environmentId: brokenEnvironmentId,
       }),
@@ -558,11 +576,18 @@ async function main() {
         url: null,
       },
       config: {
-        version: 2,
-        composePath: 'compose.yml',
-        releaseCommand: 'echo release',
-        releaseService: 'web',
-        readinessPath: null,
+        schemaVersion: 1,
+        runtime: {
+          type: 'compose',
+          path: 'compose.yml',
+          strategy: 'managed',
+          releaseCommand: 'echo release',
+          releaseService: 'web',
+          readinessPath: null,
+          deployCommand: null,
+          rollbackCommand: null,
+          timeoutSeconds: 1800,
+        },
         routes: [
           {
             host: `${projectName}.devpush.local`,
@@ -575,7 +600,7 @@ async function main() {
         ],
       },
       envVars: encryptDeploymentEnvVars([{ key: 'SMOKE_VALUE', value: 'ok' }]),
-      runtimeId: buildComposeProjectName({ projectId, environmentId }),
+      runtimeId: buildRuntimeId({ projectId, environmentId }),
       startedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
     })
 

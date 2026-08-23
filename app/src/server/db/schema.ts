@@ -341,6 +341,7 @@ export const githubInstallations = pgTable(
   'github_installations',
   {
     installationId: bigint('installation_id', { mode: 'number' }).primaryKey(),
+    accountId: bigint('account_id', { mode: 'number' }),
     accountLogin: text('account_login').notNull(),
     accountType: text('account_type').notNull(),
     repositorySelection: text('repository_selection').notNull(),
@@ -353,6 +354,7 @@ export const githubInstallations = pgTable(
       .defaultNow(),
   },
   (table) => [
+    index('github_installations_account_id_idx').on(table.accountId),
     index('github_installations_account_idx').on(table.accountLogin),
     index('github_installations_status_idx').on(table.status),
   ],
@@ -369,6 +371,8 @@ export const servers = pgTable(
     handle: text('handle').notNull(),
     status: serverStatus('status').notNull().default('pending'),
     agentVersion: text('agent_version'),
+    agentProtocolVersion: integer('agent_protocol_version'),
+    agentCapabilities: jsonb('agent_capabilities').$type<Array<string>>(),
     publicAddress: text('public_address'),
     hostname: text('hostname'),
     operatingSystem: text('operating_system'),
@@ -506,10 +510,11 @@ export const projects = pgTable(
     avatarPath: text('avatar_path'),
     routes: jsonb('routes'),
     envVars: jsonb('env_vars'),
-    composePath: text('compose_path'),
-    releaseCommand: text('release_command'),
-    releaseService: text('release_service'),
-    readinessPath: text('readiness_path'),
+    runtimeConfig: jsonb('runtime_config')
+      .notNull()
+      .default(
+        sql`'{"type":"compose","path":null,"strategy":"managed","releaseCommand":null,"releaseService":null,"readinessPath":null,"deployCommand":null,"rollbackCommand":null,"timeoutSeconds":1800}'::jsonb`,
+      ),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -790,7 +795,7 @@ export const backupArtifacts = pgTable(
       .notNull()
       .references(() => backupRuns.id, { onDelete: 'cascade' }),
     type: backupArtifactType('type').notNull(),
-    storage: backupArtifactStorage('storage').notNull().default('remote'),
+    storage: backupArtifactStorage('storage').notNull(),
     objectKey: text('object_key').notNull(),
     checksumSha256: text('checksum_sha256').notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),

@@ -158,7 +158,7 @@ export async function updateUserGeneral({
   }
 }
 
-export async function listAuthAccounts(
+async function listAuthAccounts(
   userId: string,
 ): Promise<Array<AuthAccountSummary>> {
   const rows = await listAuthAccountRows(userId)

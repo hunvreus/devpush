@@ -91,15 +91,15 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl enable --now docker
 fi
 
-if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
+if ! docker compose version >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
     apt-get install -y docker-compose-plugin
   fi
 fi
 
-if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
-  echo "Docker Compose is required. Install the Docker Compose plugin or docker-compose and run this command again." >&2
+if ! docker compose version >/dev/null 2>&1; then
+  echo "The Docker Compose plugin is required. Install it and run this command again." >&2
   exit 1
 fi
 

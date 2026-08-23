@@ -4,6 +4,10 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 import { config } from '@/server/config'
+import {
+  getObjectStore,
+  isRemoteObjectStorageConfigured,
+} from '@/server/storage/object-store'
 
 export class AgentBinaryNotConfiguredError extends Error {}
 export class AgentBinaryUnsupportedPlatformError extends Error {}
@@ -21,11 +25,9 @@ export type AgentBinaryPlatform = {
 }
 
 export type AgentBinary = {
-  file: {
-    size: number
-  }
+  body: Buffer
   filename: string
-  path: string
+  size: number
 }
 
 export type AgentBinaryStatus =
@@ -42,11 +44,18 @@ export async function getAgentBinary(
   platform: AgentBinaryPlatform = {},
 ): Promise<AgentBinary> {
   const normalizedPlatform = normalizePlatform(platform)
+  const filename = binaryFilename(normalizedPlatform)
+
+  if (isRemoteObjectStorageConfigured()) {
+    const { body } = await getObjectStore().get(`agents/${filename}`)
+    return { body, filename, size: body.byteLength }
+  }
+
   const path = getAgentBinaryPath(normalizedPlatform)
 
   if (!path) {
     throw new AgentBinaryNotConfiguredError(
-      'Configure DEVPUSH_AGENT_BINARY_DIR before adding servers.',
+      'Configure DEVPUSH_AGENT_BINARY_DIR or object storage before adding servers.',
     )
   }
 
@@ -58,12 +67,13 @@ export async function getAgentBinary(
 
   await access(path, constants.R_OK | constants.X_OK)
 
-  return { file, filename: binaryFilename(normalizedPlatform), path }
+  const body = await readFile(path)
+  return { body, filename, size: file.size }
 }
 
 export async function getAgentBinaryStatus(): Promise<AgentBinaryStatus> {
   try {
-    if (config.DEVPUSH_AGENT_BINARY_DIR) {
+    if (config.DEVPUSH_AGENT_BINARY_DIR || isRemoteObjectStorageConfigured()) {
       await Promise.all(requiredDirectoryPlatforms.map(getAgentBinary))
     } else {
       await getAgentBinary()
@@ -88,9 +98,7 @@ export async function getAgentBinaryChecksum(
   platform: AgentBinaryPlatform = {},
 ) {
   const binary = await getAgentBinary(platform)
-  const digest = createHash('sha256')
-    .update(await readFile(binary.path))
-    .digest('hex')
+  const digest = createHash('sha256').update(binary.body).digest('hex')
 
   return { ...binary, digest }
 }

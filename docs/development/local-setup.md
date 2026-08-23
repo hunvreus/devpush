@@ -12,15 +12,15 @@
 ```bash
 cp app/.env.example app/.env
 pnpm --dir app install
-docker-compose -f deploy/compose.yml up -d
-pnpm --dir app db:push
+docker compose -f deploy/compose.yml up -d
+pnpm --dir app db:migrate
 pnpm --dir app dev
 ```
 
 The app runs at the fixed local OAuth origin `http://localhost:7429`. Startup
 fails if that port is already in use.
 
-For normal local MVP testing with the Lima agent VM:
+For normal local testing with the Lima agent VM:
 
 ```bash
 pnpm dev:start
@@ -35,7 +35,7 @@ when testing only the web app. The dev server log is `.tmp/devpush-dev.log`.
 
 ## Production control plane
 
-The MVP production Compose file builds the app and the Linux agent binary into
+The production Compose file builds the app and the Linux agent binary into
 one control-plane image:
 
 ```bash
@@ -43,16 +43,13 @@ cp deploy/.env.production.example deploy/.env.production
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 ```
 
-If Compose is installed as the standalone v2 binary on your host, run the same
-command with `docker-compose`.
-
 Set `BETTER_AUTH_URL` in `deploy/.env.production` to the public HTTPS URL before
 adding servers. The server installer uses that URL to register agents and
 download `/api/install/agent/binary`.
 
-The app container runs reviewed SQL migrations with `pnpm --dir app db:migrate`
-before starting the Node server. It never runs `drizzle-kit push` in
-production. It also mounts the `app_uploads` named volume at
+The one-shot `migrate` service runs reviewed SQL migrations with
+`pnpm --dir app db:migrate` before starting the Node server. It never runs
+`drizzle-kit push` in production. The app also mounts the `app_uploads` named volume at
 `/repo/app/public/uploads` so uploaded avatars are not lost when the app
 container is recreated.
 
@@ -150,7 +147,7 @@ lifecycle before testing a real host.
 
 `pnpm smoke:agent` runs the agent's real Docker Compose deployment path against
 local Docker. It creates a temporary Git repo, deploys it with Compose, runs the
-release command, verifies the mounted output, and tears the Compose project
+pre-deploy command, verifies the mounted output, and tears the Compose project
 down.
 
 The app test suite also executes the generated agent installer in a staged
@@ -158,7 +155,7 @@ filesystem root. That verifies the installer writes `agent.env`, installs the
 agent binary, generates the systemd unit, and calls `systemctl enable --now`
 without touching the real host filesystem.
 
-`pnpm validate:local` runs the local MVP gate before a remote VPS attempt:
+`pnpm validate:local` runs the local validation gate before a remote VPS attempt:
 TypeScript, linting, app tests, the control-plane deploy lifecycle smoke, agent
 tests, smoke-mode config validation, and the real Docker/Traefik agent smoke.
 Set `DEVPUSH_SKIP_DOCKER_SMOKE=1` only when Docker is unavailable.
@@ -183,7 +180,7 @@ This checks the production Compose config, builds the app image, and verifies
 that the runtime image contains the Linux agent binary, the built server
 entrypoint, and the migration tooling.
 
-## Remote MVP validation
+## Remote validation
 
 Use this after the control plane is reachable from the internet and
 `DEVPUSH_AGENT_BINARY_DIR` points to Linux agent binaries.
@@ -217,7 +214,7 @@ The script checks:
   running.
 - Optionally, the deployed public route responds within a retry window.
 - A success summary is written to
-  `.tmp/remote-mvp-validation-<timestamp>.md`, or to
+  `.tmp/remote-validation-<timestamp>.md`, or to
   `DEVPUSH_REMOTE_SUMMARY_PATH` when set.
 
 If a remote validation step fails, the script prints best-effort diagnostics:
@@ -238,7 +235,7 @@ After that, complete the product flow in the UI:
 4. Set Compose file path to `compose.yml`.
 5. Set the public route service to `web` and port to `3000`.
 6. Set readiness path to `/health`.
-7. Leave release command empty.
+7. Leave the pre-deploy command empty.
 8. Trigger a deploy.
 9. Confirm the deployment reaches `Succeeded`.
 10. Visit or curl the configured public route.
@@ -254,7 +251,7 @@ DEVPUSH_PROJECT_URL_TIMEOUT=180 \
 pnpm validate:remote
 ```
 
-For the full remote MVP proof, require the deployed route and managed Traefik
+For the full remote proof, require the deployed route and managed Traefik
 checks:
 
 ```bash
@@ -328,13 +325,18 @@ GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVA
 GITHUB_APP_WEBHOOK_SECRET=...
 ```
 
-Configure the GitHub App with repository **Contents: Read-only** permission and
-subscribe it to **Push** events. Enable webhooks, use the same webhook secret as
-`GITHUB_APP_WEBHOOK_SECRET`, generate a private key for
-`GITHUB_APP_PRIVATE_KEY`, and enable OAuth for the callback below. GitHub's
-[registration guide](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app)
-describes the corresponding app settings. Automated app provisioning is not yet
-implemented; the required manifest/helper remains tracked in `TODO.md`.
+Create a correctly configured app and write the generated credentials with:
+
+```bash
+pnpm setup:github-app -- --env app/.env
+```
+
+The helper opens GitHub for approval, requests repository **Contents: Read-only**
+permission, subscribes to **Push** and **Installation target**, configures OAuth
+and webhooks, and exchanges the one-time manifest code locally. GitHub delivers
+**Installation** and **Installation repositories** lifecycle events to every
+GitHub App automatically; they are not selectable subscriptions. Existing apps
+must be updated manually to match these permissions and selectable events.
 
 Setup callback:
 
@@ -350,6 +352,26 @@ http://localhost:7429/api/github/webhook
 
 Replace `http://localhost:7429` with the configured `BETTER_AUTH_URL` origin in
 production.
+
+### Object storage
+
+No storage configuration is required. Avatars use
+`app/public/uploads/avatars` locally and the production Compose volume persists
+that directory. To use Cloudflare R2 or another S3-compatible service, set all
+of these values:
+
+```env
+DEVPUSH_STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+DEVPUSH_STORAGE_REGION=auto
+DEVPUSH_STORAGE_BUCKET=devpush
+DEVPUSH_STORAGE_ACCESS_KEY_ID=...
+DEVPUSH_STORAGE_SECRET_ACCESS_KEY=...
+```
+
+When object storage is configured, avatars are private objects proxied by the
+control plane. Agent binaries use the `agents/devpush-agent-linux-*` keys.
+Production Compose publishes its packaged binaries automatically; source-based
+installs can run `pnpm --dir app storage:sync-agents` after building them.
 
 ## Agent
 

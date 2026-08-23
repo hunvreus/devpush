@@ -20,6 +20,7 @@ import {
   getPageItems,
   TablePager,
 } from '@/components/table-pager'
+import { SectionNavigation } from '@/components/section-navigation'
 import { Alert, AlertTitle } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -1306,22 +1307,15 @@ export function TeamSettings({
           </SettingsSection>
         </div>
 
-        <aside className="hidden text-sm lg:block">
-          <nav className="sticky top-[122px] flex flex-col gap-y-1">
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#general">General</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#members">Members</a>
-            </Button>
-            <Button
-              asChild
-              variant="ghost"
-              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <a href="#danger">Danger</a>
-            </Button>
-          </nav>
+        <aside className="hidden lg:block">
+          <SectionNavigation
+            className="sticky top-[122px]"
+            items={[
+              { href: '#general', label: 'General' },
+              { href: '#members', label: 'Members' },
+              { href: '#danger', label: 'Danger', destructive: true },
+            ]}
+          />
         </aside>
       </div>
     </div>

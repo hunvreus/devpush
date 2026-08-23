@@ -2,27 +2,19 @@
 
 ## Near-term
 
-- Align route loading states with their final page layouts: update the stale
-  project overview skeleton and add route-level pending states for deployment
-  details, logs, server details, and settings so navigation never flashes blank
-  content.
-- Restore the deployment URL contract with revision-specific routed runtimes:
-  immutable deployment URLs, moving branch URLs, and moving environment URLs
-  (with the production project hostname as the environment special case).
 - Complete clean remote VPS validation by running `pnpm validate:remote:proof`
   with public HTTPS control-plane config, a valid GitHub App private key, server
   install, GitHub-backed Compose deploy, public route smoke, and the generated
-  `.tmp/remote-mvp-validation-<timestamp>.md` summary artifact.
-- Add GitHub App provisioning to the deploy/install workflow: keep a manifest in
-  the repository with the required callback URLs, permissions, and webhook
-  events, and document updating existing apps separately.
-- Make GitHub installation metadata resilient: persist the target account's
-  stable GitHub ID, refresh display metadata on lifecycle/rename webhooks, and
-  recover stale installation references on use without caching installation
-  access tokens.
+  `.tmp/remote-validation-<timestamp>.md` summary artifact.
+- Add a single-Dockerfile application runtime with image build, managed
+  ingress, health/readiness, logs, and rolling replacement semantics that do
+  not require a Compose file.
 
 ## Later
 
+- Design deploy-button and reusable project-template configuration, including
+  how templates are created, shared, imported, and passed through deployment
+  URLs. Do not introduce repository-owned project settings as part of this work.
 - Backups: add multi-artifact restore selection, restore-to-new-environment, and
   dedicated restore history.
 - Backups: add an optional Cloudflare OAuth setup flow for R2 that can create or
@@ -31,6 +23,12 @@
   the 24-hour Postgres UI window.
 - Compose graph visualization.
 - Raw Compose template editor.
+- Evaluate a Docker Swarm runtime driver after the single-Dockerfile runtime,
+  including manager/worker topology, registry-backed images, stack
+  compatibility preflight, rolling updates, and rollback behavior.
 - Hosted wildcard domain management.
+- Add managed fallback pages for first deployments that are still starting and
+  removed immutable deployment aliases, including an authenticated redeploy
+  action for historical deployments.
 - Notification rules.
 - Billing.

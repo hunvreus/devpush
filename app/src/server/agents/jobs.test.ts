@@ -29,11 +29,18 @@ describe('agent deployment jobs', () => {
         teamId: 'team-1',
       },
       config: {
-        version: 2,
-        composePath: 'compose.yml',
-        releaseCommand: null,
-        releaseService: 'web',
-        readinessPath: null,
+        schemaVersion: 1,
+        runtime: {
+          type: 'compose',
+          path: 'compose.yml',
+          strategy: 'managed',
+          releaseCommand: null,
+          releaseService: 'web',
+          readinessPath: null,
+          deployCommand: null,
+          rollbackCommand: null,
+          timeoutSeconds: 1800,
+        },
         routes: [
           {
             host: 'app.devpush.local',

@@ -6,9 +6,10 @@ import {
 } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 
-import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectLayout } from '@/features/projects/project-layout'
 import { ProjectOverview } from '@/features/projects/project-overview'
+import { ProjectRoutePending } from '@/features/projects/project-route-pending'
+import type { ProjectPendingSection } from '@/features/projects/project-route-pending'
 import { projectContextQueryOptions } from '@/lib/project-context-query'
 import { useVisibleRefresh } from '@/lib/use-visible-refresh'
 
@@ -50,17 +51,21 @@ function ProjectRoute() {
 }
 
 function ProjectPending() {
-  return (
-    <div className="space-y-8" aria-label="Loading project">
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-12 rounded-lg" />
-        <Skeleton className="h-8 w-48" />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Skeleton className="h-36 rounded-xl" />
-        <Skeleton className="h-36 rounded-xl" />
-      </div>
-      <Skeleton className="h-48 rounded-xl" />
-    </div>
-  )
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+
+  return <ProjectRoutePending section={getPendingSection(pathname)} />
+}
+
+function getPendingSection(pathname: string): ProjectPendingSection {
+  if (pathname.endsWith('/settings')) return 'settings'
+  if (pathname.endsWith('/logs')) return 'logs'
+  if (pathname.includes('/backups')) return 'backups'
+
+  const deploymentPath = pathname.split('/deployments/')[1]
+  if (deploymentPath) return 'deployment'
+  if (pathname.endsWith('/deployments')) return 'deployments'
+
+  return 'overview'
 }

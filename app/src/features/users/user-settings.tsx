@@ -65,6 +65,7 @@ import { authClient } from '@/lib/auth/client'
 import { getErrorMessage } from '@/lib/error-message'
 import { isValidEmail } from '@/lib/validation'
 import { ResourceAvatar } from '@/components/resource-avatar'
+import { SectionNavigation } from '@/components/section-navigation'
 import type { AuthUserContext } from '@/server/auth/context'
 import {
   deleteUserAccountAction,
@@ -282,22 +283,16 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
         </header>
 
         <div className="flex flex-row-reverse gap-x-8">
-          <nav className="sticky top-8 hidden h-full min-w-64 flex-col gap-y-1 lg:flex">
-            {['General', 'Email', 'Authentication', 'Teams', 'Danger'].map(
-              (item) => (
-                <Button
-                  asChild
-                  variant="ghost"
-                  className={`justify-start font-normal ${
-                    item === 'Danger' ? 'text-destructive' : ''
-                  }`}
-                  key={item}
-                >
-                  <a href={`#${item.toLowerCase()}`}>{item}</a>
-                </Button>
-              ),
-            )}
-          </nav>
+          <SectionNavigation
+            className="sticky top-8 hidden h-full min-w-64 lg:flex"
+            items={[
+              { href: '#general', label: 'General' },
+              { href: '#email', label: 'Email' },
+              { href: '#authentication', label: 'Authentication' },
+              { href: '#teams', label: 'Teams' },
+              { href: '#danger', label: 'Danger', destructive: true },
+            ]}
+          />
 
           <div className="w-full space-y-8">
             <Card id="general" className="scroll-mt-8">

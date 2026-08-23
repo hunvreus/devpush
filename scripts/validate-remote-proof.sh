@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Run the full devpush remote MVP proof gate.
+Run the full devpush remote proof gate.
 
 This chains:
 

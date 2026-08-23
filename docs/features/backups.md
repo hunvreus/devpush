@@ -145,8 +145,4 @@ streams the decompressed dump to the configured command over stdin with:
 docker compose -p <runtimeId> exec -T <service> sh -lc '<restoreCommand>'
 ```
 
-Not implemented yet:
-
-- Multi-artifact restore selection in the UI.
-- Restore to a new environment/runtime for inspection.
-- Dedicated restore history beyond the underlying `agent_jobs` status.
+Planned restore expansion is tracked in the root [`TODO.md`](../../TODO.md).

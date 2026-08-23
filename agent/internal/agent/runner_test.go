@@ -491,6 +491,20 @@ func TestReadinessHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	}
 }
 
+func TestReadinessHTTPClientVerifiesManagedTLS(t *testing.T) {
+	client := readinessHTTPClient(route{Host: "app.example.com", HTTPS: true})
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport.TLSClientConfig == nil {
+		t.Fatal("expected HTTPS readiness transport")
+	}
+	if transport.TLSClientConfig.ServerName != "app.example.com" {
+		t.Fatalf("unexpected TLS server name: %q", transport.TLSClientConfig.ServerName)
+	}
+	if transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("HTTPS readiness must reject an invalid managed certificate")
+	}
+}
+
 func TestCommandEnvIncludesDockerHost(t *testing.T) {
 	runner := NewRunner(Config{DockerHost: "unix:///run/user/1000/docker.sock"}, nil)
 
@@ -499,7 +513,7 @@ func TestCommandEnvIncludesDockerHost(t *testing.T) {
 	assertContains(t, env, "DOCKER_HOST=unix:///run/user/1000/docker.sock")
 }
 
-func TestComposeCommandFallsBackToDockerCompose(t *testing.T) {
+func TestComposeCommandRequiresDockerComposePlugin(t *testing.T) {
 	tempDir := workspaceTempDir(t, "agent-compose-smoke-")
 	binDir := filepath.Join(tempDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -517,17 +531,11 @@ exit 0
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	runner := NewRunner(Config{}, nil)
-	name, prefix, err := runner.composeCommand(t.Context())
-	if err != nil {
-		t.Fatal(err)
+	_, _, err := runner.composeCommand(t.Context())
+	if err == nil {
+		t.Fatal("expected missing Docker Compose plugin to fail")
 	}
-
-	if name != "docker-compose" {
-		t.Fatalf("expected docker-compose fallback, got %s %v", name, prefix)
-	}
-	if len(prefix) != 0 {
-		t.Fatalf("expected no docker-compose prefix, got %v", prefix)
-	}
+	assertContains(t, err.Error(), "Docker Compose plugin")
 }
 
 func TestEnsureDockerAvailableExplainsMissingDocker(t *testing.T) {
@@ -547,7 +555,7 @@ func TestEnsureDockerAvailableExplainsMissingDocker(t *testing.T) {
 	assertContains(t, err.Error(), "Docker is not available")
 }
 
-func TestEnsureTraefikReplacesLegacyRawSocketContainer(t *testing.T) {
+func TestEnsureTraefikReconcilesRawSocketContainer(t *testing.T) {
 	tempDir := workspaceTempDir(t, "agent-traefik-smoke-")
 	binDir := filepath.Join(tempDir, "bin")
 	dockerLog := filepath.Join(tempDir, "docker.log")
@@ -1009,11 +1017,46 @@ volumes:
 	warnings := strings.Join(composeRiskWarnings(path), "\n")
 	assertContains(t, warnings, "container_name disables Compose project scoping")
 	assertContains(t, warnings, "privileged containers increase host-level risk")
-	assertContains(t, warnings, "network_mode: host bypasses Compose network isolation")
-	assertContains(t, warnings, "published host ports can collide")
-	assertContains(t, warnings, "fixed host port mapping detected")
+	assertContains(t, warnings, "network_mode: host is ignored")
+	assertContains(t, warnings, "published host ports are ignored")
+	assertContains(t, warnings, "Devpush will remove it")
 	assertContains(t, warnings, "explicit volume names are global")
 	assertContains(t, warnings, "external volumes or networks are shared by design")
+}
+
+func TestManagedComposeOverrideResetsPublishedPorts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devpush.compose.yml")
+	err := writeManagedComposeOverride(path, "app", nil, []string{"db", "web"}, []string{"web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := string(content)
+	assertContains(t, value, "'db':\n    ports: !reset []")
+	assertContains(t, value, "'web':\n    ports: !reset []")
+	assertContains(t, value, "network_mode: !reset null")
+	if strings.Contains(value, "devpush-proxy") {
+		t.Fatalf("port-only override should not attach the proxy network:\n%s", value)
+	}
+}
+
+func TestResolvedComposeModelFindsPublishedPortServices(t *testing.T) {
+	model, err := parseComposeModel(`{"services":{"web":{"ports":[{"target":3000,"published":"3000"}],"network_mode":"host"},"db":{},"admin":{"ports":[{"target":8080}]}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	services := strings.Join(model.servicesWithPublishedPorts(), ",")
+	if services != "admin,web" {
+		t.Fatalf("unexpected services: %s", services)
+	}
+	if hostServices := strings.Join(model.servicesWithHostNetworking(), ","); hostServices != "web" {
+		t.Fatalf("unexpected host-network services: %s", hostServices)
+	}
 }
 
 func TestCloneURLUsesConfiguredBaseWithoutToken(t *testing.T) {
@@ -1060,6 +1103,10 @@ exit 1
 set -eu
 printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
 case "$*" in
+  *" config --format json")
+    echo '{"services":{"web":{}}}'
+    exit 0
+    ;;
   *" ps -q")
     echo fake-container
     exit 0
@@ -1086,7 +1133,8 @@ fi
 			Branch:   "main",
 			Token:    "github-token",
 		},
-		Compose: composeConfig{
+		Runtime: runtimeConfig{
+			Type:           "compose",
 			Path:           "compose.yml",
 			ProjectName:    "devpush_app_production",
 			ReleaseCommand: "echo migrate",
@@ -1123,6 +1171,117 @@ fi
 	}
 }
 
+func TestRunDeploymentJobUsesCustomServiceUpdateAfterComposePreparation(t *testing.T) {
+	tempDir := workspaceTempDir(t, "agent-custom-deploy-")
+	binDir := filepath.Join(tempDir, "bin")
+	dockerLog := filepath.Join(tempDir, "docker.log")
+	resultPath := filepath.Join(tempDir, "custom-result")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
+set -eu
+if [ "$1" = "clone" ]; then
+  last=""
+  for arg in "$@"; do last="$arg"; done
+  mkdir -p "$last"
+  cat > "$last/compose.yml" <<'YAML'
+services:
+  gateway:
+    image: caddy:2
+YAML
+  exit 0
+fi
+if [ "$1" = "rev-parse" ]; then
+  echo abc1234
+  exit 0
+fi
+exit 1
+`)
+	writeExecutable(t, filepath.Join(binDir, "docker"), `#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
+case "$*" in
+  *" config --format json")
+    echo '{"services":{"gateway":{}}}'
+    ;;
+  *" ps -q")
+    echo fake-container
+    ;;
+esac
+if [ "$1" = "inspect" ] && [ "$2" = "-f" ]; then
+  echo "/devpush-gateway-1	running	healthy"
+fi
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_DOCKER_LOG", dockerLog)
+
+	runner := NewRunner(Config{
+		AgentID:  "server-1",
+		StateDir: filepath.Join(tempDir, "state"),
+		Token:    "agent-token",
+	}, nil)
+	completion := runner.runDeploymentJob(t.Context(), deploymentJob{
+		ID: "deployment-1",
+		Repo: repo{
+			FullName: "acme/app",
+			Branch:   "main",
+			Token:    "github-token",
+		},
+		Runtime: runtimeConfig{
+			Type:           "compose",
+			Path:           "compose.yml",
+			ProjectName:    "devpush_app_production",
+			Strategy:       "command",
+			Action:         "deploy",
+			DeployCommand:  `printf '%s\n%s\n%s\n%s\n' "$DEVPUSH_ACTION" "$DEVPUSH_COMPOSE_PATH" "$DEVPUSH_COMPOSE_OVERRIDE" "$DEVPUSH_ENV_FILE" > "$CUSTOM_RESULT"`,
+			TimeoutSeconds: 60,
+		},
+		EnvVars: []envVar{
+			{Key: "CUSTOM_RESULT", Value: resultPath},
+		},
+	})
+
+	if completion.Status != "succeeded" {
+		t.Fatalf("expected deployment to succeed, got %s: %v", completion.Status, completion.Logs)
+	}
+	result := readFile(t, resultPath)
+	assertContains(t, result, "deploy")
+	assertContains(t, result, filepath.Join("repo", "compose.yml"))
+	assertContains(t, result, "devpush.compose.yml")
+	assertContains(t, result, filepath.Join("deployment-1", "env"))
+	dockerCommands := readFile(t, dockerLog)
+	if !strings.Contains(dockerCommands, " pull --ignore-pull-failures") || !strings.Contains(dockerCommands, " build") {
+		t.Fatalf("custom lifecycle must prepare Compose images:\n%s", dockerCommands)
+	}
+	if strings.Contains(dockerCommands, " up ") {
+		t.Fatalf("custom lifecycle must replace the managed service update:\n%s", dockerCommands)
+	}
+}
+
+func TestResolveLifecycleCommand(t *testing.T) {
+	runtime := runtimeConfig{
+		DeployCommand:   "bash ./deploy.sh",
+		RollbackCommand: "bash ./rollback.sh",
+	}
+
+	command, label := resolveLifecycleCommand(runtime, "deploy")
+	if command != runtime.DeployCommand || label != "deploy" {
+		t.Fatalf("unexpected deploy command: %q (%s)", command, label)
+	}
+
+	command, label = resolveLifecycleCommand(runtimeConfig{DeployCommand: runtime.DeployCommand}, "rollback")
+	if command != runtime.DeployCommand || label != "deploy" {
+		t.Fatalf("rollback should reuse deploy command, got %q (%s)", command, label)
+	}
+
+	command, label = resolveLifecycleCommand(runtime, "rollback")
+	if command != runtime.RollbackCommand || label != "rollback" {
+		t.Fatalf("unexpected rollback override: %q (%s)", command, label)
+	}
+}
+
 func TestRunDeploymentJobStopsWhenDeploymentIsCanceled(t *testing.T) {
 	tempDir := workspaceTempDir(t, "agent-compose-smoke-")
 	mux := http.NewServeMux()
@@ -1155,7 +1314,8 @@ func TestRunDeploymentJobStopsWhenDeploymentIsCanceled(t *testing.T) {
 			Branch:   "main",
 			Token:    "github-token",
 		},
-		Compose: composeConfig{
+		Runtime: runtimeConfig{
+			Type:        "compose",
 			Path:        "compose.yml",
 			ProjectName: "devpush_app_production",
 		},
@@ -1202,7 +1362,8 @@ exit 1
 			Branch:   "main",
 			Token:    "github-token",
 		},
-		Compose: composeConfig{
+		Runtime: runtimeConfig{
+			Type:        "compose",
 			Path:        "deploy/compose.yml",
 			ProjectName: "devpush_app_production",
 		},
@@ -1248,6 +1409,10 @@ if [ "$1" = "compose" ] && [ "$2" = "version" ]; then
   exit 0
 fi
 case "$*" in
+  *" config --format json")
+    echo '{"services":{"web":{}}}'
+    exit 0
+    ;;
   *" run --rm web sh -lc bad-migrate"*)
     echo "migration failed"
     exit 1
@@ -1270,7 +1435,8 @@ exit 0
 			Branch:   "main",
 			Token:    "github-token",
 		},
-		Compose: composeConfig{
+		Runtime: runtimeConfig{
+			Type:           "compose",
 			Path:           "compose.yml",
 			ProjectName:    "devpush_app_production",
 			ReleaseCommand: "bad-migrate",
@@ -1282,7 +1448,7 @@ exit 0
 		t.Fatalf("expected deployment to fail, got %s", completion.Status)
 	}
 	content := strings.Join(completion.Logs, "\n")
-	assertContains(t, content, "release command failed on service web")
+	assertContains(t, content, "pre-deploy command failed on service web")
 	assertContains(t, content, "make it safe to rerun")
 	assertContains(t, content, "migration failed")
 }
@@ -1318,6 +1484,10 @@ exit 1
 set -eu
 printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
 case "$*" in
+  *" config --format json")
+    echo '{"services":{"web":{}}}'
+    exit 0
+    ;;
   *" ps -q")
     echo fake-container
     exit 0
@@ -1401,7 +1571,8 @@ func TestRunDeploymentJobRunsRealDockerCompose(t *testing.T) {
 			Branch:   "main",
 			Token:    "unused",
 		},
-		Compose: composeConfig{
+		Runtime: runtimeConfig{
+			Type:           "compose",
 			Path:           "compose.yml",
 			ProjectName:    projectName,
 			ReleaseCommand: "echo release > /data/release.txt",
@@ -1480,18 +1651,19 @@ func TestRunDeploymentJobRoutesThroughRealTraefik(t *testing.T) {
 			Branch:   "main",
 			Token:    "unused",
 		},
-		Compose: composeConfig{
+		Runtime: runtimeConfig{
+			Type:          "compose",
 			Path:          "compose.yml",
 			ProjectName:   projectName,
 			ReadinessPath: "/",
-			Routes: []route{
-				{
-					Host:    host,
-					Service: "web",
-					Port:    80,
-					Path:    "/",
-					HTTPS:   false,
-				},
+		},
+		Routes: []route{
+			{
+				Host:    host,
+				Service: "web",
+				Port:    80,
+				Path:    "/",
+				HTTPS:   false,
 			},
 		},
 	})
@@ -1563,10 +1735,8 @@ func requireDockerCompose(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is not installed")
 	}
-	if _, err := exec.LookPath("docker-compose"); err != nil {
-		if command := exec.Command("docker", "compose", "version"); command.Run() != nil {
-			t.Skip("Docker Compose is not installed")
-		}
+	if command := exec.Command("docker", "compose", "version"); command.Run() != nil {
+		t.Skip("Docker Compose plugin is not installed")
 	}
 }
 
@@ -1584,10 +1754,7 @@ func runComposeDown(t *testing.T, projectName string, composePath string) {
 	if _, err := os.Stat(composePath); err != nil {
 		return
 	}
-	name, args := "docker-compose", []string{}
-	if _, err := exec.LookPath("docker-compose"); err != nil {
-		name, args = "docker", []string{"compose"}
-	}
+	name, args := "docker", []string{"compose"}
 	args = append(args, "-p", projectName, "-f", composePath, "down", "-v", "--remove-orphans")
 	command := exec.Command(name, args...)
 	_ = command.Run()
@@ -1662,7 +1829,8 @@ func newMockControlPlane(t *testing.T) *mockControlPlane {
 				Branch:   "main",
 				Token:    "github-token",
 			},
-			Compose: composeConfig{
+			Runtime: runtimeConfig{
+				Type:        "compose",
 				Path:        "compose.yml",
 				ProjectName: "devpush_app_production",
 			},

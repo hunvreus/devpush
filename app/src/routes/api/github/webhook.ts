@@ -1,7 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 
+import { handleGitHubInstallationWebhook } from '@/server/github/service'
 import {
   getBranchFromGitHubRef,
+  parseGitHubInstallationWebhookPayload,
   parseGitHubPushPayload,
   verifyGitHubWebhookSignature,
 } from '@/server/github/webhooks'
@@ -39,6 +41,33 @@ export const Route = createFileRoute('/api/github/webhook')({
 
         let payload: ReturnType<typeof parseGitHubPushPayload> | null = null
         const event = request.headers.get('x-github-event')
+
+        if (
+          event === 'installation' ||
+          event === 'installation_repositories' ||
+          event === 'installation_target'
+        ) {
+          try {
+            const installationPayload =
+              parseGitHubInstallationWebhookPayload(body)
+            await handleGitHubInstallationWebhook({
+              action: installationPayload.action,
+              event,
+              installationId: installationPayload.installationId,
+            })
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === 'Invalid GitHub installation webhook payload.'
+            ) {
+              return Response.json({ error: error.message }, { status: 400 })
+            }
+
+            throw error
+          }
+
+          return Response.json({ ok: true })
+        }
 
         if (event === 'push') {
           try {

@@ -85,7 +85,7 @@ const backupVolumesSchema = z.object({
 
 const backupArtifactSchema = z.object({
   type: z.enum(['manifest', 'volume', 'database']),
-  storage: z.enum(['local', 'remote']).default('remote'),
+  storage: z.enum(['local', 'remote']),
   objectKey: z.string().trim().min(1).max(1_024),
   checksumSha256: z
     .string()
@@ -124,7 +124,7 @@ const restoreArtifactSchema = z.discriminatedUnion('type', [
   }),
 ])
 
-export const defaultBackupRetention = {
+const defaultBackupRetention = {
   local: {
     count: 7,
     days: 0,
@@ -138,7 +138,7 @@ export const defaultBackupRetention = {
   },
 } satisfies BackupRetentionPolicy
 
-export const defaultBackupVolumes = {
+const defaultBackupVolumes = {
   mode: 'allNamed',
   names: [],
 } satisfies BackupVolumeSelection
@@ -152,7 +152,7 @@ export type BackupArtifactInput = z.infer<typeof backupArtifactSchema>
 export type BackupRestoreArtifactInput = z.infer<typeof restoreArtifactSchema>
 export type BackupSchedule = z.infer<typeof backupScheduleSchema>
 
-export type BackupConfigSummary = {
+type BackupConfigSummary = {
   id: string
   name: string
   projectId: string
@@ -165,7 +165,7 @@ export type BackupConfigSummary = {
   databaseDumps: Array<BackupDatabaseDump>
 }
 
-export type BackupRunSummary = {
+type BackupRunSummary = {
   id: string
   projectId: string
   environmentId: string

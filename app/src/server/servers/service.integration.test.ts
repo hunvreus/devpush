@@ -243,7 +243,7 @@ describe('server service integration', () => {
 
     const registration = await registerAgent({
       token: enrollmentToken!,
-      agentVersion: '0.1.0',
+      agentVersion: '1.0.0',
       publicAddress: null,
     })
     expect(registration.credential).toMatch(/^dpa_/)
@@ -251,7 +251,7 @@ describe('server service integration', () => {
     await recordAgentHeartbeat({
       serverId: created.id,
       token: registration.credential!,
-      agentVersion: '0.1.0',
+      agentVersion: '1.0.0',
       publicAddress: null,
     })
     await expect(
@@ -277,7 +277,7 @@ describe('server service integration', () => {
     await recordAgentHeartbeat({
       serverId: created.id,
       token: retriedRotation.credential!,
-      agentVersion: '0.1.0',
+      agentVersion: '1.0.0',
       publicAddress: null,
     })
     await expect(
@@ -557,11 +557,18 @@ function makeDeployment({
     gitSha: 'abc123',
     gitBranch: 'main',
     config: {
-      version: 2,
-      composePath: 'compose.yml',
-      releaseCommand: null,
-      releaseService: 'web',
-      readinessPath: null,
+      schemaVersion: 1,
+      runtime: {
+        type: 'compose',
+        path: 'compose.yml',
+        strategy: 'managed',
+        releaseCommand: null,
+        releaseService: 'web',
+        readinessPath: null,
+        deployCommand: null,
+        rollbackCommand: null,
+        timeoutSeconds: 1800,
+      },
       routes: [],
     },
     envVars: 'encrypted-env-vars',

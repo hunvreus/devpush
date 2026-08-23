@@ -4,22 +4,94 @@ All notable changes to devpush will be documented in this file.
 
 ## Unreleased
 
+- Replaced the Compose deployment-mode selector with optional pre-deploy,
+  deployment, and rollback command overrides. Rollback reuses the deployment
+  command with `DEVPUSH_ACTION=rollback` unless a rollback command is set.
+
+### Fixed
+
+- Replaced stale or blank project, deployment, log, server, and settings loading
+  states with pending layouts that match the final page geometry.
+- Repaired the frozen production lockfile and made validation accept either the
+  Docker Compose plugin or the standalone `docker-compose` command.
+- Kept configured OAuth providers visible after client-side login-route reloads
+  by resolving login configuration exclusively on the server.
+- Namespaced Devpush authentication cookies so other applications running on
+  different localhost ports cannot replace the Devpush session.
+- Blocked deployments, redeployments, rollbacks, and webhook deployments when
+  the assigned agent requires a protocol update instead of leaving jobs queued
+  indefinitely.
+
 ### Added
 
+- Added an explicit custom Compose lifecycle mode with trusted deploy and
+  rollback commands, bounded execution time, deployment environment contracts,
+  managed-ingress validation, and final public readiness checks.
+- Added terminal-first GitHub App provisioning through GitHub's manifest flow
+  and optional S3-compatible object storage for avatars and agent binaries,
+  with local persistent storage remaining the zero-configuration default.
 - Added host-initiated staged agent credential rotation, checksum-verified manual agent
   upgrades, and optional systemd timer-based automatic updates.
-- Added explicit production migrations, database health and authenticated
-  maintenance endpoints, guarded migration adoption, and opt-in PostgreSQL
-  backups.
+- Added explicit production migrations, database health, authenticated
+  maintenance endpoints, and opt-in PostgreSQL backups.
+- Added shared agent request validation and focused deployment-filter,
+  project-settings, and backup helper tests.
 
 - Added the new TanStack Start control plane scaffold in `app/`.
 - Added the Go agent scaffold in `agent/`.
 - Added root architecture, development, and protocol documentation.
-- Moved the previous implementation into `legacy/` as reference material.
-- Added a minimal Docker Compose web example for remote MVP validation.
+- Added a minimal Docker Compose web example for remote validation.
 
 ### Changed
 
+- Flattened the unreleased database history into one clean 1.0 baseline
+  migration and validated it against an empty PostgreSQL database.
+- Standardized every settings section navigation on one compact row style that
+  matches the header resource selectors.
+- Split agent deployment, maintenance, telemetry, and protocol behavior into
+  focused Go modules; split project routing, environment settings, repository
+  selection, backup policy, restore actions, Compose parsing, and project data
+  mapping into focused TypeScript modules.
+- Agent endpoints now return distinct payload, authentication, authorization,
+  missing-resource, conflict, and internal-error statuses without exposing
+  unexpected server exceptions.
+- Local startup now applies committed migrations instead of pushing schema
+  state directly, and validation commands no longer use pre-release MVP names.
+- Removed unused UI primitives, stale mock data, dead exports, and unused direct
+  dependencies; pinned previously floating TanStack and Nitro versions.
+- Added explicit agent protocol and capability reporting so older agents remain
+  connected while the control plane withholds jobs they cannot safely execute;
+  agent release versions remain informational and additive payload fields are
+  accepted during independent rollouts.
+- Agent binaries now inherit the product version from `app/package.json`, and
+  server details show an immediate metrics loading state while keeping the
+  agent protocol version internal.
+- Server metric cards now show the standard compact loading indicator during
+  client hydration instead of empty bodies or oversized skeleton slabs.
+- Consolidated Compose paths, deployment strategy, lifecycle commands, release
+  settings, readiness, and timeout into one type-discriminated project runtime
+  configuration, and nested the resolved runtime in deployment snapshots and
+  agent jobs so future runtime drivers do not require new project columns.
+- Private Compose projects no longer require a release service unless a release
+  command is configured.
+- Made managed ingress authoritative: agents now preflight the exact Compose
+  revision, ignore published ports and host networking with visible warnings,
+  validate route service names, validate the final merged Compose model, and
+  allow private deployments with no public routes.
+- Added project-default routes with environment path overrides, removed the
+  implicit `web:3000` fallback, and infer an initial root route only from one
+  unambiguous declared TCP target.
+- Restored explicit custom-domain DNS verification. Successful deployments no
+  longer mark pending domains active, only verified active domains receive
+  public routes, and verification records DNS failures against the
+  environment's assigned server.
+- Moved production migrations and remote agent-binary publication into a
+  one-shot Compose service that must complete before the app starts.
+- Made deployment Visit actions use each deployment's generated alias instead
+  of the environment's moving hostname.
+- Persisted stable GitHub installation account IDs, synchronized installation
+  lifecycle and account-rename webhooks, and added repository-based recovery
+  when a project's cached installation ID becomes stale.
 - Replaced the combined hostname and project-server cache model with a project
   default server and nullable environment overrides, separate generated aliases
   and custom domains, and deployment-time route snapshots.

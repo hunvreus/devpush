@@ -11,8 +11,8 @@ export function getDeployBlockReason(
     return 'Wait until the server is connected before deploying.'
   }
 
-  if (environment.publicRoutes.length === 0) {
-    return 'Configure a public route before deploying.'
+  if (environment.serverAgentUpdate?.status === 'required') {
+    return 'Update the server agent before deploying.'
   }
 
   return null

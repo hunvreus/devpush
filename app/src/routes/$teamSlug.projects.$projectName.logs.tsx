@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { ProjectLogs } from '@/features/projects/project-logs'
+import { ProjectRoutePending } from '@/features/projects/project-route-pending'
 import { getProjectLogs } from '@/server/projects/functions'
 
 export const Route = createFileRoute('/$teamSlug/projects/$projectName/logs')({
@@ -32,8 +33,15 @@ export const Route = createFileRoute('/$teamSlug/projects/$projectName/logs')({
 
     return context
   },
+  pendingMs: 0,
+  pendingMinMs: 300,
+  pendingComponent: LogsPending,
   component: LogsRoute,
 })
+
+function LogsPending() {
+  return <ProjectRoutePending section="logs" />
+}
 
 function LogsRoute() {
   const context = Route.useLoaderData()

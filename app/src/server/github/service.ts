@@ -4,7 +4,9 @@ import { SignJWT } from 'jose'
 
 import { config } from '@/server/config'
 import { db } from '@/server/db'
-import { account, githubInstallations } from '@/server/db/schema'
+import { account, githubInstallations, projects } from '@/server/db/schema'
+import { getGitHubInstallationChange } from '@/server/github/webhooks'
+import type { GitHubInstallationWebhookEvent } from '@/server/github/webhooks'
 
 const githubApiBaseUrl = 'https://api.github.com'
 const composeCandidates = [
@@ -21,10 +23,11 @@ export type GitHubAccount = {
 
 export type GitHubInstallation = {
   id: number
+  accountId: number
   accountLogin: string
   accountType: string
   repositorySelection: string
-  status: 'active'
+  status: 'active' | 'suspended'
 }
 
 export type GitHubRepository = {
@@ -48,10 +51,12 @@ type GitHubUserResponse = {
 type GitHubInstallationResponse = {
   id: number
   account: {
+    id: number
     login: string
     type: string
   }
   repository_selection: string
+  suspended_at?: string | null
 }
 
 type GitHubInstallationsResponse = {
@@ -176,6 +181,7 @@ export async function listUserInstallations(
     installations.push(
       ...data.installations.map((installation) => ({
         id: installation.id,
+        accountId: installation.account.id,
         accountLogin: installation.account.login,
         accountType: installation.account.type,
         repositorySelection: installation.repository_selection,
@@ -325,33 +331,6 @@ export async function getBranchHeadCommit({
   }
 }
 
-export async function getRepositoryCommit({
-  accessToken,
-  repo,
-  sha,
-}: {
-  accessToken: string
-  repo: string
-  sha: string
-}) {
-  if (
-    config.DEVPUSH_SMOKE_GITHUB_TOKEN &&
-    accessToken === config.DEVPUSH_SMOKE_GITHUB_TOKEN
-  ) {
-    return {
-      sha,
-      message: `Smoke commit for ${repo}@${sha}`,
-    }
-  }
-
-  const data = await githubRequest<GitHubCommitResponse>(
-    `/repos/${encodeURIComponentRepoName(repo)}/commits/${encodeURIComponent(sha)}`,
-    accessToken,
-  )
-
-  return mapCommit(data)
-}
-
 export async function listBranchCommits({
   accessToken,
   branch,
@@ -412,21 +391,27 @@ export async function getAppInstallation(installationId: number) {
     jwt,
   )
 
-  return {
-    id: installation.id,
-    accountLogin: installation.account.login,
-    accountType: installation.account.type,
-    repositorySelection: installation.repository_selection,
-    status: 'active' as const,
-  }
+  return mapInstallation(installation)
+}
+
+async function getRepositoryAppInstallation(repositoryFullName: string) {
+  const jwt = await getGitHubAppJwt()
+  const installation = await githubRequest<GitHubInstallationResponse>(
+    `/repos/${encodeURIComponentRepoName(repositoryFullName)}/installation`,
+    jwt,
+  )
+
+  return mapInstallation(installation)
 }
 
 export async function createInstallationAccessToken({
   installationId,
   repositoryId,
+  repositoryFullName,
 }: {
   installationId: number
   repositoryId: number | null
+  repositoryFullName: string
 }) {
   if (config.DEVPUSH_SMOKE_GITHUB_TOKEN) {
     return {
@@ -435,46 +420,41 @@ export async function createInstallationAccessToken({
     }
   }
 
-  const jwt = await getGitHubAppJwt()
-  const response = await fetch(
-    `${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`,
-    {
-      method: 'POST',
-      headers: {
-        ...githubHeaders(jwt),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(
-        repositoryId
-          ? {
-              repository_ids: [repositoryId],
-              permissions: {
-                contents: 'read',
-                metadata: 'read',
-              },
-            }
-          : {
-              permissions: {
-                contents: 'read',
-                metadata: 'read',
-              },
-            },
-      ),
-    },
-  )
+  try {
+    return await requestInstallationAccessToken({
+      installationId,
+      repositoryId,
+    })
+  } catch (error) {
+    if (!(error instanceof GitHubApiError) || error.status !== 404) {
+      throw error
+    }
 
-  if (!response.ok) {
-    throw new Error(await readGitHubError(response))
-  }
+    const installation = await getRepositoryAppInstallation(repositoryFullName)
 
-  const data = (await response.json()) as {
-    token: string
-    expires_at: string
-  }
+    if (installation.id === installationId) {
+      throw error
+    }
 
-  return {
-    token: data.token,
-    expiresAt: data.expires_at,
+    await upsertGitHubInstallation(installation)
+    await db
+      .update(projects)
+      .set({
+        githubInstallationId: installation.id,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(projects.githubInstallationId, installationId),
+          eq(projects.githubRepo, repositoryFullName),
+        ),
+      )
+    await markGitHubInstallationStatus(installationId, 'deleted')
+
+    return requestInstallationAccessToken({
+      installationId: installation.id,
+      repositoryId,
+    })
   }
 }
 
@@ -485,6 +465,7 @@ export async function upsertGitHubInstallation(
     .insert(githubInstallations)
     .values({
       installationId: installation.id,
+      accountId: installation.accountId,
       accountLogin: installation.accountLogin,
       accountType: installation.accountType,
       repositorySelection: installation.repositorySelection,
@@ -494,6 +475,7 @@ export async function upsertGitHubInstallation(
     .onConflictDoUpdate({
       target: githubInstallations.installationId,
       set: {
+        accountId: installation.accountId,
         accountLogin: installation.accountLogin,
         accountType: installation.accountType,
         repositorySelection: installation.repositorySelection,
@@ -503,7 +485,28 @@ export async function upsertGitHubInstallation(
     })
 }
 
-export async function markGitHubInstallationStatus(
+export async function handleGitHubInstallationWebhook({
+  action,
+  event,
+  installationId,
+}: {
+  action: string
+  event: GitHubInstallationWebhookEvent
+  installationId: number
+}) {
+  const change = getGitHubInstallationChange(event, action)
+
+  if (change.type === 'status') {
+    await markGitHubInstallationStatus(installationId, change.status)
+    return
+  }
+
+  if (change.type === 'refresh') {
+    await upsertGitHubInstallation(await getAppInstallation(installationId))
+  }
+}
+
+async function markGitHubInstallationStatus(
   installationId: number,
   status: 'active' | 'deleted' | 'suspended',
 ) {
@@ -529,6 +532,71 @@ function mapRepository(
     permissions: {
       push: repo.permissions?.push ?? false,
     },
+  }
+}
+
+function mapInstallation(
+  installation: GitHubInstallationResponse,
+): GitHubInstallation {
+  return {
+    id: installation.id,
+    accountId: installation.account.id,
+    accountLogin: installation.account.login,
+    accountType: installation.account.type,
+    repositorySelection: installation.repository_selection,
+    status: installation.suspended_at ? 'suspended' : 'active',
+  }
+}
+
+async function requestInstallationAccessToken({
+  installationId,
+  repositoryId,
+}: {
+  installationId: number
+  repositoryId: number | null
+}) {
+  const jwt = await getGitHubAppJwt()
+  const response = await fetch(
+    `${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`,
+    {
+      method: 'POST',
+      headers: {
+        ...githubHeaders(jwt),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...(repositoryId ? { repository_ids: [repositoryId] } : {}),
+        permissions: {
+          contents: 'read',
+          metadata: 'read',
+        },
+      }),
+    },
+  )
+
+  if (!response.ok) {
+    throw new GitHubApiError(response.status, await readGitHubError(response))
+  }
+
+  const data = (await response.json()) as {
+    token: string
+    expires_at: string
+  }
+
+  return {
+    token: data.token,
+    expiresAt: data.expires_at,
+    installationId,
+  }
+}
+
+class GitHubApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'GitHubApiError'
   }
 }
 

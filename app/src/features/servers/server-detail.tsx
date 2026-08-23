@@ -22,6 +22,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardContent,
@@ -44,6 +45,7 @@ import {
   FieldLabel,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   InputGroup,
   InputGroupAddon,
@@ -56,6 +58,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ResourceAvatar } from '@/components/resource-avatar'
+import {
+  SectionNavigation,
+  SectionNavigationPending,
+} from '@/components/section-navigation'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { ServerMetricChart } from '@/features/servers/server-metric-chart'
 import { getErrorMessage } from '@/lib/error-message'
@@ -144,6 +150,29 @@ export function ServerDetail({
         <div className="space-y-8">
           {server.status === 'connected' ? null : (
             <ServerInstallCallout server={server} teamSlug={team.slug} />
+          )}
+
+          {server.agentUpdate.status === 'current' ? null : (
+            <Alert
+              variant={
+                server.agentUpdate.status === 'required'
+                  ? 'destructive'
+                  : 'default'
+              }
+            >
+              <AlertTitle className="flex items-center gap-2">
+                Agent update {server.agentUpdate.status}
+                {server.agentUpdate.latestVersion ? (
+                  <Badge variant="outline">
+                    {server.agentUpdate.latestVersion}
+                  </Badge>
+                ) : null}
+              </AlertTitle>
+              <AlertDescription>
+                {server.agentUpdate.reason} Update manually with{' '}
+                <code>sudo /usr/local/lib/devpush/update-agent</code>.
+              </AlertDescription>
+            </Alert>
           )}
 
           <Card id="general" className="scroll-mt-8">
@@ -405,26 +434,68 @@ export function ServerDetail({
           <ServerDangerSection server={server} teamSlug={team.slug} />
         </div>
 
-        <aside className="hidden text-sm lg:block">
-          <nav className="sticky top-[122px] flex flex-col gap-y-1">
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#general">General</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#host">Host</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#metrics">Metrics</a>
-            </Button>
-            <Button
-              asChild
-              variant="ghost"
-              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <a href="#danger">Danger</a>
-            </Button>
-          </nav>
+        <aside className="hidden lg:block">
+          <SectionNavigation
+            className="sticky top-[122px]"
+            items={[
+              { href: '#general', label: 'General' },
+              { href: '#host', label: 'Host' },
+              { href: '#metrics', label: 'Metrics' },
+              { href: '#danger', label: 'Danger', destructive: true },
+            ]}
+          />
         </aside>
+      </div>
+    </div>
+  )
+}
+
+export function ServerDetailPending() {
+  return (
+    <div className="space-y-8" aria-label="Loading server">
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-12 rounded-lg" />
+        <Skeleton className="h-8 w-64 max-w-full" />
+      </div>
+      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
+        <div className="space-y-8">
+          <ServerCardPending bodyHeight="h-64" />
+          <ServerCardPending bodyHeight="h-48" />
+          <div className="overflow-hidden rounded-xl border">
+            <div className="space-y-2 border-b p-6">
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="h-4 w-72 max-w-full" />
+            </div>
+            <div className="grid gap-4 p-6 md:grid-cols-2">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="h-52 rounded-lg border p-4">
+                  <div className="flex justify-between gap-4">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <Skeleton className="mt-6 h-36 w-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <SectionNavigationPending className="hidden lg:flex" count={4} />
+      </div>
+    </div>
+  )
+}
+
+function ServerCardPending({ bodyHeight }: { bodyHeight: string }) {
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="space-y-2 border-b p-6">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-4 w-64 max-w-full" />
+      </div>
+      <div className={`${bodyHeight} space-y-6 p-6`}>
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-2/3" />
       </div>
     </div>
   )

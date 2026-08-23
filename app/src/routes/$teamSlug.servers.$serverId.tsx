@@ -1,6 +1,9 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { ServerDetail } from '@/features/servers/server-detail'
+import {
+  ServerDetail,
+  ServerDetailPending,
+} from '@/features/servers/server-detail'
 import { getTeamServerContext } from '@/server/auth/context'
 
 export const Route = createFileRoute('/$teamSlug/servers/$serverId')({
@@ -18,6 +21,9 @@ export const Route = createFileRoute('/$teamSlug/servers/$serverId')({
 
     return context
   },
+  pendingMs: 0,
+  pendingMinMs: 300,
+  pendingComponent: ServerDetailPending,
   component: TeamServerRoute,
 })
 

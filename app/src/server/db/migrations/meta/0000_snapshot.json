@@ -1,5 +1,5 @@
 {
-  "id": "fc03112f-773e-40eb-b9df-632d9cf0530a",
+  "id": "7b42b02e-a881-4968-9417-892b10da98c9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -360,6 +360,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "services": {
+          "name": "services",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "first_seen_at": {
           "name": "first_seen_at",
           "type": "timestamp with time zone",
@@ -484,6 +490,187 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.aliases": {
+      "name": "aliases",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "environment_id": {
+          "name": "environment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "previous_deployment_id": {
+          "name": "previous_deployment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "alias_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "branch": {
+          "name": "branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "https": {
+          "name": "https",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "aliases_hostname_idx": {
+          "name": "aliases_hostname_idx",
+          "columns": [
+            {
+              "expression": "hostname",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "aliases_project_idx": {
+          "name": "aliases_project_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "aliases_environment_idx": {
+          "name": "aliases_environment_idx",
+          "columns": [
+            {
+              "expression": "environment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "aliases_deployment_idx": {
+          "name": "aliases_deployment_idx",
+          "columns": [
+            {
+              "expression": "deployment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "aliases_project_id_projects_id_fk": {
+          "name": "aliases_project_id_projects_id_fk",
+          "tableFrom": "aliases",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "aliases_environment_id_environments_id_fk": {
+          "name": "aliases_environment_id_environments_id_fk",
+          "tableFrom": "aliases",
+          "tableTo": "environments",
+          "columnsFrom": ["environment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "aliases_deployment_id_deployments_id_fk": {
+          "name": "aliases_deployment_id_deployments_id_fk",
+          "tableFrom": "aliases",
+          "tableTo": "deployments",
+          "columnsFrom": ["deployment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "aliases_previous_deployment_id_deployments_id_fk": {
+          "name": "aliases_previous_deployment_id_deployments_id_fk",
+          "tableFrom": "aliases",
+          "tableTo": "deployments",
+          "columnsFrom": ["previous_deployment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.allowlist": {
       "name": "allowlist",
       "schema": "",
@@ -586,6 +773,13 @@
         "type": {
           "name": "type",
           "type": "backup_artifact_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "storage": {
+          "name": "storage",
+          "type": "backup_artifact_storage",
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
@@ -1166,7 +1360,7 @@
           "name": "repo_id",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "repo_full_name": {
           "name": "repo_full_name",
@@ -1186,26 +1380,21 @@
           "primaryKey": false,
           "notNull": true
         },
-        "commit_message": {
-          "name": "commit_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "commit_meta": {
           "name": "commit_meta",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
-        "config_snapshot": {
-          "name": "config_snapshot",
+        "config": {
+          "name": "config",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
         },
-        "env_vars_snapshot": {
-          "name": "env_vars_snapshot",
+        "env_vars": {
+          "name": "env_vars",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1215,12 +1404,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "job_id": {
-          "name": "job_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "error_message": {
           "name": "error_message",
@@ -1352,6 +1535,155 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.domains": {
+      "name": "domains",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "environment_id": {
+          "name": "environment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_path": {
+          "name": "base_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "https": {
+          "name": "https",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "status": {
+          "name": "status",
+          "type": "domain_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "domains_hostname_idx": {
+          "name": "domains_hostname_idx",
+          "columns": [
+            {
+              "expression": "hostname",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "domains_project_idx": {
+          "name": "domains_project_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "domains_environment_idx": {
+          "name": "domains_environment_idx",
+          "columns": [
+            {
+              "expression": "environment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "domains_project_id_projects_id_fk": {
+          "name": "domains_project_id_projects_id_fk",
+          "tableFrom": "domains",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "domains_environment_id_environments_id_fk": {
+          "name": "domains_environment_id_environments_id_fk",
+          "tableFrom": "domains",
+          "tableTo": "environments",
+          "columnsFrom": ["environment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.environments": {
       "name": "environments",
       "schema": "",
@@ -1399,29 +1731,33 @@
           "notNull": true,
           "default": false
         },
-        "default_host": {
-          "name": "default_host",
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "color": {
+          "name": "color",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'blue'"
+        },
+        "status": {
+          "name": "status",
+          "type": "environment_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
         },
         "runtime_id": {
           "name": "runtime_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "env_vars": {
-          "name": "env_vars",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public_routes": {
-          "name": "public_routes",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -1512,6 +1848,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "account_id": {
+          "name": "account_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
         "account_login": {
           "name": "account_login",
           "type": "text",
@@ -1554,6 +1896,21 @@
         }
       },
       "indexes": {
+        "github_installations_account_id_idx": {
+          "name": "github_installations_account_id_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "github_installations_account_idx": {
           "name": "github_installations_account_idx",
           "columns": [
@@ -1586,275 +1943,6 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hostnames": {
-      "name": "hostnames",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deployment_id": {
-          "name": "deployment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "hostname": {
-          "name": "hostname",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "hostname_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "environment_id": {
-          "name": "environment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "base_path": {
-          "name": "base_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "https": {
-          "name": "https",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "status": {
-          "name": "status",
-          "type": "hostname_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "message": {
-          "name": "message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verified_at": {
-          "name": "verified_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hostnames_hostname_idx": {
-          "name": "hostnames_hostname_idx",
-          "columns": [
-            {
-              "expression": "hostname",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hostnames_project_idx": {
-          "name": "hostnames_project_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hostnames_deployment_idx": {
-          "name": "hostnames_deployment_idx",
-          "columns": [
-            {
-              "expression": "deployment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hostnames_project_id_projects_id_fk": {
-          "name": "hostnames_project_id_projects_id_fk",
-          "tableFrom": "hostnames",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "hostnames_deployment_id_deployments_id_fk": {
-          "name": "hostnames_deployment_id_deployments_id_fk",
-          "tableFrom": "hostnames",
-          "tableTo": "deployments",
-          "columnsFrom": ["deployment_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.project_servers": {
-      "name": "project_servers",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "environment_id": {
-          "name": "environment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "server_id": {
-          "name": "server_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "project_servers_project_environment_idx": {
-          "name": "project_servers_project_environment_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "COALESCE(\"environment_id\", '')",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "project_servers_server_idx": {
-          "name": "project_servers_server_idx",
-          "columns": [
-            {
-              "expression": "server_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_servers_project_id_projects_id_fk": {
-          "name": "project_servers_project_id_projects_id_fk",
-          "tableFrom": "project_servers",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "project_servers_server_id_servers_id_fk": {
-          "name": "project_servers_server_id_servers_id_fk",
-          "tableFrom": "project_servers",
-          "tableTo": "servers",
-          "columnsFrom": ["server_id"],
-          "columnsTo": ["id"],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1915,15 +2003,15 @@
           "primaryKey": false,
           "notNull": false
         },
-        "avatar_path": {
-          "name": "avatar_path",
+        "default_server_id": {
+          "name": "default_server_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "environments": {
-          "name": "environments",
-          "type": "jsonb",
+        "avatar_path": {
+          "name": "avatar_path",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -1939,23 +2027,12 @@
           "primaryKey": false,
           "notNull": false
         },
-        "compose_path": {
-          "name": "compose_path",
-          "type": "text",
+        "runtime_config": {
+          "name": "runtime_config",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
-        },
-        "release_command": {
-          "name": "release_command",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "readiness_path": {
-          "name": "readiness_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'{\"type\":\"compose\",\"path\":null,\"strategy\":\"managed\",\"releaseCommand\":null,\"releaseService\":null,\"readinessPath\":null,\"deployCommand\":null,\"rollbackCommand\":null,\"timeoutSeconds\":1800}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -2024,6 +2101,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "projects_default_server_idx": {
+          "name": "projects_default_server_idx",
+          "columns": [
+            {
+              "expression": "default_server_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -2042,6 +2134,15 @@
           "tableTo": "github_installations",
           "columnsFrom": ["github_installation_id"],
           "columnsTo": ["installation_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "projects_default_server_id_servers_id_fk": {
+          "name": "projects_default_server_id_servers_id_fk",
+          "tableFrom": "projects",
+          "tableTo": "servers",
+          "columnsFrom": ["default_server_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2175,6 +2276,82 @@
         "runtime_logs_server_id_servers_id_fk": {
           "name": "runtime_logs_server_id_servers_id_fk",
           "tableFrom": "runtime_logs",
+          "tableTo": "servers",
+          "columnsFrom": ["server_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.server_availability_windows": {
+      "name": "server_availability_windows",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "server_id": {
+          "name": "server_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "server_availability_windows_server_started_idx": {
+          "name": "server_availability_windows_server_started_idx",
+          "columns": [
+            {
+              "expression": "server_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "server_availability_windows_server_id_servers_id_fk": {
+          "name": "server_availability_windows_server_id_servers_id_fk",
+          "tableFrom": "server_availability_windows",
           "tableTo": "servers",
           "columnsFrom": ["server_id"],
           "columnsTo": ["id"],
@@ -2343,6 +2520,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "network_receive_bytes_per_second": {
+          "name": "network_receive_bytes_per_second",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "network_transmit_bytes_per_second": {
+          "name": "network_transmit_bytes_per_second",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disk_read_bytes_per_second": {
+          "name": "disk_read_bytes_per_second",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disk_write_bytes_per_second": {
+          "name": "disk_write_bytes_per_second",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2448,9 +2649,57 @@
           "primaryKey": false,
           "notNull": false
         },
+        "agent_protocol_version": {
+          "name": "agent_protocol_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_capabilities": {
+          "name": "agent_capabilities",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "public_address": {
           "name": "public_address",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "operating_system": {
+          "name": "operating_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kernel_version": {
+          "name": "kernel_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "architecture": {
+          "name": "architecture",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cpu_core_count": {
+          "name": "cpu_core_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "host_uptime_seconds": {
+          "name": "host_uptime_seconds",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2462,6 +2711,24 @@
         },
         "enrollment_token_expires_at": {
           "name": "enrollment_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_credential_hash": {
+          "name": "agent_credential_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_agent_credential_hash": {
+          "name": "pending_agent_credential_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_credential_rotated_at": {
+          "name": "agent_credential_rotated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -3361,10 +3628,20 @@
         "backup_cleanup"
       ]
     },
+    "public.alias_type": {
+      "name": "alias_type",
+      "schema": "public",
+      "values": ["deployment", "environment", "branch"]
+    },
     "public.allowlist_type": {
       "name": "allowlist_type",
       "schema": "public",
       "values": ["email", "domain", "pattern"]
+    },
+    "public.backup_artifact_storage": {
+      "name": "backup_artifact_storage",
+      "schema": "public",
+      "values": ["local", "remote"]
     },
     "public.backup_artifact_type": {
       "name": "backup_artifact_type",
@@ -3391,25 +3668,20 @@
       "schema": "public",
       "values": ["user", "webhook", "api", "rollback"]
     },
+    "public.domain_status": {
+      "name": "domain_status",
+      "schema": "public",
+      "values": ["pending", "active", "disabled", "failed"]
+    },
+    "public.environment_status": {
+      "name": "environment_status",
+      "schema": "public",
+      "values": ["active", "deleted"]
+    },
     "public.github_installation_status": {
       "name": "github_installation_status",
       "schema": "public",
       "values": ["active", "deleted", "suspended"]
-    },
-    "public.hostname_status": {
-      "name": "hostname_status",
-      "schema": "public",
-      "values": ["pending", "active", "disabled", "failed"]
-    },
-    "public.hostname_type": {
-      "name": "hostname_type",
-      "schema": "public",
-      "values": [
-        "custom_domain",
-        "deployment_alias",
-        "environment_alias",
-        "branch_alias"
-      ]
     },
     "public.resource_status": {
       "name": "resource_status",

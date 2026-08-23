@@ -2,22 +2,18 @@ package agent
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,7 +21,18 @@ import (
 	"time"
 )
 
-var Version = "0.1.0"
+var Version = "unknown"
+
+const ProtocolVersion = 1
+
+var Capabilities = []string{
+	"jobs.compose.deploy.v1",
+	"jobs.compose.cleanup.v1",
+	"jobs.backup.v1",
+	"jobs.backup.cleanup.v1",
+	"jobs.restore.v1",
+	"runtime.logs.v1",
+}
 
 var (
 	registerRetryInitial  = time.Second
@@ -188,8 +195,11 @@ func (runner *Runner) RotateCredential(ctx context.Context) error {
 
 	var response agentResponse
 	if err := runner.post(ctx, "/api/agents/credentials/rotate", agentRequest{
-		ServerID: serverID,
-		Token:    runner.currentCredential(),
+		ServerID:        serverID,
+		Token:           runner.currentCredential(),
+		AgentVersion:    Version,
+		ProtocolVersion: ProtocolVersion,
+		Capabilities:    Capabilities,
 	}, &response); err != nil {
 		return fmt.Errorf("rotate agent credential: %w", err)
 	}
@@ -270,8 +280,10 @@ func (runner *Runner) registerWithRetry(ctx context.Context) (string, error) {
 func (runner *Runner) register(ctx context.Context) (string, error) {
 	var response agentResponse
 	if err := runner.post(ctx, "/api/agents/register", agentRequest{
-		Token:        runner.currentCredential(),
-		AgentVersion: Version,
+		Token:           runner.currentCredential(),
+		AgentVersion:    Version,
+		ProtocolVersion: ProtocolVersion,
+		Capabilities:    Capabilities,
 	}, &response); err != nil {
 		return "", fmt.Errorf("register agent: %w", err)
 	}
@@ -287,9 +299,11 @@ func (runner *Runner) register(ctx context.Context) (string, error) {
 func (runner *Runner) sendHeartbeat(ctx context.Context) {
 	var response agentResponse
 	payload := agentRequest{
-		ServerID:     runner.cfg.AgentID,
-		Token:        runner.currentCredential(),
-		AgentVersion: Version,
+		ServerID:        runner.cfg.AgentID,
+		Token:           runner.currentCredential(),
+		AgentVersion:    Version,
+		ProtocolVersion: ProtocolVersion,
+		Capabilities:    Capabilities,
 	}
 	if metrics := runner.collectHostMetrics(ctx); metrics != nil {
 		payload.Metrics = metrics
@@ -319,221 +333,6 @@ func (runner *Runner) sendHeartbeat(ctx context.Context) {
 
 	runner.reportRuntimeLogs(ctx, response.RuntimeLogTargets)
 	runner.log.Info("heartbeat", "server_id", response.ServerID, "status", response.Status)
-}
-
-func (runner *Runner) collectHostMetrics(ctx context.Context) *hostMetrics {
-	metrics := hostMetrics{}
-
-	if cpuPercent, err := sampleCPUPercent(ctx); err == nil {
-		metrics.CPUPercent = &cpuPercent
-	} else {
-		runner.log.Debug("cpu metric unavailable", "error", err)
-	}
-
-	if used, total, err := readMemoryUsage(); err == nil {
-		metrics.MemoryUsedBytes = &used
-		metrics.MemoryTotalBytes = &total
-	} else {
-		runner.log.Debug("memory metric unavailable", "error", err)
-	}
-
-	if used, total, err := readDiskUsage("/"); err == nil {
-		metrics.DiskUsedBytes = &used
-		metrics.DiskTotalBytes = &total
-	} else {
-		runner.log.Debug("disk metric unavailable", "error", err)
-	}
-
-	if received, sent, ok := runner.collectNetworkRates(); ok {
-		metrics.NetworkReceiveBytesPerSecond = &received
-		metrics.NetworkTransmitBytesPerSecond = &sent
-	}
-
-	if read, written, ok := runner.collectDiskIORates(); ok {
-		metrics.DiskReadBytesPerSecond = &read
-		metrics.DiskWriteBytesPerSecond = &written
-	}
-
-	if !metrics.hasValues() {
-		return nil
-	}
-
-	return &metrics
-}
-
-func collectHostDetails() *hostDetails {
-	details := &hostDetails{
-		OperatingSystem: runtime.GOOS,
-		Architecture:    runtime.GOARCH,
-		CPUCoreCount:    runtime.NumCPU(),
-	}
-	if hostname, err := os.Hostname(); err == nil {
-		details.Hostname = hostname
-	}
-	if operatingSystem := readOSPrettyName(); operatingSystem != "" {
-		details.OperatingSystem = operatingSystem
-	}
-	if content, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
-		details.KernelVersion = strings.TrimSpace(string(content))
-	}
-	if uptime, err := readHostUptime(); err == nil {
-		details.UptimeSeconds = &uptime
-	}
-	return details
-}
-
-func readOSPrettyName() string {
-	content, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(content), "\n") {
-		value, ok := strings.CutPrefix(line, "PRETTY_NAME=")
-		if !ok {
-			continue
-		}
-		return strings.Trim(strings.TrimSpace(value), `"`)
-	}
-	return ""
-}
-
-func readHostUptime() (uint64, error) {
-	content, err := os.ReadFile("/proc/uptime")
-	if err != nil {
-		return 0, err
-	}
-	fields := strings.Fields(string(content))
-	if len(fields) == 0 {
-		return 0, errors.New("invalid /proc/uptime")
-	}
-	seconds, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil || seconds < 0 {
-		return 0, errors.New("invalid /proc/uptime value")
-	}
-	return uint64(seconds), nil
-}
-
-func (runner *Runner) collectNetworkRates() (float64, float64, bool) {
-	received, sent, err := readNetworkTotals()
-	if err != nil {
-		runner.log.Debug("network metric unavailable", "error", err)
-		return 0, 0, false
-	}
-	now := time.Now()
-	previousAt := runner.lastNetworkReadAt
-	previousReceived := runner.lastNetworkRecv
-	previousSent := runner.lastNetworkSent
-	runner.lastNetworkReadAt = now
-	runner.lastNetworkRecv = received
-	runner.lastNetworkSent = sent
-	if previousAt.IsZero() || received < previousReceived || sent < previousSent {
-		return 0, 0, false
-	}
-	elapsed := now.Sub(previousAt).Seconds()
-	if elapsed <= 0 {
-		return 0, 0, false
-	}
-	return roundMetric(float64(received-previousReceived) / elapsed),
-		roundMetric(float64(sent-previousSent) / elapsed), true
-}
-
-func readNetworkTotals() (uint64, uint64, error) {
-	content, err := os.ReadFile("/proc/net/dev")
-	if err != nil {
-		return 0, 0, err
-	}
-	var received uint64
-	var sent uint64
-	for _, line := range strings.Split(string(content), "\n") {
-		name, values, ok := strings.Cut(line, ":")
-		if !ok || !isMonitoredNetworkInterface(strings.TrimSpace(name)) {
-			continue
-		}
-		fields := strings.Fields(values)
-		if len(fields) < 9 {
-			continue
-		}
-		recvValue, recvErr := strconv.ParseUint(fields[0], 10, 64)
-		sentValue, sentErr := strconv.ParseUint(fields[8], 10, 64)
-		if recvErr != nil || sentErr != nil {
-			continue
-		}
-		received += recvValue
-		sent += sentValue
-	}
-	return received, sent, nil
-}
-
-func isMonitoredNetworkInterface(name string) bool {
-	if name == "" || name == "lo" {
-		return false
-	}
-	for _, prefix := range []string{"br-", "docker", "veth", "virbr"} {
-		if strings.HasPrefix(name, prefix) {
-			return false
-		}
-	}
-	return true
-}
-
-func (runner *Runner) collectDiskIORates() (float64, float64, bool) {
-	read, written, err := readDiskIOTotals()
-	if err != nil {
-		runner.log.Debug("disk I/O metric unavailable", "error", err)
-		return 0, 0, false
-	}
-	now := time.Now()
-	previousAt := runner.lastDiskReadAt
-	previousRead := runner.lastDiskReadBytes
-	previousWritten := runner.lastDiskWriteBytes
-	runner.lastDiskReadAt = now
-	runner.lastDiskReadBytes = read
-	runner.lastDiskWriteBytes = written
-	if previousAt.IsZero() || read < previousRead || written < previousWritten {
-		return 0, 0, false
-	}
-	elapsed := now.Sub(previousAt).Seconds()
-	if elapsed <= 0 {
-		return 0, 0, false
-	}
-	return roundMetric(float64(read-previousRead) / elapsed),
-		roundMetric(float64(written-previousWritten) / elapsed), true
-}
-
-func readDiskIOTotals() (uint64, uint64, error) {
-	content, err := os.ReadFile("/proc/diskstats")
-	if err != nil {
-		return 0, 0, err
-	}
-	var read uint64
-	var written uint64
-	for _, line := range strings.Split(string(content), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 10 || !isMonitoredBlockDevice(fields[2]) {
-			continue
-		}
-		readSectors, readErr := strconv.ParseUint(fields[5], 10, 64)
-		writtenSectors, writeErr := strconv.ParseUint(fields[9], 10, 64)
-		if readErr != nil || writeErr != nil {
-			continue
-		}
-		read += readSectors * 512
-		written += writtenSectors * 512
-	}
-	return read, written, nil
-}
-
-func isMonitoredBlockDevice(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, prefix := range []string{"loop", "ram", "fd", "sr", "dm-", "md"} {
-		if strings.HasPrefix(name, prefix) {
-			return false
-		}
-	}
-	_, err := os.Stat(filepath.Join("/sys/class/block", name, "partition"))
-	return errors.Is(err, os.ErrNotExist)
 }
 
 func (runner *Runner) reportRuntimeLogs(ctx context.Context, targets []runtimeLogTarget) {
@@ -652,9 +451,11 @@ func parseComposeLogLine(runtimeID string, line string) (runtimeLogLine, bool) {
 func (runner *Runner) claimAndRunJob(ctx context.Context) {
 	var response nextJobResponse
 	err := runner.post(ctx, "/api/agents/jobs/next", agentRequest{
-		ServerID:     runner.cfg.AgentID,
-		Token:        runner.currentCredential(),
-		AgentVersion: Version,
+		ServerID:        runner.cfg.AgentID,
+		Token:           runner.currentCredential(),
+		AgentVersion:    Version,
+		ProtocolVersion: ProtocolVersion,
+		Capabilities:    Capabilities,
 	}, &response)
 	if err != nil {
 		runner.log.Warn("claim job failed", "error", err)
@@ -701,883 +502,6 @@ func (runner *Runner) claimAndRunJob(ctx context.Context) {
 	default:
 		runner.log.Warn("unsupported job type", "job_id", response.Job.ID, "type", response.Job.Type)
 	}
-}
-
-func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobCompletion {
-	status := "succeeded"
-	message := ""
-	manifest := map[string]any{
-		"schemaVersion": 1,
-		"backupRunId":   job.Backup.BackupRunID,
-		"runtimeId":     job.Backup.RuntimeID,
-		"createdAt":     time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	artifacts := []backupArtifact{}
-
-	fail := func(err error) backupJobCompletion {
-		status = "failed"
-		message = err.Error()
-		return backupJobCompletion{
-			ServerID:    runner.cfg.AgentID,
-			Token:       runner.currentCredential(),
-			Type:        "backup",
-			JobID:       job.ID,
-			BackupRunID: job.Backup.BackupRunID,
-			Status:      status,
-			Message:     message,
-			Manifest:    manifest,
-			Artifacts:   artifacts,
-		}
-	}
-
-	if strings.TrimSpace(job.Backup.BackupRunID) == "" {
-		return fail(errors.New("backup run id is required"))
-	}
-	if strings.TrimSpace(job.Backup.RuntimeID) == "" {
-		return fail(errors.New("backup runtime id is required"))
-	}
-	if strings.TrimSpace(job.Backup.LocalBasePath) == "" {
-		return fail(errors.New("backup local base path is required"))
-	}
-
-	if err := runner.ensureDockerAvailable(ctx); err != nil {
-		return fail(err)
-	}
-	if err := os.MkdirAll(job.Backup.LocalBasePath, 0o750); err != nil {
-		return fail(fmt.Errorf("create backup directory: %w", err))
-	}
-
-	manifestPath := filepath.Join(job.Backup.LocalBasePath, "manifest.json")
-	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return fail(err)
-	}
-	if err := os.WriteFile(manifestPath, manifestBytes, 0o640); err != nil {
-		return fail(fmt.Errorf("write backup manifest: %w", err))
-	}
-	artifact, err := fileArtifact(manifestPath, "manifest", "local", manifestPath)
-	if err != nil {
-		return fail(err)
-	}
-	artifacts = append(artifacts, artifact)
-
-	for index, dump := range job.Backup.DatabaseDumps {
-		service := sanitizeArtifactName(dump.Service)
-		if service == "" || strings.TrimSpace(dump.Command) == "" {
-			return fail(fmt.Errorf("database dump %d must include service and command", index+1))
-		}
-		path := filepath.Join(job.Backup.LocalBasePath, "databases", fmt.Sprintf("%02d-%s.sql.gz", index+1, service))
-		if err := runner.writeDatabaseDump(ctx, job.Backup.RuntimeID, dump.Service, dump.Command, path); err != nil {
-			return fail(err)
-		}
-		artifact, err := fileArtifact(path, "database", "local", path)
-		if err != nil {
-			return fail(err)
-		}
-		artifacts = append(artifacts, artifact)
-	}
-
-	volumeNames, err := runner.backupVolumeNames(ctx, job.Backup.RuntimeID, job.Backup.Volumes)
-	if err != nil {
-		return fail(err)
-	}
-	for _, volumeName := range volumeNames {
-		path := filepath.Join(job.Backup.LocalBasePath, "volumes", sanitizeArtifactName(volumeName)+".tar.gz")
-		if err := runner.writeVolumeBackup(ctx, volumeName, path); err != nil {
-			return fail(err)
-		}
-		artifact, err := fileArtifact(path, "volume", "local", path)
-		if err != nil {
-			return fail(err)
-		}
-		artifacts = append(artifacts, artifact)
-	}
-
-	if job.Backup.Retention.Remote.Enabled {
-		remoteArtifacts, err := runner.uploadBackupArtifacts(ctx, job.Backup, artifacts)
-		if err != nil {
-			return fail(err)
-		}
-		artifacts = append(artifacts, remoteArtifacts...)
-	}
-
-	return backupJobCompletion{
-		ServerID:    runner.cfg.AgentID,
-		Token:       runner.currentCredential(),
-		Type:        "backup",
-		JobID:       job.ID,
-		BackupRunID: job.Backup.BackupRunID,
-		Status:      status,
-		Message:     message,
-		Manifest:    manifest,
-		Artifacts:   artifacts,
-	}
-}
-
-func (runner *Runner) runBackupCleanupJob(ctx context.Context, job agentJob) backupCleanupJobCompletion {
-	status := "succeeded"
-	message := ""
-
-	fail := func(err error) backupCleanupJobCompletion {
-		status = "failed"
-		message = err.Error()
-		return backupCleanupJobCompletion{
-			ServerID:     runner.cfg.AgentID,
-			Token:        runner.currentCredential(),
-			Type:         "backup_cleanup",
-			JobID:        job.ID,
-			BackupRunIDs: job.Cleanup.BackupRunIDs,
-			Status:       status,
-			Message:      message,
-		}
-	}
-
-	for _, key := range job.Cleanup.LocalObjectKeys {
-		path := strings.TrimSpace(key)
-		if path == "" {
-			continue
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fail(fmt.Errorf("remove local backup artifact %s: %w", path, err))
-		}
-	}
-
-	if len(job.Cleanup.RemoteObjectKeys) > 0 {
-		if err := runner.ensureRcloneAvailable(ctx); err != nil {
-			return fail(err)
-		}
-		for _, key := range job.Cleanup.RemoteObjectKeys {
-			if err := runner.deleteRemoteBackupArtifact(ctx, job.Cleanup.Destination, key); err != nil {
-				return fail(err)
-			}
-		}
-	}
-
-	return backupCleanupJobCompletion{
-		ServerID:     runner.cfg.AgentID,
-		Token:        runner.currentCredential(),
-		Type:         "backup_cleanup",
-		JobID:        job.ID,
-		BackupRunIDs: job.Cleanup.BackupRunIDs,
-		Status:       status,
-		Message:      message,
-	}
-}
-
-func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) restoreJobCompletion {
-	status := "succeeded"
-	message := ""
-
-	fail := func(err error) restoreJobCompletion {
-		status = "failed"
-		message = err.Error()
-		return restoreJobCompletion{
-			ServerID: runner.cfg.AgentID,
-			Token:    runner.currentCredential(),
-			Type:     "restore",
-			JobID:    job.ID,
-			Status:   status,
-			Message:  message,
-		}
-	}
-
-	if strings.TrimSpace(job.Restore.RuntimeID) == "" {
-		return fail(errors.New("restore runtime id is required"))
-	}
-	if len(job.Restore.Artifacts) == 0 {
-		return fail(errors.New("restore artifacts are required"))
-	}
-	if err := runner.ensureDockerAvailable(ctx); err != nil {
-		return fail(err)
-	}
-
-	workdir, err := os.MkdirTemp("", "devpush-restore-*")
-	if err != nil {
-		return fail(err)
-	}
-	defer os.RemoveAll(workdir)
-
-	localPaths := map[string]string{}
-	for _, artifact := range job.Restore.Artifacts {
-		path, err := runner.restoreArtifactPath(ctx, job.Restore.Destination, artifact, workdir)
-		if err != nil {
-			return fail(err)
-		}
-		if err := verifyFileSHA256(path, artifact.ChecksumSHA256); err != nil {
-			return fail(fmt.Errorf("verify restore artifact %s: %w", artifact.ID, err))
-		}
-		localPaths[artifact.ID] = path
-	}
-
-	volumeArtifacts := []restoreArtifact{}
-	databaseArtifacts := []restoreArtifact{}
-	for _, artifact := range job.Restore.Artifacts {
-		switch artifact.Type {
-		case "volume":
-			volumeArtifacts = append(volumeArtifacts, artifact)
-		case "database":
-			databaseArtifacts = append(databaseArtifacts, artifact)
-		default:
-			return fail(fmt.Errorf("unsupported restore artifact type %q", artifact.Type))
-		}
-	}
-
-	var stoppedContainers []string
-	if len(volumeArtifacts) > 0 {
-		stoppedContainers, err = runner.stopRuntimeContainers(ctx, job.Restore.RuntimeID)
-		if err != nil {
-			return fail(err)
-		}
-		for _, artifact := range volumeArtifacts {
-			if err := runner.restoreVolumeArtifact(ctx, localPaths[artifact.ID], artifact.TargetVolume); err != nil {
-				_ = runner.startContainers(ctx, stoppedContainers)
-				return fail(err)
-			}
-		}
-		if err := runner.startContainers(ctx, stoppedContainers); err != nil {
-			return fail(err)
-		}
-	}
-
-	for _, artifact := range databaseArtifacts {
-		if err := runner.restoreDatabaseArtifact(ctx, job.Restore.RuntimeID, localPaths[artifact.ID], artifact.TargetService, artifact.RestoreCommand); err != nil {
-			return fail(err)
-		}
-	}
-
-	return restoreJobCompletion{
-		ServerID: runner.cfg.AgentID,
-		Token:    runner.currentCredential(),
-		Type:     "restore",
-		JobID:    job.ID,
-		Status:   status,
-		Message:  message,
-	}
-}
-
-func (runner *Runner) restoreArtifactPath(ctx context.Context, destination backupDestination, artifact restoreArtifact, workdir string) (string, error) {
-	if artifact.Storage == "local" {
-		if strings.TrimSpace(artifact.ObjectKey) == "" {
-			return "", errors.New("local restore artifact path is required")
-		}
-		return artifact.ObjectKey, nil
-	}
-
-	if artifact.Storage != "remote" {
-		return "", fmt.Errorf("unsupported restore artifact storage %q", artifact.Storage)
-	}
-
-	if err := runner.ensureRcloneAvailable(ctx); err != nil {
-		return "", err
-	}
-
-	path := filepath.Join(workdir, sanitizeArtifactName(artifact.ID)+"-"+filepath.Base(artifact.ObjectKey))
-	if err := runner.downloadRemoteBackupArtifact(ctx, destination, artifact.ObjectKey, path); err != nil {
-		return "", err
-	}
-
-	return path, nil
-}
-
-func (runner *Runner) stopRuntimeContainers(ctx context.Context, runtimeID string) ([]string, error) {
-	containerIDs, err := runner.dockerIDsByLabel(ctx, "ps", "-q", "--filter", "label=com.docker.compose.project="+runtimeID)
-	if err != nil {
-		return nil, err
-	}
-	if len(containerIDs) == 0 {
-		return []string{}, nil
-	}
-	if _, err := runner.commandOutput(ctx, "", "docker", append([]string{"stop"}, containerIDs...)...); err != nil {
-		return nil, err
-	}
-	return containerIDs, nil
-}
-
-func (runner *Runner) startContainers(ctx context.Context, containerIDs []string) error {
-	if len(containerIDs) == 0 {
-		return nil
-	}
-	if _, err := runner.commandOutput(ctx, "", "docker", append([]string{"start"}, containerIDs...)...); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (runner *Runner) restoreVolumeArtifact(ctx context.Context, artifactPath string, targetVolume string) error {
-	if strings.TrimSpace(targetVolume) == "" {
-		return errors.New("target volume is required")
-	}
-	if _, err := os.Stat(artifactPath); err != nil {
-		return err
-	}
-	args := []string{
-		"run",
-		"--rm",
-		"-v",
-		targetVolume + ":/volume_data",
-		"-v",
-		filepath.Dir(artifactPath) + ":/restore:ro",
-		"alpine",
-		"sh",
-		"-lc",
-		"find /volume_data -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar xzf /restore/" + shellQuote(filepath.Base(artifactPath)) + " -C /volume_data",
-	}
-	output, err := runner.commandOutput(ctx, "", "docker", args...)
-	if err != nil {
-		return fmt.Errorf("restore volume %s: %w: %s", targetVolume, err, strings.TrimSpace(output))
-	}
-	return nil
-}
-
-func (runner *Runner) restoreDatabaseArtifact(ctx context.Context, runtimeID string, artifactPath string, targetService string, restoreCommand string) error {
-	if strings.TrimSpace(targetService) == "" || strings.TrimSpace(restoreCommand) == "" {
-		return errors.New("database restore target service and command are required")
-	}
-
-	file, err := os.Open(artifactPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	gzipReader, err := gzip.NewReader(file)
-	if err != nil {
-		return fmt.Errorf("open gzip database artifact: %w", err)
-	}
-	defer gzipReader.Close()
-
-	composeName, composePrefix, err := runner.composeCommand(ctx)
-	if err != nil {
-		return err
-	}
-	args := append(
-		append([]string{}, composePrefix...),
-		"-p",
-		runtimeID,
-		"exec",
-		"-T",
-		targetService,
-		"sh",
-		"-lc",
-		restoreCommand,
-	)
-	cmd := exec.CommandContext(ctx, composeName, args...)
-	cmd.Stdin = gzipReader
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	cmd.Env = runner.commandEnv()
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("database restore for service %s failed: %w: %s", targetService, err, strings.TrimSpace(stderr.String()))
-	}
-
-	return nil
-}
-
-func (runner *Runner) runDeprovisionJob(ctx context.Context, job agentJob) cleanupJobCompletion {
-	status := "succeeded"
-	message := ""
-
-	fail := func(err error) cleanupJobCompletion {
-		status = "failed"
-		message = err.Error()
-		return cleanupJobCompletion{
-			ServerID: runner.cfg.AgentID,
-			Token:    runner.currentCredential(),
-			Type:     job.Type,
-			JobID:    job.ID,
-			Status:   status,
-			Message:  message,
-		}
-	}
-
-	for _, runtimeID := range job.Cleanup.RuntimeIDs {
-		if strings.TrimSpace(runtimeID) == "" {
-			continue
-		}
-
-		if err := runner.removeComposeRuntime(ctx, runtimeID, job.Cleanup.RemoveVolumes); err != nil {
-			return fail(fmt.Errorf("unable to deprovision runtime %s: %w", runtimeID, err))
-		}
-	}
-
-	return cleanupJobCompletion{
-		ServerID: runner.cfg.AgentID,
-		Token:    runner.currentCredential(),
-		Type:     job.Type,
-		JobID:    job.ID,
-		Status:   status,
-		Message:  message,
-	}
-}
-
-func (runner *Runner) writeDatabaseDump(ctx context.Context, runtimeID string, service string, command string, outputPath string) error {
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o750); err != nil {
-		return err
-	}
-
-	composeName, composePrefix, err := runner.composeCommand(ctx)
-	if err != nil {
-		return err
-	}
-
-	file, err := os.Create(outputPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	args := append(
-		append([]string{}, composePrefix...),
-		"-p",
-		runtimeID,
-		"exec",
-		"-T",
-		service,
-		"sh",
-		"-lc",
-		command,
-	)
-	cmd := exec.CommandContext(ctx, composeName, args...)
-	cmd.Stdout = file
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	cmd.Env = runner.commandEnv()
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("database dump for service %s failed: %w: %s", service, err, strings.TrimSpace(stderr.String()))
-	}
-
-	return nil
-}
-
-func (runner *Runner) backupVolumeNames(ctx context.Context, runtimeID string, selection backupVolumeSelection) ([]string, error) {
-	switch selection.Mode {
-	case "none":
-		return []string{}, nil
-	case "selected":
-		return uniqueNonEmpty(selection.Names), nil
-	case "", "allNamed":
-		output, err := runner.commandOutput(
-			ctx,
-			"",
-			"docker",
-			"volume",
-			"ls",
-			"-q",
-			"--filter",
-			"label=com.docker.compose.project="+runtimeID,
-		)
-		if err != nil {
-			return nil, err
-		}
-		return uniqueNonEmpty(strings.Split(output, "\n")), nil
-	default:
-		return nil, fmt.Errorf("unsupported backup volume mode %q", selection.Mode)
-	}
-}
-
-func (runner *Runner) writeVolumeBackup(ctx context.Context, volumeName string, outputPath string) error {
-	if strings.TrimSpace(volumeName) == "" {
-		return errors.New("volume name is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o750); err != nil {
-		return err
-	}
-
-	backupDir := filepath.Dir(outputPath)
-	fileName := filepath.Base(outputPath)
-	args := []string{
-		"run",
-		"--rm",
-		"-v",
-		volumeName + ":/volume_data:ro",
-		"-v",
-		backupDir + ":/backup",
-		"alpine",
-		"sh",
-		"-lc",
-		"cd /volume_data && tar czf /backup/" + shellQuote(fileName) + " .",
-	}
-	output, err := runner.commandOutput(ctx, "", "docker", args...)
-	if err != nil {
-		return fmt.Errorf("backup volume %s: %w: %s", volumeName, err, strings.TrimSpace(output))
-	}
-
-	return nil
-}
-
-func (runner *Runner) uploadBackupArtifacts(ctx context.Context, backup backupConfig, artifacts []backupArtifact) ([]backupArtifact, error) {
-	if err := runner.ensureRcloneAvailable(ctx); err != nil {
-		return nil, err
-	}
-
-	remoteArtifacts := []backupArtifact{}
-	for _, artifact := range artifacts {
-		if artifact.Storage != "local" {
-			continue
-		}
-		relative, err := filepath.Rel(backup.LocalBasePath, artifact.ObjectKey)
-		if err != nil {
-			return nil, err
-		}
-		remoteKey := pathJoinS3(backup.ArtifactPrefix, filepath.ToSlash(relative))
-		if err := runner.uploadRemoteBackupArtifact(ctx, backup.Destination, artifact.ObjectKey, remoteKey); err != nil {
-			return nil, err
-		}
-		remoteArtifacts = append(remoteArtifacts, backupArtifact{
-			Type:           artifact.Type,
-			Storage:        "remote",
-			ObjectKey:      remoteKey,
-			ChecksumSHA256: artifact.ChecksumSHA256,
-			SizeBytes:      artifact.SizeBytes,
-		})
-	}
-
-	return remoteArtifacts, nil
-}
-
-func (runner *Runner) uploadRemoteBackupArtifact(ctx context.Context, destination backupDestination, localPath string, remoteKey string) error {
-	configPath, err := writeRcloneS3Config(destination)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(configPath)
-
-	args := []string{"--config", configPath, "copyto", localPath, "devpush-backups:" + destination.Bucket + "/" + remoteKey}
-	if output, err := runner.commandOutput(ctx, "", "rclone", args...); err != nil {
-		return fmt.Errorf("upload remote backup artifact %s: %w: %s", remoteKey, err, strings.TrimSpace(output))
-	}
-
-	return nil
-}
-
-func (runner *Runner) deleteRemoteBackupArtifact(ctx context.Context, destination backupDestination, remoteKey string) error {
-	configPath, err := writeRcloneS3Config(destination)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(configPath)
-
-	args := []string{"--config", configPath, "deletefile", "devpush-backups:" + destination.Bucket + "/" + strings.TrimLeft(remoteKey, "/")}
-	if output, err := runner.commandOutput(ctx, "", "rclone", args...); err != nil {
-		return fmt.Errorf("delete remote backup artifact %s: %w: %s", remoteKey, err, strings.TrimSpace(output))
-	}
-
-	return nil
-}
-
-func (runner *Runner) downloadRemoteBackupArtifact(ctx context.Context, destination backupDestination, remoteKey string, localPath string) error {
-	configPath, err := writeRcloneS3Config(destination)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(configPath)
-
-	if err := os.MkdirAll(filepath.Dir(localPath), 0o750); err != nil {
-		return err
-	}
-	args := []string{"--config", configPath, "copyto", "devpush-backups:" + destination.Bucket + "/" + strings.TrimLeft(remoteKey, "/"), localPath}
-	if output, err := runner.commandOutput(ctx, "", "rclone", args...); err != nil {
-		return fmt.Errorf("download remote backup artifact %s: %w: %s", remoteKey, err, strings.TrimSpace(output))
-	}
-
-	return nil
-}
-
-func (runner *Runner) ensureRcloneAvailable(ctx context.Context) error {
-	if runner.commandSucceeds(ctx, "", "rclone", "version") {
-		return nil
-	}
-
-	return fmt.Errorf("rclone is required for remote backups. Install rclone on the server or disable remote backups")
-}
-
-func writeRcloneS3Config(destination backupDestination) (string, error) {
-	if strings.TrimSpace(destination.Bucket) == "" {
-		return "", errors.New("remote backup bucket is required")
-	}
-	if strings.TrimSpace(destination.AccessKeyID) == "" || strings.TrimSpace(destination.SecretAccessKey) == "" {
-		return "", errors.New("remote backup S3 credentials are required")
-	}
-
-	file, err := os.CreateTemp("", "devpush-rclone-*.conf")
-	if err != nil {
-		return "", err
-	}
-	path := file.Name()
-	if err := file.Chmod(0o600); err != nil {
-		file.Close()
-		os.Remove(path)
-		return "", err
-	}
-
-	lines := []string{
-		"[devpush-backups]",
-		"type = s3",
-		"provider = Other",
-		"access_key_id = " + destination.AccessKeyID,
-		"secret_access_key = " + destination.SecretAccessKey,
-		"no_check_bucket = true",
-		"force_path_style = true",
-	}
-	if destination.Region != "" {
-		lines = append(lines, "region = "+destination.Region)
-	}
-	if destination.Endpoint != "" {
-		lines = append(lines, "endpoint = "+destination.Endpoint)
-	}
-	if _, err := file.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
-		file.Close()
-		os.Remove(path)
-		return "", err
-	}
-	if err := file.Close(); err != nil {
-		os.Remove(path)
-		return "", err
-	}
-
-	return path, nil
-}
-
-func fileArtifact(path string, artifactType string, storage string, objectKey string) (backupArtifact, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return backupArtifact{}, err
-	}
-	defer file.Close()
-
-	hash := sha256.New()
-	size, err := io.Copy(hash, file)
-	if err != nil {
-		return backupArtifact{}, err
-	}
-
-	return backupArtifact{
-		Type:           artifactType,
-		Storage:        storage,
-		ObjectKey:      objectKey,
-		ChecksumSHA256: hex.EncodeToString(hash.Sum(nil)),
-		SizeBytes:      size,
-	}, nil
-}
-
-func verifyFileSHA256(path string, expected string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return err
-	}
-	actual := hex.EncodeToString(hash.Sum(nil))
-	if !strings.EqualFold(actual, strings.TrimSpace(expected)) {
-		return fmt.Errorf("checksum mismatch: expected %s, got %s", expected, actual)
-	}
-
-	return nil
-}
-
-func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) jobCompletion {
-	logs := []string{}
-	events := []jobEvent{}
-	status := "succeeded"
-	gitSha := ""
-	baseLogSeq := job.LogStartSeq
-	if baseLogSeq < 1 {
-		baseLogSeq = 1
-	}
-	flushedLogs := 0
-	flushedEvents := 0
-
-	flushProgress := func() {
-		if strings.TrimSpace(runner.cfg.ServerURL) == "" {
-			return
-		}
-		if flushedLogs == len(logs) && flushedEvents == len(events) {
-			return
-		}
-
-		progress := jobProgress{
-			ServerID:     runner.cfg.AgentID,
-			Token:        runner.currentCredential(),
-			DeploymentID: job.ID,
-			LogStartSeq:  baseLogSeq + flushedLogs,
-			Logs:         append([]string{}, logs[flushedLogs:]...),
-			Events:       append([]jobEvent{}, events[flushedEvents:]...),
-		}
-		if err := runner.reportProgress(ctx, progress); err != nil {
-			runner.log.Warn("report deployment progress failed", "deployment_id", job.ID, "error", err)
-			return
-		}
-
-		flushedLogs = len(logs)
-		flushedEvents = len(events)
-	}
-	makeCompletion := func() jobCompletion {
-		return jobCompletion{
-			ServerID:     runner.cfg.AgentID,
-			Token:        runner.currentCredential(),
-			DeploymentID: job.ID,
-			Status:       status,
-			GitSha:       nullableString(gitSha),
-			LogStartSeq:  baseLogSeq + flushedLogs,
-			Logs:         append([]string{}, logs[flushedLogs:]...),
-			Events:       append([]jobEvent{}, events[flushedEvents:]...),
-		}
-	}
-
-	addEvent := func(phase string, message string) {
-		events = append(events, jobEvent{Phase: phase, Message: message})
-		logs = append(logs, message)
-		flushProgress()
-	}
-	fail := func(err error) jobCompletion {
-		if errors.Is(err, errDeploymentCanceled) {
-			status = "canceled"
-			message := "Deployment canceled because a newer deployment was queued."
-			addEvent("completed", message)
-			return makeCompletion()
-		}
-
-		status = "failed"
-		message := fmt.Sprintf("Deployment failed: %v", err)
-		addEvent("completed", message)
-		return makeCompletion()
-	}
-	run := func(dir string, name string, args ...string) error {
-		return runner.runCancellableCommand(ctx, job.ID, dir, &logs, name, args...)
-	}
-
-	workdir := filepath.Join(runner.cfg.StateDir, "deployments", job.ID)
-	repoDir := filepath.Join(workdir, "repo")
-	if err := os.RemoveAll(workdir); err != nil {
-		return fail(err)
-	}
-	if err := os.MkdirAll(workdir, 0o750); err != nil {
-		return fail(err)
-	}
-
-	addEvent("config_synced", "Deployment configuration received.")
-
-	cloneURL := runner.cloneURL(job.Repo)
-	if err := run(workdir, "git", "clone", "--depth", "1", "--branch", job.Repo.Branch, cloneURL, repoDir); err != nil {
-		return fail(fmt.Errorf("unable to fetch repository %s branch %s. Check GitHub App repository access and branch name: %w", job.Repo.FullName, job.Repo.Branch, err))
-	}
-	if job.Repo.Sha != "" {
-		if err := run(repoDir, "git", "fetch", "--depth", "1", "origin", job.Repo.Sha); err != nil {
-			return fail(fmt.Errorf("unable to fetch commit %s: %w", job.Repo.Sha, err))
-		}
-		if err := run(repoDir, "git", "checkout", "--detach", job.Repo.Sha); err != nil {
-			return fail(fmt.Errorf("unable to checkout commit %s: %w", job.Repo.Sha, err))
-		}
-	}
-	addEvent("repo_fetched", fmt.Sprintf("Fetched %s:%s.", job.Repo.FullName, job.Repo.Branch))
-
-	sha, err := runner.commandOutput(ctx, repoDir, "git", "rev-parse", "--short", "HEAD")
-	if err != nil {
-		return fail(fmt.Errorf("unable to read deployed Git SHA: %w", err))
-	}
-	gitSha = strings.TrimSpace(sha)
-
-	composePath := filepath.Join(repoDir, job.Compose.Path)
-	if _, err := os.Stat(composePath); err != nil {
-		return fail(fmt.Errorf("Compose file %s was not found in the repository checkout. Update the project Compose path or add the file: %w", job.Compose.Path, err))
-	}
-	addEvent("compose_resolved", fmt.Sprintf("Resolved %s.", job.Compose.Path))
-	for _, warning := range composeRiskWarnings(composePath) {
-		logs = append(logs, "Warning: "+warning)
-	}
-
-	envFile := filepath.Join(workdir, "env")
-	if err := writeEnvFile(envFile, job.Compose.EnvVars); err != nil {
-		return fail(fmt.Errorf("unable to write deployment environment file: %w", err))
-	}
-
-	if err := runner.ensureDockerAvailable(ctx); err != nil {
-		return fail(err)
-	}
-	composeName, composePrefix, err := runner.composeCommand(ctx)
-	if err != nil {
-		return fail(err)
-	}
-
-	overrideFile := filepath.Join(workdir, "devpush.compose.yml")
-	if len(job.Compose.Routes) > 0 {
-		if err := runner.ensureTraefik(ctx, &logs); err != nil {
-			return fail(fmt.Errorf("unable to prepare managed Traefik routing. Check Docker access and whether ports 80/443 are already in use: %w", err))
-		}
-		if err := writeRouteOverride(overrideFile, job.Compose.ProjectName, job.Compose.Routes); err != nil {
-			return fail(fmt.Errorf("unable to generate managed Traefik route labels: %w", err))
-		}
-		addEvent("config_synced", "Generated devpush routing override.")
-	}
-
-	composeArgs := []string{
-		"--env-file",
-		envFile,
-		"-p",
-		job.Compose.ProjectName,
-		"-f",
-		composePath,
-	}
-	if len(job.Compose.Routes) > 0 {
-		composeArgs = append(composeArgs, "-f", overrideFile)
-	}
-
-	addEvent("revision_started", "Pulling Compose images.")
-	pullArgs := append(append([]string{}, composeArgs...), "pull", "--ignore-pull-failures")
-	if err := run(repoDir, composeName, append(composePrefix, pullArgs...)...); err != nil {
-		return fail(fmt.Errorf("Docker Compose could not pull images. Check image names, registry credentials, and network access: %w", err))
-	}
-
-	addEvent("revision_started", "Building Compose services.")
-	buildArgs := append(append([]string{}, composeArgs...), "build")
-	if err := run(repoDir, composeName, append(composePrefix, buildArgs...)...); err != nil {
-		return fail(fmt.Errorf("Docker Compose build failed. Check Dockerfile paths, build context, and build-time environment variables: %w", err))
-	}
-	addEvent("images_built_or_pulled", "Compose images are ready.")
-
-	if job.Compose.ReleaseCommand != "" {
-		addEvent("release_command_started", fmt.Sprintf("Running release command on %s.", job.Compose.ReleaseService))
-		releaseArgs := append(
-			append([]string{}, composeArgs...),
-			"run",
-			"--rm",
-			job.Compose.ReleaseService,
-			"sh",
-			"-lc",
-			job.Compose.ReleaseCommand,
-		)
-		if err := run(repoDir, composeName, append(composePrefix, releaseArgs...)...); err != nil {
-			return fail(fmt.Errorf("release command failed on service %s. Fix the command or make it safe to rerun before deploying again: %w", job.Compose.ReleaseService, err))
-		}
-		addEvent("release_command_succeeded", "Release command completed.")
-	}
-
-	addEvent("revision_started", "Starting Compose services.")
-	upArgs := append(append([]string{}, composeArgs...), "up", "-d", "--no-build")
-	if err := run(repoDir, composeName, append(composePrefix, upArgs...)...); err != nil {
-		return fail(fmt.Errorf("Docker Compose could not start services. Check service definitions, fixed port conflicts, volumes, and container health: %w", err))
-	}
-	if err := runner.waitForComposeHealthy(ctx, repoDir, &logs, composeName, composePrefix, composeArgs); err != nil {
-		return fail(fmt.Errorf("Docker Compose services did not become healthy: %w", err))
-	}
-
-	if len(job.Compose.Routes) > 0 {
-		route := job.Compose.Routes[0]
-		readinessPath := routeReadinessPath(route.Path, job.Compose.ReadinessPath)
-		addEvent("readiness_check_started", fmt.Sprintf("Checking %s%s through Traefik.", route.Host, readinessPath))
-		if err := runner.checkReadiness(ctx, route, readinessPath); err != nil {
-			return fail(fmt.Errorf("readiness check failed for %s%s through Traefik. Check that the service listens on port %d and returns a 2xx/3xx response: %w", route.Host, readinessPath, route.Port, err))
-		}
-	}
-
-	addEvent("traffic_switched", "Deployment finished on the target server.")
-	addEvent("completed", "Deployment completed.")
-
-	return makeCompletion()
 }
 
 func (runner *Runner) reportProgress(ctx context.Context, progress jobProgress) error {
@@ -1630,6 +554,10 @@ func (runner *Runner) deploymentCanceled(ctx context.Context, deploymentID strin
 }
 
 func (runner *Runner) runCancellableCommand(ctx context.Context, deploymentID string, dir string, logs *[]string, name string, args ...string) error {
+	return runner.runCancellableCommandWithEnv(ctx, deploymentID, dir, logs, nil, name, args...)
+}
+
+func (runner *Runner) runCancellableCommandWithEnv(ctx context.Context, deploymentID string, dir string, logs *[]string, env []string, name string, args ...string) error {
 	if runner.deploymentCanceled(ctx, deploymentID) {
 		return errDeploymentCanceled
 	}
@@ -1659,7 +587,7 @@ func (runner *Runner) runCancellableCommand(ctx context.Context, deploymentID st
 		}
 	}()
 
-	err := runner.runCommand(commandCtx, dir, logs, name, args...)
+	err := runner.runCommandWithEnv(commandCtx, dir, logs, env, name, args...)
 	cancel()
 	<-done
 
@@ -1673,12 +601,16 @@ func (runner *Runner) runCancellableCommand(ctx context.Context, deploymentID st
 }
 
 func (runner *Runner) runCommand(ctx context.Context, dir string, logs *[]string, name string, args ...string) error {
+	return runner.runCommandWithEnv(ctx, dir, logs, nil, name, args...)
+}
+
+func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[]string, env []string, name string, args ...string) error {
 	safeArgs := redactArgs(args)
 	*logs = append(*logs, "$ "+name+" "+strings.Join(safeArgs, " "))
 
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
-	command.Env = runner.commandEnv()
+	command.Env = mergeCommandEnv(runner.commandEnv(), env)
 	output, err := command.CombinedOutput()
 	outputLines := []string{}
 	if len(output) > 0 {
@@ -1700,6 +632,47 @@ func (runner *Runner) runCommand(ctx context.Context, dir string, logs *[]string
 	}
 
 	return nil
+}
+
+func deploymentCommandEnv(envVars []envVar, values map[string]string) []string {
+	env := make([]string, 0, len(envVars)+len(values))
+	for _, variable := range envVars {
+		key := strings.TrimSpace(variable.Key)
+		if key != "" {
+			env = append(env, key+"="+variable.Value)
+		}
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		env = append(env, key+"="+values[key])
+	}
+	return env
+}
+
+func mergeCommandEnv(groups ...[]string) []string {
+	values := map[string]string{}
+	order := []string{}
+	for _, group := range groups {
+		for _, item := range group {
+			key, _, ok := strings.Cut(item, "=")
+			if !ok || key == "" {
+				continue
+			}
+			if _, exists := values[key]; !exists {
+				order = append(order, key)
+			}
+			values[key] = item
+		}
+	}
+	result := make([]string, 0, len(order))
+	for _, key := range order {
+		result = append(result, values[key])
+	}
+	return result
 }
 
 func (runner *Runner) removeComposeRuntime(ctx context.Context, runtimeID string, removeVolumes bool) error {
@@ -1875,8 +848,14 @@ func (runner *Runner) commandOutput(ctx context.Context, dir string, name string
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
 	command.Env = runner.commandEnv()
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
 	output, err := command.Output()
 	if err != nil {
+		details := strings.TrimSpace(stderr.String())
+		if details != "" {
+			return "", fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, details)
+		}
 		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
 
@@ -2062,7 +1041,7 @@ type readinessCheckTarget struct {
 	URL string
 }
 
-func (runner Runner) readinessTarget(route route, path string) readinessCheckTarget {
+func (runner *Runner) readinessTarget(route route, path string) readinessCheckTarget {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
@@ -2083,8 +1062,7 @@ func readinessHTTPClient(route route) *http.Client {
 	if route.HTTPS {
 		client.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
-				ServerName:         route.Host,
-				InsecureSkipVerify: true,
+				ServerName: route.Host,
 			},
 		}
 	}
@@ -2172,7 +1150,7 @@ func (runner *Runner) ensureTraefik(ctx context.Context, logs *[]string) error {
 	return nil
 }
 
-func (runner Runner) traefikHTTPPort() int {
+func (runner *Runner) traefikHTTPPort() int {
 	if runner.cfg.TraefikHTTPPort > 0 {
 		return runner.cfg.TraefikHTTPPort
 	}
@@ -2180,7 +1158,7 @@ func (runner Runner) traefikHTTPPort() int {
 	return 80
 }
 
-func (runner Runner) traefikHTTPSPort() int {
+func (runner *Runner) traefikHTTPSPort() int {
 	if runner.cfg.TraefikHTTPSPort > 0 {
 		return runner.cfg.TraefikHTTPSPort
 	}
@@ -2289,11 +1267,7 @@ func (runner *Runner) composeCommand(ctx context.Context) (string, []string, err
 		return "docker", []string{"compose"}, nil
 	}
 
-	if runner.commandSucceeds(ctx, "", "docker-compose", "version") {
-		return "docker-compose", []string{}, nil
-	}
-
-	return "", nil, fmt.Errorf("Docker Compose is not available to the devpush agent. Install the Docker Compose plugin or docker-compose")
+	return "", nil, fmt.Errorf("Docker Compose is not available to the devpush agent. Install the Docker Compose plugin")
 }
 
 func (runner *Runner) cloneURL(repo repo) string {
@@ -2354,455 +1328,6 @@ func (runner *Runner) commandEnv() []string {
 	return env
 }
 
-func sampleCPUPercent(ctx context.Context) (float64, error) {
-	first, err := readCPUStat()
-	if err != nil {
-		return 0, err
-	}
-
-	timer := time.NewTimer(100 * time.Millisecond)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	case <-timer.C:
-	}
-
-	second, err := readCPUStat()
-	if err != nil {
-		return 0, err
-	}
-
-	totalDelta := second.total - first.total
-	idleDelta := second.idle - first.idle
-	if totalDelta <= 0 {
-		return 0, errors.New("cpu total did not advance")
-	}
-
-	return roundMetric(100 * float64(totalDelta-idleDelta) / float64(totalDelta)), nil
-}
-
-type cpuStat struct {
-	total uint64
-	idle  uint64
-}
-
-func readCPUStat() (cpuStat, error) {
-	content, err := os.ReadFile("/proc/stat")
-	if err != nil {
-		return cpuStat{}, err
-	}
-
-	line, _, _ := strings.Cut(string(content), "\n")
-	fields := strings.Fields(line)
-	if len(fields) < 5 || fields[0] != "cpu" {
-		return cpuStat{}, errors.New("invalid /proc/stat cpu line")
-	}
-
-	values := make([]uint64, 0, len(fields)-1)
-	for _, field := range fields[1:] {
-		value, err := strconv.ParseUint(field, 10, 64)
-		if err != nil {
-			return cpuStat{}, err
-		}
-		values = append(values, value)
-	}
-
-	var total uint64
-	for _, value := range values {
-		total += value
-	}
-
-	idle := values[3]
-	if len(values) > 4 {
-		idle += values[4]
-	}
-
-	return cpuStat{total: total, idle: idle}, nil
-}
-
-func readMemoryUsage() (uint64, uint64, error) {
-	content, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return 0, 0, err
-	}
-
-	values := map[string]uint64{}
-	for _, line := range strings.Split(string(content), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-
-		key := strings.TrimSuffix(fields[0], ":")
-		value, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			continue
-		}
-		values[key] = value * 1024
-	}
-
-	total := values["MemTotal"]
-	available := values["MemAvailable"]
-	if total == 0 || available > total {
-		return 0, 0, errors.New("invalid /proc/meminfo")
-	}
-
-	return total - available, total, nil
-}
-
-func readDiskUsage(path string) (uint64, uint64, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		return 0, 0, err
-	}
-
-	blockSize := uint64(stat.Bsize)
-	total := stat.Blocks * blockSize
-	available := stat.Bavail * blockSize
-	if total == 0 || available > total {
-		return 0, 0, errors.New("invalid statfs values")
-	}
-
-	return total - available, total, nil
-}
-
-func roundMetric(value float64) float64 {
-	return math.Round(value*100) / 100
-}
-
-type agentRequest struct {
-	ServerID     string           `json:"serverId,omitempty"`
-	Token        string           `json:"token"`
-	AgentVersion string           `json:"agentVersion"`
-	RuntimeIDs   []string         `json:"runtimeIds,omitempty"`
-	Runtimes     []composeRuntime `json:"runtimes,omitempty"`
-	System       *hostDetails     `json:"system,omitempty"`
-	Metrics      *hostMetrics     `json:"metrics,omitempty"`
-}
-
-type hostDetails struct {
-	Hostname        string  `json:"hostname,omitempty"`
-	OperatingSystem string  `json:"operatingSystem,omitempty"`
-	KernelVersion   string  `json:"kernelVersion,omitempty"`
-	Architecture    string  `json:"architecture,omitempty"`
-	CPUCoreCount    int     `json:"cpuCoreCount,omitempty"`
-	UptimeSeconds   *uint64 `json:"uptimeSeconds,omitempty"`
-}
-
-type composeRuntime struct {
-	RuntimeID string           `json:"runtimeId"`
-	Services  []composeService `json:"services"`
-}
-
-type composeService struct {
-	Name          string  `json:"name"`
-	ContainerName string  `json:"containerName"`
-	State         string  `json:"state"`
-	Health        *string `json:"health"`
-	RestartCount  int     `json:"restartCount"`
-	StartedAt     *string `json:"startedAt"`
-	ExitCode      int     `json:"exitCode"`
-}
-
-type hostMetrics struct {
-	CPUPercent                    *float64 `json:"cpuPercent,omitempty"`
-	MemoryUsedBytes               *uint64  `json:"memoryUsedBytes,omitempty"`
-	MemoryTotalBytes              *uint64  `json:"memoryTotalBytes,omitempty"`
-	DiskUsedBytes                 *uint64  `json:"diskUsedBytes,omitempty"`
-	DiskTotalBytes                *uint64  `json:"diskTotalBytes,omitempty"`
-	NetworkReceiveBytesPerSecond  *float64 `json:"networkReceiveBytesPerSecond,omitempty"`
-	NetworkTransmitBytesPerSecond *float64 `json:"networkTransmitBytesPerSecond,omitempty"`
-	DiskReadBytesPerSecond        *float64 `json:"diskReadBytesPerSecond,omitempty"`
-	DiskWriteBytesPerSecond       *float64 `json:"diskWriteBytesPerSecond,omitempty"`
-}
-
-func (metrics hostMetrics) hasValues() bool {
-	return metrics.CPUPercent != nil ||
-		metrics.MemoryUsedBytes != nil ||
-		metrics.MemoryTotalBytes != nil ||
-		metrics.DiskUsedBytes != nil ||
-		metrics.DiskTotalBytes != nil ||
-		metrics.NetworkReceiveBytesPerSecond != nil ||
-		metrics.NetworkTransmitBytesPerSecond != nil ||
-		metrics.DiskReadBytesPerSecond != nil ||
-		metrics.DiskWriteBytesPerSecond != nil
-}
-
-type agentResponse struct {
-	ServerID          string             `json:"serverId"`
-	Status            string             `json:"status"`
-	Credential        string             `json:"credential,omitempty"`
-	RuntimeLogTargets []runtimeLogTarget `json:"runtimeLogTargets"`
-}
-
-type runtimeLogTarget struct {
-	RuntimeID string `json:"runtimeId"`
-}
-
-type runtimeLogsRequest struct {
-	ServerID string           `json:"serverId"`
-	Token    string           `json:"token"`
-	Logs     []runtimeLogLine `json:"logs"`
-}
-
-type runtimeLogLine struct {
-	RuntimeID  string `json:"runtimeId"`
-	Service    string `json:"service"`
-	ObservedAt string `json:"observedAt"`
-	Content    string `json:"content"`
-}
-
-type runtimeLogsResponse struct {
-	OK       bool `json:"ok"`
-	Inserted int  `json:"inserted"`
-}
-
-type nextJobResponse struct {
-	Job *agentJob `json:"job"`
-}
-
-type agentJob struct {
-	Type        string        `json:"type"`
-	ID          string        `json:"id"`
-	LogStartSeq int           `json:"logStartSeq"`
-	Repo        repo          `json:"repo"`
-	Project     projectConfig `json:"project"`
-	Compose     composeConfig `json:"compose"`
-	Cleanup     cleanupConfig `json:"cleanup"`
-	Backup      backupConfig  `json:"backup"`
-	Restore     restoreConfig `json:"restore"`
-}
-
-type deploymentJob struct {
-	ID          string        `json:"id"`
-	LogStartSeq int           `json:"logStartSeq"`
-	Repo        repo          `json:"repo"`
-	Project     projectConfig `json:"project"`
-	Compose     composeConfig `json:"compose"`
-}
-
-func (job agentJob) deploymentJob() deploymentJob {
-	return deploymentJob{
-		ID:          job.ID,
-		LogStartSeq: job.LogStartSeq,
-		Repo:        job.Repo,
-		Project:     job.Project,
-		Compose:     job.Compose,
-	}
-}
-
-type projectConfig struct {
-	Slug string `json:"slug"`
-	Name string `json:"name"`
-}
-
-type repo struct {
-	FullName string `json:"fullName"`
-	Branch   string `json:"branch"`
-	Sha      string `json:"sha"`
-	Token    string `json:"token"`
-}
-
-type composeConfig struct {
-	Path           string   `json:"path"`
-	ProjectName    string   `json:"projectName"`
-	ReleaseCommand string   `json:"releaseCommand"`
-	ReleaseService string   `json:"releaseService"`
-	ReadinessPath  string   `json:"readinessPath"`
-	EnvVars        []envVar `json:"envVars"`
-	Routes         []route  `json:"routes"`
-}
-
-type envVar struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-type route struct {
-	Host        string `json:"host"`
-	Service     string `json:"service"`
-	Port        int    `json:"port"`
-	Path        string `json:"path"`
-	HTTPS       bool   `json:"https"`
-	StripPrefix bool   `json:"stripPrefix"`
-}
-
-type cleanupConfig struct {
-	RuntimeIDs       []string          `json:"runtimeIds"`
-	RemoveVolumes    bool              `json:"removeVolumes"`
-	Reason           string            `json:"reason"`
-	BackupRunIDs     []string          `json:"backupRunIds"`
-	Destination      backupDestination `json:"destination"`
-	LocalObjectKeys  []string          `json:"localObjectKeys"`
-	RemoteObjectKeys []string          `json:"remoteObjectKeys"`
-}
-
-type backupConfig struct {
-	SchemaVersion  int                   `json:"schemaVersion"`
-	BackupRunID    string                `json:"backupRunId"`
-	ArtifactPrefix string                `json:"artifactPrefix"`
-	LocalBasePath  string                `json:"localBasePath"`
-	ProjectID      string                `json:"projectId"`
-	EnvironmentID  string                `json:"environmentId"`
-	RuntimeID      string                `json:"runtimeId"`
-	Destination    backupDestination     `json:"destination"`
-	Retention      backupRetentionPolicy `json:"retention"`
-	Volumes        backupVolumeSelection `json:"volumes"`
-	DatabaseDumps  []backupDatabaseDump  `json:"databaseDumps"`
-}
-
-type backupDestination struct {
-	Bucket          string `json:"bucket"`
-	Region          string `json:"region"`
-	Endpoint        string `json:"endpoint"`
-	Prefix          string `json:"prefix"`
-	AccessKeyID     string `json:"accessKeyId"`
-	SecretAccessKey string `json:"secretAccessKey"`
-}
-
-type backupRetentionPolicy struct {
-	Local  backupRetentionLimit       `json:"local"`
-	Remote backupRemoteRetentionLimit `json:"remote"`
-}
-
-type backupRetentionLimit struct {
-	Count        int     `json:"count"`
-	Days         int     `json:"days"`
-	MaxStorageGB float64 `json:"maxStorageGb"`
-}
-
-type backupRemoteRetentionLimit struct {
-	Enabled      bool    `json:"enabled"`
-	Count        int     `json:"count"`
-	Days         int     `json:"days"`
-	MaxStorageGB float64 `json:"maxStorageGb"`
-}
-
-type backupVolumeSelection struct {
-	Mode  string   `json:"mode"`
-	Names []string `json:"names"`
-}
-
-type backupDatabaseDump struct {
-	Service string `json:"service"`
-	Command string `json:"command"`
-}
-
-type restoreConfig struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	BackupRunID   string            `json:"backupRunId"`
-	ProjectID     string            `json:"projectId"`
-	EnvironmentID string            `json:"environmentId"`
-	RuntimeID     string            `json:"runtimeId"`
-	Destination   backupDestination `json:"destination"`
-	Artifacts     []restoreArtifact `json:"artifacts"`
-}
-
-type restoreArtifact struct {
-	ID             string `json:"id"`
-	Type           string `json:"type"`
-	Storage        string `json:"storage"`
-	ObjectKey      string `json:"objectKey"`
-	ChecksumSHA256 string `json:"checksumSha256"`
-	TargetVolume   string `json:"targetVolume"`
-	TargetService  string `json:"targetService"`
-	RestoreCommand string `json:"restoreCommand"`
-}
-
-type jobCompletion struct {
-	ServerID     string     `json:"serverId"`
-	Token        string     `json:"token"`
-	DeploymentID string     `json:"deploymentId"`
-	Status       string     `json:"status"`
-	GitSha       *string    `json:"gitSha"`
-	LogStartSeq  int        `json:"logStartSeq,omitempty"`
-	Logs         []string   `json:"logs"`
-	Events       []jobEvent `json:"events"`
-}
-
-type cleanupJobCompletion struct {
-	ServerID string `json:"serverId"`
-	Token    string `json:"token"`
-	Type     string `json:"type"`
-	JobID    string `json:"jobId"`
-	Status   string `json:"status"`
-	Message  string `json:"message,omitempty"`
-}
-
-type backupJobCompletion struct {
-	ServerID    string           `json:"serverId"`
-	Token       string           `json:"token"`
-	Type        string           `json:"type"`
-	JobID       string           `json:"jobId"`
-	BackupRunID string           `json:"backupRunId"`
-	Status      string           `json:"status"`
-	Message     string           `json:"message,omitempty"`
-	Manifest    map[string]any   `json:"manifest,omitempty"`
-	Artifacts   []backupArtifact `json:"artifacts,omitempty"`
-}
-
-type backupCleanupJobCompletion struct {
-	ServerID     string   `json:"serverId"`
-	Token        string   `json:"token"`
-	Type         string   `json:"type"`
-	JobID        string   `json:"jobId"`
-	BackupRunIDs []string `json:"backupRunIds"`
-	Status       string   `json:"status"`
-	Message      string   `json:"message,omitempty"`
-}
-
-type restoreJobCompletion struct {
-	ServerID string `json:"serverId"`
-	Token    string `json:"token"`
-	Type     string `json:"type"`
-	JobID    string `json:"jobId"`
-	Status   string `json:"status"`
-	Message  string `json:"message,omitempty"`
-}
-
-type backupArtifact struct {
-	Type           string `json:"type"`
-	Storage        string `json:"storage"`
-	ObjectKey      string `json:"objectKey"`
-	ChecksumSHA256 string `json:"checksumSha256"`
-	SizeBytes      int64  `json:"sizeBytes"`
-}
-
-type jobProgress struct {
-	ServerID     string     `json:"serverId"`
-	Token        string     `json:"token"`
-	DeploymentID string     `json:"deploymentId"`
-	LogStartSeq  int        `json:"logStartSeq"`
-	Logs         []string   `json:"logs"`
-	Events       []jobEvent `json:"events"`
-}
-
-type statusJobRequest struct {
-	ServerID     string `json:"serverId"`
-	Token        string `json:"token"`
-	DeploymentID string `json:"deploymentId"`
-}
-
-type statusJobResponse struct {
-	DeploymentID string `json:"deploymentId"`
-	Status       string `json:"status"`
-}
-
-type jobEvent struct {
-	Phase   string `json:"phase"`
-	Message string `json:"message"`
-}
-
-type progressJobResponse struct {
-	OK bool `json:"ok"`
-}
-
-type completeJobResponse struct {
-	OK bool `json:"ok"`
-}
-
 func writeEnvFile(path string, envVars []envVar) error {
 	lines := []string{}
 	for _, envVar := range envVars {
@@ -2843,7 +1368,7 @@ func composeRiskWarnings(path string) []string {
 			warnings = append(warnings, "container_name disables Compose project scoping and can collide across deployments.")
 		}
 		if strings.HasPrefix(trimmed, "network_mode:") && strings.Contains(trimmed, "host") {
-			warnings = append(warnings, "network_mode: host bypasses Compose network isolation and managed routing.")
+			warnings = append(warnings, "network_mode: host is ignored to preserve Compose network isolation and managed routing.")
 		}
 		if strings.HasPrefix(trimmed, "privileged:") && strings.Contains(trimmed, "true") {
 			warnings = append(warnings, "privileged containers increase host-level risk.")
@@ -2851,11 +1376,11 @@ func composeRiskWarnings(path string) []string {
 		if strings.HasPrefix(trimmed, "ports:") {
 			inPorts = true
 			volumeIndent = indent
-			warnings = append(warnings, "published host ports can collide; prefer internal service ports routed by devpush.")
+			warnings = append(warnings, "published host ports are ignored by Devpush managed ingress.")
 			continue
 		}
 		if inPorts && strings.Contains(trimmed, ":") && strings.HasPrefix(trimmed, "-") {
-			warnings = append(warnings, "fixed host port mapping detected; only the platform proxy should normally bind public ports.")
+			warnings = append(warnings, "fixed host port mapping detected; Devpush will remove it from the deployed Compose model.")
 		}
 		if strings.HasPrefix(trimmed, "volumes:") {
 			inVolumeDefinition = true
@@ -2900,6 +1425,52 @@ func dedupeStrings(values []string) []string {
 }
 
 func writeRouteOverride(path string, projectName string, routes []route) error {
+	return writeManagedComposeOverride(path, projectName, routes, nil, nil)
+}
+
+type resolvedComposeModel struct {
+	Services map[string]resolvedComposeService `json:"services"`
+}
+
+type resolvedComposeService struct {
+	Ports       []json.RawMessage `json:"ports"`
+	NetworkMode string            `json:"network_mode"`
+}
+
+func parseComposeModel(value string) (resolvedComposeModel, error) {
+	model := resolvedComposeModel{}
+	if err := json.Unmarshal([]byte(value), &model); err != nil {
+		return resolvedComposeModel{}, err
+	}
+	if model.Services == nil {
+		return resolvedComposeModel{}, fmt.Errorf("resolved configuration has no services")
+	}
+	return model, nil
+}
+
+func (model resolvedComposeModel) servicesWithPublishedPorts() []string {
+	services := []string{}
+	for name, service := range model.Services {
+		if len(service.Ports) > 0 {
+			services = append(services, name)
+		}
+	}
+	sort.Strings(services)
+	return services
+}
+
+func (model resolvedComposeModel) servicesWithHostNetworking() []string {
+	services := []string{}
+	for name, service := range model.Services {
+		if service.NetworkMode == "host" {
+			services = append(services, name)
+		}
+	}
+	sort.Strings(services)
+	return services
+}
+
+func writeManagedComposeOverride(path string, projectName string, routes []route, resetPortServices []string, resetHostNetworkServices []string) error {
 	labelsByService := map[string][]string{}
 	for index, route := range routes {
 		if err := validateRoute(route); err != nil {
@@ -2954,24 +1525,68 @@ func writeRouteOverride(path string, projectName string, routes []route) error {
 		labelsByService[route.Service] = append(labelsByService[route.Service], labels...)
 	}
 
-	if len(labelsByService) == 0 {
+	resetPorts := map[string]bool{}
+	for _, service := range resetPortServices {
+		if strings.TrimSpace(service) != "" {
+			resetPorts[service] = true
+		}
+	}
+	resetHostNetwork := map[string]bool{}
+	for _, service := range resetHostNetworkServices {
+		if strings.TrimSpace(service) != "" {
+			resetHostNetwork[service] = true
+		}
+	}
+
+	if len(labelsByService) == 0 && len(resetPorts) == 0 && len(resetHostNetwork) == 0 {
 		return os.WriteFile(path, []byte("services: {}\n"), 0o600)
 	}
 
+	serviceNames := make([]string, 0, len(labelsByService)+len(resetPorts)+len(resetHostNetwork))
+	seenServices := map[string]bool{}
+	for service := range labelsByService {
+		seenServices[service] = true
+		serviceNames = append(serviceNames, service)
+	}
+	for service := range resetPorts {
+		if !seenServices[service] {
+			seenServices[service] = true
+			serviceNames = append(serviceNames, service)
+		}
+	}
+	for service := range resetHostNetwork {
+		if !seenServices[service] {
+			seenServices[service] = true
+			serviceNames = append(serviceNames, service)
+		}
+	}
+	sort.Strings(serviceNames)
+
 	var builder strings.Builder
 	builder.WriteString("services:\n")
-	for service, labels := range labelsByService {
+	for _, service := range serviceNames {
+		labels := labelsByService[service]
 		builder.WriteString("  " + yamlKey(service) + ":\n")
-		builder.WriteString("    labels:\n")
-		for _, label := range labels {
-			builder.WriteString("      - " + yamlString(label) + "\n")
+		if resetPorts[service] {
+			builder.WriteString("    ports: !reset []\n")
 		}
-		builder.WriteString("    networks:\n")
-		builder.WriteString("      - devpush-proxy\n")
+		if resetHostNetwork[service] {
+			builder.WriteString("    network_mode: !reset null\n")
+		}
+		if len(labels) > 0 {
+			builder.WriteString("    labels:\n")
+			for _, label := range labels {
+				builder.WriteString("      - " + yamlString(label) + "\n")
+			}
+			builder.WriteString("    networks:\n")
+			builder.WriteString("      - devpush-proxy\n")
+		}
 	}
-	builder.WriteString("networks:\n")
-	builder.WriteString("  devpush-proxy:\n")
-	builder.WriteString("    external: true\n")
+	if len(labelsByService) > 0 {
+		builder.WriteString("networks:\n")
+		builder.WriteString("  devpush-proxy:\n")
+		builder.WriteString("    external: true\n")
+	}
 
 	return os.WriteFile(path, []byte(builder.String()), 0o600)
 }

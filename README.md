@@ -7,19 +7,21 @@ The control plane owns users, teams, projects, GitHub integration, deployment
 history, deploy logs, and UI workflows. Agents run on user servers, own Docker
 Compose and Traefik locally, and connect outbound to the control plane.
 
-The previous FastAPI implementation lives in `legacy/` as reference material.
 `examples/compose-web` contains a known-good Docker Compose app for validating
 the first remote deployment against a real server.
 
 ## Current status
 
-This repository contains the V1 implementation:
+This repository contains the 1.0 implementation:
+
+> **Compatibility:** 1.0 uses a clean database baseline and is intentionally
+> incompatible with pre-1.0 installations. Start 1.0 with an empty database;
+> there is no supported in-place upgrade from development builds.
 
 - `app/`: TanStack Start control plane and PostgreSQL data model.
 - `agent/`: Go agent for server monitoring, Compose deployments, and backups.
 - `docs/`: protocol, feature, and development notes.
 - `deploy/`: local and production Compose files.
-- `legacy/`: old implementation.
 
 Current deploy support is intentionally focused: manual deploys and GitHub push
 webhooks create queued deployments. The agent polls for jobs, clones the GitHub
@@ -45,7 +47,7 @@ pnpm --dir app install
 Start local Postgres:
 
 ```bash
-docker-compose -f deploy/compose.yml up -d
+docker compose -f deploy/compose.yml up -d
 ```
 
 Create the app environment file:
@@ -89,7 +91,15 @@ DEVPUSH_CRON_SECRET=
 DEVPUSH_SECRET_ENCRYPTION_KEY=
 ```
 
-The GitHub OAuth credentials should come from the GitHub App OAuth settings.
+Create the GitHub App and write its credentials into `app/.env` with:
+
+```bash
+pnpm setup:github-app -- --env app/.env
+```
+
+The command opens GitHub for approval and completes the manifest exchange in a
+temporary local callback server. Use `--base-url` for a non-local control-plane
+URL and `--owner-type org --org <slug>` for an organization-owned app.
 
 OAuth callbacks:
 
@@ -113,7 +123,7 @@ http://localhost:7429/api/github/webhook
 Sync the database and start the app:
 
 ```bash
-pnpm --dir app db:push
+pnpm --dir app db:migrate
 pnpm --dir app dev
 ```
 
@@ -127,7 +137,7 @@ pnpm --dir app cleanup:users
 The app runs at the fixed local OAuth origin `http://localhost:7429`. Startup
 fails if that port is already in use.
 
-For the local MVP workflow with the Lima test VM, use the helper scripts:
+For the local workflow with the Lima test VM, use the helper scripts:
 
 ```bash
 pnpm dev:start
@@ -165,7 +175,7 @@ the agent.
 
 ## Production control plane
 
-The MVP production Compose file builds the TanStack Start app and embeds the
+The production Compose file builds the TanStack Start app and embeds the
 Linux agent binary used by the server installer:
 
 ```bash
@@ -173,17 +183,16 @@ cp deploy/.env.production.example deploy/.env.production
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 ```
 
-If your host exposes Compose as the standalone v2 binary, use `docker-compose`
-with the same arguments.
-
 Set `BETTER_AUTH_URL` to the public HTTPS URL of the control plane before adding
-servers. The app applies reviewed SQL migrations before startup. Upgrade,
+servers. A one-shot Compose service applies reviewed SQL migrations before the
+app starts. Upgrade,
 rollback, health, maintenance, database backup, and agent update procedures are
 documented in
 [Production operations](./docs/development/production-operations.md). The
-production Compose file mounts `app_uploads` at
-`/repo/app/public/uploads` so user and team avatar uploads survive app container
-recreates.
+production Compose file mounts `app_uploads` at `/repo/app/public/uploads` for
+local avatar storage. Configure the `DEVPUSH_STORAGE_*` S3-compatible settings
+to use R2 or another object store instead. The migration job publishes the
+packaged agent binaries into the configured bucket before the app starts.
 
 Project backup controls are opt-in. Set `DEVPUSH_BACKUPS_ENABLED=true`; local
 Vite development must also set `VITE_DEVPUSH_BACKUPS_ENABLED=true`. Production
@@ -200,6 +209,7 @@ pnpm --dir app typecheck
 pnpm --dir app lint
 pnpm --dir app db:generate
 pnpm --dir app db:migrate
+pnpm setup:github-app -- --env app/.env
 pnpm smoke:deploy
 pnpm smoke:agent
 pnpm validate:local
@@ -213,9 +223,6 @@ pnpm agent:build:linux
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 ```
 
-Use `docker-compose` instead of `docker compose` on hosts where Compose is
-installed as the standalone binary.
-
 `pnpm smoke:deploy` uses the local Postgres database to seed a disposable
 user/team/server/project, register the server agent, queue a deployment, claim
 it through the agent job protocol, complete it, verify persisted logs, and clean
@@ -224,16 +231,16 @@ the schema to be synced with `pnpm --dir app db:push`.
 
 `pnpm smoke:agent` runs the agent's opt-in Docker smoke tests. It creates
 temporary Git repositories with Compose files, runs the real agent deployment
-path against local Docker Compose, verifies the release command ran through a
+path against local Docker Compose, verifies the pre-deploy command ran through a
 mounted volume, verifies an HTTP route through managed Traefik when Docker can
 publish port 80, and cleans up the Compose projects.
 
-`pnpm validate:local` runs the local MVP gate before a remote VPS attempt:
+`pnpm validate:local` runs the local validation gate before a remote VPS attempt:
 typecheck, lint, app tests, control-plane deploy smoke, agent tests, local
 smoke-mode config validation, and the real Docker/Traefik agent smoke. Set
 `DEVPUSH_SKIP_DOCKER_SMOKE=1` only when Docker is unavailable.
 
-`pnpm validate:config` checks the local MVP configuration before a real run:
+`pnpm validate:config` checks the local configuration before a real run:
 auth URL, OAuth credentials, GitHub App private key, Resend OTP settings,
 and the agent binary path. Use remote mode before adding a real VPS:
 
@@ -248,7 +255,7 @@ agent binary, the built server entrypoint, and the migration tooling.
 `pnpm validate:remote` validates the generated server installer against a real
 remote host over SSH. It requires `DEVPUSH_SERVER_URL`, `DEVPUSH_REMOTE_HOST`,
 and `DEVPUSH_INSTALL_COMMAND`; see
-[local setup](./docs/development/local-setup.md#remote-mvp-validation). Set
+[local setup](./docs/development/local-setup.md#remote-validation). Set
 `DEVPUSH_FULL_PROOF=1` with `DEVPUSH_PROJECT_URL` after a GitHub-backed deploy
 to require the public route and managed Traefik checks. On failure it prints
 best-effort remote diagnostics, including agent service status/logs, Docker
@@ -258,7 +265,7 @@ The control-plane and deployed route URLs must use HTTPS unless
 `DEVPUSH_ALLOW_INSECURE_SERVER_URL=1` is set for a local or private test
 network.
 Successful remote validation writes a summary to
-`.tmp/remote-mvp-validation-<timestamp>.md` or `DEVPUSH_REMOTE_SUMMARY_PATH`.
+`.tmp/remote-validation-<timestamp>.md` or `DEVPUSH_REMOTE_SUMMARY_PATH`.
 
 `pnpm validate:remote:proof` runs the full remote proof gate: production config
 validation, production image validation, and remote full proof with

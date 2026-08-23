@@ -2,29 +2,20 @@
 
 ## Deploy and upgrade
 
+Devpush 1.0 starts from one clean migration baseline. Pre-1.0 development
+databases are intentionally unsupported and must not be upgraded in place;
+install 1.0 against an empty database.
+
 Pin the image or source revision you deploy. Before every upgrade, create a
 PostgreSQL backup and review the new SQL files under
-`app/src/server/db/migrations`. The app runs `pnpm --dir app db:migrate` before
-starting; it never runs `drizzle-kit push` in production.
+`app/src/server/db/migrations`. A one-shot `migrate` Compose service runs
+`pnpm --dir app db:migrate` and publishes agent binaries to configured object
+storage before the app starts. The app process never mutates the schema and
+production never runs `drizzle-kit push`.
 
 Keep `BETTER_AUTH_SECRET` and `DEVPUSH_SECRET_ENCRYPTION_KEY` stable across
 upgrades. Changing the encryption key makes stored application secrets
 unreadable.
-
-Existing installations created by the old `db:push` startup command have no
-migration history. Upgrade them once with:
-
-```sh
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml exec postgres \
-  pg_dump -U devpush -d devpush -Fc -f /tmp/devpush-before-migrations.dump
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml run --rm \
-  -e DEVPUSH_CONFIRM_BASELINE=1 app pnpm --dir app db:baseline
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
-```
-
-Copy the dump off the database container before continuing. The baseline
-command validates the pre-migration schema and refuses databases that already
-have migration history.
 
 Migrations are forward-only. To roll back a schema-changing release, stop the
 app, restore the pre-upgrade dump into an empty database, and deploy the previous
@@ -36,6 +27,11 @@ pinned image or source revision.
 production Compose healthcheck uses it. The scheduler calls an authenticated
 maintenance endpoint hourly to expire invites and process account cleanup jobs.
 `DEVPUSH_CRON_SECRET` is required by production Compose.
+
+The scheduler is deliberately an external HTTP caller rather than in-process
+application state. VPS deployments use the Compose companion. A future Workers
+deployment can call the same endpoints from Cron Triggers without changing job
+behavior.
 
 ## Control-plane backups
 
@@ -70,6 +66,12 @@ sudo systemctl disable --now devpush-agent-update.timer
 ```
 
 The main agent remains unprivileged; only the updater service runs as root.
+
+The version in `app/package.json` identifies the bundled agent release shown as the
+latest available version. `DEVPUSH_RECOMMENDED_AGENT_VERSION` is optional and
+marks older agents as recommended updates without blocking communication.
+Protocol versions and advertised capabilities—not these release strings—control
+which jobs an agent can safely claim.
 
 ## Agent credentials
 

@@ -32,7 +32,7 @@ export async function assertEmailCanAuthenticate(
   }
 }
 
-export async function isEmailAllowlisted(email: string) {
+async function isEmailAllowlisted(email: string) {
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail) return false
 

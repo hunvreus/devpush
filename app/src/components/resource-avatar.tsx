@@ -1,5 +1,3 @@
-import type { ComponentType, SVGProps } from 'react'
-
 import { cn } from '@/lib/utils'
 
 const sizeClasses = {
@@ -24,15 +22,7 @@ const colorClasses = {
   zinc: 'from-zinc-100 to-zinc-100/50 border-zinc-200 text-zinc-500 dark:from-zinc-950/50 dark:to-zinc-950 dark:border-zinc-900',
 } as const
 
-const iconSizeClasses = {
-  xs: '[&>svg]:size-3',
-  sm: '[&>svg]:size-4',
-  md: '[&>svg]:size-6',
-  lg: '[&>svg]:size-9 [&>svg]:stroke-[1.25]',
-  default: '[&>svg]:size-5',
-} as const
-
-export type ResourceColor = keyof typeof colorClasses
+type ResourceColor = keyof typeof colorClasses
 
 type ResourceAvatarProps = {
   'data-icon'?: 'inline-start' | 'inline-end'
@@ -75,35 +65,6 @@ export function ResourceAvatar({
       )}
     >
       {initial}
-    </span>
-  )
-}
-
-export function ResourceIconAvatar({
-  className,
-  color = 'zinc',
-  icon: Icon,
-  label,
-  size = 'default',
-}: {
-  className?: string
-  color?: ResourceColor
-  icon: ComponentType<SVGProps<SVGSVGElement>>
-  label: string
-  size?: keyof typeof sizeClasses
-}) {
-  return (
-    <span
-      aria-label={label}
-      className={cn(
-        'flex shrink-0 items-center justify-center border bg-gradient-to-tl [&>svg]:shrink-0',
-        sizeClasses[size],
-        iconSizeClasses[size],
-        colorClasses[color],
-        className,
-      )}
-    >
-      <Icon data-preserve-color />
     </span>
   )
 }

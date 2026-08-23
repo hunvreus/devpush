@@ -89,10 +89,10 @@ function DeploymentRow({
 }) {
   const hasGitSha = deployment.gitSha !== 'pending'
   const visitUrl =
-    deployment.defaultHost && deployment.status === 'succeeded'
+    deployment.deploymentHost && deployment.status === 'succeeded'
       ? routeUrl({
-          host: deployment.defaultHost,
-          https: deployment.defaultRouteHttps,
+          host: deployment.deploymentHost,
+          https: deployment.deploymentRouteHttps,
         })
       : null
 

@@ -2,6 +2,12 @@
   "name": "devpush-root",
   "private": true,
   "packageManager": "pnpm@10.17.1",
+  "knip": {
+    "ignoreBinaries": [
+      "go",
+      "xdg-open"
+    ]
+  },
   "scripts": {
     "dev": "pnpm --dir app dev",
     "dev:start": "scripts/local-start.sh",
@@ -13,15 +19,16 @@
     "test": "pnpm --dir app test",
     "smoke:deploy": "pnpm --dir app smoke:deploy",
     "smoke:agent": "GOCACHE=$PWD/.tmp/go-build-cache DEVPUSH_RUN_DOCKER_SMOKE=1 go test ./agent/internal/agent -run 'TestRunDeploymentJob(RunsRealDockerCompose|RoutesThroughRealTraefik)' -count=1 -v",
-    "validate:local": "scripts/validate-local-mvp.sh",
-    "validate:config": "node scripts/validate-mvp-config.mjs",
+    "validate:local": "scripts/validate-local.sh",
+    "validate:config": "node scripts/validate-config.mjs",
     "validate:production": "scripts/validate-production-image.sh",
-    "validate:remote": "scripts/validate-remote-mvp.sh",
+    "validate:remote": "scripts/validate-remote.sh",
     "validate:remote:proof": "scripts/validate-remote-proof.sh",
-    "agent:build": "GOCACHE=$PWD/.tmp/go-build-cache go build -o bin/devpush-agent ./agent/cmd/devpush-agent",
+    "agent:build": "GOCACHE=$PWD/.tmp/go-build-cache node scripts/build-agent.mjs bin/devpush-agent",
     "agent:build:linux": "pnpm agent:build:linux:amd64 && pnpm agent:build:linux:arm64",
-    "agent:build:linux:amd64": "mkdir -p bin && GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=amd64 go build -o bin/devpush-agent-linux-amd64 ./agent/cmd/devpush-agent",
-    "agent:build:linux:arm64": "mkdir -p bin && GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=arm64 go build -o bin/devpush-agent-linux-arm64 ./agent/cmd/devpush-agent",
-    "agent:test": "GOCACHE=$PWD/.tmp/go-build-cache go test ./agent/..."
+    "agent:build:linux:amd64": "GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=amd64 node scripts/build-agent.mjs bin/devpush-agent-linux-amd64",
+    "agent:build:linux:arm64": "GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=arm64 node scripts/build-agent.mjs bin/devpush-agent-linux-arm64",
+    "agent:test": "GOCACHE=$PWD/.tmp/go-build-cache go test ./agent/...",
+    "setup:github-app": "node app/scripts/setup-github-app.mjs"
   }
 }

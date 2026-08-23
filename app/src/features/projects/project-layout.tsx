@@ -26,7 +26,7 @@ export function ProjectLayout({
   context: ProjectLayoutContext
 }) {
   const serverBlockReason = getServerBlockReason(context)
-  const missingComposeFile = context.project.composePath === null
+  const missingComposeFile = context.project.runtimeConfig.path === null
 
   return (
     <div className={contentClassName}>

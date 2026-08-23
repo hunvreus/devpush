@@ -1,6 +1,6 @@
 # devpush Compose web example
 
-This is a minimal Docker Compose app for MVP validation.
+This is a minimal Docker Compose app for deployment validation.
 
 It exposes one stateless `web` service on port `3000` and serves static files
 through Python's built-in HTTP server. Use this when you need a known-good repo
@@ -18,7 +18,7 @@ Expected devpush settings:
 Local check:
 
 ```bash
-docker-compose -f compose.yml up -d
-docker-compose -f compose.yml exec -T web wget -qO- http://127.0.0.1:3000/health
-docker-compose -f compose.yml down
+docker compose -f compose.yml up -d
+docker compose -f compose.yml exec -T web wget -qO- http://127.0.0.1:3000/health
+docker compose -f compose.yml down
 ```

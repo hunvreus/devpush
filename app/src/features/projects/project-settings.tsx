@@ -1,22 +1,14 @@
 import { Link, useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowRightIcon,
   ArrowUpRightIcon,
-  CheckIcon,
   ChevronsUpDownIcon,
   CopyIcon,
-  FileTextIcon,
-  GithubIcon,
   LoaderIcon,
-  LockIcon,
-  PlusIcon,
-  SearchIcon,
   Trash2Icon,
   UploadIcon,
 } from 'lucide-react'
-import type { ClipboardEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -31,39 +23,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from '@/components/ui/empty'
 import {
   Field,
   FieldDescription,
@@ -71,6 +31,7 @@ import {
   FieldLabel,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   InputGroup,
   InputGroupAddon,
@@ -84,52 +45,65 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ResourceAvatar } from '@/components/resource-avatar'
-import {
-  EnvironmentColorOption,
-  EnvironmentDot,
-  environmentColors,
-  getEnvironmentColor,
-} from '@/features/projects/environment-dot'
-import { ServerAvatar } from '@/features/servers/server-avatar'
+import { SectionNavigation } from '@/components/section-navigation'
 import { getErrorMessage } from '@/lib/error-message'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
 import {
-  getNewProjectContext,
-  getRepositorySelectionRepositories,
   deleteProjectAction,
-  saveProjectEnvironments,
   saveProjectDomains,
-  saveProjectEnvVars,
   saveProjectRoutes,
-  saveProjectEnvironmentServers,
   saveProjectSettings,
+  verifyProjectDomainAction,
 } from '@/server/projects/functions'
+import type { ProjectContext, ProjectDomain } from '@/server/projects/service'
+import {
+  ProjectSettingsActionTooltip as IconActionTooltip,
+  ProjectSettingsActions as SettingsActions,
+  ProjectSettingsSection as SettingsSection,
+} from './project-settings-section'
+import { getEffectiveProjectRoutes as getEffectiveRouteDefinitions } from './project-settings-utils'
+import { RepositoryPickerDialog } from './repository-picker-dialog'
+import type { ProjectRepository } from './repository-picker-dialog'
+import {
+  DomainSettingsTable,
+  ManagedIngressWarnings,
+  RouteSettingsTable,
+} from './project-routing-settings'
 import type {
-  ProjectContext,
-  ProjectDomain,
-  ProjectEnvironmentConfig,
-  ProjectEnvironmentVariable,
-  ProjectRoute,
-  RepositorySelectionContext,
-} from '@/server/projects/service'
+  ProjectDomainAlias,
+  ProjectRouteDefinition,
+} from './project-routing-settings'
+import {
+  EnvironmentServersSettingsSection,
+  EnvironmentSettingsSection,
+  EnvironmentVariablesSettingsSection,
+} from './project-environment-settings'
 
 export function ProjectSettings({ context }: { context: ProjectContext }) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const params = useParams({ strict: false })
   const { project } = context
+  const runtimeConfig = project.runtimeConfig
   const initialRoutes = context.routes
+  const productionEnvironmentId =
+    context.environments.find(
+      (environment) => environment.slug === 'production',
+    )?.id ??
+    context.environments.at(0)?.id ??
+    ''
+  const productionRoutes = getEffectiveRouteDefinitions(
+    context.routes,
+    productionEnvironmentId,
+  )
   const autoReleaseService =
-    context.routes.find((route) =>
+    productionRoutes.find((route) =>
       context.composeMetadata?.services.includes(route.service),
     )?.service ?? context.composeMetadata?.services.at(0)
   const initialDomains = context.domains.map(mapProjectDomainAlias)
@@ -148,17 +122,24 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
   const [deleteAvatar, setDeleteAvatar] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
-  const [composePath, setComposePath] = useState(
-    project.composePath ?? 'compose.yml',
-  )
+  const [composePath, setComposePath] = useState(runtimeConfig.path ?? '')
   const [releaseCommand, setReleaseCommand] = useState(
-    project.releaseCommand ?? '',
+    runtimeConfig.releaseCommand ?? '',
   )
   const [releaseService, setReleaseService] = useState(
-    project.releaseService ?? '__auto__',
+    runtimeConfig.releaseService ?? '__auto__',
   )
   const [readinessPath, setReadinessPath] = useState(
-    project.readinessPath ?? '',
+    runtimeConfig.readinessPath ?? '',
+  )
+  const [deployCommand, setDeployCommand] = useState(
+    runtimeConfig.deployCommand ?? '',
+  )
+  const [rollbackCommand, setRollbackCommand] = useState(
+    runtimeConfig.rollbackCommand ?? '',
+  )
+  const [deployTimeoutSeconds, setDeployTimeoutSeconds] = useState(
+    String(runtimeConfig.timeoutSeconds),
   )
   const [routes, setRoutes] =
     useState<Array<ProjectRouteDefinition>>(initialRoutes)
@@ -170,12 +151,18 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     useState<Array<ProjectDomainAlias>>(initialDomains)
   const [savedSettings, setSavedSettings] = useState({
     projectName: project.name,
-    composePath: project.composePath ?? 'compose.yml',
-    releaseCommand: project.releaseCommand ?? '',
-    releaseService: project.releaseService ?? '__auto__',
-    readinessPath: project.readinessPath ?? '',
+    composePath: runtimeConfig.path ?? '',
+    releaseCommand: runtimeConfig.releaseCommand ?? '',
+    releaseService: runtimeConfig.releaseService ?? '__auto__',
+    readinessPath: runtimeConfig.readinessPath ?? '',
+    deployCommand: runtimeConfig.deployCommand ?? '',
+    rollbackCommand: runtimeConfig.rollbackCommand ?? '',
+    deployTimeoutSeconds: String(runtimeConfig.timeoutSeconds),
   })
   const [isSaving, setIsSaving] = useState(false)
+  const [verifyingDomainId, setVerifyingDomainId] = useState<string | null>(
+    null,
+  )
   const [isDeletingProject, setIsDeletingProject] = useState(false)
   const [deleteProjectConfirmation, setDeleteProjectConfirmation] = useState('')
   const [removeProjectDeployments, setRemoveProjectDeployments] = useState(true)
@@ -189,7 +176,10 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     composePath !== savedSettings.composePath ||
     releaseCommand !== savedSettings.releaseCommand ||
     releaseService !== savedSettings.releaseService ||
-    readinessPath !== savedSettings.readinessPath
+    readinessPath !== savedSettings.readinessPath ||
+    deployCommand !== savedSettings.deployCommand ||
+    rollbackCommand !== savedSettings.rollbackCommand ||
+    deployTimeoutSeconds !== savedSettings.deployTimeoutSeconds
   const hasRouteChanges = JSON.stringify(routes) !== JSON.stringify(savedRoutes)
   const hasDomainChanges =
     JSON.stringify(domains) !== JSON.stringify(savedDomains)
@@ -206,6 +196,9 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     setReleaseCommand(savedSettings.releaseCommand)
     setReleaseService(savedSettings.releaseService)
     setReadinessPath(savedSettings.readinessPath)
+    setDeployCommand(savedSettings.deployCommand)
+    setRollbackCommand(savedSettings.rollbackCommand)
+    setDeployTimeoutSeconds(savedSettings.deployTimeoutSeconds)
   }
 
   function resetRoutes() {
@@ -246,6 +239,15 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
         readinessPath: includeBuildChanges
           ? readinessPath
           : savedSettings.readinessPath,
+        deployCommand: includeBuildChanges
+          ? deployCommand
+          : savedSettings.deployCommand,
+        rollbackCommand: includeBuildChanges
+          ? rollbackCommand
+          : savedSettings.rollbackCommand,
+        deployTimeoutSeconds: includeBuildChanges
+          ? deployTimeoutSeconds
+          : savedSettings.deployTimeoutSeconds,
       }
       const repo = includeGeneralChanges ? selectedRepo : savedRepo
 
@@ -258,13 +260,22 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           installationId: repo.installationId,
           avatarDataUrl: includeGeneralChanges ? avatarDataUrl : null,
           deleteAvatar: includeGeneralChanges ? deleteAvatar : false,
-          composePath: settings.composePath,
-          releaseCommand: settings.releaseCommand.trim() || null,
-          releaseService:
-            settings.releaseService === '__auto__'
-              ? null
-              : settings.releaseService,
-          readinessPath: settings.readinessPath.trim() || null,
+          runtimeConfig: {
+            type: 'compose',
+            path: settings.composePath.trim() || null,
+            strategy: settings.deployCommand.trim() ? 'command' : 'managed',
+            releaseCommand: settings.releaseCommand.trim() || null,
+            releaseService:
+              settings.releaseService === '__auto__'
+                ? null
+                : settings.releaseService,
+            readinessPath: settings.readinessPath.trim() || null,
+            deployCommand: settings.deployCommand.trim() || null,
+            rollbackCommand: settings.deployCommand.trim()
+              ? settings.rollbackCommand.trim() || null
+              : null,
+            timeoutSeconds: Number(settings.deployTimeoutSeconds),
+          },
         },
       })
       setProjectContextQueryData(queryClient, nextContext)
@@ -308,10 +319,18 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       includeBuildChanges: true,
       onSuccess: (nextContext) => {
         const nextBuildSettings = {
-          composePath: nextContext.project.composePath ?? 'compose.yml',
-          releaseCommand: nextContext.project.releaseCommand ?? '',
-          releaseService: nextContext.project.releaseService ?? '__auto__',
-          readinessPath: nextContext.project.readinessPath ?? '',
+          composePath: nextContext.project.runtimeConfig.path ?? '',
+          releaseCommand:
+            nextContext.project.runtimeConfig.releaseCommand ?? '',
+          releaseService:
+            nextContext.project.runtimeConfig.releaseService ?? '__auto__',
+          readinessPath: nextContext.project.runtimeConfig.readinessPath ?? '',
+          deployCommand: nextContext.project.runtimeConfig.deployCommand ?? '',
+          rollbackCommand:
+            nextContext.project.runtimeConfig.rollbackCommand ?? '',
+          deployTimeoutSeconds: String(
+            nextContext.project.runtimeConfig.timeoutSeconds,
+          ),
         }
 
         setSavedSettings((current) => ({
@@ -322,6 +341,9 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
         setReleaseCommand(nextBuildSettings.releaseCommand)
         setReleaseService(nextBuildSettings.releaseService)
         setReadinessPath(nextBuildSettings.readinessPath)
+        setDeployCommand(nextBuildSettings.deployCommand)
+        setRollbackCommand(nextBuildSettings.rollbackCommand)
+        setDeployTimeoutSeconds(nextBuildSettings.deployTimeoutSeconds)
       },
     })
   }
@@ -435,6 +457,34 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     }
   }
 
+  async function verifyDomain(domainId: string) {
+    setVerifyingDomainId(domainId)
+
+    try {
+      const result = await verifyProjectDomainAction({
+        data: {
+          domainId,
+          teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
+          projectName: project.name,
+        },
+      })
+      const nextContext = result.context
+      setProjectContextQueryData(queryClient, nextContext)
+      const aliases = nextContext.domains.map(mapProjectDomainAlias)
+      setSavedDomains(aliases)
+      setDomains(aliases)
+      if (result.verified) {
+        toast.success('Domain verified.')
+      } else {
+        toast.error(result.message ?? 'Domain verification failed.')
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to verify domain.'))
+    } finally {
+      setVerifyingDomainId(null)
+    }
+  }
+
   function mapProjectDomainAlias(domain: ProjectDomain): ProjectDomainAlias {
     return {
       id: domain.id,
@@ -442,6 +492,8 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       environment: domain.environmentId,
       baseRoute: domain.basePath ?? '',
       https: domain.https,
+      status: domain.status,
+      message: domain.message,
     }
   }
 
@@ -622,7 +674,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           <SettingsSection
             id="build-and-deploy"
             title="Build and Deploy"
-            description="Configuration for deploying the Compose project: compose file, release command, readiness check, etc."
+            description="Compose configuration, lifecycle commands, and readiness checks. Empty command overrides use Devpush defaults."
             footer={
               <SettingsActions
                 hasChanges={hasBuildChanges}
@@ -632,66 +684,146 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
               />
             }
           >
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="compose-path">
-                  Compose file path
-                </FieldLabel>
-                <Input
-                  id="compose-path"
-                  value={composePath}
-                  onChange={(event) => setComposePath(event.target.value)}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="release-command">
-                  Release command
-                </FieldLabel>
-                <Input
-                  id="release-command"
-                  value={releaseCommand}
-                  placeholder="php artisan migrate --force"
-                  onChange={(event) => setReleaseCommand(event.target.value)}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="release-service">
-                  Release service
-                </FieldLabel>
-                <Select
-                  value={releaseService}
-                  onValueChange={setReleaseService}
-                >
-                  <SelectTrigger id="release-service" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__auto__">
-                      First valid service
-                      {autoReleaseService ? ` (${autoReleaseService})` : ''}
-                    </SelectItem>
-                    {context.composeMetadata?.services.map((service) => (
-                      <SelectItem key={service} value={service}>
-                        {service}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FieldDescription>
-                  The service used to run the release command. Automatic uses
-                  the first routed service, then the first Compose service.
-                </FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="readiness">Readiness path</FieldLabel>
-                <Input
-                  id="readiness"
-                  value={readinessPath}
-                  placeholder="/health"
-                  onChange={(event) => setReadinessPath(event.target.value)}
-                />
-              </Field>
-            </FieldGroup>
+            <div className="space-y-4">
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="compose-path">
+                    Compose file path
+                  </FieldLabel>
+                  <Input
+                    id="compose-path"
+                    placeholder="compose.yml"
+                    value={composePath}
+                    onChange={(event) => setComposePath(event.target.value)}
+                  />
+                  <FieldDescription>
+                    Repository-relative path to the Compose file. Devpush uses
+                    compose.yml when this is empty.
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="release-command">
+                    Pre-deploy command
+                  </FieldLabel>
+                  <Textarea
+                    id="release-command"
+                    className="resize-none py-1.5 font-mono"
+                    value={releaseCommand}
+                    placeholder="php artisan migrate --force"
+                    onChange={(event) => setReleaseCommand(event.target.value)}
+                  />
+                  <FieldDescription>
+                    Optional command run once inside the selected service after
+                    images are ready and before services are updated. It is not
+                    run during rollback.
+                  </FieldDescription>
+                </Field>
+                {releaseCommand.trim() ? (
+                  <Field>
+                    <FieldLabel htmlFor="release-service">
+                      Run in service
+                    </FieldLabel>
+                    <Select
+                      value={releaseService}
+                      onValueChange={setReleaseService}
+                    >
+                      <SelectTrigger id="release-service" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__auto__">
+                          First valid service
+                          {autoReleaseService ? ` (${autoReleaseService})` : ''}
+                        </SelectItem>
+                        {context.composeMetadata?.services.map((service) => (
+                          <SelectItem key={service} value={service}>
+                            {service}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>
+                      Compose service whose image, environment, network, and
+                      volumes are used. Automatic uses the first routed service,
+                      then the first Compose service.
+                    </FieldDescription>
+                  </Field>
+                ) : null}
+                <Field>
+                  <FieldLabel htmlFor="deploy-command">
+                    Deploy command
+                  </FieldLabel>
+                  <Textarea
+                    id="deploy-command"
+                    className="resize-none py-1.5 font-mono"
+                    value={deployCommand}
+                    placeholder="docker compose … up -d --no-build"
+                    onChange={(event) => setDeployCommand(event.target.value)}
+                  />
+                  <FieldDescription>
+                    Optional host command that replaces Devpush&apos;s standard
+                    service update after images and any pre-deploy command are
+                    ready. It also handles rollback when no separate rollback
+                    command is configured. Use DEVPUSH_ACTION to distinguish
+                    deploy from rollback.
+                  </FieldDescription>
+                </Field>
+                {deployCommand.trim() ? (
+                  <Field>
+                    <FieldLabel htmlFor="rollback-command">
+                      Rollback command
+                    </FieldLabel>
+                    <Textarea
+                      id="rollback-command"
+                      className="resize-none py-1.5 font-mono"
+                      value={rollbackCommand}
+                      placeholder={deployCommand}
+                      onChange={(event) =>
+                        setRollbackCommand(event.target.value)
+                      }
+                    />
+                    <FieldDescription>
+                      Optional. When empty, rollback reuses the deploy command
+                      with DEVPUSH_ACTION=rollback.
+                    </FieldDescription>
+                  </Field>
+                ) : null}
+                {deployCommand.trim() ? (
+                  <Field>
+                    <FieldLabel htmlFor="deploy-timeout">
+                      Command timeout
+                    </FieldLabel>
+                    <Input
+                      id="deploy-timeout"
+                      type="number"
+                      min={60}
+                      max={7200}
+                      step={60}
+                      value={deployTimeoutSeconds}
+                      onChange={(event) =>
+                        setDeployTimeoutSeconds(event.target.value)
+                      }
+                    />
+                    <FieldDescription>
+                      Maximum runtime for a custom deployment or rollback
+                      command, from 60 to 7200 seconds.
+                    </FieldDescription>
+                  </Field>
+                ) : null}
+                <Field>
+                  <FieldLabel htmlFor="readiness">Health check path</FieldLabel>
+                  <Input
+                    id="readiness"
+                    value={readinessPath}
+                    placeholder="/health"
+                    onChange={(event) => setReadinessPath(event.target.value)}
+                  />
+                  <FieldDescription>
+                    HTTP path Devpush requests after deployment. Defaults to /.
+                  </FieldDescription>
+                </Field>
+              </FieldGroup>
+            </div>
           </SettingsSection>
 
           <EnvironmentSettingsSection context={context} />
@@ -703,7 +835,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           <SettingsSection
             id="routes"
             title="Routes"
-            description="Routes map project paths to Compose services and internal ports."
+            description="Default routes apply to every environment. Environment routes add paths or override the default target for the same path."
             footer={
               <SettingsActions
                 hasChanges={hasRouteChanges}
@@ -713,7 +845,18 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
               />
             }
           >
-            <RouteSettingsTable routes={routes} onChange={setRoutes} />
+            <div className="space-y-4">
+              <ManagedIngressWarnings
+                warnings={context.composeMetadata?.warnings ?? []}
+              />
+              <RouteSettingsTable
+                routes={routes}
+                services={context.composeMetadata?.services ?? []}
+                environments={context.environments}
+                suggestedRoute={context.composeMetadata?.suggestedRoute ?? null}
+                onChange={setRoutes}
+              />
+            </div>
           </SettingsSection>
 
           <SettingsSection
@@ -734,6 +877,9 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
               environments={context.environments}
               routes={savedRoutes}
               onChange={setDomains}
+              onVerify={verifyDomain}
+              verifyingDomainId={verifyingDomainId}
+              verificationDisabled={hasDomainChanges}
             />
           </SettingsSection>
 
@@ -849,440 +995,27 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           </SettingsSection>
         </div>
 
-        <aside className="hidden text-sm lg:block">
-          <nav className="sticky top-[122px] flex flex-col gap-y-1">
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#general">General</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#build-and-deploy">Build and Deploy</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#environments">Environments</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#environment-variables">Environment variables</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#servers">Servers</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#routes">Routes</a>
-            </Button>
-            <Button asChild variant="ghost" className="justify-start">
-              <a href="#domains">Domains</a>
-            </Button>
-            <Button
-              asChild
-              variant="ghost"
-              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <a href="#danger">Danger</a>
-            </Button>
-          </nav>
+        <aside className="hidden lg:block">
+          <SectionNavigation
+            className="sticky top-[122px]"
+            items={[
+              { href: '#general', label: 'General' },
+              { href: '#build-and-deploy', label: 'Build and Deploy' },
+              { href: '#environments', label: 'Environments' },
+              {
+                href: '#environment-variables',
+                label: 'Environment variables',
+              },
+              { href: '#servers', label: 'Servers' },
+              { href: '#routes', label: 'Routes' },
+              { href: '#domains', label: 'Domains' },
+              { href: '#danger', label: 'Danger', destructive: true },
+            ]}
+          />
         </aside>
       </div>
     </div>
   )
-}
-
-type ProjectRouteDefinition = ProjectRoute
-
-type ProjectDomainAlias = {
-  id: string
-  host: string
-  environment: string
-  baseRoute: string
-  https: boolean
-}
-
-type ProjectRepository = {
-  fullName: string
-  id: number | null
-  installationId: number | null
-}
-
-type Repository = Extract<
-  RepositorySelectionContext['github'],
-  { connected: true }
->['repositories'][number]
-
-type Installation = Extract<
-  RepositorySelectionContext['github'],
-  { connected: true }
->['installations'][number]
-
-function RepositoryPickerDialog({
-  children,
-  currentRepo,
-  onSelect,
-  teamSlug,
-}: {
-  children: ReactNode
-  currentRepo: ProjectRepository
-  onSelect: (repo: ProjectRepository) => void
-  teamSlug: string
-}) {
-  const [open, setOpen] = useState(false)
-  const [repositorySelection, setRepositorySelection] =
-    useState<RepositorySelectionContext | null>(null)
-  const [repositories, setRepositories] = useState<Array<Repository>>([])
-  const [selectedInstallationId, setSelectedInstallationId] = useState<
-    number | null
-  >(currentRepo.installationId)
-  const [query, setQuery] = useState('')
-  const [isLoadingContext, setIsLoadingContext] = useState(false)
-  const [isLoadingRepos, setIsLoadingRepos] = useState(false)
-  const github = repositorySelection?.github
-  const installations = github?.connected ? github.installations : []
-  const selectedInstallation = installations.find(
-    (installation) => installation.id === selectedInstallationId,
-  )
-  const filteredRepositories = repositories
-    .filter((repo) => {
-      if (repo.installationId !== selectedInstallationId) {
-        return false
-      }
-
-      return repo.fullName.toLowerCase().includes(query.trim().toLowerCase())
-    })
-    .sort(
-      (first, second) =>
-        new Date(second.updatedAt).getTime() -
-        new Date(first.updatedAt).getTime(),
-    )
-    .slice(0, 5)
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    let cancelled = false
-    setIsLoadingContext(true)
-
-    void getNewProjectContext({ data: { teamSlug } })
-      .then((context) => {
-        if (cancelled) {
-          return
-        }
-
-        setRepositorySelection(context?.repositorySelection ?? null)
-
-        if (context?.repositorySelection.github.connected) {
-          const defaultInstallationId =
-            currentRepo.installationId ??
-            context.repositorySelection.github.installations.at(0)?.id ??
-            null
-          setSelectedInstallationId(defaultInstallationId)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          toast.error(getErrorMessage(error, 'Unable to load repositories.'))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingContext(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [currentRepo.installationId, open, teamSlug])
-
-  useEffect(() => {
-    if (!open || !selectedInstallationId || !github?.connected) {
-      return
-    }
-
-    let cancelled = false
-    setIsLoadingRepos(true)
-
-    void getRepositorySelectionRepositories({
-      data: { teamSlug, installationId: selectedInstallationId },
-    })
-      .then((nextRepositories) => {
-        if (!cancelled) {
-          setRepositories(nextRepositories)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          toast.error(getErrorMessage(error, 'Unable to load repositories.'))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingRepos(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [github?.connected, open, selectedInstallationId, teamSlug])
-
-  function selectRepository(repo: Repository) {
-    onSelect({
-      fullName: repo.fullName,
-      id: repo.id,
-      installationId: repo.installationId,
-    })
-    setOpen(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Select repository</DialogTitle>
-          <DialogDescription>
-            Choose the GitHub repository connected to this project.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="scrollbar -m-4 min-h-0 overflow-y-auto p-4">
-          {isLoadingContext ? (
-            <div className="space-y-4">
-              <RepositoryToolbarSkeleton />
-              <RepoListSkeleton />
-            </div>
-          ) : github?.connected ? (
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <RepositoryAccountDropdown
-                  installations={installations}
-                  installUrl={`/api/github/install?next=${encodeURIComponent(
-                    `/${teamSlug}/settings`,
-                  )}`}
-                  selectedInstallation={selectedInstallation}
-                  selectedInstallationId={selectedInstallationId}
-                  onChange={setSelectedInstallationId}
-                />
-                <InputGroup className="h-8 flex-1">
-                  <InputGroupAddon>
-                    <SearchIcon />
-                  </InputGroupAddon>
-                  <InputGroupInput
-                    value={query}
-                    placeholder="Search by name"
-                    onChange={(event) => setQuery(event.target.value)}
-                  />
-                </InputGroup>
-              </div>
-
-              <div>
-                {isLoadingRepos ? (
-                  <RepoListSkeleton />
-                ) : filteredRepositories.length > 0 ? (
-                  <ul
-                    aria-label="Repository list"
-                    aria-live="polite"
-                    role="listbox"
-                  >
-                    {filteredRepositories.map((repo, index) => (
-                      <li
-                        className={`flex h-12 items-center gap-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
-                          index > 0 ? 'border-t-0' : 'rounded-t-lg'
-                        } ${
-                          index === filteredRepositories.length - 1
-                            ? 'rounded-b-lg'
-                            : ''
-                        }`}
-                        key={`${repo.installationId}:${repo.id}`}
-                        role="option"
-                      >
-                        <a
-                          className="truncate font-medium hover:underline"
-                          href={`https://github.com/${repo.fullName}`}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          {repo.name}
-                        </a>
-                        {repo.private ? (
-                          <LockIcon className="size-4 shrink-0 text-muted-foreground" />
-                        ) : null}
-                        <p className="truncate text-muted-foreground">
-                          {formatRepositoryUpdatedAt(repo.updatedAt)}
-                        </p>
-                        {repo.fullName === currentRepo.fullName ? (
-                          <CheckIcon className="ml-auto size-4" />
-                        ) : (
-                          <Button
-                            className="ml-auto"
-                            size="xs"
-                            type="button"
-                            onClick={() => selectRepository(repo)}
-                          >
-                            Select
-                          </Button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="flex h-50 items-center justify-center rounded-lg bg-muted px-4 text-sm text-muted-foreground">
-                    No repositories found
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <Empty className="min-h-60">
-              <EmptyHeader>
-                <EmptyTitle>Connect GitHub.</EmptyTitle>
-                <EmptyDescription>
-                  Connect GitHub before selecting a repository.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function RepositoryToolbarSkeleton() {
-  return (
-    <div className="flex gap-2">
-      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
-      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
-    </div>
-  )
-}
-
-function RepoListSkeleton() {
-  return (
-    <ul aria-label="Loading repositories" aria-live="polite">
-      {Array.from({ length: 5 }).map((_, index) => (
-        <li
-          className={`flex h-12 items-center justify-between gap-x-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
-            index > 0 ? 'border-t-0' : 'rounded-t-lg'
-          } ${index === 4 ? 'rounded-b-lg' : ''}`}
-          key={index}
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <Skeleton className="h-4 w-32 rounded bg-muted-foreground/20" />
-            <Skeleton className="h-4 w-24 rounded bg-muted-foreground/20" />
-          </span>
-          <Button disabled size="xs" type="button">
-            Select
-          </Button>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function RepositoryAccountDropdown({
-  installations,
-  installUrl,
-  selectedInstallation,
-  selectedInstallationId,
-  onChange,
-}: {
-  installations: Array<Installation>
-  installUrl: string
-  selectedInstallation: Installation | undefined
-  selectedInstallationId: number | null
-  onChange: (installationId: number) => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          className="w-40 justify-start gap-1.5"
-          variant="outline"
-          type="button"
-        >
-          {selectedInstallation ? (
-            <img
-              data-icon="inline-start"
-              alt=""
-              className="size-5 rounded"
-              src={`https://github.com/${selectedInstallation.accountLogin}.png`}
-            />
-          ) : (
-            <GithubIcon data-icon="inline-start" />
-          )}
-          <span className="min-w-0 flex-1 truncate text-left">
-            {selectedInstallation?.accountLogin ?? 'GitHub'}
-          </span>
-          <ChevronsUpDownIcon
-            data-icon="inline-end"
-            className="text-muted-foreground group-hover/button:text-muted-foreground"
-          />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-max min-w-(--radix-dropdown-menu-trigger-width)"
-      >
-        {installations.map((installation) => (
-          <DropdownMenuItem
-            className="whitespace-nowrap"
-            key={installation.id}
-            onClick={() => onChange(installation.id)}
-          >
-            <img
-              alt=""
-              className="size-5 rounded"
-              src={`https://github.com/${installation.accountLogin}.png`}
-            />
-            {installation.accountLogin}
-            {selectedInstallationId === installation.id ? (
-              <CheckIcon className="ml-auto" />
-            ) : null}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="whitespace-nowrap">
-          <a href={installUrl}>
-            <PlusIcon />
-            Add GitHub account
-          </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function formatRepositoryUpdatedAt(value: string) {
-  const updatedAt = new Date(value)
-
-  if (Number.isNaN(updatedAt.getTime())) {
-    return 'Updated recently'
-  }
-
-  const diffMs = Date.now() - updatedAt.getTime()
-  const diffDays = Math.round(diffMs / 86_400_000)
-
-  if (diffDays < 1) {
-    return 'Updated today'
-  }
-
-  if (diffDays === 1) {
-    return 'Updated yesterday'
-  }
-
-  if (diffDays < 30) {
-    return `Updated ${diffDays} days ago`
-  }
-
-  return updatedAt.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year:
-      updatedAt.getFullYear() === new Date().getFullYear()
-        ? undefined
-        : 'numeric',
-  })
 }
 
 function readFileAsDataUrl(file: File) {
@@ -1301,1165 +1034,16 @@ function readFileAsDataUrl(file: File) {
   })
 }
 
-function RouteSettingsTable({
-  routes,
-  onChange,
-}: {
-  routes: Array<ProjectRouteDefinition>
-  onChange: (routes: Array<ProjectRouteDefinition>) => void
-}) {
-  function updateRoute(index: number, next: Partial<ProjectRouteDefinition>) {
-    onChange(
-      routes.map((route, routeIndex) =>
-        routeIndex === index ? { ...route, ...next } : route,
-      ),
-    )
-  }
-
-  function addRoute() {
-    onChange([
-      ...routes,
-      { path: '/', service: 'web', port: 3000, stripPrefix: false },
-    ])
-  }
-
-  function removeRoute(index: number) {
-    onChange(routes.filter((_, routeIndex) => routeIndex !== index))
-  }
-
-  return (
-    <div className="space-y-4">
-      {routes.length > 0 ? (
-        <>
-          <div>
-            <div className="grid w-full grid-cols-[minmax(0,1.35fr)_1rem_minmax(0,1.35fr)_minmax(5.5rem,0.45fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
-              <div>Path</div>
-              <div />
-              <div>Service</div>
-              <div>Port</div>
-              <div>Strip</div>
-              <div />
-            </div>
-            {routes.map((route, index) => (
-              <div
-                className="grid w-full grid-cols-[minmax(0,1.35fr)_1rem_minmax(0,1.35fr)_minmax(5.5rem,0.45fr)_3.5rem_2.5rem] items-center gap-x-2 border-b py-2"
-                key={index}
-              >
-                <Field className="gap-0">
-                  <Input
-                    aria-label="Route path"
-                    value={route.path}
-                    onChange={(event) =>
-                      updateRoute(index, { path: event.target.value })
-                    }
-                    placeholder="/"
-                  />
-                </Field>
-                <ArrowRightIcon className="mx-auto size-4 text-muted-foreground" />
-                <Field className="gap-0">
-                  <Input
-                    aria-label="Route service"
-                    value={route.service}
-                    onChange={(event) =>
-                      updateRoute(index, { service: event.target.value })
-                    }
-                    placeholder="web"
-                  />
-                </Field>
-                <Field className="gap-0">
-                  <Input
-                    aria-label="Route port"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={route.port}
-                    onChange={(event) =>
-                      updateRoute(index, { port: Number(event.target.value) })
-                    }
-                    placeholder="3000"
-                  />
-                </Field>
-                <div className="flex h-full items-center gap-2">
-                  <Switch
-                    aria-label="Strip route prefix"
-                    checked={route.stripPrefix}
-                    onCheckedChange={(checked) =>
-                      updateRoute(index, { stripPrefix: checked })
-                    }
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <IconActionTooltip label="Remove route">
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      type="button"
-                      aria-label="Remove route"
-                      onClick={() => removeRoute(index)}
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  </IconActionTooltip>
-                </div>
-              </div>
-            ))}
-          </div>
-          <Button variant="outline" type="button" onClick={addRoute}>
-            <PlusIcon data-icon="inline-start" />
-            Add route
-          </Button>
-        </>
-      ) : (
-        <Empty className="min-h-40">
-          <EmptyHeader>
-            <EmptyTitle>No routes configured.</EmptyTitle>
-            <EmptyDescription>
-              Add a route to expose a Compose service.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button variant="outline" type="button" onClick={addRoute}>
-              <PlusIcon data-icon="inline-start" />
-              Add route
-            </Button>
-          </EmptyContent>
-        </Empty>
-      )}
-    </div>
-  )
-}
-
-function DomainSettingsTable({
-  domains,
-  environments,
-  routes,
-  onChange,
-}: {
-  domains: Array<ProjectDomainAlias>
-  environments: Array<ProjectEnvironmentConfig>
-  routes: Array<ProjectRouteDefinition>
-  onChange: (domains: Array<ProjectDomainAlias>) => void
-}) {
-  function updateDomain(id: string, next: Partial<ProjectDomainAlias>) {
-    onChange(
-      domains.map((domain) =>
-        domain.id === id ? { ...domain, ...next } : domain,
-      ),
-    )
-  }
-
-  function addDomain() {
-    onChange([
-      ...domains,
-      {
-        id: crypto.randomUUID(),
-        host: '',
-        environment: environments.at(0)?.id ?? 'production',
-        baseRoute: '',
-        https: true,
-      },
-    ])
-  }
-
-  function removeDomain(id: string) {
-    onChange(domains.filter((domain) => domain.id !== id))
-  }
-
-  return (
-    <div className="space-y-4">
-      {domains.length > 0 ? (
-        <>
-          <div>
-            <div className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
-              <div>Host</div>
-              <div>Environment</div>
-              <div>Base route</div>
-              <div>HTTPS</div>
-              <div />
-            </div>
-            {domains.map((domain) => (
-              <div
-                className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_2.5rem] items-center gap-x-2 border-b py-2"
-                key={domain.id}
-              >
-                <Field className="gap-0">
-                  <Input
-                    aria-label="Domain host"
-                    value={domain.host}
-                    onChange={(event) =>
-                      updateDomain(domain.id, { host: event.target.value })
-                    }
-                    placeholder="myapp.com"
-                  />
-                </Field>
-                <Field className="gap-0">
-                  <Select
-                    value={domain.environment}
-                    onValueChange={(value) =>
-                      updateDomain(domain.id, { environment: value })
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label="Domain environment"
-                      className="w-full"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {environments.map((environment) => (
-                        <SelectItem value={environment.id} key={environment.id}>
-                          <EnvironmentOptionLabel
-                            color={environment.color}
-                            label={environment.name}
-                          />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field className="gap-0">
-                  <Select
-                    value={domain.baseRoute || 'all'}
-                    onValueChange={(value) =>
-                      updateDomain(domain.id, {
-                        baseRoute: value === 'all' ? '' : value,
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label="Domain base route"
-                      className="w-full"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All routes</SelectItem>
-                      {routes.map((route) => (
-                        <SelectItem value={route.path} key={route.path}>
-                          {route.path}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <div className="flex h-full items-center justify-center">
-                  <Switch
-                    aria-label="HTTPS"
-                    checked={domain.https}
-                    onCheckedChange={(checked) =>
-                      updateDomain(domain.id, { https: checked })
-                    }
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <IconActionTooltip label="Remove domain">
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      type="button"
-                      aria-label="Remove domain"
-                      onClick={() => removeDomain(domain.id)}
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  </IconActionTooltip>
-                </div>
-              </div>
-            ))}
-          </div>
-          <Button variant="outline" type="button" onClick={addDomain}>
-            <PlusIcon data-icon="inline-start" />
-            Add domain
-          </Button>
-        </>
-      ) : (
-        <Empty className="min-h-40">
-          <EmptyHeader>
-            <EmptyTitle>No custom domains.</EmptyTitle>
-            <EmptyDescription>
-              Add a domain and map it to an environment route.
-            </EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button variant="outline" type="button" onClick={addDomain}>
-              <PlusIcon data-icon="inline-start" />
-              Add domain
-            </Button>
-          </EmptyContent>
-        </Empty>
-      )}
-    </div>
-  )
-}
-
-function EnvironmentSettingsSection({ context }: { context: ProjectContext }) {
-  const queryClient = useQueryClient()
-  const params = useParams({ strict: false })
-  const [items, setItems] = useState(context.environments)
-  const [savedItems, setSavedItems] = useState(context.environments)
-  const [isSaving, setIsSaving] = useState(false)
-  const hasChanges = JSON.stringify(items) !== JSON.stringify(savedItems)
-
-  function update(
-    id: string,
-    patch: Partial<
-      Pick<ProjectEnvironmentConfig, 'branch' | 'color' | 'name' | 'slug'>
-    >,
-  ) {
-    setItems((current) =>
-      current.map((environment) =>
-        environment.id === id ? { ...environment, ...patch } : environment,
-      ),
-    )
-  }
-
-  function add() {
-    const id = crypto.randomUUID()
-
-    setItems((current) => [
-      ...current,
-      {
-        id,
-        name: '',
-        slug: '',
-        branch: '',
-        color: getEnvironmentColor(current.length + 1),
-        position: current.length,
-        status: 'active',
-        effectiveServerId: context.project.defaultServerId,
-        serverId: null,
-      },
-    ])
-  }
-
-  function remove(environment: ProjectEnvironmentConfig) {
-    if (environment.slug === 'production') {
-      return
-    }
-
-    setItems((current) => current.filter((item) => item.id !== environment.id))
-  }
-
-  async function save() {
-    setIsSaving(true)
-
-    try {
-      const nextContext = await saveProjectEnvironments({
-        data: {
-          teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
-          projectName: context.project.name,
-          environments: items,
-        },
-      })
-      setProjectContextQueryData(queryClient, nextContext)
-      setItems(nextContext.environments)
-      setSavedItems(nextContext.environments)
-      toast.success('Environments saved.')
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to save environments.'))
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  return (
-    <SettingsSection
-      id="environments"
-      title="Environments"
-      description="Deployments will be associated with the first environment with a matching branch pattern."
-      footer={
-        <SettingsActions
-          hasChanges={hasChanges}
-          isSaving={isSaving}
-          onCancel={() => setItems(savedItems)}
-          onSave={save}
-        />
-      }
-    >
-      <div>
-        <div className="grid grid-cols-[repeat(3,minmax(0,1fr))_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
-          <span>Name</span>
-          <span>Identifier</span>
-          <span>Branch</span>
-          <span />
-        </div>
-        {items.map((environment) => (
-          <div
-            className="grid min-h-12 grid-cols-[repeat(3,minmax(0,1fr))_2rem] items-center gap-x-2 border-b py-2 text-sm"
-            key={environment.id}
-          >
-            <Field className="gap-0">
-              <div className="flex min-w-0 items-center">
-                <ColorSelect
-                  value={environment.color}
-                  onChange={(color) => update(environment.id, { color })}
-                />
-                <Input
-                  aria-label="Environment name"
-                  className="rounded-l-none"
-                  value={environment.name}
-                  placeholder="Production"
-                  onChange={(event) =>
-                    update(environment.id, { name: event.target.value })
-                  }
-                />
-              </div>
-            </Field>
-            <Field className="gap-0">
-              <Input
-                aria-label="Environment identifier"
-                value={environment.slug}
-                placeholder="production"
-                readOnly={environment.slug === 'production'}
-                onChange={(event) =>
-                  update(environment.id, { slug: event.target.value })
-                }
-              />
-            </Field>
-            <Field className="gap-0">
-              <Input
-                aria-label="Environment branch"
-                value={environment.branch}
-                placeholder="main"
-                onChange={(event) =>
-                  update(environment.id, { branch: event.target.value })
-                }
-              />
-            </Field>
-            <div className="flex items-center justify-end">
-              <IconActionTooltip label="Remove environment">
-                <Button
-                  size="icon"
-                  variant="destructive"
-                  type="button"
-                  onClick={() => remove(environment)}
-                  disabled={isSaving || environment.slug === 'production'}
-                  aria-label="Remove environment"
-                >
-                  <Trash2Icon />
-                </Button>
-              </IconActionTooltip>
-            </div>
-          </div>
-        ))}
-        <Button
-          className="mt-3"
-          type="button"
-          variant="outline"
-          onClick={add}
-          disabled={isSaving}
-        >
-          <PlusIcon data-icon="inline-start" />
-          Add environment
-        </Button>
-      </div>
-    </SettingsSection>
-  )
-}
-
-function EnvironmentServersSettingsSection({
-  context,
-}: {
-  context: ProjectContext
-}) {
-  const queryClient = useQueryClient()
-  const params = useParams({ strict: false })
-  const initialItems = context.environments.map((environment) => ({
-    environmentId: environment.id,
-    serverId: environment.serverId,
-  }))
-  const [defaultServerId, setDefaultServerId] = useState(
-    context.project.defaultServerId,
-  )
-  const [savedDefaultServerId, setSavedDefaultServerId] = useState(
-    context.project.defaultServerId,
-  )
-  const [items, setItems] = useState(initialItems)
-  const [savedItems, setSavedItems] = useState(initialItems)
-  const [isSaving, setIsSaving] = useState(false)
-  const hasChanges =
-    defaultServerId !== savedDefaultServerId ||
-    JSON.stringify(items) !== JSON.stringify(savedItems)
-
-  function update(environmentId: string, serverId: string | null) {
-    setItems((current) =>
-      current.map((item) =>
-        item.environmentId === environmentId ? { ...item, serverId } : item,
-      ),
-    )
-  }
-
-  async function save() {
-    setIsSaving(true)
-
-    try {
-      const nextContext = await saveProjectEnvironmentServers({
-        data: {
-          teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
-          projectName: context.project.name,
-          defaultServerId,
-          environmentServers: items,
-        },
-      })
-      setProjectContextQueryData(queryClient, nextContext)
-      const nextItems = nextContext.environments.map((environment) => ({
-        environmentId: environment.id,
-        serverId: environment.serverId,
-      }))
-      setItems(nextItems)
-      setSavedItems(nextItems)
-      setDefaultServerId(nextContext.project.defaultServerId)
-      setSavedDefaultServerId(nextContext.project.defaultServerId)
-      toast.success('Servers saved.')
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to save servers.'))
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  return (
-    <SettingsSection
-      id="servers"
-      title="Servers"
-      description="Choose a default server, then override individual environments when needed."
-      footer={
-        <SettingsActions
-          hasChanges={hasChanges}
-          isSaving={isSaving}
-          onCancel={() => {
-            setDefaultServerId(savedDefaultServerId)
-            setItems(savedItems)
-          }}
-          onSave={save}
-        />
-      }
-    >
-      <div>
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-b pb-3 text-sm font-medium">
-          <span>Scope</span>
-          <span>Server</span>
-        </div>
-        <div className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 border-b py-2 text-sm">
-          <span className="font-medium">Default</span>
-          <ServerAssignmentControl
-            ariaLabel="Default server"
-            context={context}
-            serverId={defaultServerId}
-            onChange={setDefaultServerId}
-          />
-        </div>
-        {context.environments.map((environment) => {
-          const assignment = items.find(
-            (item) => item.environmentId === environment.id,
-          )
-
-          return (
-            <div
-              className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 border-b py-2 text-sm"
-              key={environment.id}
-            >
-              <EnvironmentOptionLabel
-                color={environment.color}
-                label={environment.name}
-              />
-              <ServerAssignmentControl
-                ariaLabel={`${environment.name} server override`}
-                context={context}
-                defaultServerId={defaultServerId}
-                serverId={assignment?.serverId ?? null}
-                onChange={(serverId) => update(environment.id, serverId)}
-              />
-            </div>
-          )
-        })}
-      </div>
-    </SettingsSection>
-  )
-}
-
-function ServerAssignmentControl({
-  ariaLabel,
-  context,
-  defaultServerId,
-  serverId,
-  onChange,
-}: {
-  ariaLabel: string
-  context: ProjectContext
-  defaultServerId?: string | null
-  serverId: string | null
-  onChange: (serverId: string | null) => void
-}) {
-  const effectiveServerId = serverId ?? defaultServerId ?? null
-  const selectedServer = context.servers.find(
-    (server) => server.id === effectiveServerId,
-  )
-  const defaultServer = context.servers.find(
-    (server) => server.id === defaultServerId,
-  )
-  const inheritedLabel = defaultServer
-    ? `Use default (${defaultServer.name})`
-    : 'Use default (none)'
-
-  return (
-    <ButtonGroup className="min-w-0 w-full">
-      <Select
-        value={
-          serverId ??
-          (defaultServerId === undefined ? '__none__' : '__default__')
-        }
-        onValueChange={(value) =>
-          onChange(
-            value === '__none__' || value === '__default__' ? null : value,
-          )
-        }
-      >
-        <SelectTrigger aria-label={ariaLabel} className="min-w-0 flex-1 w-auto">
-          <SelectValue placeholder="Select a server" />
-        </SelectTrigger>
-        <SelectContent>
-          {defaultServerId === undefined ? (
-            <SelectItem value="__none__">No default server</SelectItem>
-          ) : (
-            <SelectItem value="__default__">{inheritedLabel}</SelectItem>
-          )}
-          {context.servers.map((server) => (
-            <SelectItem
-              key={server.id}
-              value={server.id}
-              textValue={server.name}
-            >
-              <span className="flex items-center gap-x-2">
-                <ServerAvatar name={server.name} status={server.status} />
-                {server.name}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <IconActionTooltip label="Server details">
-        <Button
-          size="icon"
-          variant="outline"
-          className="text-muted-foreground hover:text-foreground"
-          type="button"
-          disabled={!selectedServer}
-          aria-label="Server details"
-          asChild={Boolean(selectedServer)}
-        >
-          {selectedServer ? (
-            <Link
-              to="/$teamSlug/servers/$serverId"
-              params={{
-                teamSlug: context.team.slug,
-                serverId: selectedServer.id,
-              }}
-            >
-              <ArrowRightIcon />
-            </Link>
-          ) : (
-            <ArrowRightIcon />
-          )}
-        </Button>
-      </IconActionTooltip>
-    </ButtonGroup>
-  )
-}
-
-function EnvironmentVariablesSettingsSection({
-  context,
-}: {
-  context: ProjectContext
-}) {
-  const queryClient = useQueryClient()
-  const params = useParams({ strict: false })
-  const [items, setItems] = useState(context.envVars)
-  const [savedItems, setSavedItems] = useState(context.envVars)
-  const [isSaving, setIsSaving] = useState(false)
-  const hasChanges = JSON.stringify(items) !== JSON.stringify(savedItems)
-
-  function add() {
-    setItems((current) => [...current, { key: '', value: '', environment: '' }])
-  }
-
-  function insertEnvFile(envFile: string) {
-    const parsed = parseEnvFile(envFile)
-
-    if (parsed.length === 0) {
-      return
-    }
-
-    setItems((current) => [
-      ...current.filter((item) => item.key || item.value),
-      ...parsed.map((item) => ({ ...item, environment: '' })),
-    ])
-  }
-
-  function handleEnvFilePaste(event: ClipboardEvent<HTMLElement>) {
-    const pastedText = event.clipboardData.getData('text')
-
-    if (!isEnvFilePaste(pastedText)) {
-      return
-    }
-
-    event.preventDefault()
-    insertEnvFile(pastedText)
-  }
-
-  function update(index: number, patch: Partial<ProjectEnvironmentVariable>) {
-    setItems((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, ...patch } : item,
-      ),
-    )
-  }
-
-  async function save() {
-    setIsSaving(true)
-
-    try {
-      const nextContext = await saveProjectEnvVars({
-        data: {
-          teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
-          projectName: context.project.name,
-          envVars: items,
-        },
-      })
-      setProjectContextQueryData(queryClient, nextContext)
-      setItems(nextContext.envVars)
-      setSavedItems(nextContext.envVars)
-      toast.success('Environment variables saved.')
-    } catch (error) {
-      toast.error(
-        getErrorMessage(error, 'Unable to save environment variables.'),
-      )
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  return (
-    <SettingsSection
-      id="environment-variables"
-      title="Environment variables"
-      description="Variables available at build time and runtime. Changes will take effect after a new deployment."
-      footer={
-        <SettingsActions
-          hasChanges={hasChanges}
-          isSaving={isSaving}
-          onCancel={() => setItems(savedItems)}
-          onSave={save}
-        />
-      }
-    >
-      <div>
-        {items.length > 0 ? (
-          <div>
-            <div className="grid grid-cols-[200px_minmax(0,1fr)_220px_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
-              <span>Key</span>
-              <span>Value</span>
-              <span>Environment</span>
-              <span />
-            </div>
-            {items.map((envVar, index) => (
-              <div
-                className="grid min-h-12 grid-cols-[200px_minmax(0,1fr)_220px_2rem] items-start gap-x-2 border-b py-2 text-sm"
-                key={`env-var:${index}`}
-              >
-                <Field className="gap-0">
-                  <Input
-                    aria-label="Environment variable key"
-                    value={envVar.key}
-                    placeholder="e.g. MY_VAR"
-                    onChange={(event) =>
-                      update(index, { key: event.target.value })
-                    }
-                    onPaste={handleEnvFilePaste}
-                  />
-                </Field>
-                <Field className="gap-0">
-                  <EnvVarValueTextarea
-                    value={envVar.value}
-                    onChange={(value) => update(index, { value })}
-                    onPaste={handleEnvFilePaste}
-                  />
-                </Field>
-                <Field className="gap-0">
-                  <Select
-                    value={envVar.environment || '__all__'}
-                    onValueChange={(environment) =>
-                      update(index, {
-                        environment:
-                          environment === '__all__' ? '' : environment,
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label="Environment variable environment"
-                      className="w-full"
-                    >
-                      <SelectValue placeholder="All environments" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">
-                        <EnvironmentOptionLabel label="All environments" />
-                      </SelectItem>
-                      {context.environments.map((environment) => (
-                        <SelectItem
-                          key={environment.id}
-                          value={environment.id}
-                          textValue={environment.name}
-                        >
-                          <EnvironmentOptionLabel
-                            color={environment.color}
-                            label={environment.name}
-                          />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <div className="flex items-center justify-end">
-                  <IconActionTooltip label="Remove environment variable">
-                    <Button
-                      size="icon"
-                      variant="destructive"
-                      type="button"
-                      onClick={() =>
-                        setItems((current) =>
-                          current.filter((_, itemIndex) => itemIndex !== index),
-                        )
-                      }
-                      disabled={isSaving}
-                      aria-label="Remove environment variable"
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  </IconActionTooltip>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Empty className="min-h-40">
-            <EmptyHeader>
-              <EmptyTitle>No environment variables.</EmptyTitle>
-              <EmptyDescription>
-                Add variables available to builds and deployments.
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent className="flex-row justify-center">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={add}
-                disabled={isSaving}
-              >
-                <PlusIcon data-icon="inline-start" />
-                Add variable
-              </Button>
-              <PasteEnvFileDialog onInsert={insertEnvFile} />
-            </EmptyContent>
-          </Empty>
-        )}
-        {items.length > 0 ? (
-          <div className="mt-3 flex gap-x-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={add}
-              disabled={isSaving}
-            >
-              <PlusIcon data-icon="inline-start" />
-              Add variable
-            </Button>
-            <PasteEnvFileDialog onInsert={insertEnvFile} />
-          </div>
-        ) : null}
-      </div>
-    </SettingsSection>
-  )
-}
-
-function EnvVarValueTextarea({
-  onChange,
-  onPaste,
-  value,
-}: {
-  onChange: (value: string) => void
-  onPaste: (event: ClipboardEvent<HTMLElement>) => void
-  value: string
-}) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    resizeTextarea(ref.current)
-  }, [value])
-
-  return (
-    <Textarea
-      ref={ref}
-      aria-label="Environment variable value"
-      className="min-h-8 resize-none overflow-hidden break-all py-1.5 font-mono text-[13px]"
-      placeholder="value"
-      value={value}
-      onPaste={onPaste}
-      onChange={(event) => {
-        onChange(event.target.value)
-        resizeTextarea(event.currentTarget)
-      }}
-    />
-  )
-}
-
-function PasteEnvFileDialog({
-  onInsert,
-}: {
-  onInsert: (envFile: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [envFile, setEnvFile] = useState('')
-
-  function insert() {
-    onInsert(envFile)
-    setEnvFile('')
-    setOpen(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DialogTrigger asChild>
-            <Button
-              aria-label="Paste .env file"
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <FileTextIcon />
-            </Button>
-          </DialogTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Paste .env file</TooltipContent>
-      </Tooltip>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Paste .env file</DialogTitle>
-          <DialogDescription>
-            Paste the contents of your .env file to add variables to this
-            project.
-          </DialogDescription>
-        </DialogHeader>
-        <Field>
-          <FieldLabel htmlFor="env-file-content">.env content</FieldLabel>
-          <Textarea
-            id="env-file-content"
-            className="max-h-36 min-h-24 overflow-y-auto break-all font-mono text-[13px]"
-            value={envFile}
-            onChange={(event) => setEnvFile(event.target.value)}
-          />
-        </Field>
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button disabled={!envFile.trim()} type="button" onClick={insert}>
-            Insert
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function EnvironmentOptionLabel({
-  color,
-  label,
-}: {
-  color?: string
-  label: string
-}) {
-  return (
-    <span className="flex min-w-0 items-center gap-x-2">
-      {color ? <EnvironmentDot color={color} /> : null}
-      <span className="truncate">{label}</span>
-    </span>
-  )
-}
-
 function normalizeDomainsForRoutes(
   domains: Array<ProjectDomainAlias>,
   routes: Array<ProjectRouteDefinition>,
 ) {
-  const routePaths = new Set(routes.map((route) => route.path))
-
   return domains.map((domain) => ({
     ...domain,
-    baseRoute:
-      domain.baseRoute && routePaths.has(domain.baseRoute)
-        ? domain.baseRoute
-        : '',
+    baseRoute: getEffectiveRouteDefinitions(routes, domain.environment).some(
+      (route) => route.path === domain.baseRoute,
+    )
+      ? domain.baseRoute
+      : '',
   }))
-}
-
-function parseEnvFile(envFile: string) {
-  return envFile
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'))
-    .map((line) => {
-      const match = /^([^=]+)=(.*)$/.exec(line)
-
-      if (!match) {
-        return null
-      }
-
-      return {
-        key: match[1].trim(),
-        value: match[2].trim().replace(/^["']|["']$/g, ''),
-      }
-    })
-    .filter((item): item is { key: string; value: string } => Boolean(item))
-}
-
-function isEnvFilePaste(value: string) {
-  const lines = value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'))
-
-  return (
-    lines.length > 0 &&
-    lines.every((line) => /^[A-Za-z_][A-Za-z0-9_]*=.*$/.test(line))
-  )
-}
-
-function resizeTextarea(textarea: HTMLTextAreaElement | null) {
-  if (!textarea) {
-    return
-  }
-
-  textarea.style.height = 'auto'
-  textarea.style.height = `${textarea.scrollHeight}px`
-}
-
-function ColorSelect({
-  onChange,
-  value,
-}: {
-  onChange: (value: string) => void
-  value: string
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          aria-label="Environment color"
-          className="rounded-r-none border-r-0 text-foreground hover:bg-input/50 hover:text-foreground"
-          size="icon"
-          type="button"
-          variant="outline"
-        >
-          <EnvironmentDot color={value} />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-auto overflow-visible p-2"
-      >
-        <div className="grid grid-cols-6 gap-2">
-          {environmentColors.map((color) => (
-            <button
-              aria-label={`Set environment color to ${color}`}
-              className="flex size-7 items-center justify-center rounded-full border border-transparent transition-colors hover:border-foreground/40 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              key={color}
-              onClick={() => onChange(color)}
-              type="button"
-            >
-              <EnvironmentColorOption checked={value === color} color={color} />
-            </button>
-          ))}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function SettingsSection({
-  title,
-  description,
-  children,
-  footer,
-  id,
-}: {
-  title: string
-  description: string
-  children: ReactNode
-  footer?: ReactNode
-  id: string
-}) {
-  return (
-    <Card id={id} className="scroll-mt-8">
-      <CardHeader className="border-b">
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-      {footer ? (
-        <CardFooter className="justify-end gap-x-2">{footer}</CardFooter>
-      ) : null}
-    </Card>
-  )
-}
-
-function IconActionTooltip({
-  children,
-  label,
-}: {
-  children: ReactNode
-  label: string
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  )
-}
-
-function SettingsActions({
-  hasChanges,
-  isSaving,
-  onCancel,
-  onSave,
-}: {
-  hasChanges: boolean
-  isSaving: boolean
-  onCancel: () => void
-  onSave: () => Promise<void>
-}) {
-  return (
-    <>
-      <Button
-        variant="ghost"
-        type="button"
-        onClick={onCancel}
-        disabled={!hasChanges || isSaving}
-      >
-        Cancel
-      </Button>
-      <Button
-        type="button"
-        onClick={() => void onSave()}
-        disabled={!hasChanges || isSaving}
-      >
-        {isSaving ? (
-          <LoaderIcon data-icon="inline-start" className="animate-spin" />
-        ) : null}
-        Save
-      </Button>
-    </>
-  )
 }

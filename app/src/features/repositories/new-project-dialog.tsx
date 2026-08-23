@@ -38,7 +38,12 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
-import { Field, FieldError, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   InputGroup,
@@ -907,20 +912,25 @@ function ConfigureStep({
         </Field>
         <Field data-invalid={Boolean(fieldErrors.releaseCommand)}>
           <FieldLabel htmlFor="new-project-release-command">
-            Release command
+            Pre-deploy command
           </FieldLabel>
-          <Input
+          <Textarea
             aria-invalid={Boolean(fieldErrors.releaseCommand)}
+            className="resize-none py-1.5 font-mono"
             id="new-project-release-command"
             value={releaseCommand}
             placeholder="php artisan migrate --force"
             onChange={(event) => onReleaseCommandChange(event.target.value)}
           />
+          <FieldDescription>
+            Optional command run inside the application service after images are
+            ready and before services are updated.
+          </FieldDescription>
           <FieldError>{fieldErrors.releaseCommand}</FieldError>
         </Field>
         <Field data-invalid={Boolean(fieldErrors.readinessPath)}>
           <FieldLabel htmlFor="new-project-readiness-path">
-            Readiness path
+            Health check path
           </FieldLabel>
           <Input
             aria-invalid={Boolean(fieldErrors.readinessPath)}
@@ -929,6 +939,9 @@ function ConfigureStep({
             placeholder="/health"
             onChange={(event) => onReadinessPathChange(event.target.value)}
           />
+          <FieldDescription>
+            HTTP path Devpush requests after deployment. Defaults to /.
+          </FieldDescription>
           <FieldError>{fieldErrors.readinessPath}</FieldError>
         </Field>
       </div>

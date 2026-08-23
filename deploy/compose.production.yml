@@ -15,16 +15,16 @@ services:
       retries: 10
 
   app:
+    image: devpush-app:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile.app
       args:
         VITE_DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
-        DEVPUSH_AGENT_VERSION: ${DEVPUSH_AGENT_VERSION:-0.1.0}
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "${DEVPUSH_HTTP_PORT:-7429}:3000"
     volumes:
@@ -46,8 +46,14 @@ services:
       DEVPUSH_TRAEFIK_EMAIL: ${DEVPUSH_TRAEFIK_EMAIL:-}
       DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
       DEVPUSH_AGENT_AUTO_UPDATE: ${DEVPUSH_AGENT_AUTO_UPDATE:-false}
+      DEVPUSH_RECOMMENDED_AGENT_VERSION: ${DEVPUSH_RECOMMENDED_AGENT_VERSION:-}
       DEVPUSH_CRON_SECRET: ${DEVPUSH_CRON_SECRET:?DEVPUSH_CRON_SECRET is required}
       DEVPUSH_SECRET_ENCRYPTION_KEY: ${DEVPUSH_SECRET_ENCRYPTION_KEY:?DEVPUSH_SECRET_ENCRYPTION_KEY is required}
+      DEVPUSH_STORAGE_ENDPOINT: ${DEVPUSH_STORAGE_ENDPOINT:-}
+      DEVPUSH_STORAGE_REGION: ${DEVPUSH_STORAGE_REGION:-}
+      DEVPUSH_STORAGE_BUCKET: ${DEVPUSH_STORAGE_BUCKET:-}
+      DEVPUSH_STORAGE_ACCESS_KEY_ID: ${DEVPUSH_STORAGE_ACCESS_KEY_ID:-}
+      DEVPUSH_STORAGE_SECRET_ACCESS_KEY: ${DEVPUSH_STORAGE_SECRET_ACCESS_KEY:-}
     healthcheck:
       test:
         ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null"]
@@ -55,6 +61,31 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  migrate:
+    image: devpush-app:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+      args:
+        VITE_DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-devpush}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-devpush}
+      DEVPUSH_STORAGE_ENDPOINT: ${DEVPUSH_STORAGE_ENDPOINT:-}
+      DEVPUSH_STORAGE_REGION: ${DEVPUSH_STORAGE_REGION:-}
+      DEVPUSH_STORAGE_BUCKET: ${DEVPUSH_STORAGE_BUCKET:-}
+      DEVPUSH_STORAGE_ACCESS_KEY_ID: ${DEVPUSH_STORAGE_ACCESS_KEY_ID:-}
+      DEVPUSH_STORAGE_SECRET_ACCESS_KEY: ${DEVPUSH_STORAGE_SECRET_ACCESS_KEY:-}
+    command:
+      [
+        "sh",
+        "-lc",
+        "pnpm --dir app db:migrate && pnpm --dir app storage:sync-agents",
+      ]
+    restart: "no"
 
   scheduler:
     image: alpine:3.22

@@ -39,13 +39,13 @@ describe('server monitoring integration', () => {
     await recordServerHeartbeat({
       serverId,
       observedAt: new Date('2026-06-28T09:56:00.000Z'),
-      agentVersion: 'devpush-agent/0.1.0',
+      agentVersion: 'devpush-agent/1.0.0',
       publicAddress: '203.0.113.10',
     })
     await recordServerHeartbeat({
       serverId,
       observedAt: new Date('2026-06-28T09:57:00.000Z'),
-      agentVersion: 'devpush-agent/0.1.0',
+      agentVersion: 'devpush-agent/1.0.0',
       publicAddress: '203.0.113.10',
     })
 

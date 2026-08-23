@@ -186,8 +186,7 @@ async function createFixture() {
     name: `server-${suffix}`,
     handle: `server-${suffix}`,
     status: 'connected',
-    enrollmentTokenHash: hashToken(token),
-    enrollmentTokenExpiresAt: null,
+    agentCredentialHash: hashToken(token),
   })
   await db.insert(projects).values({
     id: projectId,

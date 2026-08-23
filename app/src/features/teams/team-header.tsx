@@ -114,7 +114,7 @@ type TeamHeaderProps = {
   currentTeam?: TeamSummary
 }
 
-export function TeamHeader({
+function TeamHeader({
   currentProject = false,
   currentProjectContext,
   currentProjects = [],

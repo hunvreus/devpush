@@ -8,7 +8,6 @@ export default defineConfig({
       '**/.output/**',
       '**/.tanstack/**',
       '**/dist/**',
-      '**/legacy/**',
       '**/node_modules/**',
     ],
     include: ['src/**/*.integration.test.ts'],

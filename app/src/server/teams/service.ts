@@ -2,7 +2,7 @@ import { and, count, desc, eq, gt, inArray, lte, ne, sql } from 'drizzle-orm'
 
 import { canManageTeamMembers, canManageTeamSettings } from '@/lib/team-role'
 import type { TeamRole } from '@/lib/team-role'
-import { config } from '@/server/config'
+import { config, currentAgentVersion } from '@/server/config'
 import { db } from '@/server/db'
 import { enqueueTeamDeprovisionJobs } from '@/server/agents/cleanup'
 import {
@@ -21,6 +21,8 @@ import { sendTeamInviteEmail } from '@/server/email/service'
 import { getResourceColor } from '@/server/resources/color'
 import { getEffectiveServerStatus } from '@/server/servers/status'
 import type { ServerStatus } from '@/server/servers/status'
+import { getAgentUpdate } from '@/server/agents/compatibility'
+import type { AgentUpdate } from '@/server/agents/compatibility'
 import { listServerMonitoringSummaries } from '@/server/servers/monitoring'
 import type { ServerMonitoringSummary } from '@/server/servers/monitoring'
 import { removePublicFile, resolveAvatarUpdate } from '@/server/uploads/avatar'
@@ -54,7 +56,6 @@ export type ProjectSummary = {
   id: string
   name: string
   githubRepo: string
-  composePath: string | null
   defaultHost: string | null
   defaultRouteHttps: boolean
   color: ReturnType<typeof getResourceColor>
@@ -65,6 +66,8 @@ export type ServerSummary = {
   name: string
   publicAddress: string | null
   status: ServerStatus
+  agentVersion: string | null
+  agentUpdate: AgentUpdate
   lastSeenAt: string | null
   monitoring: ServerMonitoringSummary
 }
@@ -348,7 +351,6 @@ export async function listTeamProjects(
       id: projects.id,
       name: projects.name,
       githubRepo: projects.githubRepo,
-      composePath: projects.composePath,
       defaultHost: aliases.hostname,
       defaultRouteHttps: aliases.https,
     })
@@ -374,7 +376,6 @@ export async function listTeamProjects(
     id: project.id,
     name: project.name,
     githubRepo: project.githubRepo,
-    composePath: project.composePath,
     defaultHost: project.defaultHost,
     defaultRouteHttps: project.defaultRouteHttps ?? false,
     color: getResourceColor(project.id),
@@ -391,6 +392,9 @@ export async function listTeamServers(
       name: servers.name,
       publicAddress: servers.publicAddress,
       status: servers.status,
+      agentVersion: servers.agentVersion,
+      agentProtocolVersion: servers.agentProtocolVersion,
+      agentCapabilities: servers.agentCapabilities,
       lastSeenAt: servers.lastSeenAt,
       createdAt: servers.createdAt,
     })
@@ -409,6 +413,16 @@ export async function listTeamServers(
       lastSeenAt: server.lastSeenAt,
       now,
     }),
+    agentVersion: server.agentVersion,
+    agentUpdate: server.lastSeenAt
+      ? getAgentUpdate({
+          agentVersion: server.agentVersion,
+          protocolVersion: server.agentProtocolVersion,
+          capabilities: server.agentCapabilities,
+          latestVersion: currentAgentVersion,
+          recommendedVersion: config.DEVPUSH_RECOMMENDED_AGENT_VERSION ?? null,
+        })
+      : { status: 'current', latestVersion: null, reason: null },
     lastSeenAt: server.lastSeenAt?.toISOString() ?? null,
     monitoring: monitoring.get(server.id) ?? {
       availabilityPercent: null,

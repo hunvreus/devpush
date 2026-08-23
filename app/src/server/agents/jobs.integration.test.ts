@@ -114,6 +114,62 @@ describe('agent deployment jobs', () => {
     expect(rows).toEqual([{ deploymentId }])
   })
 
+  test('moves only the completed branch alias with the environment alias', async () => {
+    const { deploymentId, environmentId, projectId, serverId, token } =
+      await createFixture()
+    const currentBranchAliasId = `hostname-${crypto.randomUUID()}`
+    const otherBranchAliasId = `hostname-${crypto.randomUUID()}`
+    touchedHostnameIds.push(currentBranchAliasId, otherBranchAliasId)
+
+    await db.insert(aliases).values([
+      {
+        id: currentBranchAliasId,
+        hostname: `${currentBranchAliasId}.devpush.local`,
+        projectId,
+        environmentId,
+        type: 'branch',
+        branch: 'main',
+      },
+      {
+        id: otherBranchAliasId,
+        hostname: `${otherBranchAliasId}.devpush.local`,
+        projectId,
+        environmentId,
+        type: 'branch',
+        branch: 'preview',
+      },
+    ])
+
+    await completeDeploymentJob({
+      serverId,
+      token,
+      completion: {
+        deploymentId,
+        status: 'succeeded',
+        gitSha: null,
+        logStartSeq: 1,
+        logs: ['Deployment succeeded.'],
+        events: [{ phase: 'completed', message: 'Deployment succeeded.' }],
+      },
+    })
+
+    const rows = await db
+      .select({
+        branch: aliases.branch,
+        deploymentId: aliases.deploymentId,
+        type: aliases.type,
+      })
+      .from(aliases)
+      .where(inArray(aliases.id, [currentBranchAliasId, otherBranchAliasId]))
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { branch: 'main', deploymentId, type: 'branch' },
+        { branch: 'preview', deploymentId: null, type: 'branch' },
+      ]),
+    )
+  })
+
   test('records completed backup jobs and artifacts', async () => {
     const { backupRunId, jobId, serverId, token } = await createBackupFixture()
 
@@ -440,8 +496,7 @@ async function createFixture() {
     name: `server-${suffix}`,
     handle: `server-${suffix}`,
     status: 'connected',
-    enrollmentTokenHash: hashToken(token),
-    enrollmentTokenExpiresAt: null,
+    agentCredentialHash: hashToken(token),
   })
   await db.insert(projects).values({
     id: projectId,
@@ -472,11 +527,18 @@ async function createFixture() {
     gitSha: 'abc1234',
     gitBranch: 'main',
     config: {
-      version: 2,
-      composePath: 'compose.yml',
-      releaseCommand: null,
-      releaseService: 'web',
-      readinessPath: null,
+      schemaVersion: 1,
+      runtime: {
+        type: 'compose',
+        path: 'compose.yml',
+        strategy: 'managed',
+        releaseCommand: null,
+        releaseService: 'web',
+        readinessPath: null,
+        deployCommand: null,
+        rollbackCommand: null,
+        timeoutSeconds: 1800,
+      },
       routes: [],
     },
     envVars: '[]',

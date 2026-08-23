@@ -3,7 +3,7 @@
 The agent runs on user servers, owns Docker Compose and Traefik locally, and
 connects outbound to the devpush control plane.
 
-The current MVP agent validates configuration, registers with the devpush control
+The agent validates configuration, registers with the devpush control
 plane, sends HTTP heartbeats with host and Compose service state, polls for
 queued jobs, and runs Docker Compose deploys, cleanup jobs, backups, and backup
 retention cleanup locally.
@@ -68,8 +68,6 @@ reinstalling anything:
 ```sh
 sudo devpush-agent credential rotate
 ```
-
-Still TODO: restore-to-new-environment support.
 
 Example config:
 

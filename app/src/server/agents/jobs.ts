@@ -10,18 +10,11 @@ import {
   aliases,
   deployments,
   deploymentLogs,
-  domains,
   environments,
   projects,
 } from '@/server/db/schema'
 import { createInstallationAccessToken } from '@/server/github/service'
 import { queueBackupRetentionCleanupJobs } from '@/server/backups/service'
-import type {
-  BackupCleanupJobPayload,
-  BackupJobPayload,
-  BackupRestoreJobPayload,
-} from '@/server/backups/service'
-import type { DeprovisionJobPayload } from './cleanup'
 import {
   decryptDeploymentEnvVars,
   parseDeploymentConfig,
@@ -29,188 +22,100 @@ import {
 } from '@/server/projects/deployment-config'
 import type { DeploymentConfig } from '@/server/projects/deployment-config'
 import { requireAgentServer } from '@/server/servers/service'
-
-type AgentRoute = {
-  host: string
-  service: string
-  port: number
-  path: string
-  https: boolean
-  stripPrefix: boolean
-}
-
-type AgentEnvVar = {
-  key: string
-  value: string
-}
-
-export type AgentDeployJob = {
-  type: 'deploy'
-  id: string
-  logStartSeq: number
-  repo: {
-    fullName: string
-    branch: string
-    sha: string
-    token: string
-  }
-  project: {
-    name: string
-  }
-  compose: {
-    path: string
-    projectName: string
-    releaseCommand: string | null
-    releaseService: string
-    readinessPath: string | null
-    envVars: Array<AgentEnvVar>
-    routes: Array<AgentRoute>
-  }
-}
-
-export type AgentCleanupJob = {
-  type: 'deprovision' | 'purge'
-  id: string
-  cleanup: {
-    runtimeIds: Array<string>
-    removeVolumes: boolean
-    reason: string
-  }
-}
-
-export type AgentBackupJob = {
-  type: 'backup'
-  id: string
-  backup: BackupJobPayload
-}
-
-export type AgentBackupCleanupJob = {
-  type: 'backup_cleanup'
-  id: string
-  cleanup: BackupCleanupJobPayload
-}
-
-export type AgentRestoreJob = {
-  type: 'restore'
-  id: string
-  restore: BackupRestoreJobPayload
-}
-
-export type AgentJob =
-  | AgentDeployJob
-  | AgentCleanupJob
-  | AgentBackupJob
-  | AgentBackupCleanupJob
-  | AgentRestoreJob
-
-export type AgentJobCompletion = {
-  deploymentId: string
-  status: 'succeeded' | 'failed' | 'canceled'
-  gitSha: string | null
-  logStartSeq?: number
-  logs: Array<string>
-  events: Array<{
-    phase:
-      | 'agent_connected'
-      | 'config_synced'
-      | 'repo_fetched'
-      | 'compose_resolved'
-      | 'images_built_or_pulled'
-      | 'release_command_started'
-      | 'release_command_succeeded'
-      | 'revision_started'
-      | 'readiness_check_started'
-      | 'traffic_switched'
-      | 'old_revision_retired'
-      | 'completed'
-    message: string
-  }>
-}
-
-export type AgentCleanupCompletion = {
-  jobId: string
-  status: 'succeeded' | 'failed' | 'canceled'
-  message?: string | null
-}
-
-export type AgentBackupCompletion = {
-  jobId: string
-  backupRunId: string
-  status: 'succeeded' | 'failed' | 'canceled'
-  message?: string | null
-  manifest?: unknown
-  artifacts?: Array<{
-    type: 'manifest' | 'volume' | 'database'
-    storage?: 'local' | 'remote'
-    objectKey: string
-    checksumSha256: string
-    sizeBytes: number
-  }>
-}
-
-export type AgentBackupCleanupCompletion = {
-  jobId: string
-  backupRunIds: Array<string>
-  status: 'succeeded' | 'failed' | 'canceled'
-  message?: string | null
-}
-
-export type AgentRestoreCompletion = {
-  jobId: string
-  status: 'succeeded' | 'failed' | 'canceled'
-  message?: string | null
-}
-
-export type AgentJobProgress = {
-  deploymentId: string
-  logStartSeq: number
-  logs: Array<string>
-  events: AgentJobCompletion['events']
-}
-
-export type AgentJobStatus = {
-  deploymentId: string
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
-}
+import { AgentRequestError } from './protocol'
+import {
+  currentAgentProtocolVersion,
+  hasAgentCapability,
+} from './compatibility'
+import {
+  parseBackupCleanupPayload,
+  parseBackupPayload,
+  parseDeprovisionPayload,
+  parseRestorePayload,
+} from './job-payloads'
+import type {
+  AgentBackupCleanupCompletion,
+  AgentBackupCleanupJob,
+  AgentBackupCompletion,
+  AgentBackupJob,
+  AgentCleanupCompletion,
+  AgentCleanupJob,
+  AgentDeployJob,
+  AgentJob,
+  AgentJobCompletion,
+  AgentJobProgress,
+  AgentJobStatus,
+  AgentRestoreCompletion,
+  AgentRestoreJob,
+  AgentEnvVar,
+} from './protocol'
 
 type InstallationAccessTokenFactory = typeof createInstallationAccessToken
 
 export async function claimNextAgentJob({
   serverId,
   token,
+  protocolVersion,
+  capabilities,
   createAccessToken = createInstallationAccessToken,
 }: {
   serverId: string
   token: string
+  protocolVersion?: number
+  capabilities?: Array<string>
   createAccessToken?: InstallationAccessTokenFactory
 }): Promise<AgentJob | null> {
   await requireAgentServer({ serverId, token })
   await failStaleRunningDeploymentsForServer(serverId)
 
-  const cleanupJob = await claimNextCleanupJob({ serverId })
+  if (protocolVersion !== currentAgentProtocolVersion) {
+    return null
+  }
+
+  const cleanupJob = hasAgentCapability(capabilities, 'jobs.compose.cleanup.v1')
+    ? await claimNextCleanupJob({ serverId })
+    : null
 
   if (cleanupJob) {
     return cleanupJob
   }
 
-  const backupJob = await claimNextBackupJob({ serverId })
+  const backupTypes = [
+    ...(hasAgentCapability(capabilities, 'jobs.backup.v1')
+      ? (['backup'] as const)
+      : []),
+    ...(hasAgentCapability(capabilities, 'jobs.backup.cleanup.v1')
+      ? (['backup_cleanup'] as const)
+      : []),
+    ...(hasAgentCapability(capabilities, 'jobs.restore.v1')
+      ? (['restore'] as const)
+      : []),
+  ]
+  const backupJob =
+    backupTypes.length > 0
+      ? await claimNextBackupJob({ serverId, types: backupTypes })
+      : null
 
   if (backupJob) {
     return backupJob
   }
 
-  return claimNextDeploymentJob({
-    serverId,
-    token,
-    createAccessToken,
-    skipAgentAuth: true,
-  })
+  return hasAgentCapability(capabilities, 'jobs.compose.deploy.v1')
+    ? claimNextDeploymentJob({
+        serverId,
+        token,
+        createAccessToken,
+        skipAgentAuth: true,
+      })
+    : null
 }
 
 async function claimNextBackupJob({
   serverId,
+  types,
 }: {
   serverId: string
+  types: Array<'backup' | 'restore' | 'backup_cleanup'>
 }): Promise<AgentBackupJob | AgentBackupCleanupJob | AgentRestoreJob | null> {
   const now = new Date()
   const claimed = await db.transaction(async (tx) => {
@@ -220,7 +125,7 @@ async function claimNextBackupJob({
       .where(
         and(
           eq(agentJobs.serverId, serverId),
-          inArray(agentJobs.type, ['backup', 'restore', 'backup_cleanup']),
+          inArray(agentJobs.type, types),
           eq(agentJobs.status, 'queued'),
           lte(agentJobs.availableAt, now),
         ),
@@ -424,6 +329,7 @@ export async function claimNextDeploymentJob({
     accessToken = await createAccessToken({
       installationId: claimed.project.githubInstallationId,
       repositoryId: claimed.deployment.repoId,
+      repositoryFullName: claimed.deployment.repoFullName,
     })
   } catch (error) {
     await failClaimedDeployment(
@@ -469,15 +375,14 @@ export async function claimNextDeploymentJob({
     project: {
       name: claimed.project.name,
     },
-    compose: {
-      path: deploymentConfig.composePath,
+    runtime: {
+      ...deploymentConfig.runtime,
+      path: deploymentConfig.runtime.path ?? 'compose.yml',
       projectName: claimed.deployment.runtimeId,
-      releaseCommand: deploymentConfig.releaseCommand,
-      releaseService: deploymentConfig.releaseService,
-      readinessPath: deploymentConfig.readinessPath,
-      envVars: runtimeEnvVars,
-      routes: deploymentConfig.routes,
+      action: claimed.deployment.trigger === 'rollback' ? 'rollback' : 'deploy',
     },
+    envVars: runtimeEnvVars,
+    routes: deploymentConfig.routes,
   }
 }
 
@@ -725,7 +630,7 @@ export async function getDeploymentJobStatus({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Deployment not found for this server.')
+    throw new AgentRequestError(404, 'Deployment not found for this server.')
   }
 
   return {
@@ -762,7 +667,7 @@ export async function completeDeploymentJob({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Deployment not found for this server.')
+    throw new AgentRequestError(404, 'Deployment not found for this server.')
   }
 
   if (row.deployment.status === 'canceled') {
@@ -770,7 +675,7 @@ export async function completeDeploymentJob({
   }
 
   if (row.deployment.status !== 'running') {
-    throw new Error('Deployment is not running.')
+    throw new AgentRequestError(409, 'Deployment is not running.')
   }
 
   const now = new Date()
@@ -841,17 +746,6 @@ export async function completeDeploymentJob({
             ),
           ),
         )
-
-      await tx
-        .update(domains)
-        .set({ status: 'active', message: null, updatedAt: now })
-        .where(
-          and(
-            eq(domains.projectId, row.projectId),
-            eq(domains.environmentId, row.deployment.environmentId),
-            eq(domains.status, 'pending'),
-          ),
-        )
     }
   })
 
@@ -879,7 +773,7 @@ export async function completeCleanupJob({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Cleanup job not found for this server.')
+    throw new AgentRequestError(404, 'Cleanup job not found for this server.')
   }
 
   if (row.job.status !== 'running') {
@@ -934,7 +828,7 @@ export async function completeBackupJob({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Backup job not found for this server.')
+    throw new AgentRequestError(404, 'Backup job not found for this server.')
   }
 
   if (row.job.status !== 'running') {
@@ -958,7 +852,7 @@ export async function completeBackupJob({
             id: randomUUID(),
             backupRunId: completion.backupRunId,
             type: artifact.type,
-            storage: artifact.storage ?? 'remote',
+            storage: artifact.storage,
             objectKey: artifact.objectKey,
             checksumSha256: artifact.checksumSha256,
             sizeBytes: artifact.sizeBytes,
@@ -1039,7 +933,10 @@ export async function completeBackupCleanupJob({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Backup cleanup job not found for this server.')
+    throw new AgentRequestError(
+      404,
+      'Backup cleanup job not found for this server.',
+    )
   }
 
   if (row.job.status !== 'running') {
@@ -1051,7 +948,10 @@ export async function completeBackupCleanupJob({
   )
 
   if (backupRunIds.length === 0) {
-    throw new Error('Backup cleanup completion must include backup runs.')
+    throw new AgentRequestError(
+      409,
+      'Backup cleanup completion must include backup runs.',
+    )
   }
 
   const now = new Date()
@@ -1123,7 +1023,7 @@ export async function completeRestoreJob({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Restore job not found for this server.')
+    throw new AgentRequestError(404, 'Restore job not found for this server.')
   }
 
   if (row.job.status !== 'running') {
@@ -1179,7 +1079,7 @@ export async function recordDeploymentProgress({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Deployment not found for this server.')
+    throw new AgentRequestError(404, 'Deployment not found for this server.')
   }
 
   if (row.deployment.status === 'canceled') {
@@ -1187,7 +1087,7 @@ export async function recordDeploymentProgress({
   }
 
   if (row.deployment.status !== 'running') {
-    throw new Error('Deployment is not running.')
+    throw new AgentRequestError(409, 'Deployment is not running.')
   }
 
   await db.transaction(async (tx) => {
@@ -1195,155 +1095,6 @@ export async function recordDeploymentProgress({
   })
 
   return { ok: true }
-}
-
-function parseDeprovisionPayload(value: unknown): DeprovisionJobPayload | null {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    !('schemaVersion' in value) ||
-    !('runtimeIds' in value) ||
-    !('removeVolumes' in value) ||
-    !('reason' in value)
-  ) {
-    return null
-  }
-
-  const payload = value as Record<string, unknown>
-
-  if (
-    payload.schemaVersion !== 1 ||
-    !Array.isArray(payload.runtimeIds) ||
-    typeof payload.removeVolumes !== 'boolean' ||
-    typeof payload.reason !== 'string'
-  ) {
-    return null
-  }
-
-  const runtimeIds = payload.runtimeIds.filter(
-    (runtimeId): runtimeId is string =>
-      typeof runtimeId === 'string' && runtimeId.trim() !== '',
-  )
-
-  if (runtimeIds.length === 0) {
-    return null
-  }
-
-  return {
-    schemaVersion: 1,
-    runtimeIds: Array.from(new Set(runtimeIds)).sort(),
-    removeVolumes: payload.removeVolumes,
-    reason: payload.reason,
-  }
-}
-
-function parseBackupPayload(value: unknown): BackupJobPayload | null {
-  if (typeof value !== 'object' || value === null) {
-    return null
-  }
-
-  const payload = value as Record<string, unknown>
-
-  if (
-    payload.schemaVersion !== 1 ||
-    typeof payload.backupRunId !== 'string' ||
-    typeof payload.artifactPrefix !== 'string' ||
-    typeof payload.localBasePath !== 'string' ||
-    typeof payload.projectId !== 'string' ||
-    typeof payload.environmentId !== 'string' ||
-    typeof payload.runtimeId !== 'string' ||
-    !isRecord(payload.destination) ||
-    !isRecord(payload.retention) ||
-    !isRecord(payload.volumes) ||
-    !Array.isArray(payload.databaseDumps)
-  ) {
-    return null
-  }
-
-  return payload as BackupJobPayload
-}
-
-function parseBackupCleanupPayload(
-  value: unknown,
-): BackupCleanupJobPayload | null {
-  if (typeof value !== 'object' || value === null) {
-    return null
-  }
-
-  const payload = value as Record<string, unknown>
-
-  if (
-    payload.schemaVersion !== 1 ||
-    !Array.isArray(payload.backupRunIds) ||
-    !Array.isArray(payload.localObjectKeys) ||
-    !Array.isArray(payload.remoteObjectKeys) ||
-    typeof payload.reason !== 'string'
-  ) {
-    return null
-  }
-
-  if (payload.remoteObjectKeys.length > 0 && !payload.destination) {
-    return null
-  }
-
-  return payload as BackupCleanupJobPayload
-}
-
-function parseRestorePayload(value: unknown): BackupRestoreJobPayload | null {
-  if (typeof value !== 'object' || value === null) {
-    return null
-  }
-
-  const payload = value as Record<string, unknown>
-
-  if (
-    payload.schemaVersion !== 1 ||
-    typeof payload.backupRunId !== 'string' ||
-    typeof payload.projectId !== 'string' ||
-    typeof payload.environmentId !== 'string' ||
-    typeof payload.runtimeId !== 'string' ||
-    !Array.isArray(payload.artifacts) ||
-    payload.artifacts.length === 0
-  ) {
-    return null
-  }
-
-  for (const artifact of payload.artifacts) {
-    if (
-      !isRecord(artifact) ||
-      typeof artifact.id !== 'string' ||
-      typeof artifact.objectKey !== 'string' ||
-      typeof artifact.checksumSha256 !== 'string' ||
-      (artifact.storage !== 'local' && artifact.storage !== 'remote')
-    ) {
-      return null
-    }
-
-    if (artifact.type === 'volume') {
-      if (typeof artifact.targetVolume !== 'string') {
-        return null
-      }
-    } else if (artifact.type === 'database') {
-      if (
-        typeof artifact.targetService !== 'string' ||
-        typeof artifact.restoreCommand !== 'string'
-      ) {
-        return null
-      }
-    } else {
-      return null
-    }
-
-    if (artifact.storage === 'remote' && !payload.destination) {
-      return null
-    }
-  }
-
-  return payload as BackupRestoreJobPayload
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 async function failCleanupJob(jobId: string, message: string) {

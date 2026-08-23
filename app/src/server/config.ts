@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import packageMetadata from '../../package.json'
+
 const optionalString = z.preprocess((value) => {
   if (value === '') {
     return undefined
@@ -48,6 +50,12 @@ const envSchema = z
     GITHUB_APP_WEBHOOK_SECRET: optionalString,
     DEVPUSH_SMOKE_GITHUB_TOKEN: optionalString,
     DEVPUSH_AGENT_BINARY_DIR: optionalString,
+    DEVPUSH_RECOMMENDED_AGENT_VERSION: optionalString,
+    DEVPUSH_STORAGE_ENDPOINT: optionalString,
+    DEVPUSH_STORAGE_REGION: optionalString,
+    DEVPUSH_STORAGE_BUCKET: optionalString,
+    DEVPUSH_STORAGE_ACCESS_KEY_ID: optionalString,
+    DEVPUSH_STORAGE_SECRET_ACCESS_KEY: optionalString,
     DEVPUSH_VERSION_FILE: optionalString,
     DEVPUSH_CRON_SECRET: optionalString,
     DEVPUSH_BACKUPS_ENABLED: envBoolean.default(false),
@@ -63,6 +71,24 @@ const envSchema = z
         message: 'DEVPUSH_CRON_SECRET is required when backups are enabled.',
       })
     }
+
+    const storageValues = [
+      value.DEVPUSH_STORAGE_ENDPOINT,
+      value.DEVPUSH_STORAGE_BUCKET,
+      value.DEVPUSH_STORAGE_ACCESS_KEY_ID,
+      value.DEVPUSH_STORAGE_SECRET_ACCESS_KEY,
+    ]
+
+    if (storageValues.some(Boolean) && storageValues.some((item) => !item)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEVPUSH_STORAGE_ENDPOINT'],
+        message:
+          'Endpoint, bucket, access key ID, and secret access key are all required for object storage.',
+      })
+    }
   })
 
 export const config = envSchema.parse(process.env)
+
+export const currentAgentVersion = packageMetadata.version

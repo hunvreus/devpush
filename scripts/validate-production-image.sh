@@ -13,7 +13,7 @@ the runtime image contains:
 - the built TanStack Start server entrypoint
 
 Optional environment:
-  DEVPUSH_PRODUCTION_IMAGE  Image tag to build, default: devpush-mvp-app:local
+  DEVPUSH_PRODUCTION_IMAGE  Image tag to build, default: devpush-app:local
   DEVPUSH_PRODUCTION_ENV    Env file for Compose config, default: deploy/.env.production.example
 
 Example:
@@ -30,7 +30,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-image="${DEVPUSH_PRODUCTION_IMAGE:-devpush-mvp-app:local}"
+image="${DEVPUSH_PRODUCTION_IMAGE:-devpush-app:local}"
 env_file="${DEVPUSH_PRODUCTION_ENV:-deploy/.env.production.example}"
 
 step() {
@@ -40,12 +40,16 @@ step() {
 compose() {
   if docker compose version >/dev/null 2>&1; then
     docker compose "$@"
-  elif command -v docker-compose >/dev/null 2>&1; then
-    docker-compose "$@"
-  else
-    echo "Docker Compose is required. Install docker compose or docker-compose." >&2
-    exit 1
+    return
   fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+    return
+  fi
+
+  echo "Docker Compose is required." >&2
+  exit 1
 }
 
 step "Checking production Compose config"
@@ -63,6 +67,7 @@ docker run --rm "$image" sh -lc '
   /repo/bin/devpush-agent-linux-arm64 --help >/dev/null || true
   test -f /repo/app/.output/server/index.mjs
   test -f /repo/app/scripts/migrate.ts
+  test -f /repo/app/scripts/sync-agent-binaries.ts
   test -f /repo/app/src/server/db/migrations/meta/_journal.json
   pnpm --dir app exec tsx --version >/dev/null
 '

@@ -12,7 +12,7 @@ import {
   PaginationItem,
 } from '@/components/ui/pagination'
 
-export const tablePageSize = 10
+const tablePageSize = 10
 
 export function TablePager({
   page,

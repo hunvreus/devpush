@@ -10,7 +10,7 @@ export type ProjectContextParams = {
   teamSlug: string
 }
 
-export function projectContextQueryKey({
+function projectContextQueryKey({
   projectName,
   teamSlug,
 }: ProjectContextParams) {

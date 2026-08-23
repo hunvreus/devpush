@@ -22,6 +22,7 @@ import {
   listRepositorySelectionRepositories,
   updateProjectEnvironments,
   updateProjectDomains,
+  verifyProjectDomain,
   updateProjectEnvVars,
   updateProjectRoutes,
   updateProjectSettings,
@@ -34,6 +35,8 @@ import {
   listTeamServers,
   requireTeam,
 } from '@/server/teams/service'
+import { projectRuntimeConfigSchema } from './runtime-config'
+import type { ProjectRuntimeConfig } from './runtime-config'
 
 const teamSlugSchema = z.object({
   teamSlug: z.string().min(1),
@@ -172,6 +175,7 @@ const routeSchema = z.object({
     .regex(/^\//, 'Route paths must start with /.')
     .regex(/^[^\s`]+$/, 'Route paths cannot contain spaces or ` characters.'),
   stripPrefix: z.boolean().optional().default(false),
+  environmentId: z.string().trim().min(1).optional(),
 })
 
 const domainSchema = z.object({
@@ -205,18 +209,11 @@ const projectSettingsSchema = projectRouteSchema.extend({
     .nullable()
     .optional(),
   deleteAvatar: z.boolean().optional(),
-  composePath: z.string().trim().min(1).max(255),
-  releaseCommand: z.string().trim().nullable(),
-  releaseService: z.string().trim().min(1).nullable(),
-  readinessPath: z
-    .string()
-    .trim()
-    .regex(/^\//, 'Readiness paths must start with /.')
-    .nullable(),
+  runtimeConfig: projectRuntimeConfigSchema,
 })
 
 const projectRoutesSchema = projectRouteSchema.extend({
-  routes: z.array(routeSchema).min(1),
+  routes: z.array(routeSchema),
 })
 
 const projectDomainsSchema = projectRouteSchema.extend({
@@ -482,16 +479,13 @@ export const getProjectLogs = createServerFn({ method: 'GET' })
 export const saveProjectSettings = createServerFn({ method: 'POST' })
   .validator(
     (data: {
-      composePath: string
       avatarDataUrl?: string | null
       deleteAvatar?: boolean
       installationId: number | null
       currentProjectName: string
       projectName: string
       repoFullName: string
-      readinessPath: string | null
-      releaseCommand: string | null
-      releaseService: string | null
+      runtimeConfig: ProjectRuntimeConfig
       teamSlug: string
     }) => projectSettingsSchema.parse(data),
   )
@@ -511,10 +505,7 @@ export const saveProjectSettings = createServerFn({ method: 'POST' })
       installationId: data.installationId,
       avatarDataUrl: data.avatarDataUrl,
       deleteAvatar: data.deleteAvatar,
-      composePath: data.composePath,
-      releaseCommand: data.releaseCommand || null,
-      releaseService: data.releaseService || null,
-      readinessPath: data.readinessPath || null,
+      runtimeConfig: data.runtimeConfig,
     })
   })
 
@@ -596,6 +587,28 @@ export const saveProjectDomains = createServerFn({ method: 'POST' })
       teamSlug: data.teamSlug,
       projectName: data.projectName,
       domains: data.domains,
+    })
+  })
+
+export const verifyProjectDomainAction = createServerFn({ method: 'POST' })
+  .validator(
+    (data: { domainId: string; projectName: string; teamSlug: string }) =>
+      projectRouteSchema
+        .extend({ domainId: z.string().trim().min(1) })
+        .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+
+    if (!session) {
+      throw new Error('Sign in before verifying domains.')
+    }
+
+    return verifyProjectDomain({
+      userId: session.user.id,
+      teamSlug: data.teamSlug,
+      projectName: data.projectName,
+      domainId: data.domainId,
     })
   })
 

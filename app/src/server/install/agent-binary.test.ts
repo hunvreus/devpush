@@ -80,8 +80,9 @@ describe('agent binary status', () => {
     await expect(
       getAgentBinary({ arch: 'arm64', os: 'linux' }),
     ).resolves.toMatchObject({
+      body: Buffer.from('#!/usr/bin/env sh\n'),
       filename: 'devpush-agent-linux-arm64',
-      path: join(dir, 'devpush-agent-linux-arm64'),
+      size: 18,
     })
   })
 

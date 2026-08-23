@@ -44,4 +44,41 @@ describe('GitHub webhooks', () => {
       'Invalid GitHub webhook payload.',
     )
   })
+
+  test('parses installation lifecycle payloads', async () => {
+    const { parseGitHubInstallationWebhookPayload } = await import('./webhooks')
+
+    expect(
+      parseGitHubInstallationWebhookPayload(
+        JSON.stringify({ action: 'renamed', installation: { id: 123 } }),
+      ),
+    ).toEqual({ action: 'renamed', installationId: 123 })
+    expect(() =>
+      parseGitHubInstallationWebhookPayload(
+        JSON.stringify({ action: 'renamed', installation: {} }),
+      ),
+    ).toThrow('Invalid GitHub installation webhook payload.')
+  })
+
+  test('maps installation lifecycle events to metadata changes', async () => {
+    const { getGitHubInstallationChange } = await import('./webhooks')
+
+    expect(getGitHubInstallationChange('installation', 'deleted')).toEqual({
+      type: 'status',
+      status: 'deleted',
+    })
+    expect(getGitHubInstallationChange('installation', 'suspend')).toEqual({
+      type: 'status',
+      status: 'suspended',
+    })
+    expect(getGitHubInstallationChange('installation', 'unsuspend')).toEqual({
+      type: 'refresh',
+    })
+    expect(
+      getGitHubInstallationChange('installation_target', 'renamed'),
+    ).toEqual({ type: 'refresh' })
+    expect(
+      getGitHubInstallationChange('installation_repositories', 'removed'),
+    ).toEqual({ type: 'refresh' })
+  })
 })

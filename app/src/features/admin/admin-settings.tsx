@@ -19,6 +19,7 @@ import {
   getPageItems,
   TablePager,
 } from '@/components/table-pager'
+import { SectionNavigation } from '@/components/section-navigation'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -425,18 +426,14 @@ export function AdminSettings({
         </header>
 
         <div className="flex flex-row-reverse gap-x-8">
-          <nav className="sticky top-8 hidden h-full min-w-64 flex-col gap-y-1 lg:flex">
-            {['Installation', 'Users', 'Allowlist'].map((item) => (
-              <Button
-                asChild
-                variant="ghost"
-                className="justify-start font-normal"
-                key={item}
-              >
-                <a href={`#${item.toLowerCase()}`}>{item}</a>
-              </Button>
-            ))}
-          </nav>
+          <SectionNavigation
+            className="sticky top-8 hidden h-full min-w-64 lg:flex"
+            items={[
+              { href: '#installation', label: 'Installation' },
+              { href: '#users', label: 'Users' },
+              { href: '#allowlist', label: 'Allowlist' },
+            ]}
+          />
 
           <div className="w-full min-w-0 flex-1 space-y-8">
             <Card id="installation" className="scroll-mt-8">

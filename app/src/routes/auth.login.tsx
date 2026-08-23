@@ -1,21 +1,20 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { LoginForm } from '@/features/auth/login-form'
-import { getAuthMethods } from '@/lib/auth/config'
-import { getCurrentUserContext } from '@/server/auth/context'
+import { getLoginContext } from '@/server/auth/context'
 
 export const Route = createFileRoute('/auth/login')({
   loader: async () => {
-    const context = await getCurrentUserContext()
+    const { authMethods, userContext } = await getLoginContext()
 
-    if (context) {
+    if (userContext) {
       throw redirect({
         to: '/$teamSlug',
-        params: { teamSlug: context.defaultTeam.slug },
+        params: { teamSlug: userContext.defaultTeam.slug },
       })
     }
 
-    return { authMethods: getAuthMethods() }
+    return { authMethods }
   },
   component: LoginRoute,
 })
