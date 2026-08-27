@@ -159,20 +159,40 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	}
 	publishedPortServices := model.servicesWithPublishedPorts()
 	if len(publishedPortServices) > 0 {
-		logs = append(logs, fmt.Sprintf("Warning: Devpush managed ingress ignores published ports for services: %s.", strings.Join(publishedPortServices, ", ")))
+		logs = append(logs, fmt.Sprintf("Warning: devpush managed ingress ignores published ports for services: %s.", strings.Join(publishedPortServices, ", ")))
 	}
 	hostNetworkServices := model.servicesWithHostNetworking()
 	if len(hostNetworkServices) > 0 {
-		logs = append(logs, fmt.Sprintf("Warning: Devpush managed ingress ignores host networking for services: %s.", strings.Join(hostNetworkServices, ", ")))
+		logs = append(logs, fmt.Sprintf("Warning: devpush managed ingress ignores host networking for services: %s.", strings.Join(hostNetworkServices, ", ")))
 	}
 	for _, route := range job.Routes {
 		if _, exists := model.Services[route.Service]; !exists {
 			return fail(fmt.Errorf("route %s targets Compose service %q, which does not exist in this commit", normalizeRoutePath(route.Path), route.Service))
 		}
 	}
+	action := job.Runtime.Action
+	if action == "" {
+		action = "deploy"
+	}
+	command, commandLabel := resolveLifecycleCommand(job.Runtime, action)
+	usesCustomCommand := strings.TrimSpace(command) != ""
+	preDeployService := job.Runtime.ReleaseService
+	if action != "rollback" && job.Runtime.ReleaseCommand != "" {
+		if preDeployService == "" && len(model.Services) == 1 {
+			for service := range model.Services {
+				preDeployService = service
+			}
+		}
+		if preDeployService == "" {
+			return fail(fmt.Errorf("pre-deploy command target is automatic, but this commit defines %d Compose services and has no routed service; choose a target service", len(model.Services)))
+		}
+		if _, exists := model.Services[preDeployService]; !exists {
+			return fail(fmt.Errorf("pre-deploy command targets Compose service %q, which does not exist in this commit", preDeployService))
+		}
+	}
 
 	overrideFile := filepath.Join(workdir, "devpush.compose.yml")
-	needsOverride := job.Runtime.Strategy == "command" || len(job.Routes) > 0 || len(publishedPortServices) > 0 || len(hostNetworkServices) > 0
+	needsOverride := usesCustomCommand || len(job.Routes) > 0 || len(publishedPortServices) > 0 || len(hostNetworkServices) > 0
 	if len(job.Routes) > 0 {
 		if err := runner.ensureTraefik(ctx, &logs); err != nil {
 			return fail(fmt.Errorf("unable to prepare managed Traefik routing. Check Docker access and whether ports 80/443 are already in use: %w", err))
@@ -191,7 +211,7 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	}
 	finalConfigArgs := append(append([]string{}, composeArgs...), "config", "--quiet")
 	if err := run(repoDir, composeName, append(composePrefix, finalConfigArgs...)...); err != nil {
-		return fail(fmt.Errorf("Devpush managed routing is incompatible with this Compose configuration: %w", err))
+		return fail(fmt.Errorf("devpush managed routing is incompatible with this Compose configuration: %w", err))
 	}
 
 	addEvent("revision_started", "Pulling Compose images.")
@@ -207,37 +227,24 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	}
 	addEvent("images_built_or_pulled", "Compose images are ready.")
 
-	action := job.Runtime.Action
-	if action == "" {
-		action = "deploy"
-	}
-
 	if action != "rollback" && job.Runtime.ReleaseCommand != "" {
-		if job.Runtime.ReleaseService == "" {
-			return fail(errors.New("a pre-deploy service is required when a pre-deploy command is configured"))
-		}
-		addEvent("release_command_started", fmt.Sprintf("Running pre-deploy command on %s.", job.Runtime.ReleaseService))
+		addEvent("release_command_started", fmt.Sprintf("Running pre-deploy command on %s.", preDeployService))
 		preDeployArgs := append(
 			append([]string{}, composeArgs...),
 			"run",
 			"--rm",
-			job.Runtime.ReleaseService,
+			preDeployService,
 			"sh",
 			"-lc",
 			job.Runtime.ReleaseCommand,
 		)
 		if err := run(repoDir, composeName, append(composePrefix, preDeployArgs...)...); err != nil {
-			return fail(fmt.Errorf("pre-deploy command failed on service %s. Fix the command or make it safe to rerun before deploying again: %w", job.Runtime.ReleaseService, err))
+			return fail(fmt.Errorf("pre-deploy command failed on service %s. Fix the command or make it safe to rerun before deploying again: %w", preDeployService, err))
 		}
 		addEvent("release_command_succeeded", "Pre-deploy command completed.")
 	}
 
-	if job.Runtime.Strategy == "command" {
-		command, label := resolveLifecycleCommand(job.Runtime, action)
-		if strings.TrimSpace(command) == "" {
-			return fail(fmt.Errorf("custom lifecycle mode requires a %s command", label))
-		}
-
+	if usesCustomCommand {
 		customEnv := deploymentCommandEnv(job.EnvVars, map[string]string{
 			"DEVPUSH_ACTION":               action,
 			"DEVPUSH_COMPOSE_PATH":         composePath,
@@ -250,16 +257,16 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 			timeout = 30 * time.Minute
 		}
 		commandCtx, cancel := context.WithTimeout(ctx, timeout)
-		addEvent("lifecycle_command_started", fmt.Sprintf("Running custom %s command.", label))
+		addEvent("lifecycle_command_started", fmt.Sprintf("Running custom %s command.", commandLabel))
 		err := runner.runCancellableCommandWithEnv(commandCtx, job.ID, repoDir, &logs, customEnv, "sh", "-lc", command)
 		cancel()
 		if err != nil {
 			if errors.Is(commandCtx.Err(), context.DeadlineExceeded) {
-				return fail(fmt.Errorf("custom %s command timed out after %s", label, timeout))
+				return fail(fmt.Errorf("custom %s command timed out after %s", commandLabel, timeout))
 			}
-			return fail(fmt.Errorf("custom %s command failed: %w", label, err))
+			return fail(fmt.Errorf("custom %s command failed: %w", commandLabel, err))
 		}
-		addEvent("lifecycle_command_succeeded", fmt.Sprintf("Custom %s command completed.", label))
+		addEvent("lifecycle_command_succeeded", fmt.Sprintf("Custom %s command completed.", commandLabel))
 	} else {
 		addEvent("revision_started", "Starting Compose services.")
 		upArgs := append(append([]string{}, composeArgs...), "up", "-d", "--no-build")

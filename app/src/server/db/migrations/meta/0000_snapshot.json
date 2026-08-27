@@ -2032,7 +2032,7 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
-          "default": "'{\"type\":\"compose\",\"path\":null,\"strategy\":\"managed\",\"releaseCommand\":null,\"releaseService\":null,\"readinessPath\":null,\"deployCommand\":null,\"rollbackCommand\":null,\"timeoutSeconds\":1800}'::jsonb"
+          "default": "'{\"type\":\"compose\",\"path\":null,\"releaseCommand\":null,\"releaseService\":null,\"readinessPath\":null,\"deployCommand\":null,\"rollbackCommand\":null,\"timeoutSeconds\":1800}'::jsonb"
         },
         "created_at": {
           "name": "created_at",

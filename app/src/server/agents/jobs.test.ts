@@ -33,7 +33,6 @@ describe('agent deployment jobs', () => {
         runtime: {
           type: 'compose',
           path: 'compose.yml',
-          strategy: 'managed',
           releaseCommand: null,
           releaseService: 'web',
           readinessPath: null,

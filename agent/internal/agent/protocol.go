@@ -145,7 +145,6 @@ type runtimeConfig struct {
 	Type            string `json:"type"`
 	Path            string `json:"path"`
 	ProjectName     string `json:"projectName"`
-	Strategy        string `json:"strategy"`
 	Action          string `json:"action"`
 	ReleaseCommand  string `json:"releaseCommand"`
 	ReleaseService  string `json:"releaseService"`

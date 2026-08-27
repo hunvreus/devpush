@@ -1376,11 +1376,11 @@ func composeRiskWarnings(path string) []string {
 		if strings.HasPrefix(trimmed, "ports:") {
 			inPorts = true
 			volumeIndent = indent
-			warnings = append(warnings, "published host ports are ignored by Devpush managed ingress.")
+			warnings = append(warnings, "published host ports are ignored by devpush managed ingress.")
 			continue
 		}
 		if inPorts && strings.Contains(trimmed, ":") && strings.HasPrefix(trimmed, "-") {
-			warnings = append(warnings, "fixed host port mapping detected; Devpush will remove it from the deployed Compose model.")
+			warnings = append(warnings, "fixed host port mapping detected; devpush will remove it from the deployed Compose model.")
 		}
 		if strings.HasPrefix(trimmed, "volumes:") {
 			inVolumeDefinition = true

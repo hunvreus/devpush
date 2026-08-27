@@ -42,15 +42,11 @@ export type ProjectDomainAlias = {
 
 export function RouteSettingsTable({
   routes,
-  services,
   environments,
-  suggestedRoute,
   onChange,
 }: {
   routes: Array<ProjectRouteDefinition>
-  services: Array<string>
   environments: Array<ProjectEnvironmentConfig>
-  suggestedRoute: ProjectRoute | null
   onChange: (routes: Array<ProjectRouteDefinition>) => void
 }) {
   function updateRoute(index: number, next: Partial<ProjectRouteDefinition>) {
@@ -64,9 +60,9 @@ export function RouteSettingsTable({
   function addRoute() {
     onChange([
       ...routes,
-      suggestedRoute ?? {
+      {
         path: '/',
-        service: services.at(0) ?? 'web',
+        service: '',
         port: 80,
         stripPrefix: false,
       },
@@ -81,11 +77,6 @@ export function RouteSettingsTable({
     <div className="space-y-4">
       {routes.length > 0 ? (
         <>
-          <datalist id="route-services">
-            {services.map((service) => (
-              <option value={service} key={service} />
-            ))}
-          </datalist>
           <div>
             <div className="grid w-full grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
               <div>Scope</div>
@@ -140,7 +131,6 @@ export function RouteSettingsTable({
                 <Field className="gap-0">
                   <Input
                     aria-label="Route service"
-                    list="route-services"
                     value={route.service}
                     onChange={(event) =>
                       updateRoute(index, { service: event.target.value })

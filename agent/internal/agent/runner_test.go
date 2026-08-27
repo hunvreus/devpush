@@ -1019,7 +1019,7 @@ volumes:
 	assertContains(t, warnings, "privileged containers increase host-level risk")
 	assertContains(t, warnings, "network_mode: host is ignored")
 	assertContains(t, warnings, "published host ports are ignored")
-	assertContains(t, warnings, "Devpush will remove it")
+	assertContains(t, warnings, "devpush will remove it")
 	assertContains(t, warnings, "explicit volume names are global")
 	assertContains(t, warnings, "external volumes or networks are shared by design")
 }
@@ -1138,7 +1138,7 @@ fi
 			Path:           "compose.yml",
 			ProjectName:    "devpush_app_production",
 			ReleaseCommand: "echo migrate",
-			ReleaseService: "web",
+			ReleaseService: "",
 		},
 	})
 
@@ -1233,7 +1233,6 @@ fi
 			Type:           "compose",
 			Path:           "compose.yml",
 			ProjectName:    "devpush_app_production",
-			Strategy:       "command",
 			Action:         "deploy",
 			DeployCommand:  `printf '%s\n%s\n%s\n%s\n' "$DEVPUSH_ACTION" "$DEVPUSH_COMPOSE_PATH" "$DEVPUSH_COMPOSE_OVERRIDE" "$DEVPUSH_ENV_FILE" > "$CUSTOM_RESULT"`,
 			TimeoutSeconds: 60,
@@ -1279,6 +1278,11 @@ func TestResolveLifecycleCommand(t *testing.T) {
 	command, label = resolveLifecycleCommand(runtime, "rollback")
 	if command != runtime.RollbackCommand || label != "rollback" {
 		t.Fatalf("unexpected rollback override: %q (%s)", command, label)
+	}
+
+	command, label = resolveLifecycleCommand(runtimeConfig{RollbackCommand: runtime.RollbackCommand}, "deploy")
+	if command != "" || label != "deploy" {
+		t.Fatalf("rollback-only override should keep managed deploy, got %q (%s)", command, label)
 	}
 }
 

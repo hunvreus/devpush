@@ -2,7 +2,7 @@
 
 ## Deploy and upgrade
 
-Devpush 1.0 starts from one clean migration baseline. Pre-1.0 development
+devpush 1.0 starts from one clean migration baseline. Pre-1.0 development
 databases are intentionally unsupported and must not be upgraded in place;
 install 1.0 against an empty database.
 

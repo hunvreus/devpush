@@ -12,8 +12,8 @@ V1 supports:
   per-environment overrides.
 - Environment variables and secrets.
 - Optional pre-deploy command.
-- Optional pre-deploy service; automatic mode uses the first routed Compose
-  service and falls back to the first service in the Compose file.
+- Optional pre-deploy service; when empty, devpush uses the first routed
+  Compose service or the only service in the Compose file.
 - Optional deployment and rollback command overrides.
 - Routed HTTP readiness checks with an optional path override.
 - Manual and GitHub push deployments.
@@ -39,7 +39,7 @@ generated Compose overlay. The overlay attaches routed services to the shared
 modified.
 
 New projects suggest `/` from explicit TCP `ports` or `expose` metadata on the
-default branch. Devpush selects the only declared target, or the only target on
+default branch. devpush selects the only declared target, or the only target on
 port 80 when other ports are also declared. Ambiguous or undeclared targets do
 not produce a suggestion. There is no implicit `web:3000` fallback. Projects
 without routes deploy privately with no public HTTP or HTTPS ingress.
@@ -49,17 +49,17 @@ for the deployed commit and environment, removes every service's published
 `ports` and `network_mode: host`, and reports warnings in settings and the
 deployment log. Containers remain reachable to each other on their
 environment-scoped Compose network; public HTTP/HTTPS traffic enters only
-through Devpush's Traefik listener on ports 80/443. Route targets may use any
+through devpush's Traefik listener on ports 80/443. Route targets may use any
 internal HTTP port.
 
 The agent runs `docker compose config` before pulling or building. Required
 Compose interpolation therefore fails against the exact commit with Compose's
 own error, and routes targeting services absent from that commit fail with a
-specific Devpush error.
+specific devpush error.
 
 ## Deployment commands
 
-Devpush pulls images, builds services, runs the optional pre-deploy command,
+devpush pulls images, builds services, runs the optional pre-deploy command,
 reconciles the stable environment runtime with
 `docker compose up -d`, waits for container health, and checks the first public
 route. This default does not guarantee a zero-downtime rollout.
@@ -67,7 +67,7 @@ route. This default does not guarantee a zero-downtime rollout.
 The optional deployment command override is for projects that own their service
 update procedure, such as
 a stable internal Caddy service switching between blue and green application
-services. Devpush prepares the exact checkout, environment file, resolved
+services. devpush prepares the exact checkout, environment file, resolved
 Compose model, managed-ingress override, and images, then runs the configured
 host command instead of `docker compose up`. The setting accepts either an
 inline shell command or a repository script invocation such as `bash
@@ -75,9 +75,9 @@ inline shell command or a repository script invocation such as `bash
 `DEVPUSH_ACTION=rollback` unless a separate rollback command is configured. The
 command receives:
 
-- All resolved project and Devpush deployment environment variables.
+- All resolved project and devpush deployment environment variables.
 - `DEVPUSH_COMPOSE_PATH` for the repository Compose file.
-- `DEVPUSH_COMPOSE_OVERRIDE` for Devpush routing and ingress restrictions.
+- `DEVPUSH_COMPOSE_OVERRIDE` for devpush routing and ingress restrictions.
 - `DEVPUSH_COMPOSE_PROJECT_NAME` for the stable environment runtime.
 - `DEVPUSH_ENV_FILE` for Compose interpolation.
 - `DEVPUSH_ACTION`, set to `deploy` or `rollback`.
@@ -93,10 +93,10 @@ docker compose \
   up -d gateway app-green
 ```
 
-The script owns the application-specific service update. Devpush owns image
+The script owns the application-specific service update. devpush owns image
 preparation, Compose health checks, cancellation, the configured timeout, logs,
 job state, managed hostnames and TLS, and the final public route check. An
-optional rollback command may switch a retained revision; without one, Devpush
+optional rollback command may switch a retained revision; without one, devpush
 runs the deployment command against the previous deployment's frozen commit and
 configuration. Custom commands are trusted server configuration and are never
 loaded automatically from repository files.

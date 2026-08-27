@@ -16,8 +16,8 @@ All notable changes to devpush will be documented in this file.
   Docker Compose plugin or the standalone `docker-compose` command.
 - Kept configured OAuth providers visible after client-side login-route reloads
   by resolving login configuration exclusively on the server.
-- Namespaced Devpush authentication cookies so other applications running on
-  different localhost ports cannot replace the Devpush session.
+- Namespaced devpush authentication cookies so other applications running on
+  different localhost ports cannot replace the devpush session.
 - Blocked deployments, redeployments, rollbacks, and webhook deployments when
   the assigned agent requires a protocol update instead of leaving jobs queued
   indefinitely.
@@ -68,10 +68,15 @@ All notable changes to devpush will be documented in this file.
   agent protocol version internal.
 - Server metric cards now show the standard compact loading indicator during
   client hydration instead of empty bodies or oversized skeleton slabs.
-- Consolidated Compose paths, deployment strategy, lifecycle commands, release
+- Consolidated Compose paths, lifecycle commands, release
   settings, readiness, and timeout into one type-discriminated project runtime
   configuration, and nested the resolved runtime in deployment snapshots and
   agent jobs so future runtime drivers do not require new project columns.
+- Compose service configuration now uses plain inputs so branch-specific and
+  future service names are not constrained by metadata from another revision;
+  names are validated against the exact deployed revision.
+- Pre-deploy commands now have an explicit target-service field, and rollback
+  command overrides remain independently configurable from deploy overrides.
 - Private Compose projects no longer require a release service unless a release
   command is configured.
 - Made managed ingress authoritative: agents now preflight the exact Compose

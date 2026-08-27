@@ -9,54 +9,49 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as TeamSlugRouteImport } from './routes/$teamSlug'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TeamSlugRouteImport } from './routes/$teamSlug'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TeamSlugIndexRouteImport } from './routes/$teamSlug.index'
-import { Route as InvitesTokenRouteImport } from './routes/invites.$token'
-import { Route as AuthLoginRouteImport } from './routes/auth.login'
-import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as TeamSlugSettingsRouteImport } from './routes/$teamSlug.settings'
-import { Route as TeamSlugServersRouteImport } from './routes/$teamSlug.servers'
-import { Route as TeamSlugProjectsRouteImport } from './routes/$teamSlug.projects'
 import { Route as TeamSlugNewProjectRouteImport } from './routes/$teamSlug.new-project'
-import { Route as UploadsAvatarsFileNameRouteImport } from './routes/uploads/avatars/$fileName'
-import { Route as ApiInstallAgentRouteImport } from './routes/api/install/agent'
-import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
-import { Route as ApiGithubInstallRouteImport } from './routes/api/github/install'
-import { Route as ApiCronMaintenanceRouteImport } from './routes/api/cron/maintenance'
-import { Route as ApiCronBackupsRouteImport } from './routes/api/cron/backups'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as ApiAgentsRuntimeLogsRouteImport } from './routes/api/agents/runtime-logs'
-import { Route as ApiAgentsRegisterRouteImport } from './routes/api/agents/register'
-import { Route as ApiAgentsHeartbeatRouteImport } from './routes/api/agents/heartbeat'
-import { Route as TeamSlugServersServerIdRouteImport } from './routes/$teamSlug.servers.$serverId'
+import { Route as TeamSlugProjectsRouteImport } from './routes/$teamSlug.projects'
+import { Route as TeamSlugServersRouteImport } from './routes/$teamSlug.servers'
+import { Route as TeamSlugSettingsRouteImport } from './routes/$teamSlug.settings'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as AuthLoginRouteImport } from './routes/auth.login'
+import { Route as InvitesTokenRouteImport } from './routes/invites.$token'
 import { Route as TeamSlugProjectsProjectNameRouteImport } from './routes/$teamSlug.projects.$projectName'
-import { Route as ApiInstallAgentChecksumRouteImport } from './routes/api/install/agent.checksum'
-import { Route as ApiInstallAgentBinaryRouteImport } from './routes/api/install/agent.binary'
-import { Route as ApiInstallAgentTokenRouteImport } from './routes/api/install/agent.$token'
-import { Route as ApiGithubInstallCallbackRouteImport } from './routes/api/github/install.callback'
-import { Route as ApiAgentsJobsStatusRouteImport } from './routes/api/agents/jobs/status'
-import { Route as ApiAgentsJobsProgressRouteImport } from './routes/api/agents/jobs/progress'
-import { Route as ApiAgentsJobsNextRouteImport } from './routes/api/agents/jobs/next'
-import { Route as ApiAgentsJobsCompleteRouteImport } from './routes/api/agents/jobs/complete'
-import { Route as ApiAgentsCredentialsRotateRouteImport } from './routes/api/agents/credentials/rotate'
-import { Route as TeamSlugProjectsProjectNameSettingsRouteImport } from './routes/$teamSlug.projects.$projectName.settings'
-import { Route as TeamSlugProjectsProjectNameLogsRouteImport } from './routes/$teamSlug.projects.$projectName.logs'
-import { Route as TeamSlugProjectsProjectNameDeploymentsRouteImport } from './routes/$teamSlug.projects.$projectName.deployments'
+import { Route as TeamSlugServersServerIdRouteImport } from './routes/$teamSlug.servers.$serverId'
+import { Route as ApiAgentsHeartbeatRouteImport } from './routes/api/agents/heartbeat'
+import { Route as ApiAgentsRegisterRouteImport } from './routes/api/agents/register'
+import { Route as ApiAgentsRuntimeLogsRouteImport } from './routes/api/agents/runtime-logs'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiCronBackupsRouteImport } from './routes/api/cron/backups'
+import { Route as ApiCronMaintenanceRouteImport } from './routes/api/cron/maintenance'
+import { Route as ApiGithubInstallRouteImport } from './routes/api/github/install'
+import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
+import { Route as ApiInstallAgentRouteImport } from './routes/api/install/agent'
+import { Route as UploadsAvatarsFileNameRouteImport } from './routes/uploads/avatars/$fileName'
 import { Route as TeamSlugProjectsProjectNameBackupsRouteImport } from './routes/$teamSlug.projects.$projectName.backups'
-import { Route as TeamSlugProjectsProjectNameDeploymentsDeploymentIdRouteImport } from './routes/$teamSlug.projects.$projectName.deployments.$deploymentId'
+import { Route as TeamSlugProjectsProjectNameDeploymentsRouteImport } from './routes/$teamSlug.projects.$projectName.deployments'
+import { Route as TeamSlugProjectsProjectNameLogsRouteImport } from './routes/$teamSlug.projects.$projectName.logs'
+import { Route as TeamSlugProjectsProjectNameSettingsRouteImport } from './routes/$teamSlug.projects.$projectName.settings'
+import { Route as ApiAgentsCredentialsRotateRouteImport } from './routes/api/agents/credentials/rotate'
+import { Route as ApiAgentsJobsCompleteRouteImport } from './routes/api/agents/jobs/complete'
+import { Route as ApiAgentsJobsNextRouteImport } from './routes/api/agents/jobs/next'
+import { Route as ApiAgentsJobsProgressRouteImport } from './routes/api/agents/jobs/progress'
+import { Route as ApiAgentsJobsStatusRouteImport } from './routes/api/agents/jobs/status'
+import { Route as ApiGithubInstallCallbackRouteImport } from './routes/api/github/install.callback'
+import { Route as ApiInstallAgentTokenRouteImport } from './routes/api/install/agent.$token'
+import { Route as ApiInstallAgentBinaryRouteImport } from './routes/api/install/agent.binary'
+import { Route as ApiInstallAgentChecksumRouteImport } from './routes/api/install/agent.checksum'
 import { Route as TeamSlugProjectsProjectNameBackupsBackupIdRouteImport } from './routes/$teamSlug.projects.$projectName.backups.$backupId'
+import { Route as TeamSlugProjectsProjectNameDeploymentsDeploymentIdRouteImport } from './routes/$teamSlug.projects.$projectName.deployments.$deploymentId'
 
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TeamSlugRoute = TeamSlugRouteImport.update({
@@ -64,9 +59,14 @@ const TeamSlugRoute = TeamSlugRouteImport.update({
   path: '/$teamSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TeamSlugIndexRoute = TeamSlugIndexRouteImport.update({
@@ -74,29 +74,9 @@ const TeamSlugIndexRoute = TeamSlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TeamSlugRoute,
 } as any)
-const InvitesTokenRoute = InvitesTokenRouteImport.update({
-  id: '/invites/$token',
-  path: '/invites/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthLoginRoute = AuthLoginRouteImport.update({
-  id: '/auth/login',
-  path: '/auth/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiHealthRoute = ApiHealthRouteImport.update({
-  id: '/api/health',
-  path: '/api/health',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TeamSlugSettingsRoute = TeamSlugSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => TeamSlugRoute,
-} as any)
-const TeamSlugServersRoute = TeamSlugServersRouteImport.update({
-  id: '/servers',
-  path: '/servers',
+const TeamSlugNewProjectRoute = TeamSlugNewProjectRouteImport.update({
+  id: '/new-project',
+  path: '/new-project',
   getParentRoute: () => TeamSlugRoute,
 } as any)
 const TeamSlugProjectsRoute = TeamSlugProjectsRouteImport.update({
@@ -104,65 +84,30 @@ const TeamSlugProjectsRoute = TeamSlugProjectsRouteImport.update({
   path: '/projects',
   getParentRoute: () => TeamSlugRoute,
 } as any)
-const TeamSlugNewProjectRoute = TeamSlugNewProjectRouteImport.update({
-  id: '/new-project',
-  path: '/new-project',
+const TeamSlugServersRoute = TeamSlugServersRouteImport.update({
+  id: '/servers',
+  path: '/servers',
   getParentRoute: () => TeamSlugRoute,
 } as any)
-const UploadsAvatarsFileNameRoute = UploadsAvatarsFileNameRouteImport.update({
-  id: '/uploads/avatars/$fileName',
-  path: '/uploads/avatars/$fileName',
+const TeamSlugSettingsRoute = TeamSlugSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => TeamSlugRoute,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiInstallAgentRoute = ApiInstallAgentRouteImport.update({
-  id: '/api/install/agent',
-  path: '/api/install/agent',
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/auth/login',
+  path: '/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
-  id: '/api/github/webhook',
-  path: '/api/github/webhook',
+const InvitesTokenRoute = InvitesTokenRouteImport.update({
+  id: '/invites/$token',
+  path: '/invites/$token',
   getParentRoute: () => rootRouteImport,
-} as any)
-const ApiGithubInstallRoute = ApiGithubInstallRouteImport.update({
-  id: '/api/github/install',
-  path: '/api/github/install',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiCronMaintenanceRoute = ApiCronMaintenanceRouteImport.update({
-  id: '/api/cron/maintenance',
-  path: '/api/cron/maintenance',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiCronBackupsRoute = ApiCronBackupsRouteImport.update({
-  id: '/api/cron/backups',
-  path: '/api/cron/backups',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAgentsRuntimeLogsRoute = ApiAgentsRuntimeLogsRouteImport.update({
-  id: '/api/agents/runtime-logs',
-  path: '/api/agents/runtime-logs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAgentsRegisterRoute = ApiAgentsRegisterRouteImport.update({
-  id: '/api/agents/register',
-  path: '/api/agents/register',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAgentsHeartbeatRoute = ApiAgentsHeartbeatRouteImport.update({
-  id: '/api/agents/heartbeat',
-  path: '/api/agents/heartbeat',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TeamSlugServersServerIdRoute = TeamSlugServersServerIdRouteImport.update({
-  id: '/$serverId',
-  path: '/$serverId',
-  getParentRoute: () => TeamSlugServersRoute,
 } as any)
 const TeamSlugProjectsProjectNameRoute =
   TeamSlugProjectsProjectNameRouteImport.update({
@@ -170,63 +115,65 @@ const TeamSlugProjectsProjectNameRoute =
     path: '/$projectName',
     getParentRoute: () => TeamSlugProjectsRoute,
   } as any)
-const ApiInstallAgentChecksumRoute = ApiInstallAgentChecksumRouteImport.update({
-  id: '/checksum',
-  path: '/checksum',
-  getParentRoute: () => ApiInstallAgentRoute,
+const TeamSlugServersServerIdRoute = TeamSlugServersServerIdRouteImport.update({
+  id: '/$serverId',
+  path: '/$serverId',
+  getParentRoute: () => TeamSlugServersRoute,
 } as any)
-const ApiInstallAgentBinaryRoute = ApiInstallAgentBinaryRouteImport.update({
-  id: '/binary',
-  path: '/binary',
-  getParentRoute: () => ApiInstallAgentRoute,
-} as any)
-const ApiInstallAgentTokenRoute = ApiInstallAgentTokenRouteImport.update({
-  id: '/$token',
-  path: '/$token',
-  getParentRoute: () => ApiInstallAgentRoute,
-} as any)
-const ApiGithubInstallCallbackRoute =
-  ApiGithubInstallCallbackRouteImport.update({
-    id: '/callback',
-    path: '/callback',
-    getParentRoute: () => ApiGithubInstallRoute,
-  } as any)
-const ApiAgentsJobsStatusRoute = ApiAgentsJobsStatusRouteImport.update({
-  id: '/api/agents/jobs/status',
-  path: '/api/agents/jobs/status',
+const ApiAgentsHeartbeatRoute = ApiAgentsHeartbeatRouteImport.update({
+  id: '/api/agents/heartbeat',
+  path: '/api/agents/heartbeat',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAgentsJobsProgressRoute = ApiAgentsJobsProgressRouteImport.update({
-  id: '/api/agents/jobs/progress',
-  path: '/api/agents/jobs/progress',
+const ApiAgentsRegisterRoute = ApiAgentsRegisterRouteImport.update({
+  id: '/api/agents/register',
+  path: '/api/agents/register',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAgentsJobsNextRoute = ApiAgentsJobsNextRouteImport.update({
-  id: '/api/agents/jobs/next',
-  path: '/api/agents/jobs/next',
+const ApiAgentsRuntimeLogsRoute = ApiAgentsRuntimeLogsRouteImport.update({
+  id: '/api/agents/runtime-logs',
+  path: '/api/agents/runtime-logs',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAgentsJobsCompleteRoute = ApiAgentsJobsCompleteRouteImport.update({
-  id: '/api/agents/jobs/complete',
-  path: '/api/agents/jobs/complete',
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAgentsCredentialsRotateRoute =
-  ApiAgentsCredentialsRotateRouteImport.update({
-    id: '/api/agents/credentials/rotate',
-    path: '/api/agents/credentials/rotate',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const TeamSlugProjectsProjectNameSettingsRoute =
-  TeamSlugProjectsProjectNameSettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => TeamSlugProjectsProjectNameRoute,
-  } as any)
-const TeamSlugProjectsProjectNameLogsRoute =
-  TeamSlugProjectsProjectNameLogsRouteImport.update({
-    id: '/logs',
-    path: '/logs',
+const ApiCronBackupsRoute = ApiCronBackupsRouteImport.update({
+  id: '/api/cron/backups',
+  path: '/api/cron/backups',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCronMaintenanceRoute = ApiCronMaintenanceRouteImport.update({
+  id: '/api/cron/maintenance',
+  path: '/api/cron/maintenance',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubInstallRoute = ApiGithubInstallRouteImport.update({
+  id: '/api/github/install',
+  path: '/api/github/install',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
+  id: '/api/github/webhook',
+  path: '/api/github/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiInstallAgentRoute = ApiInstallAgentRouteImport.update({
+  id: '/api/install/agent',
+  path: '/api/install/agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UploadsAvatarsFileNameRoute = UploadsAvatarsFileNameRouteImport.update({
+  id: '/uploads/avatars/$fileName',
+  path: '/uploads/avatars/$fileName',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamSlugProjectsProjectNameBackupsRoute =
+  TeamSlugProjectsProjectNameBackupsRouteImport.update({
+    id: '/backups',
+    path: '/backups',
     getParentRoute: () => TeamSlugProjectsProjectNameRoute,
   } as any)
 const TeamSlugProjectsProjectNameDeploymentsRoute =
@@ -235,23 +182,76 @@ const TeamSlugProjectsProjectNameDeploymentsRoute =
     path: '/deployments',
     getParentRoute: () => TeamSlugProjectsProjectNameRoute,
   } as any)
-const TeamSlugProjectsProjectNameBackupsRoute =
-  TeamSlugProjectsProjectNameBackupsRouteImport.update({
-    id: '/backups',
-    path: '/backups',
+const TeamSlugProjectsProjectNameLogsRoute =
+  TeamSlugProjectsProjectNameLogsRouteImport.update({
+    id: '/logs',
+    path: '/logs',
     getParentRoute: () => TeamSlugProjectsProjectNameRoute,
+  } as any)
+const TeamSlugProjectsProjectNameSettingsRoute =
+  TeamSlugProjectsProjectNameSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => TeamSlugProjectsProjectNameRoute,
+  } as any)
+const ApiAgentsCredentialsRotateRoute =
+  ApiAgentsCredentialsRotateRouteImport.update({
+    id: '/api/agents/credentials/rotate',
+    path: '/api/agents/credentials/rotate',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentsJobsCompleteRoute = ApiAgentsJobsCompleteRouteImport.update({
+  id: '/api/agents/jobs/complete',
+  path: '/api/agents/jobs/complete',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentsJobsNextRoute = ApiAgentsJobsNextRouteImport.update({
+  id: '/api/agents/jobs/next',
+  path: '/api/agents/jobs/next',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentsJobsProgressRoute = ApiAgentsJobsProgressRouteImport.update({
+  id: '/api/agents/jobs/progress',
+  path: '/api/agents/jobs/progress',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentsJobsStatusRoute = ApiAgentsJobsStatusRouteImport.update({
+  id: '/api/agents/jobs/status',
+  path: '/api/agents/jobs/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubInstallCallbackRoute =
+  ApiGithubInstallCallbackRouteImport.update({
+    id: '/callback',
+    path: '/callback',
+    getParentRoute: () => ApiGithubInstallRoute,
+  } as any)
+const ApiInstallAgentTokenRoute = ApiInstallAgentTokenRouteImport.update({
+  id: '/$token',
+  path: '/$token',
+  getParentRoute: () => ApiInstallAgentRoute,
+} as any)
+const ApiInstallAgentBinaryRoute = ApiInstallAgentBinaryRouteImport.update({
+  id: '/binary',
+  path: '/binary',
+  getParentRoute: () => ApiInstallAgentRoute,
+} as any)
+const ApiInstallAgentChecksumRoute = ApiInstallAgentChecksumRouteImport.update({
+  id: '/checksum',
+  path: '/checksum',
+  getParentRoute: () => ApiInstallAgentRoute,
+} as any)
+const TeamSlugProjectsProjectNameBackupsBackupIdRoute =
+  TeamSlugProjectsProjectNameBackupsBackupIdRouteImport.update({
+    id: '/$backupId',
+    path: '/$backupId',
+    getParentRoute: () => TeamSlugProjectsProjectNameBackupsRoute,
   } as any)
 const TeamSlugProjectsProjectNameDeploymentsDeploymentIdRoute =
   TeamSlugProjectsProjectNameDeploymentsDeploymentIdRouteImport.update({
     id: '/$deploymentId',
     path: '/$deploymentId',
     getParentRoute: () => TeamSlugProjectsProjectNameDeploymentsRoute,
-  } as any)
-const TeamSlugProjectsProjectNameBackupsBackupIdRoute =
-  TeamSlugProjectsProjectNameBackupsBackupIdRouteImport.update({
-    id: '/$backupId',
-    path: '/$backupId',
-    getParentRoute: () => TeamSlugProjectsProjectNameBackupsRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -529,18 +529,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$teamSlug': {
@@ -550,11 +543,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$teamSlug/': {
@@ -564,39 +564,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamSlugIndexRouteImport
       parentRoute: typeof TeamSlugRoute
     }
-    '/invites/$token': {
-      id: '/invites/$token'
-      path: '/invites/$token'
-      fullPath: '/invites/$token'
-      preLoaderRoute: typeof InvitesTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/login': {
-      id: '/auth/login'
-      path: '/auth/login'
-      fullPath: '/auth/login'
-      preLoaderRoute: typeof AuthLoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/health': {
-      id: '/api/health'
-      path: '/api/health'
-      fullPath: '/api/health'
-      preLoaderRoute: typeof ApiHealthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$teamSlug/settings': {
-      id: '/$teamSlug/settings'
-      path: '/settings'
-      fullPath: '/$teamSlug/settings'
-      preLoaderRoute: typeof TeamSlugSettingsRouteImport
-      parentRoute: typeof TeamSlugRoute
-    }
-    '/$teamSlug/servers': {
-      id: '/$teamSlug/servers'
-      path: '/servers'
-      fullPath: '/$teamSlug/servers'
-      preLoaderRoute: typeof TeamSlugServersRouteImport
+    '/$teamSlug/new-project': {
+      id: '/$teamSlug/new-project'
+      path: '/new-project'
+      fullPath: '/$teamSlug/new-project'
+      preLoaderRoute: typeof TeamSlugNewProjectRouteImport
       parentRoute: typeof TeamSlugRoute
     }
     '/$teamSlug/projects': {
@@ -606,67 +578,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamSlugProjectsRouteImport
       parentRoute: typeof TeamSlugRoute
     }
-    '/$teamSlug/new-project': {
-      id: '/$teamSlug/new-project'
-      path: '/new-project'
-      fullPath: '/$teamSlug/new-project'
-      preLoaderRoute: typeof TeamSlugNewProjectRouteImport
+    '/$teamSlug/servers': {
+      id: '/$teamSlug/servers'
+      path: '/servers'
+      fullPath: '/$teamSlug/servers'
+      preLoaderRoute: typeof TeamSlugServersRouteImport
       parentRoute: typeof TeamSlugRoute
     }
-    '/uploads/avatars/$fileName': {
-      id: '/uploads/avatars/$fileName'
-      path: '/uploads/avatars/$fileName'
-      fullPath: '/uploads/avatars/$fileName'
-      preLoaderRoute: typeof UploadsAvatarsFileNameRouteImport
+    '/$teamSlug/settings': {
+      id: '/$teamSlug/settings'
+      path: '/settings'
+      fullPath: '/$teamSlug/settings'
+      preLoaderRoute: typeof TeamSlugSettingsRouteImport
+      parentRoute: typeof TeamSlugRoute
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/install/agent': {
-      id: '/api/install/agent'
-      path: '/api/install/agent'
-      fullPath: '/api/install/agent'
-      preLoaderRoute: typeof ApiInstallAgentRouteImport
+    '/auth/login': {
+      id: '/auth/login'
+      path: '/auth/login'
+      fullPath: '/auth/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/github/webhook': {
-      id: '/api/github/webhook'
-      path: '/api/github/webhook'
-      fullPath: '/api/github/webhook'
-      preLoaderRoute: typeof ApiGithubWebhookRouteImport
+    '/invites/$token': {
+      id: '/invites/$token'
+      path: '/invites/$token'
+      fullPath: '/invites/$token'
+      preLoaderRoute: typeof InvitesTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/github/install': {
-      id: '/api/github/install'
-      path: '/api/github/install'
-      fullPath: '/api/github/install'
-      preLoaderRoute: typeof ApiGithubInstallRouteImport
-      parentRoute: typeof rootRouteImport
+    '/$teamSlug/projects/$projectName': {
+      id: '/$teamSlug/projects/$projectName'
+      path: '/$projectName'
+      fullPath: '/$teamSlug/projects/$projectName'
+      preLoaderRoute: typeof TeamSlugProjectsProjectNameRouteImport
+      parentRoute: typeof TeamSlugProjectsRoute
     }
-    '/api/cron/maintenance': {
-      id: '/api/cron/maintenance'
-      path: '/api/cron/maintenance'
-      fullPath: '/api/cron/maintenance'
-      preLoaderRoute: typeof ApiCronMaintenanceRouteImport
-      parentRoute: typeof rootRouteImport
+    '/$teamSlug/servers/$serverId': {
+      id: '/$teamSlug/servers/$serverId'
+      path: '/$serverId'
+      fullPath: '/$teamSlug/servers/$serverId'
+      preLoaderRoute: typeof TeamSlugServersServerIdRouteImport
+      parentRoute: typeof TeamSlugServersRoute
     }
-    '/api/cron/backups': {
-      id: '/api/cron/backups'
-      path: '/api/cron/backups'
-      fullPath: '/api/cron/backups'
-      preLoaderRoute: typeof ApiCronBackupsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/agents/runtime-logs': {
-      id: '/api/agents/runtime-logs'
-      path: '/api/agents/runtime-logs'
-      fullPath: '/api/agents/runtime-logs'
-      preLoaderRoute: typeof ApiAgentsRuntimeLogsRouteImport
+    '/api/agents/heartbeat': {
+      id: '/api/agents/heartbeat'
+      path: '/api/agents/heartbeat'
+      fullPath: '/api/agents/heartbeat'
+      preLoaderRoute: typeof ApiAgentsHeartbeatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agents/register': {
@@ -676,102 +641,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentsRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/agents/heartbeat': {
-      id: '/api/agents/heartbeat'
-      path: '/api/agents/heartbeat'
-      fullPath: '/api/agents/heartbeat'
-      preLoaderRoute: typeof ApiAgentsHeartbeatRouteImport
+    '/api/agents/runtime-logs': {
+      id: '/api/agents/runtime-logs'
+      path: '/api/agents/runtime-logs'
+      fullPath: '/api/agents/runtime-logs'
+      preLoaderRoute: typeof ApiAgentsRuntimeLogsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$teamSlug/servers/$serverId': {
-      id: '/$teamSlug/servers/$serverId'
-      path: '/$serverId'
-      fullPath: '/$teamSlug/servers/$serverId'
-      preLoaderRoute: typeof TeamSlugServersServerIdRouteImport
-      parentRoute: typeof TeamSlugServersRoute
-    }
-    '/$teamSlug/projects/$projectName': {
-      id: '/$teamSlug/projects/$projectName'
-      path: '/$projectName'
-      fullPath: '/$teamSlug/projects/$projectName'
-      preLoaderRoute: typeof TeamSlugProjectsProjectNameRouteImport
-      parentRoute: typeof TeamSlugProjectsRoute
-    }
-    '/api/install/agent/checksum': {
-      id: '/api/install/agent/checksum'
-      path: '/checksum'
-      fullPath: '/api/install/agent/checksum'
-      preLoaderRoute: typeof ApiInstallAgentChecksumRouteImport
-      parentRoute: typeof ApiInstallAgentRoute
-    }
-    '/api/install/agent/binary': {
-      id: '/api/install/agent/binary'
-      path: '/binary'
-      fullPath: '/api/install/agent/binary'
-      preLoaderRoute: typeof ApiInstallAgentBinaryRouteImport
-      parentRoute: typeof ApiInstallAgentRoute
-    }
-    '/api/install/agent/$token': {
-      id: '/api/install/agent/$token'
-      path: '/$token'
-      fullPath: '/api/install/agent/$token'
-      preLoaderRoute: typeof ApiInstallAgentTokenRouteImport
-      parentRoute: typeof ApiInstallAgentRoute
-    }
-    '/api/github/install/callback': {
-      id: '/api/github/install/callback'
-      path: '/callback'
-      fullPath: '/api/github/install/callback'
-      preLoaderRoute: typeof ApiGithubInstallCallbackRouteImport
-      parentRoute: typeof ApiGithubInstallRoute
-    }
-    '/api/agents/jobs/status': {
-      id: '/api/agents/jobs/status'
-      path: '/api/agents/jobs/status'
-      fullPath: '/api/agents/jobs/status'
-      preLoaderRoute: typeof ApiAgentsJobsStatusRouteImport
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/agents/jobs/progress': {
-      id: '/api/agents/jobs/progress'
-      path: '/api/agents/jobs/progress'
-      fullPath: '/api/agents/jobs/progress'
-      preLoaderRoute: typeof ApiAgentsJobsProgressRouteImport
+    '/api/cron/backups': {
+      id: '/api/cron/backups'
+      path: '/api/cron/backups'
+      fullPath: '/api/cron/backups'
+      preLoaderRoute: typeof ApiCronBackupsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/agents/jobs/next': {
-      id: '/api/agents/jobs/next'
-      path: '/api/agents/jobs/next'
-      fullPath: '/api/agents/jobs/next'
-      preLoaderRoute: typeof ApiAgentsJobsNextRouteImport
+    '/api/cron/maintenance': {
+      id: '/api/cron/maintenance'
+      path: '/api/cron/maintenance'
+      fullPath: '/api/cron/maintenance'
+      preLoaderRoute: typeof ApiCronMaintenanceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/agents/jobs/complete': {
-      id: '/api/agents/jobs/complete'
-      path: '/api/agents/jobs/complete'
-      fullPath: '/api/agents/jobs/complete'
-      preLoaderRoute: typeof ApiAgentsJobsCompleteRouteImport
+    '/api/github/install': {
+      id: '/api/github/install'
+      path: '/api/github/install'
+      fullPath: '/api/github/install'
+      preLoaderRoute: typeof ApiGithubInstallRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/agents/credentials/rotate': {
-      id: '/api/agents/credentials/rotate'
-      path: '/api/agents/credentials/rotate'
-      fullPath: '/api/agents/credentials/rotate'
-      preLoaderRoute: typeof ApiAgentsCredentialsRotateRouteImport
+    '/api/github/webhook': {
+      id: '/api/github/webhook'
+      path: '/api/github/webhook'
+      fullPath: '/api/github/webhook'
+      preLoaderRoute: typeof ApiGithubWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$teamSlug/projects/$projectName/settings': {
-      id: '/$teamSlug/projects/$projectName/settings'
-      path: '/settings'
-      fullPath: '/$teamSlug/projects/$projectName/settings'
-      preLoaderRoute: typeof TeamSlugProjectsProjectNameSettingsRouteImport
-      parentRoute: typeof TeamSlugProjectsProjectNameRoute
+    '/api/install/agent': {
+      id: '/api/install/agent'
+      path: '/api/install/agent'
+      fullPath: '/api/install/agent'
+      preLoaderRoute: typeof ApiInstallAgentRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/$teamSlug/projects/$projectName/logs': {
-      id: '/$teamSlug/projects/$projectName/logs'
-      path: '/logs'
-      fullPath: '/$teamSlug/projects/$projectName/logs'
-      preLoaderRoute: typeof TeamSlugProjectsProjectNameLogsRouteImport
+    '/uploads/avatars/$fileName': {
+      id: '/uploads/avatars/$fileName'
+      path: '/uploads/avatars/$fileName'
+      fullPath: '/uploads/avatars/$fileName'
+      preLoaderRoute: typeof UploadsAvatarsFileNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$teamSlug/projects/$projectName/backups': {
+      id: '/$teamSlug/projects/$projectName/backups'
+      path: '/backups'
+      fullPath: '/$teamSlug/projects/$projectName/backups'
+      preLoaderRoute: typeof TeamSlugProjectsProjectNameBackupsRouteImport
       parentRoute: typeof TeamSlugProjectsProjectNameRoute
     }
     '/$teamSlug/projects/$projectName/deployments': {
@@ -781,19 +711,82 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamSlugProjectsProjectNameDeploymentsRouteImport
       parentRoute: typeof TeamSlugProjectsProjectNameRoute
     }
-    '/$teamSlug/projects/$projectName/backups': {
-      id: '/$teamSlug/projects/$projectName/backups'
-      path: '/backups'
-      fullPath: '/$teamSlug/projects/$projectName/backups'
-      preLoaderRoute: typeof TeamSlugProjectsProjectNameBackupsRouteImport
+    '/$teamSlug/projects/$projectName/logs': {
+      id: '/$teamSlug/projects/$projectName/logs'
+      path: '/logs'
+      fullPath: '/$teamSlug/projects/$projectName/logs'
+      preLoaderRoute: typeof TeamSlugProjectsProjectNameLogsRouteImport
       parentRoute: typeof TeamSlugProjectsProjectNameRoute
     }
-    '/$teamSlug/projects/$projectName/deployments/$deploymentId': {
-      id: '/$teamSlug/projects/$projectName/deployments/$deploymentId'
-      path: '/$deploymentId'
-      fullPath: '/$teamSlug/projects/$projectName/deployments/$deploymentId'
-      preLoaderRoute: typeof TeamSlugProjectsProjectNameDeploymentsDeploymentIdRouteImport
-      parentRoute: typeof TeamSlugProjectsProjectNameDeploymentsRoute
+    '/$teamSlug/projects/$projectName/settings': {
+      id: '/$teamSlug/projects/$projectName/settings'
+      path: '/settings'
+      fullPath: '/$teamSlug/projects/$projectName/settings'
+      preLoaderRoute: typeof TeamSlugProjectsProjectNameSettingsRouteImport
+      parentRoute: typeof TeamSlugProjectsProjectNameRoute
+    }
+    '/api/agents/credentials/rotate': {
+      id: '/api/agents/credentials/rotate'
+      path: '/api/agents/credentials/rotate'
+      fullPath: '/api/agents/credentials/rotate'
+      preLoaderRoute: typeof ApiAgentsCredentialsRotateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agents/jobs/complete': {
+      id: '/api/agents/jobs/complete'
+      path: '/api/agents/jobs/complete'
+      fullPath: '/api/agents/jobs/complete'
+      preLoaderRoute: typeof ApiAgentsJobsCompleteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agents/jobs/next': {
+      id: '/api/agents/jobs/next'
+      path: '/api/agents/jobs/next'
+      fullPath: '/api/agents/jobs/next'
+      preLoaderRoute: typeof ApiAgentsJobsNextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agents/jobs/progress': {
+      id: '/api/agents/jobs/progress'
+      path: '/api/agents/jobs/progress'
+      fullPath: '/api/agents/jobs/progress'
+      preLoaderRoute: typeof ApiAgentsJobsProgressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agents/jobs/status': {
+      id: '/api/agents/jobs/status'
+      path: '/api/agents/jobs/status'
+      fullPath: '/api/agents/jobs/status'
+      preLoaderRoute: typeof ApiAgentsJobsStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/install/callback': {
+      id: '/api/github/install/callback'
+      path: '/callback'
+      fullPath: '/api/github/install/callback'
+      preLoaderRoute: typeof ApiGithubInstallCallbackRouteImport
+      parentRoute: typeof ApiGithubInstallRoute
+    }
+    '/api/install/agent/$token': {
+      id: '/api/install/agent/$token'
+      path: '/$token'
+      fullPath: '/api/install/agent/$token'
+      preLoaderRoute: typeof ApiInstallAgentTokenRouteImport
+      parentRoute: typeof ApiInstallAgentRoute
+    }
+    '/api/install/agent/binary': {
+      id: '/api/install/agent/binary'
+      path: '/binary'
+      fullPath: '/api/install/agent/binary'
+      preLoaderRoute: typeof ApiInstallAgentBinaryRouteImport
+      parentRoute: typeof ApiInstallAgentRoute
+    }
+    '/api/install/agent/checksum': {
+      id: '/api/install/agent/checksum'
+      path: '/checksum'
+      fullPath: '/api/install/agent/checksum'
+      preLoaderRoute: typeof ApiInstallAgentChecksumRouteImport
+      parentRoute: typeof ApiInstallAgentRoute
     }
     '/$teamSlug/projects/$projectName/backups/$backupId': {
       id: '/$teamSlug/projects/$projectName/backups/$backupId'
@@ -801,6 +794,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$teamSlug/projects/$projectName/backups/$backupId'
       preLoaderRoute: typeof TeamSlugProjectsProjectNameBackupsBackupIdRouteImport
       parentRoute: typeof TeamSlugProjectsProjectNameBackupsRoute
+    }
+    '/$teamSlug/projects/$projectName/deployments/$deploymentId': {
+      id: '/$teamSlug/projects/$projectName/deployments/$deploymentId'
+      path: '/$deploymentId'
+      fullPath: '/$teamSlug/projects/$projectName/deployments/$deploymentId'
+      preLoaderRoute: typeof TeamSlugProjectsProjectNameDeploymentsDeploymentIdRouteImport
+      parentRoute: typeof TeamSlugProjectsProjectNameDeploymentsRoute
     }
   }
 }

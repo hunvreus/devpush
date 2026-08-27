@@ -661,7 +661,6 @@ describe('project settings integration', () => {
         githubRepoId: repoId,
         runtimeConfig: createComposeRuntimeConfig({
           path: 'compose.current.yml',
-          strategy: 'command',
           deployCommand: './scripts/deploy',
           rollbackCommand: './scripts/rollback',
           timeoutSeconds: 900,
@@ -729,7 +728,6 @@ describe('project settings integration', () => {
     expect(snapshot?.routes).toHaveLength(6)
     expect(snapshot?.runtime).toMatchObject({
       type: 'compose',
-      strategy: 'command',
       deployCommand: './scripts/deploy',
       rollbackCommand: './scripts/rollback',
       timeoutSeconds: 900,
@@ -1073,7 +1071,6 @@ async function createProjectFixture() {
         runtime: {
           type: 'compose',
           path: 'compose.old.yml',
-          strategy: 'managed',
           releaseCommand: 'old-release',
           releaseService: 'old-worker',
           readinessPath: '/old-health',

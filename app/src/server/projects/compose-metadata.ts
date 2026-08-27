@@ -40,7 +40,7 @@ export function parseComposeMetadata(
         service.ports.length > 0
       ) {
         warnings.add(
-          `Published ports on ${serviceName} are ignored during Devpush deployments; managed Traefik ingress remains the only public entrypoint.`,
+          `Published ports on ${serviceName} are ignored during devpush deployments; managed Traefik ingress remains the only public entrypoint.`,
         )
         for (const port of service.ports) {
           addRouteTarget(routeTargets, serviceName, port)
@@ -53,7 +53,7 @@ export function parseComposeMetadata(
       }
       if (isRecord(service) && service.network_mode === 'host') {
         warnings.add(
-          `${serviceName} uses host networking, which Devpush ignores to preserve managed network isolation.`,
+          `${serviceName} uses host networking, which devpush ignores to preserve managed network isolation.`,
         )
       }
       if (!isRecord(service) || !Array.isArray(service.volumes)) {

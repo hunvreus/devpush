@@ -513,7 +513,7 @@ export const projects = pgTable(
     runtimeConfig: jsonb('runtime_config')
       .notNull()
       .default(
-        sql`'{"type":"compose","path":null,"strategy":"managed","releaseCommand":null,"releaseService":null,"readinessPath":null,"deployCommand":null,"rollbackCommand":null,"timeoutSeconds":1800}'::jsonb`,
+        sql`'{"type":"compose","path":null,"releaseCommand":null,"releaseService":null,"readinessPath":null,"deployCommand":null,"rollbackCommand":null,"timeoutSeconds":1800}'::jsonb`,
       ),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()

@@ -138,7 +138,6 @@ deployment was queued do not mutate the claimed job.
     "type": "compose",
     "path": "compose.yml",
     "projectName": "dp_fb3167db1f_a1b2c3d4e5",
-    "strategy": "managed",
     "action": "deploy",
     "releaseCommand": null,
     "releaseService": "web",

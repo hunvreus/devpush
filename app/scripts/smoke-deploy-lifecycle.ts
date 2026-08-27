@@ -482,7 +482,6 @@ async function main() {
         runtime: {
           type: 'compose',
           path: 'compose.yml',
-          strategy: 'managed',
           releaseCommand: null,
           releaseService: 'web',
           readinessPath: null,
@@ -580,7 +579,6 @@ async function main() {
         runtime: {
           type: 'compose',
           path: 'compose.yml',
-          strategy: 'managed',
           releaseCommand: 'echo release',
           releaseService: 'web',
           readinessPath: null,

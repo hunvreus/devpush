@@ -1509,37 +1509,19 @@ export function ProjectBackupDetails({
                         key={index}
                         className="grid min-h-12 grid-cols-[180px_minmax(0,1fr)_2rem_2rem] items-start gap-x-2 border-b py-2 text-sm"
                       >
-                        <Select
-                          value={dump.service || undefined}
-                          onValueChange={(value) => {
+                        <Input
+                          id={`backup-dump-service-${backup.id}-${index}`}
+                          value={dump.service}
+                          placeholder="postgres"
+                          onChange={(event) => {
                             const nextDumps = [...databaseDumps]
                             nextDumps[index] = {
                               ...dump,
-                              service: value,
+                              service: event.target.value,
                             }
                             setDatabaseDumps(nextDumps)
                           }}
-                        >
-                          <SelectTrigger
-                            id={`backup-dump-service-${backup.id}-${index}`}
-                            className="w-full"
-                          >
-                            <SelectValue placeholder="Select service" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {databaseServiceOptions.length > 0 ? (
-                              databaseServiceOptions.map((service) => (
-                                <SelectItem key={service} value={service}>
-                                  {service}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                No services detected.
-                              </div>
-                            )}
-                          </SelectContent>
-                        </Select>
+                        />
                         <Input
                           className="font-mono text-[13px]"
                           id={`backup-dump-command-${backup.id}-${index}`}
@@ -1585,22 +1567,16 @@ export function ProjectBackupDetails({
                 ) : (
                   <Empty className="min-h-40 border-0">
                     <EmptyHeader>
-                      <EmptyTitle>
-                        {databaseServiceOptions.length > 0
-                          ? 'No database dumps.'
-                          : 'No services detected.'}
-                      </EmptyTitle>
+                      <EmptyTitle>No database dumps.</EmptyTitle>
                       <EmptyDescription>
-                        {databaseServiceOptions.length > 0
-                          ? 'Volume archives may only be crash-consistent for live databases. Add dump commands for database services.'
-                          : 'No Compose services are available for database dump commands.'}
+                        Volume archives may only be crash-consistent for live
+                        databases. Add dump commands for database services.
                       </EmptyDescription>
                     </EmptyHeader>
                     <EmptyContent className="flex-row justify-center">
                       <Button
                         type="button"
                         variant="outline"
-                        disabled={databaseServiceOptions.length === 0}
                         onClick={() =>
                           setDatabaseDumps([
                             ...databaseDumps,
@@ -1622,7 +1598,6 @@ export function ProjectBackupDetails({
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={databaseServiceOptions.length === 0}
                       onClick={() =>
                         setDatabaseDumps([
                           ...databaseDumps,

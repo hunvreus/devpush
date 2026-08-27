@@ -39,13 +39,6 @@ import {
   InputGroupInput,
 } from '@/components/ui/input-group'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -85,6 +78,8 @@ import {
   EnvironmentVariablesSettingsSection,
 } from './project-environment-settings'
 
+const managedComposeCommand = 'docker compose up -d --no-build'
+
 export function ProjectSettings({ context }: { context: ProjectContext }) {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -92,20 +87,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
   const { project } = context
   const runtimeConfig = project.runtimeConfig
   const initialRoutes = context.routes
-  const productionEnvironmentId =
-    context.environments.find(
-      (environment) => environment.slug === 'production',
-    )?.id ??
-    context.environments.at(0)?.id ??
-    ''
-  const productionRoutes = getEffectiveRouteDefinitions(
-    context.routes,
-    productionEnvironmentId,
-  )
-  const autoReleaseService =
-    productionRoutes.find((route) =>
-      context.composeMetadata?.services.includes(route.service),
-    )?.service ?? context.composeMetadata?.services.at(0)
   const initialDomains = context.domains.map(mapProjectDomainAlias)
   const [projectName, setProjectName] = useState(project.name)
   const [selectedRepo, setSelectedRepo] = useState<ProjectRepository>({
@@ -127,7 +108,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     runtimeConfig.releaseCommand ?? '',
   )
   const [releaseService, setReleaseService] = useState(
-    runtimeConfig.releaseService ?? '__auto__',
+    runtimeConfig.releaseService ?? '',
   )
   const [readinessPath, setReadinessPath] = useState(
     runtimeConfig.readinessPath ?? '',
@@ -153,7 +134,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     projectName: project.name,
     composePath: runtimeConfig.path ?? '',
     releaseCommand: runtimeConfig.releaseCommand ?? '',
-    releaseService: runtimeConfig.releaseService ?? '__auto__',
+    releaseService: runtimeConfig.releaseService ?? '',
     readinessPath: runtimeConfig.readinessPath ?? '',
     deployCommand: runtimeConfig.deployCommand ?? '',
     rollbackCommand: runtimeConfig.rollbackCommand ?? '',
@@ -263,17 +244,14 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           runtimeConfig: {
             type: 'compose',
             path: settings.composePath.trim() || null,
-            strategy: settings.deployCommand.trim() ? 'command' : 'managed',
             releaseCommand: settings.releaseCommand.trim() || null,
             releaseService:
-              settings.releaseService === '__auto__'
+              !settings.releaseCommand.trim() || !settings.releaseService.trim()
                 ? null
-                : settings.releaseService,
+                : settings.releaseService.trim(),
             readinessPath: settings.readinessPath.trim() || null,
             deployCommand: settings.deployCommand.trim() || null,
-            rollbackCommand: settings.deployCommand.trim()
-              ? settings.rollbackCommand.trim() || null
-              : null,
+            rollbackCommand: settings.rollbackCommand.trim() || null,
             timeoutSeconds: Number(settings.deployTimeoutSeconds),
           },
         },
@@ -323,7 +301,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           releaseCommand:
             nextContext.project.runtimeConfig.releaseCommand ?? '',
           releaseService:
-            nextContext.project.runtimeConfig.releaseService ?? '__auto__',
+            nextContext.project.runtimeConfig.releaseService ?? '',
           readinessPath: nextContext.project.runtimeConfig.readinessPath ?? '',
           deployCommand: nextContext.project.runtimeConfig.deployCommand ?? '',
           rollbackCommand:
@@ -673,8 +651,8 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
 
           <SettingsSection
             id="build-and-deploy"
-            title="Build and Deploy"
-            description="Compose configuration, lifecycle commands, and readiness checks. Empty command overrides use Devpush defaults."
+            title="Build & Deploy"
+            description="Configure the Compose file, deployment commands, and health checks."
             footer={
               <SettingsActions
                 hasChanges={hasBuildChanges}
@@ -697,129 +675,110 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                     onChange={(event) => setComposePath(event.target.value)}
                   />
                   <FieldDescription>
-                    Repository-relative path to the Compose file. Devpush uses
-                    compose.yml when this is empty.
+                    Repository-relative path to the Compose file. Defaults to
+                    compose.yml.
                   </FieldDescription>
                 </Field>
-                <Field>
-                  <FieldLabel htmlFor="release-command">
-                    Pre-deploy command
-                  </FieldLabel>
-                  <Textarea
-                    id="release-command"
-                    className="resize-none py-1.5 font-mono"
-                    value={releaseCommand}
-                    placeholder="php artisan migrate --force"
-                    onChange={(event) => setReleaseCommand(event.target.value)}
-                  />
-                  <FieldDescription>
-                    Optional command run once inside the selected service after
-                    images are ready and before services are updated. It is not
-                    run during rollback.
-                  </FieldDescription>
-                </Field>
-                {releaseCommand.trim() ? (
+                <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]">
                   <Field>
-                    <FieldLabel htmlFor="release-service">
-                      Run in service
+                    <FieldLabel htmlFor="release-command">
+                      Pre-deploy command
                     </FieldLabel>
-                    <Select
-                      value={releaseService}
-                      onValueChange={setReleaseService}
-                    >
-                      <SelectTrigger id="release-service" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__auto__">
-                          First valid service
-                          {autoReleaseService ? ` (${autoReleaseService})` : ''}
-                        </SelectItem>
-                        {context.composeMetadata?.services.map((service) => (
-                          <SelectItem key={service} value={service}>
-                            {service}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Textarea
+                      id="release-command"
+                      className="resize-none py-1.5 font-mono"
+                      value={releaseCommand}
+                      placeholder="e.g. php artisan migrate --force"
+                      onChange={(event) =>
+                        setReleaseCommand(event.target.value)
+                      }
+                    />
                     <FieldDescription>
-                      Compose service whose image, environment, network, and
-                      volumes are used. Automatic uses the first routed service,
-                      then the first Compose service.
+                      Runs once before services are updated. Leave empty to
+                      skip.
                     </FieldDescription>
                   </Field>
-                ) : null}
+                  <Field>
+                    <FieldLabel htmlFor="release-service">
+                      Pre-deploy service
+                    </FieldLabel>
+                    <Input
+                      id="release-service"
+                      value={releaseService}
+                      placeholder="Automatic"
+                      onChange={(event) =>
+                        setReleaseService(event.target.value)
+                      }
+                    />
+                    <FieldDescription>
+                      Service to run the pre-deploy command. When empty, uses
+                      the first routed service or the only Compose service.
+                    </FieldDescription>
+                  </Field>
+                </div>
                 <Field>
                   <FieldLabel htmlFor="deploy-command">
                     Deploy command
                   </FieldLabel>
                   <Textarea
                     id="deploy-command"
-                    className="resize-none py-1.5 font-mono"
+                    className="resize-none font-mono"
                     value={deployCommand}
-                    placeholder="docker compose … up -d --no-build"
+                    placeholder={managedComposeCommand}
                     onChange={(event) => setDeployCommand(event.target.value)}
                   />
                   <FieldDescription>
-                    Optional host command that replaces Devpush&apos;s standard
-                    service update after images and any pre-deploy command are
-                    ready. It also handles rollback when no separate rollback
-                    command is configured. Use DEVPUSH_ACTION to distinguish
-                    deploy from rollback.
+                    Runs on the server to update services after images and the
+                    pre-deploy command are ready. When empty, uses{' '}
+                    <code>{managedComposeCommand}</code>.
                   </FieldDescription>
                 </Field>
-                {deployCommand.trim() ? (
-                  <Field>
-                    <FieldLabel htmlFor="rollback-command">
-                      Rollback command
-                    </FieldLabel>
-                    <Textarea
-                      id="rollback-command"
-                      className="resize-none py-1.5 font-mono"
-                      value={rollbackCommand}
-                      placeholder={deployCommand}
-                      onChange={(event) =>
-                        setRollbackCommand(event.target.value)
-                      }
-                    />
-                    <FieldDescription>
-                      Optional. When empty, rollback reuses the deploy command
-                      with DEVPUSH_ACTION=rollback.
-                    </FieldDescription>
-                  </Field>
-                ) : null}
-                {deployCommand.trim() ? (
-                  <Field>
-                    <FieldLabel htmlFor="deploy-timeout">
-                      Command timeout
-                    </FieldLabel>
-                    <Input
-                      id="deploy-timeout"
-                      type="number"
-                      min={60}
-                      max={7200}
-                      step={60}
-                      value={deployTimeoutSeconds}
-                      onChange={(event) =>
-                        setDeployTimeoutSeconds(event.target.value)
-                      }
-                    />
-                    <FieldDescription>
-                      Maximum runtime for a custom deployment or rollback
-                      command, from 60 to 7200 seconds.
-                    </FieldDescription>
-                  </Field>
-                ) : null}
+                <Field>
+                  <FieldLabel htmlFor="rollback-command">
+                    Rollback command
+                  </FieldLabel>
+                  <Textarea
+                    id="rollback-command"
+                    className="resize-none font-mono"
+                    value={rollbackCommand}
+                    placeholder={deployCommand.trim() || managedComposeCommand}
+                    onChange={(event) => setRollbackCommand(event.target.value)}
+                  />
+                  <FieldDescription>
+                    Runs on the server when deploying a previous revision. When
+                    empty, uses the deploy command.
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="deploy-timeout">
+                    Command timeout
+                  </FieldLabel>
+                  <Input
+                    id="deploy-timeout"
+                    type="number"
+                    min={60}
+                    max={7200}
+                    step={60}
+                    value={deployTimeoutSeconds}
+                    onChange={(event) =>
+                      setDeployTimeoutSeconds(event.target.value)
+                    }
+                  />
+                  <FieldDescription>
+                    Maximum runtime for either command: 60–7,200 seconds.
+                  </FieldDescription>
+                </Field>
                 <Field>
                   <FieldLabel htmlFor="readiness">Health check path</FieldLabel>
                   <Input
                     id="readiness"
                     value={readinessPath}
-                    placeholder="/health"
+                    placeholder="/"
                     onChange={(event) => setReadinessPath(event.target.value)}
                   />
                   <FieldDescription>
-                    HTTP path Devpush requests after deployment. Defaults to /.
+                    Path requested after deployment to confirm the service is
+                    ready.
                   </FieldDescription>
                 </Field>
               </FieldGroup>
@@ -851,9 +810,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
               />
               <RouteSettingsTable
                 routes={routes}
-                services={context.composeMetadata?.services ?? []}
                 environments={context.environments}
-                suggestedRoute={context.composeMetadata?.suggestedRoute ?? null}
                 onChange={setRoutes}
               />
             </div>
@@ -1000,7 +957,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
             className="sticky top-[122px]"
             items={[
               { href: '#general', label: 'General' },
-              { href: '#build-and-deploy', label: 'Build and Deploy' },
+              { href: '#build-and-deploy', label: 'Build & Deploy' },
               { href: '#environments', label: 'Environments' },
               {
                 href: '#environment-variables',

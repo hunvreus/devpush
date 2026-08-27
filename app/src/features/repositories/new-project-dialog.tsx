@@ -88,6 +88,7 @@ type NewProjectFieldErrors = Partial<
     | 'projectName'
     | 'readinessPath'
     | 'releaseCommand'
+    | 'releaseService'
     | 'serverId',
     string
   >
@@ -172,6 +173,7 @@ function NewProjectDialogContent({
   )
   const [composePath, setComposePath] = useState('')
   const [releaseCommand, setReleaseCommand] = useState('')
+  const [releaseService, setReleaseService] = useState('')
   const [readinessPath, setReadinessPath] = useState('')
   const [envVars, setEnvVars] = useState<
     Array<{ id: string; key: string; value: string }>
@@ -317,6 +319,9 @@ function NewProjectDialogContent({
           installationId: selectedRepo.installationId,
           serverId: serverId ?? '',
           composePath,
+          readinessPath,
+          releaseCommand,
+          releaseService,
           envVars: envVars
             .filter((envVar) => envVar.key.trim() || envVar.value)
             .map((envVar) => ({
@@ -394,6 +399,7 @@ function NewProjectDialogContent({
                 fieldErrors={fieldErrors}
                 readinessPath={readinessPath}
                 releaseCommand={releaseCommand}
+                releaseService={releaseService}
                 onAddEnvVar={() =>
                   setEnvVars((current) => [
                     ...current,
@@ -437,6 +443,13 @@ function NewProjectDialogContent({
                   setFieldErrors((current) => ({
                     ...current,
                     releaseCommand: undefined,
+                  }))
+                }}
+                onReleaseServiceChange={(value) => {
+                  setReleaseService(value)
+                  setFieldErrors((current) => ({
+                    ...current,
+                    releaseService: undefined,
                   }))
                 }}
                 onRemoveEnvVar={(id) =>
@@ -801,6 +814,7 @@ function ConfigureStep({
   projectName,
   readinessPath,
   releaseCommand,
+  releaseService,
   repository,
   selectedServerId,
   servers,
@@ -810,6 +824,7 @@ function ConfigureStep({
   onProjectNameChange,
   onReadinessPathChange,
   onReleaseCommandChange,
+  onReleaseServiceChange,
   onRemoveEnvVar,
   onServerChange,
 }: {
@@ -819,6 +834,7 @@ function ConfigureStep({
   projectName: string
   readinessPath: string
   releaseCommand: string
+  releaseService: string
   repository: Repository | null
   selectedServerId: string | null
   servers: Array<ServerSummary>
@@ -831,6 +847,7 @@ function ConfigureStep({
   onProjectNameChange: (name: string) => void
   onReadinessPathChange: (path: string) => void
   onReleaseCommandChange: (command: string) => void
+  onReleaseServiceChange: (service: string) => void
   onRemoveEnvVar: (id: string) => void
   onServerChange: (serverId: string | null) => void
 }) {
@@ -910,24 +927,42 @@ function ConfigureStep({
           />
           <FieldError>{fieldErrors.composePath}</FieldError>
         </Field>
-        <Field data-invalid={Boolean(fieldErrors.releaseCommand)}>
-          <FieldLabel htmlFor="new-project-release-command">
-            Pre-deploy command
-          </FieldLabel>
-          <Textarea
-            aria-invalid={Boolean(fieldErrors.releaseCommand)}
-            className="resize-none py-1.5 font-mono"
-            id="new-project-release-command"
-            value={releaseCommand}
-            placeholder="php artisan migrate --force"
-            onChange={(event) => onReleaseCommandChange(event.target.value)}
-          />
-          <FieldDescription>
-            Optional command run inside the application service after images are
-            ready and before services are updated.
-          </FieldDescription>
-          <FieldError>{fieldErrors.releaseCommand}</FieldError>
-        </Field>
+        <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]">
+          <Field data-invalid={Boolean(fieldErrors.releaseCommand)}>
+            <FieldLabel htmlFor="new-project-release-command">
+              Pre-deploy command
+            </FieldLabel>
+            <Textarea
+              aria-invalid={Boolean(fieldErrors.releaseCommand)}
+              className="resize-none py-1.5 font-mono"
+              id="new-project-release-command"
+              value={releaseCommand}
+              placeholder="e.g. php artisan migrate --force"
+              onChange={(event) => onReleaseCommandChange(event.target.value)}
+            />
+            <FieldDescription>
+              Runs once before services are updated. Leave empty to skip.
+            </FieldDescription>
+            <FieldError>{fieldErrors.releaseCommand}</FieldError>
+          </Field>
+          <Field data-invalid={Boolean(fieldErrors.releaseService)}>
+            <FieldLabel htmlFor="new-project-release-service">
+              Pre-deploy service
+            </FieldLabel>
+            <Input
+              aria-invalid={Boolean(fieldErrors.releaseService)}
+              id="new-project-release-service"
+              value={releaseService}
+              placeholder="Automatic"
+              onChange={(event) => onReleaseServiceChange(event.target.value)}
+            />
+            <FieldDescription>
+              Service to run the pre-deploy command. When empty, uses the first
+              routed service or the only Compose service.
+            </FieldDescription>
+            <FieldError>{fieldErrors.releaseService}</FieldError>
+          </Field>
+        </div>
         <Field data-invalid={Boolean(fieldErrors.readinessPath)}>
           <FieldLabel htmlFor="new-project-readiness-path">
             Health check path
@@ -936,11 +971,11 @@ function ConfigureStep({
             aria-invalid={Boolean(fieldErrors.readinessPath)}
             id="new-project-readiness-path"
             value={readinessPath}
-            placeholder="/health"
+            placeholder="/"
             onChange={(event) => onReadinessPathChange(event.target.value)}
           />
           <FieldDescription>
-            HTTP path Devpush requests after deployment. Defaults to /.
+            Path requested after deployment to confirm the service is ready.
           </FieldDescription>
           <FieldError>{fieldErrors.readinessPath}</FieldError>
         </Field>
@@ -1065,6 +1100,10 @@ function getNewProjectFieldErrors(error: unknown): NewProjectFieldErrors {
 
   if (/compose/i.test(message)) {
     return { composePath: message }
+  }
+
+  if (/health check/i.test(message)) {
+    return { readinessPath: message }
   }
 
   if (/environment variable/i.test(message)) {

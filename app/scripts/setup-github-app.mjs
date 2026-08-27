@@ -36,11 +36,11 @@ async function main() {
   const manifest = {
     name:
       args.appName.trim() ||
-      `Devpush ${new URL(baseUrl).hostname} ${randomBytes(2).toString('hex')}`,
+      `devpush ${new URL(baseUrl).hostname} ${randomBytes(2).toString('hex')}`,
     url: baseUrl,
     callback_urls: [`${baseUrl}/api/auth/callback/github`],
     redirect_url: callbackUrl,
-    description: 'Deploy GitHub repositories to your own servers with Devpush.',
+    description: 'Deploy GitHub repositories to your own servers with devpush.',
     public: false,
     default_permissions: { contents: 'read', metadata: 'read' },
     default_events: ['push', 'installation_target'],
@@ -235,7 +235,7 @@ function printHelp() {
 
 Usage: pnpm setup:github-app [options]
 
-  --base-url <url>       Devpush URL (default: http://localhost:7429)
+  --base-url <url>       devpush URL (default: http://localhost:7429)
   --app-name <name>      GitHub App name (default: unique generated name)
   --owner-type <type>    personal or org (default: personal)
   --org <slug>           Organization slug for an org-owned app

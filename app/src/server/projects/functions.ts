@@ -69,6 +69,15 @@ const createProjectSchema = z.object({
   installationId: z.number().int().positive(),
   serverId: z.string().trim().optional().nullable(),
   composePath: z.string().trim().max(255).optional(),
+  readinessPath: z
+    .string()
+    .trim()
+    .refine((value) => !value || value.startsWith('/'), {
+      message: 'Health check paths must start with /.',
+    })
+    .optional(),
+  releaseCommand: z.string().trim().optional(),
+  releaseService: z.string().trim().optional(),
   envVars: z.array(envVarSchema).optional(),
   projectName: projectMachineNameSchema,
   repoFullName: z
@@ -383,6 +392,9 @@ export const createProject = createServerFn({ method: 'POST' })
       envVars?: Array<z.infer<typeof envVarSchema>>
       installationId: number
       projectName: string
+      readinessPath?: string
+      releaseCommand?: string
+      releaseService?: string
       repoFullName: string
       serverId?: string | null
       teamSlug: string
@@ -403,6 +415,9 @@ export const createProject = createServerFn({ method: 'POST' })
       installationId: data.installationId,
       serverId: data.serverId?.trim() || null,
       composePath: data.composePath ?? '',
+      readinessPath: data.readinessPath ?? '',
+      releaseCommand: data.releaseCommand ?? '',
+      releaseService: data.releaseService ?? '',
       envVars: data.envVars ?? [],
     })
   })

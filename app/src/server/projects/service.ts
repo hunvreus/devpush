@@ -449,6 +449,9 @@ export async function listRepositorySelectionRepositories({
 export async function createProjectFromGitHub({
   composePath: requestedComposePath,
   envVars,
+  readinessPath,
+  releaseCommand,
+  releaseService,
   userId,
   teamSlug,
   projectName,
@@ -464,6 +467,9 @@ export async function createProjectFromGitHub({
   serverId: string | null
   composePath?: string
   envVars?: Array<ProjectEnvironmentVariable>
+  readinessPath?: string
+  releaseCommand?: string
+  releaseService?: string
 }): Promise<CreatedProject> {
   const team = await requireTeam(userId, teamSlug)
   const githubAccount = await getGitHubAccount(userId)
@@ -585,7 +591,15 @@ export async function createProjectFromGitHub({
       defaultServerId: server?.id ?? null,
       routes: initialRoutes,
       envVars: scopedProjectEnvVars,
-      runtimeConfig: createComposeRuntimeConfig({ path: projectComposePath }),
+      runtimeConfig: createComposeRuntimeConfig({
+        path: projectComposePath,
+        readinessPath: readinessPath?.trim() || null,
+        releaseCommand: releaseCommand?.trim() || null,
+        releaseService:
+          releaseCommand?.trim() && releaseService?.trim()
+            ? releaseService.trim()
+            : null,
+      }),
     })
 
     await tx.insert(environments).values({
@@ -1190,45 +1204,6 @@ export async function updateProjectSettings({
     avatarDataUrl,
     deleteAvatar: deleteAvatar ?? false,
   })
-  const productionBranch =
-    context.environments.find(
-      (environment) => environment.slug === 'production',
-    )?.branch ?? context.environments.at(0)?.branch
-  if (nextRuntimeConfig.releaseService && productionBranch) {
-    const projectRows = await db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, context.project.id))
-      .limit(1)
-    const currentProject = projectRows.at(0)
-
-    if (!currentProject) {
-      throw new Error('Project not found.')
-    }
-
-    const metadata = await getProjectComposeMetadata({
-      project: {
-        ...currentProject,
-        slug: nextProjectSlug,
-        name: nextProjectSlug,
-        githubRepoId: repoUpdate.repoId,
-        githubRepo: repoUpdate.repoFullName,
-        githubInstallationId: repoUpdate.installationId,
-        avatarPath,
-        routes: context.routes,
-        envVars: context.envVars,
-        runtimeConfig: nextRuntimeConfig,
-      },
-      ref: productionBranch,
-    })
-
-    if (!metadata?.services.includes(nextRuntimeConfig.releaseService)) {
-      throw new Error(
-        `Release service "${nextRuntimeConfig.releaseService}" is not defined in the Compose file.`,
-      )
-    }
-  }
-
   const now = new Date()
 
   try {
@@ -3377,13 +3352,6 @@ function createDeploymentConfig({
   })
   const runtime = requireProjectRuntimeConfig(project.runtimeConfig)
   const releaseService = runtime.releaseService ?? routes.at(0)?.service ?? null
-
-  if (runtime.releaseCommand && !releaseService) {
-    throw new Error('Configure a service for the pre-deploy command.')
-  }
-  if (runtime.strategy === 'command' && !runtime.deployCommand) {
-    throw new Error('Configure a custom deploy command before deploying.')
-  }
 
   return {
     schemaVersion: 1,

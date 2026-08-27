@@ -219,7 +219,7 @@ CREATE TABLE "projects" (
 	"avatar_path" text,
 	"routes" jsonb,
 	"env_vars" jsonb,
-	"runtime_config" jsonb DEFAULT '{"type":"compose","path":null,"strategy":"managed","releaseCommand":null,"releaseService":null,"readinessPath":null,"deployCommand":null,"rollbackCommand":null,"timeoutSeconds":1800}'::jsonb NOT NULL,
+	"runtime_config" jsonb DEFAULT '{"type":"compose","path":null,"releaseCommand":null,"releaseService":null,"readinessPath":null,"deployCommand":null,"rollbackCommand":null,"timeoutSeconds":1800}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );

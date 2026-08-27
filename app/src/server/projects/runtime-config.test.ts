@@ -3,14 +3,12 @@ import { describe, expect, test } from 'vitest'
 import {
   createComposeRuntimeConfig,
   parseProjectRuntimeConfig,
-  projectRuntimeConfigSchema,
 } from './runtime-config'
 
 describe('project runtime config', () => {
   test('parses the Compose discriminator and settings as one object', () => {
     const config = createComposeRuntimeConfig({
       path: 'deploy/compose.yml',
-      strategy: 'command',
       deployCommand: 'bash ./deploy.sh',
     })
 
@@ -21,11 +19,11 @@ describe('project runtime config', () => {
     expect(parseProjectRuntimeConfig({ type: 'dockerfile' })).toBeNull()
   })
 
-  test('requires a deploy command for command strategy', () => {
-    const result = projectRuntimeConfigSchema.safeParse(
-      createComposeRuntimeConfig({ strategy: 'command' }),
-    )
+  test('accepts an independent rollback override', () => {
+    const config = createComposeRuntimeConfig({
+      rollbackCommand: 'bash ./rollback.sh',
+    })
 
-    expect(result.success).toBe(false)
+    expect(parseProjectRuntimeConfig(config)).toEqual(config)
   })
 })

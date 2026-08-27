@@ -25,7 +25,6 @@ describe('deployment snapshots', () => {
       runtime: {
         type: 'compose',
         path: 'compose.yml',
-        strategy: 'managed',
         releaseCommand: null,
         releaseService: 'web',
         readinessPath: null,
@@ -58,7 +57,6 @@ describe('deployment snapshots', () => {
     expect(config?.runtime).toEqual({
       type: 'compose',
       path: 'compose.yml',
-      strategy: 'managed',
       releaseCommand: null,
       releaseService: 'web',
       readinessPath: null,
@@ -73,7 +71,6 @@ describe('deployment snapshots', () => {
       runtime: {
         type: 'compose',
         path: 'compose.yml',
-        strategy: 'managed',
         releaseCommand: null,
         releaseService: null,
         readinessPath: null,

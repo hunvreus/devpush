@@ -222,7 +222,6 @@ export type AgentDeployJob = {
     type: 'compose'
     path: string
     projectName: string
-    strategy: 'managed' | 'command'
     action: 'deploy' | 'rollback'
     releaseCommand: string | null
     releaseService: string | null
