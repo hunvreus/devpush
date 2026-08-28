@@ -1012,6 +1012,11 @@ export async function deleteTeam({
 
       if (environmentIds.length > 0) {
         await tx
+          .update(environments)
+          .set({ status: 'deleted', isProduction: false, updatedAt: now })
+          .where(inArray(environments.id, environmentIds))
+
+        await tx
           .update(deployments)
           .set({
             status: 'canceled',

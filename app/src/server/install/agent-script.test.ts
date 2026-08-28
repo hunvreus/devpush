@@ -10,7 +10,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 
-import { AGENT_INSTALL_SCRIPT } from './agent-script'
+import {
+  AGENT_INSTALL_SCRIPT,
+  buildTokenizedAgentInstallScript,
+} from './agent-script'
 
 const tempDirs: Array<string> = []
 
@@ -21,6 +24,26 @@ afterEach(() => {
 })
 
 describe('agent install script', () => {
+  test('pins tokenized installers to the configured server URL', () => {
+    const script = buildTokenizedAgentInstallScript({
+      autoUpdate: true,
+      serverUrl: 'https://devpush.example',
+      token: "token-with-'quote",
+      traefikEmail: 'ops@devpush.example',
+    })
+
+    expect(script).toContain(
+      "export DEVPUSH_SERVER_URL='https://devpush.example'",
+    )
+    expect(script).toContain(
+      "export DEVPUSH_AGENT_TOKEN='token-with-'\\''quote'",
+    )
+    expect(script).toContain("export DEVPUSH_AGENT_AUTO_UPDATE='true'")
+    expect(script).toContain(
+      "export DEVPUSH_TRAEFIK_EMAIL='ops@devpush.example'",
+    )
+  })
+
   test('writes staged agent files and starts the service', () => {
     const tempDir = createTempDir()
     const root = join(tempDir, 'root')

@@ -25,6 +25,13 @@ var Version = "unknown"
 
 const ProtocolVersion = 1
 
+const (
+	maxCommandOutputBytes   = 4 << 20
+	maxDeploymentLogLineLen = 65_536
+	maxRuntimeLogBatchBytes = 8 << 20
+	maxRuntimeLogLineLen    = 16_384
+)
+
 var Capabilities = []string{
 	"jobs.compose.deploy.v1",
 	"jobs.compose.cleanup.v1",
@@ -367,9 +374,7 @@ func (runner *Runner) reportRuntimeLogs(ctx context.Context, targets []runtimeLo
 		return
 	}
 
-	if len(logs) > 500 {
-		logs = logs[len(logs)-500:]
-	}
+	logs = runtimeLogBatch(logs)
 
 	if err := runner.post(ctx, "/api/agents/runtime-logs", runtimeLogsRequest{
 		ServerID: runner.cfg.AgentID,
@@ -378,6 +383,28 @@ func (runner *Runner) reportRuntimeLogs(ctx context.Context, targets []runtimeLo
 	}, &runtimeLogsResponse{}); err != nil {
 		runner.log.Warn("report runtime logs failed", "error", err)
 	}
+}
+
+func runtimeLogBatch(logs []runtimeLogLine) []runtimeLogLine {
+	if len(logs) > 500 {
+		logs = logs[len(logs)-500:]
+	}
+
+	batchStart := len(logs)
+	batchBytes := 0
+	for index := len(logs) - 1; index >= 0; index-- {
+		encoded, err := json.Marshal(logs[index])
+		if err != nil {
+			continue
+		}
+		if batchStart < len(logs) && batchBytes+len(encoded) > maxRuntimeLogBatchBytes {
+			break
+		}
+		batchStart = index
+		batchBytes += len(encoded)
+	}
+
+	return append([]runtimeLogLine{}, logs[batchStart:]...)
 }
 
 func (runner *Runner) collectRuntimeLogs(ctx context.Context, runtimeID string, since time.Time) ([]runtimeLogLine, error) {
@@ -444,7 +471,7 @@ func parseComposeLogLine(runtimeID string, line string) (runtimeLogLine, bool) {
 		RuntimeID:  runtimeID,
 		Service:    service,
 		ObservedAt: observedAt.Format(time.RFC3339Nano),
-		Content:    content,
+		Content:    truncateLogLine(content, maxRuntimeLogLineLen),
 	}, true
 }
 
@@ -611,12 +638,21 @@ func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
 	command.Env = mergeCommandEnv(runner.commandEnv(), env)
-	output, err := command.CombinedOutput()
+	output := cappedTailBuffer{maxBytes: maxCommandOutputBytes}
+	command.Stdout = &output
+	command.Stderr = &output
+	err := command.Run()
 	outputLines := []string{}
-	if len(output) > 0 {
-		for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	if len(output.data) > 0 {
+		if output.truncated {
+			*logs = append(*logs, "[command output truncated to the last 4 MiB]")
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(output.data)), "\n") {
 			if strings.TrimSpace(line) != "" {
-				redactedLine := redactToken(line)
+				redactedLine := truncateLogLine(
+					redactToken(line),
+					maxDeploymentLogLineLen,
+				)
 				outputLines = append(outputLines, redactedLine)
 				*logs = append(*logs, redactedLine)
 			}
@@ -632,6 +668,47 @@ func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[
 	}
 
 	return nil
+}
+
+type cappedTailBuffer struct {
+	data      []byte
+	maxBytes  int
+	truncated bool
+}
+
+func (buffer *cappedTailBuffer) Write(value []byte) (int, error) {
+	written := len(value)
+	if written == 0 || buffer.maxBytes <= 0 {
+		return written, nil
+	}
+	if written >= buffer.maxBytes {
+		buffer.truncated = written > buffer.maxBytes || len(buffer.data) > 0
+		buffer.data = append(buffer.data[:0], value[written-buffer.maxBytes:]...)
+		return written, nil
+	}
+
+	overflow := len(buffer.data) + written - buffer.maxBytes
+	if overflow > 0 {
+		copy(buffer.data, buffer.data[overflow:])
+		buffer.data = buffer.data[:len(buffer.data)-overflow]
+		buffer.truncated = true
+	}
+	buffer.data = append(buffer.data, value...)
+
+	return written, nil
+}
+
+func truncateLogLine(value string, maxBytes int) string {
+	if len(value) <= maxBytes {
+		return value
+	}
+
+	const suffix = "... [truncated]"
+	if maxBytes <= len(suffix) {
+		return suffix[:maxBytes]
+	}
+
+	return strings.ToValidUTF8(value[:maxBytes-len(suffix)], "") + suffix
 }
 
 func deploymentCommandEnv(envVars []envVar, values map[string]string) []string {

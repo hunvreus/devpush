@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	maxDeploymentLogBatchBytes = 1 << 20
+	maxDeploymentLogBatchLines = 5_000
+)
+
 func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) jobCompletion {
 	logs := []string{}
 	events := []jobEvent{}
@@ -30,12 +35,13 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 			return
 		}
 
+		logStart, pendingLogs := deploymentLogBatch(logs, flushedLogs)
 		progress := jobProgress{
 			ServerID:     runner.cfg.AgentID,
 			Token:        runner.currentCredential(),
 			DeploymentID: job.ID,
-			LogStartSeq:  baseLogSeq + flushedLogs,
-			Logs:         append([]string{}, logs[flushedLogs:]...),
+			LogStartSeq:  baseLogSeq + logStart,
+			Logs:         pendingLogs,
 			Events:       append([]jobEvent{}, events[flushedEvents:]...),
 		}
 		if err := runner.reportProgress(ctx, progress); err != nil {
@@ -47,6 +53,7 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 		flushedEvents = len(events)
 	}
 	makeCompletion := func() jobCompletion {
+		logStart, pendingLogs := deploymentLogBatch(logs, flushedLogs)
 		return jobCompletion{
 			ServerID:     runner.cfg.AgentID,
 			Token:        runner.currentCredential(),
@@ -54,13 +61,14 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 			DeploymentID: job.ID,
 			Status:       status,
 			GitSha:       nullableString(gitSha),
-			LogStartSeq:  baseLogSeq + flushedLogs,
-			Logs:         append([]string{}, logs[flushedLogs:]...),
+			LogStartSeq:  baseLogSeq + logStart,
+			Logs:         pendingLogs,
 			Events:       append([]jobEvent{}, events[flushedEvents:]...),
 		}
 	}
 
 	addEvent := func(phase string, message string) {
+		message = truncateLogLine(message, maxDeploymentLogLineLen)
 		events = append(events, jobEvent{Phase: phase, Message: message})
 		logs = append(logs, message)
 		flushProgress()
@@ -292,6 +300,34 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	addEvent("completed", "Deployment completed.")
 
 	return makeCompletion()
+}
+
+func deploymentLogBatch(logs []string, start int) (int, []string) {
+	if start >= len(logs) {
+		return start, []string{}
+	}
+
+	batchStart := len(logs)
+	batchBytes := 0
+	for index := len(logs) - 1; index >= start; index-- {
+		if len(logs)-index > maxDeploymentLogBatchLines {
+			break
+		}
+		lineBytes := len(logs[index])
+		if batchStart < len(logs) && batchBytes+lineBytes > maxDeploymentLogBatchBytes {
+			break
+		}
+		batchStart = index
+		batchBytes += lineBytes
+	}
+
+	batch := append([]string{}, logs[batchStart:]...)
+	if batchStart > start {
+		omitted := batchStart - start + 1
+		batch[0] = fmt.Sprintf("[... %d earlier log lines omitted ...]", omitted)
+	}
+
+	return batchStart, batch
 }
 
 func resolveLifecycleCommand(runtime runtimeConfig, action string) (string, string) {

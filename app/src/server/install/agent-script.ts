@@ -247,3 +247,35 @@ echo "devpush agent installed and started."
 echo "Update manually with: sudo \${LIB_DIR}/update-agent"
 echo "Rotate credentials with: sudo \${BIN_DIR}/devpush-agent credential rotate"
 `
+
+export function buildTokenizedAgentInstallScript({
+  autoUpdate,
+  serverUrl,
+  token,
+  traefikEmail,
+}: {
+  autoUpdate: boolean
+  serverUrl: string
+  token: string
+  traefikEmail?: string
+}) {
+  const lines = [
+    '#!/usr/bin/env bash',
+    `export DEVPUSH_SERVER_URL=${shellQuote(serverUrl)}`,
+    `export DEVPUSH_AGENT_TOKEN=${shellQuote(token)}`,
+    `export DEVPUSH_AGENT_AUTO_UPDATE=${shellQuote(String(autoUpdate))}`,
+  ]
+
+  if (traefikEmail) {
+    lines.push(`export DEVPUSH_TRAEFIK_EMAIL=${shellQuote(traefikEmail)}`)
+  }
+
+  return `${lines.join('\n')}\n${AGENT_INSTALL_SCRIPT.replace(
+    /^#!\/usr\/bin\/env bash\n/,
+    '',
+  )}`
+}
+
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}

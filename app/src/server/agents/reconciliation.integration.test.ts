@@ -259,6 +259,99 @@ describe('agent runtime reconciliation', () => {
     expect(queued).toEqual([])
     expect(jobs).toEqual([])
   })
+
+  test('does not clean up a runtime inheriting the project server', async () => {
+    const { projectId, serverId } = await createFixture()
+    const environmentId = `env-${crypto.randomUUID()}`
+    touchedEnvironmentIds.push(environmentId)
+    await db
+      .update(projects)
+      .set({ defaultServerId: serverId })
+      .where(eq(projects.id, projectId))
+    await db.insert(environments).values({
+      id: environmentId,
+      projectId,
+      serverId: null,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      isProduction: true,
+      runtimeId: 'dp_project_production',
+    })
+
+    await reconcileReportedRuntimes({
+      serverId,
+      runtimeIds: ['dp_project_production'],
+      now: new Date('2026-06-01T00:00:00Z'),
+    })
+    const queued = await reconcileReportedRuntimes({
+      serverId,
+      runtimeIds: ['dp_project_production'],
+      now: new Date('2026-06-01T00:11:00Z'),
+    })
+
+    const observations = await db
+      .select({ id: agentRuntimeObservations.id })
+      .from(agentRuntimeObservations)
+      .where(eq(agentRuntimeObservations.serverId, serverId))
+    touchedObservationIds.push(...observations.map((row) => row.id))
+    const jobs = await db
+      .select({ id: agentJobs.id })
+      .from(agentJobs)
+      .where(eq(agentJobs.serverId, serverId))
+
+    expect(queued).toEqual([])
+    expect(jobs).toEqual([])
+  })
+
+  test('keeps a runtime intentionally left behind with a deleted project', async () => {
+    const { projectId, serverId } = await createFixture()
+    const environmentId = `env-${crypto.randomUUID()}`
+    touchedEnvironmentIds.push(environmentId)
+    await db
+      .update(projects)
+      .set({ defaultServerId: serverId })
+      .where(eq(projects.id, projectId))
+    await db.insert(environments).values({
+      id: environmentId,
+      projectId,
+      serverId: null,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      isProduction: true,
+      runtimeId: 'dp_project_production',
+    })
+
+    await reconcileReportedRuntimes({
+      serverId,
+      runtimeIds: ['dp_project_production'],
+      now: new Date('2026-06-01T00:00:00Z'),
+    })
+    await db
+      .update(projects)
+      .set({ status: 'deleted' })
+      .where(eq(projects.id, projectId))
+    const queued = await reconcileReportedRuntimes({
+      serverId,
+      runtimeIds: ['dp_project_production'],
+      now: new Date('2026-06-01T00:11:00Z'),
+    })
+
+    const observations = await db
+      .select({ id: agentRuntimeObservations.id })
+      .from(agentRuntimeObservations)
+      .where(eq(agentRuntimeObservations.serverId, serverId))
+    touchedObservationIds.push(...observations.map((row) => row.id))
+    const jobs = await db
+      .select({ id: agentJobs.id, type: agentJobs.type })
+      .from(agentJobs)
+      .where(eq(agentJobs.serverId, serverId))
+    touchedJobIds.push(...jobs.map((row) => row.id))
+
+    expect(queued).toEqual([])
+    expect(jobs).toEqual([])
+  })
 })
 
 async function createFixture() {

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { and, desc, eq, inArray, lt } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 
 import { db } from '@/server/db'
 import { environments, projects, runtimeLogs } from '@/server/db/schema'
@@ -128,7 +128,11 @@ async function listAllowedRuntimeIds({
     .innerJoin(projects, eq(projects.id, environments.projectId))
     .where(
       and(
-        eq(environments.serverId, serverId),
+        eq(
+          sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+          serverId,
+        ),
+        eq(environments.status, 'active'),
         eq(projects.status, 'active'),
         inArray(environments.runtimeId, runtimeIds),
       ),

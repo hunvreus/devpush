@@ -1059,12 +1059,18 @@ export async function getProjectLogsContext({
         .from(runtimeLogs)
         .innerJoin(
           environments,
+          eq(environments.runtimeId, runtimeLogs.runtimeId),
+        )
+        .innerJoin(projects, eq(projects.id, environments.projectId))
+        .where(
           and(
-            eq(environments.serverId, runtimeLogs.serverId),
-            eq(environments.runtimeId, runtimeLogs.runtimeId),
+            ...runtimeLogConditions,
+            eq(
+              sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+              runtimeLogs.serverId,
+            ),
           ),
         )
-        .where(and(...runtimeLogConditions))
         .orderBy(desc(runtimeLogs.observedAt))
         .limit(200)
   const [deploymentLogExists, runtimeLogExists] = await Promise.all([
@@ -1080,12 +1086,18 @@ export async function getProjectLogsContext({
       .from(runtimeLogs)
       .innerJoin(
         environments,
+        eq(environments.runtimeId, runtimeLogs.runtimeId),
+      )
+      .innerJoin(projects, eq(projects.id, environments.projectId))
+      .where(
         and(
-          eq(environments.serverId, runtimeLogs.serverId),
-          eq(environments.runtimeId, runtimeLogs.runtimeId),
+          eq(environments.projectId, context.project.id),
+          eq(
+            sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+            runtimeLogs.serverId,
+          ),
         ),
       )
-      .where(eq(environments.projectId, context.project.id))
       .limit(1),
   ])
   const logs: Array<ProjectLogEntry> = [
@@ -1280,6 +1292,13 @@ export async function deleteProject({
     const environmentIds = environmentRows.map((environment) => environment.id)
 
     if (environmentIds.length > 0) {
+      if (removeDeployments) {
+        await tx
+          .update(environments)
+          .set({ status: 'deleted', isProduction: false, updatedAt: now })
+          .where(inArray(environments.id, environmentIds))
+      }
+
       await tx
         .update(deployments)
         .set({

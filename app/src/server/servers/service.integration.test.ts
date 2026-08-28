@@ -323,6 +323,50 @@ describe('server service integration', () => {
     expect(next.name).toBe('reusable-server')
   })
 
+  test('counts environments inheriting a project default server', async () => {
+    const { teamId, teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'inherited-server',
+    })
+    touchedServerIds.push(server.id)
+    const projectId = `inherited-project-${crypto.randomUUID()}`
+    const environmentId = `inherited-environment-${crypto.randomUUID()}`
+    touchedProjectIds.push(projectId)
+    touchedEnvironmentIds.push(environmentId)
+
+    await db.insert(projects).values({
+      id: projectId,
+      teamId,
+      defaultServerId: server.id,
+      slug: `inherited-project-${crypto.randomUUID()}`,
+      name: 'Inherited project',
+      githubRepo: 'example/inherited-project',
+    })
+    await db.insert(environments).values({
+      id: environmentId,
+      projectId,
+      serverId: null,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      isProduction: true,
+      runtimeId: `inherited-runtime-${crypto.randomUUID()}`,
+    })
+
+    await expect(
+      getServerDeleteDiagnostic({
+        userId,
+        teamSlug,
+        serverId: server.id,
+      }),
+    ).resolves.toMatchObject({
+      projectCount: 1,
+      environmentCount: 1,
+    })
+  })
+
   test('soft deletes a server, deletes monitoring data, and can cancel active deployments', async () => {
     const { teamId, teamSlug, userId } = await createFixture()
     const server = await createPendingServer({

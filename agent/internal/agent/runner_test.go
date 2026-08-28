@@ -643,6 +643,60 @@ exit 1
 	}
 }
 
+func TestCappedTailBufferKeepsTheNewestOutput(t *testing.T) {
+	buffer := cappedTailBuffer{maxBytes: 5}
+	if _, err := buffer.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buffer.Write([]byte("defg")); err != nil {
+		t.Fatal(err)
+	}
+
+	if string(buffer.data) != "cdefg" || !buffer.truncated {
+		t.Fatalf("unexpected capped output: %q truncated=%t", buffer.data, buffer.truncated)
+	}
+}
+
+func TestCappedTailBufferDoesNotTruncateAnExactFirstWrite(t *testing.T) {
+	buffer := cappedTailBuffer{maxBytes: 5}
+	if _, err := buffer.Write([]byte("abcde")); err != nil {
+		t.Fatal(err)
+	}
+
+	if string(buffer.data) != "abcde" || buffer.truncated {
+		t.Fatalf("unexpected capped output: %q truncated=%t", buffer.data, buffer.truncated)
+	}
+}
+
+func TestTruncateLogLineIncludesSuffixWithinLimit(t *testing.T) {
+	line := truncateLogLine(strings.Repeat("x", 100), 32)
+
+	if len(line) > 32 {
+		t.Fatalf("expected at most 32 bytes, got %d", len(line))
+	}
+	assertContains(t, line, "... [truncated]")
+}
+
+func TestDeploymentLogBatchKeepsBoundedTail(t *testing.T) {
+	logs := make([]string, maxDeploymentLogBatchLines+2)
+	for index := range logs {
+		logs[index] = fmt.Sprintf("line-%d", index)
+	}
+
+	start, batch := deploymentLogBatch(logs, 0)
+
+	if start != 2 {
+		t.Fatalf("expected batch to start at index 2, got %d", start)
+	}
+	if len(batch) != maxDeploymentLogBatchLines {
+		t.Fatalf("expected %d lines, got %d", maxDeploymentLogBatchLines, len(batch))
+	}
+	assertContains(t, batch[0], "3 earlier log lines omitted")
+	if batch[len(batch)-1] != fmt.Sprintf("line-%d", len(logs)-1) {
+		t.Fatalf("expected newest log line, got %q", batch[len(batch)-1])
+	}
+}
+
 func TestRemoveComposeRuntimeKeepsVolumesWhenDeprovisioning(t *testing.T) {
 	tempDir := workspaceTempDir(t, "agent-cleanup-smoke-")
 	binDir := filepath.Join(tempDir, "bin")
@@ -925,6 +979,30 @@ func TestParseComposeLogLine(t *testing.T) {
 		line.ObservedAt != "2026-06-01T00:00:00.123456789Z" ||
 		line.Content != "ready" {
 		t.Fatalf("unexpected parsed line: %#v", line)
+	}
+}
+
+func TestRuntimeLogBatchStaysBelowTheRequestEnvelope(t *testing.T) {
+	logs := make([]runtimeLogLine, 500)
+	for index := range logs {
+		logs[index] = runtimeLogLine{
+			RuntimeID:  "dp_project_production",
+			Service:    "web",
+			ObservedAt: "2026-06-01T00:00:00Z",
+			Content:    strings.Repeat("\x00", maxRuntimeLogLineLen),
+		}
+	}
+
+	batch := runtimeLogBatch(logs)
+	encoded, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) >= len(logs) {
+		t.Fatalf("expected oversized runtime log batch to be reduced")
+	}
+	if len(encoded) > maxRuntimeLogBatchBytes+2 {
+		t.Fatalf("runtime log batch is too large: %d bytes", len(encoded))
 	}
 }
 

@@ -728,7 +728,10 @@ export async function getServerDeleteDiagnostic({
     .innerJoin(projects, eq(projects.id, environments.projectId))
     .where(
       and(
-        eq(environments.serverId, server.id),
+        eq(
+          sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+          server.id,
+        ),
         eq(environments.status, 'active'),
         eq(projects.teamId, team.id),
         eq(projects.status, 'active'),
@@ -869,7 +872,14 @@ async function listRuntimeLogTargets(serverId: string) {
     .from(environments)
     .innerJoin(projects, eq(projects.id, environments.projectId))
     .where(
-      and(eq(environments.serverId, serverId), eq(projects.status, 'active')),
+      and(
+        eq(
+          sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+          serverId,
+        ),
+        eq(environments.status, 'active'),
+        eq(projects.status, 'active'),
+      ),
     )
 
   return Array.from(new Set(rows.map((row) => row.runtimeId)))

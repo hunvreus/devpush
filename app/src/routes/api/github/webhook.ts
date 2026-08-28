@@ -8,12 +8,31 @@ import {
   verifyGitHubWebhookSignature,
 } from '@/server/github/webhooks'
 import { createDeploymentsForGitHubPush } from '@/server/projects/service'
+import {
+  RequestBodyTooLargeError,
+  readRequestText,
+} from '@/server/http/request-body'
+
+const maxGitHubWebhookBytes = 26 * 1024 * 1024
 
 export const Route = createFileRoute('/api/github/webhook')({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const body = await request.text()
+        let body: string
+
+        try {
+          body = await readRequestText(request, maxGitHubWebhookBytes)
+        } catch (error) {
+          if (error instanceof RequestBodyTooLargeError) {
+            return Response.json(
+              { error: 'Webhook payload is too large.' },
+              { status: 413 },
+            )
+          }
+
+          throw error
+        }
 
         try {
           const isValidSignature = verifyGitHubWebhookSignature({

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 
 import type { db } from '@/server/db'
 import {
@@ -74,15 +74,13 @@ async function listProjectRuntimeTargets(
   const environmentRows = await tx
     .select({
       runtimeId: environments.runtimeId,
-      serverId: environments.serverId,
+      serverId: sql<
+        string | null
+      >`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
     })
     .from(environments)
-    .where(
-      and(
-        eq(environments.projectId, projectId),
-        isNotNull(environments.serverId),
-      ),
-    )
+    .innerJoin(projects, eq(projects.id, environments.projectId))
+    .where(eq(environments.projectId, projectId))
   const deploymentRows = await tx
     .select({
       runtimeId: deployments.runtimeId,
@@ -122,15 +120,13 @@ async function listTeamRuntimeTargets(
   const environmentRows = await tx
     .select({
       runtimeId: environments.runtimeId,
-      serverId: environments.serverId,
+      serverId: sql<
+        string | null
+      >`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
     })
     .from(environments)
-    .where(
-      and(
-        inArray(environments.projectId, projectIds),
-        isNotNull(environments.serverId),
-      ),
-    )
+    .innerJoin(projects, eq(projects.id, environments.projectId))
+    .where(inArray(environments.projectId, projectIds))
   const deploymentRows = await tx
     .select({
       runtimeId: deployments.runtimeId,

@@ -14,6 +14,7 @@ import {
   user,
 } from '@/server/db/schema'
 import { getProjectLogsContext } from '@/server/projects/service'
+import { recordAgentHeartbeat } from '@/server/servers/service'
 import { recordRuntimeLogs } from './runtime-logs'
 
 const touchedRuntimeLogIds: Array<string> = []
@@ -145,6 +146,107 @@ describe('runtime log ingestion', () => {
       'current runtime line',
     ])
   })
+
+  test('accepts logs for environments inheriting the project server', async () => {
+    const { projectId, projectName, serverId, teamSlug, token, userId } =
+      await createFixture()
+
+    await db
+      .update(projects)
+      .set({ defaultServerId: serverId })
+      .where(eq(projects.id, projectId))
+    await db
+      .update(environments)
+      .set({ serverId: null })
+      .where(eq(environments.projectId, projectId))
+
+    const heartbeat = await recordAgentHeartbeat({
+      serverId,
+      token,
+      publicAddress: null,
+    })
+    expect(heartbeat.runtimeLogTargets).toEqual([
+      { runtimeId: 'dp_project_production' },
+    ])
+
+    await recordRuntimeLogs({
+      serverId,
+      token,
+      logs: [
+        {
+          runtimeId: 'dp_project_production',
+          service: 'web',
+          observedAt: new Date().toISOString(),
+          content: 'Inherited server log',
+        },
+      ],
+    })
+
+    const rows = await db
+      .select({ id: runtimeLogs.id, content: runtimeLogs.content })
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    touchedRuntimeLogIds.push(...rows.map((row) => row.id))
+
+    expect(rows).toEqual([
+      { id: expect.any(String), content: 'Inherited server log' },
+    ])
+
+    const context = await getProjectLogsContext({
+      userId,
+      teamSlug,
+      projectName,
+      keyword: 'Inherited',
+    })
+    expect(context.logs).toContainEqual(
+      expect.objectContaining({
+        source: 'runtime',
+        runtimeId: 'dp_project_production',
+        content: 'Inherited server log',
+      }),
+    )
+  })
+
+  test('rejects inherited runtime logs from a different server', async () => {
+    const { projectId, serverId, teamId, token } = await createFixture()
+    const assignedServerId = `server-${crypto.randomUUID()}`
+    touchedServerIds.push(assignedServerId)
+    await db.insert(servers).values({
+      id: assignedServerId,
+      teamId,
+      name: `server-${crypto.randomUUID()}`,
+      handle: `server-${crypto.randomUUID()}`,
+      status: 'connected',
+    })
+    await db
+      .update(projects)
+      .set({ defaultServerId: assignedServerId })
+      .where(eq(projects.id, projectId))
+    await db
+      .update(environments)
+      .set({ serverId: null })
+      .where(eq(environments.projectId, projectId))
+
+    await recordRuntimeLogs({
+      serverId,
+      token,
+      logs: [
+        {
+          runtimeId: 'dp_project_production',
+          service: 'web',
+          observedAt: new Date().toISOString(),
+          content: 'Wrong server log',
+        },
+      ],
+    })
+
+    const rows = await db
+      .select({ id: runtimeLogs.id })
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+
+    expect(rows).toEqual([])
+  })
 })
 
 async function createFixture() {
@@ -207,8 +309,10 @@ async function createFixture() {
   })
 
   return {
+    projectId,
     projectName: `project-${suffix}`,
     serverId,
+    teamId,
     teamSlug: `team-${suffix}`,
     token,
     userId,

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm'
 
 import { db } from '@/server/db'
 import {
@@ -6,6 +6,7 @@ import {
   agentRuntimeObservations,
   deployments,
   environments,
+  projects,
 } from '@/server/db/schema'
 import {
   cleanupVolumeRetentionMs,
@@ -301,9 +302,14 @@ async function listKeepRuntimeIds(
   const activeEnvironmentRows = await tx
     .select({ runtimeId: environments.runtimeId })
     .from(environments)
+    .innerJoin(projects, eq(projects.id, environments.projectId))
     .where(
       and(
-        eq(environments.serverId, serverId),
+        eq(
+          sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+          serverId,
+        ),
+        eq(environments.status, 'active'),
         inArray(environments.runtimeId, runtimeIds),
       ),
     )

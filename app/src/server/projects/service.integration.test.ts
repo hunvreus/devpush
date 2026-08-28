@@ -319,6 +319,22 @@ describe('project settings integration', () => {
       serverId,
       teamSlug,
     } = await createProjectFixture()
+    const inheritedEnvironmentId = makeId('environment')
+    touchedEnvironmentIds.push(inheritedEnvironmentId)
+    await db
+      .update(projects)
+      .set({ defaultServerId: serverId })
+      .where(eq(projects.id, projectId))
+    await db.insert(environments).values({
+      id: inheritedEnvironmentId,
+      branch: 'preview/*',
+      isProduction: false,
+      name: 'Preview',
+      projectId,
+      runtimeId: 'runtime-inherited-unused',
+      serverId: null,
+      slug: 'preview',
+    })
 
     await deleteProject({
       userId: ownerId,
@@ -331,6 +347,10 @@ describe('project settings integration', () => {
       .select({ status: projects.status })
       .from(projects)
       .where(eq(projects.id, projectId))
+    const environmentRows = await db
+      .select({ status: environments.status })
+      .from(environments)
+      .where(eq(environments.projectId, projectId))
     const deploymentRows = await db
       .select({
         id: deployments.id,
@@ -373,6 +393,10 @@ describe('project settings integration', () => {
     const succeededDeployment = deploymentById.get(succeededDeploymentId)
 
     expect(projectRows).toEqual([{ status: 'deleted' }])
+    expect(environmentRows).toEqual([
+      { status: 'deleted' },
+      { status: 'deleted' },
+    ])
     expect(queuedDeployment).toMatchObject({
       status: 'canceled',
       phase: 'canceled',
@@ -410,6 +434,7 @@ describe('project settings integration', () => {
         'runtime-queued',
         'runtime-running',
         'runtime-succeeded',
+        'runtime-inherited-unused',
       ]),
     })
     expect(purgeJob).toMatchObject({
@@ -426,6 +451,7 @@ describe('project settings integration', () => {
         'runtime-queued',
         'runtime-running',
         'runtime-succeeded',
+        'runtime-inherited-unused',
       ]),
     })
     expect(purgeJob?.availableAt.getTime()).toBeGreaterThan(Date.now())
@@ -453,6 +479,10 @@ describe('project settings integration', () => {
       .select({ status: projects.status })
       .from(projects)
       .where(eq(projects.id, projectId))
+    const environmentRows = await db
+      .select({ status: environments.status })
+      .from(environments)
+      .where(eq(environments.projectId, projectId))
     const deploymentRows = await db
       .select({
         id: deployments.id,
@@ -468,6 +498,7 @@ describe('project settings integration', () => {
       .where(eq(agentJobs.projectId, projectId))
 
     expect(projectRows).toEqual([{ status: 'deleted' }])
+    expect(environmentRows).toEqual([{ status: 'active' }])
     expect(deploymentRows).toHaveLength(2)
     expect(deploymentRows).toEqual(
       expect.arrayContaining([

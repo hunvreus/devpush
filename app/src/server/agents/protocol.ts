@@ -6,6 +6,16 @@ import type {
   BackupRestoreJobPayload,
 } from '@/server/backups/service'
 import type { DeprovisionJobPayload } from './cleanup'
+import {
+  RequestBodyTooLargeError,
+  readRequestText,
+} from '@/server/http/request-body'
+
+const maxAgentRequestBytes = 16 * 1024 * 1024
+const maxDeploymentEvents = 100
+const maxDeploymentLogLength = 66 * 1024
+const maxDeploymentLogLines = 5_000
+const maxRuntimeLogContentLength = 17 * 1024
 
 const agentVersionSchema = z.string().trim().min(1).max(128)
 
@@ -36,8 +46,15 @@ const deploymentPhaseSchema = z.enum(deploymentPhases)
 
 export const deploymentEventSchema = z.object({
   phase: deploymentPhaseSchema,
-  message: z.string().min(1),
+  message: z.string().min(1).max(maxDeploymentLogLength),
 })
+
+const deploymentLogsSchema = z
+  .array(z.string().max(maxDeploymentLogLength))
+  .max(maxDeploymentLogLines)
+const deploymentEventsSchema = z
+  .array(deploymentEventSchema)
+  .max(maxDeploymentEvents)
 
 const agentCredentialsSchema = z.object({
   serverId: z.string().min(1),
@@ -54,8 +71,8 @@ export const agentJobStatusSchema = agentCredentialsSchema.extend({
 export const agentJobProgressSchema = agentCredentialsSchema.extend({
   deploymentId: z.string().min(1),
   logStartSeq: z.number().int().positive(),
-  logs: z.array(z.string()),
-  events: z.array(deploymentEventSchema),
+  logs: deploymentLogsSchema,
+  events: deploymentEventsSchema,
 })
 
 const completionStatusSchema = z.enum(['succeeded', 'failed', 'canceled'])
@@ -66,8 +83,8 @@ const completeDeploymentJobSchema = agentCredentialsSchema.extend({
   status: completionStatusSchema,
   gitSha: z.string().min(1).nullable(),
   logStartSeq: z.number().int().positive().optional(),
-  logs: z.array(z.string()),
-  events: z.array(deploymentEventSchema),
+  logs: deploymentLogsSchema,
+  events: deploymentEventsSchema,
 })
 
 const completeCleanupJobSchema = agentCredentialsSchema.extend({
@@ -134,7 +151,7 @@ const runtimeLogSchema = z.object({
   runtimeId: z.string().min(1).max(128),
   service: z.string().min(1).max(128),
   observedAt: z.string().min(1),
-  content: z.string().min(1),
+  content: z.string().min(1).max(maxRuntimeLogContentLength),
 })
 
 export const runtimeLogsSchema = agentCredentialsSchema.extend({
@@ -337,9 +354,17 @@ export async function handleAgentRequest<T>(
   failureMessage: string,
 ) {
   try {
-    const payload = schema.parse(await request.json())
+    const body = await readRequestText(request, maxAgentRequestBytes)
+    const payload = schema.parse(JSON.parse(body))
     return Response.json(await handler(payload))
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json(
+        { error: 'Request payload is too large.' },
+        { status: 413 },
+      )
+    }
+
     if (error instanceof z.ZodError || error instanceof SyntaxError) {
       return Response.json(
         { error: 'Invalid request payload.' },
