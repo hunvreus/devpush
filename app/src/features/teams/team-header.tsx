@@ -142,13 +142,16 @@ function TeamHeader({
     <header className="sticky top-0 z-20 flex flex-col gap-y-2 border-b bg-background px-8">
       <div className="flex h-16 items-center justify-between gap-x-4">
         <nav className="flex min-w-0 items-center gap-x-1.5">
-          <Link
-            to="/"
-            className="mr-1 flex h-8 w-6 shrink-0 items-center justify-center"
-            aria-label="devpush"
+          <Button
+            asChild
+            variant="ghost"
+            size="icon-sm"
+            className="mr-1 shrink-0"
           >
-            <LogoMark />
-          </Link>
+            <Link to="/" aria-label="devpush">
+              <LogoMark />
+            </Link>
+          </Button>
           <span className="text-xl text-muted-foreground/25">/</span>
           <TeamSwitcher currentTeam={activeTeam} teams={userContext.teams} />
           {currentProject ? (
@@ -321,6 +324,7 @@ function TeamSwitcher({
           <ResourceAvatar
             data-icon="inline-start"
             name={currentTeam.name}
+            src={currentTeam.image ?? undefined}
             color={currentTeam.color}
             size="xs"
           />
@@ -342,6 +346,7 @@ function TeamSwitcher({
           <DropdownMenuItem className="gap-1.5 whitespace-nowrap">
             <ResourceAvatar
               name={currentTeam.name}
+              src={currentTeam.image ?? undefined}
               color={currentTeam.color}
               size="xs"
             />
@@ -360,6 +365,7 @@ function TeamSwitcher({
                 <Link to="/$teamSlug" params={{ teamSlug: teamOption.slug }}>
                   <ResourceAvatar
                     name={teamOption.name}
+                    src={teamOption.image ?? undefined}
                     color={teamOption.color}
                     size="xs"
                   />
@@ -501,6 +507,7 @@ function ProjectSwitcher({
           <ResourceAvatar
             data-icon="inline-start"
             name={project.name}
+            src={project.avatarUrl ?? undefined}
             color={project.color}
             size="xs"
           />
@@ -526,6 +533,7 @@ function ProjectSwitcher({
             >
               <ResourceAvatar
                 name={project.name}
+                src={project.avatarUrl ?? undefined}
                 color={project.color}
                 size="xs"
               />
@@ -548,6 +556,7 @@ function ProjectSwitcher({
                 >
                   <ResourceAvatar
                     name={projectOption.name}
+                    src={projectOption.avatarUrl ?? undefined}
                     color={projectOption.color}
                     size="xs"
                   />
@@ -668,16 +677,20 @@ function DeploymentSwitcher({
 function LogoMark() {
   return (
     <svg
-      width="120"
-      height="120"
-      viewBox="0 0 120 120"
-      fill="currentColor"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"
-      className="size-5"
+      className="size-4"
       aria-hidden="true"
     >
-      <path d="M39.9265 17L16.5652 103.791H0L23.3612 17H39.9265Z" />
-      <path d="M81.7018 98.5804L71.6494 88.5988L92.6037 67.6445H47.1555V52.9198H92.6037L71.6494 31.9655L81.7018 21.9839L120 60.2822L81.7018 98.5804Z" />
+      <path d="m16 6 6 6-6 6" />
+      <path d="M7 3 2 21M4.5 12H22" />
     </svg>
   )
 }
@@ -696,6 +709,12 @@ function HelpMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-auto">
+        <DropdownMenuItem asChild className="whitespace-nowrap">
+          <a href="https://devpu.sh" target="_blank" rel="noreferrer">
+            About
+            <ExternalLinkIcon className="ml-auto size-3 text-muted-foreground" />
+          </a>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild className="whitespace-nowrap">
           <a href="https://devpu.sh/docs" target="_blank" rel="noreferrer">
             Documentation

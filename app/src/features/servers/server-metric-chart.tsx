@@ -96,7 +96,9 @@ export function ServerMetricChart({
     <section className="space-y-4 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-4">
         <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
-        <p className="text-sm font-medium tabular-nums">{latestValue}</p>
+        <p className="font-mono text-sm font-medium tabular-nums">
+          {latestValue}
+        </p>
       </div>
       {valueCount > 1 && !isMounted ? (
         <div

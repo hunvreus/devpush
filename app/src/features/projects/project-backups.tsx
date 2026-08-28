@@ -301,7 +301,7 @@ export function ProjectBackups({
       </header>
 
       {backupConfigs.length === 0 ? (
-        <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+        <Empty className="min-h-60 border bg-card text-card-foreground">
           <EmptyHeader>
             <EmptyTitle>No backup policies yet.</EmptyTitle>
             <EmptyDescription>
@@ -341,7 +341,7 @@ export function ProjectBackups({
                 </Button>
               </BackupPolicyDialog>
             </header>
-            <ul>
+            <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
               {backupConfigs.map((backup) => {
                 const environment = context.environments.find(
                   (item) => item.id === backup.environmentId,
@@ -356,7 +356,7 @@ export function ProjectBackups({
                 return (
                   <li
                     key={backup.id}
-                    className="flex h-12 items-center gap-4 border border-b-0 px-4 text-sm first:rounded-t-xl last:rounded-b-xl last:border-b hover:bg-muted/50"
+                    className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50"
                   >
                     <BackupStatusIcon
                       enabled={backup.enabled}
@@ -536,7 +536,7 @@ export function ProjectBackups({
                 ))}
               </div>
             ) : (
-              <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+              <Empty className="min-h-60 border bg-card text-card-foreground">
                 <EmptyHeader>
                   <EmptyTitle>No backup runs yet.</EmptyTitle>
                   <EmptyDescription>
@@ -704,7 +704,7 @@ export function ProjectBackupDetails({
 
   if (!backup) {
     return (
-      <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+      <Empty className="min-h-60 border bg-card text-card-foreground">
         <EmptyHeader>
           <EmptyTitle>Backup policy not found.</EmptyTitle>
           <EmptyDescription>

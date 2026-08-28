@@ -55,6 +55,7 @@ export type TeamSummary = {
 export type ProjectSummary = {
   id: string
   name: string
+  avatarUrl: string | null
   githubRepo: string
   defaultHost: string | null
   defaultRouteHttps: boolean
@@ -350,6 +351,7 @@ export async function listTeamProjects(
     .select({
       id: projects.id,
       name: projects.name,
+      avatarUrl: projects.avatarPath,
       githubRepo: projects.githubRepo,
       defaultHost: aliases.hostname,
       defaultRouteHttps: aliases.https,
@@ -375,6 +377,7 @@ export async function listTeamProjects(
   return rows.map((project) => ({
     id: project.id,
     name: project.name,
+    avatarUrl: project.avatarUrl,
     githubRepo: project.githubRepo,
     defaultHost: project.defaultHost,
     defaultRouteHttps: project.defaultRouteHttps ?? false,

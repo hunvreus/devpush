@@ -453,9 +453,9 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="overflow-hidden rounded-xl border">
+                <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                   {context.authMethods.email ? (
-                    <div className="flex h-12 items-center gap-4 border-b px-4 text-sm last:border-b-0">
+                    <div className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0">
                       <MailIcon className="size-4 shrink-0" />
                       <div className="grid min-w-0 flex-1 grid-cols-[120px_1fr] items-center gap-4">
                         <span className="font-medium">Email</span>
@@ -475,7 +475,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
 
                     return (
                       <div
-                        className="flex h-12 items-center gap-4 border-b px-4 text-sm last:border-b-0"
+                        className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0"
                         key={provider}
                       >
                         <ProviderIcon
@@ -610,7 +610,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="overflow-hidden rounded-xl border">
+                <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                   <Table>
                     <TableHeader>
                       <TableRow>

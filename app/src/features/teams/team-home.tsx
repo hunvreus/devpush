@@ -45,7 +45,12 @@ export function TeamHome({
   return (
     <>
       <section className="flex items-center gap-3">
-        <ResourceAvatar name={team.name} color={team.color} size="md" />
+        <ResourceAvatar
+          name={team.name}
+          src={team.image ?? undefined}
+          color={team.color}
+          size="md"
+        />
         <h1 className="text-2xl font-medium">{team.name}</h1>
       </section>
 
@@ -98,7 +103,12 @@ export function TeamProjects({
       <header className="flex items-center justify-between gap-4">
         <h1 className="flex items-center gap-x-3 text-2xl font-medium">
           <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-            <ResourceAvatar name={team.name} color={team.color} size="md" />
+            <ResourceAvatar
+              name={team.name}
+              src={team.image ?? undefined}
+              color={team.color}
+              size="md"
+            />
           </Link>
           <span className="text-muted-foreground/25 font-normal">/</span>
           <span>Projects</span>
@@ -120,7 +130,7 @@ export function TeamProjects({
 
 function EmptyServers({ onAddServer }: { onAddServer: () => void }) {
   return (
-    <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+    <Empty className="min-h-60 border bg-card text-card-foreground">
       <EmptyHeader>
         <EmptyTitle>Connect your first server.</EmptyTitle>
         <EmptyDescription>
@@ -149,7 +159,7 @@ function RecentProjects({
       {projects.slice(0, 6).map((item) => (
         <li
           key={item.name}
-          className="rounded-xl border bg-card p-4 text-sm text-card-foreground shadow-sm"
+          className="rounded-xl border bg-card p-4 text-sm text-card-foreground"
         >
           <article>
             <header className="mb-4 flex items-center gap-2">
@@ -158,7 +168,12 @@ function RecentProjects({
                 params={{ teamSlug, projectName: item.name }}
                 className="flex min-w-0 items-center gap-2.5"
               >
-                <ResourceAvatar name={item.name} color={item.color} size="xs" />
+                <ResourceAvatar
+                  name={item.name}
+                  src={item.avatarUrl ?? undefined}
+                  color={item.color}
+                  size="xs"
+                />
                 <h3 className="truncate font-medium">{item.name}</h3>
               </Link>
             </header>
@@ -221,10 +236,10 @@ function ProjectRows({
   projects: Array<ProjectSummary>
 }) {
   return (
-    <ul>
+    <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
       {projects.map((project) => (
         <li
-          className="flex h-12 min-w-0 items-center gap-x-8 border border-b-0 px-4 text-sm first:rounded-t-xl last:rounded-b-xl last:border-b hover:bg-muted/50"
+          className="flex h-11 min-w-0 items-center gap-x-8 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50"
           key={project.id}
         >
           <Tooltip>
@@ -236,6 +251,7 @@ function ProjectRows({
               >
                 <ResourceAvatar
                   name={project.name}
+                  src={project.avatarUrl ?? undefined}
                   color={project.color}
                   size="xs"
                 />
@@ -309,7 +325,7 @@ function ProjectRows({
 
 function EmptyProjects({ teamSlug }: { teamSlug: string }) {
   return (
-    <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+    <Empty className="min-h-60 border bg-card text-card-foreground">
       <EmptyHeader>
         <EmptyTitle>Deploy your first project.</EmptyTitle>
         <EmptyDescription>

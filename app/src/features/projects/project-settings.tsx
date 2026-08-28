@@ -130,6 +130,11 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     useState<Array<ProjectRouteDefinition>>(initialRoutes)
   const [savedDomains, setSavedDomains] =
     useState<Array<ProjectDomainAlias>>(initialDomains)
+  const defaultReleaseService =
+    routes.find((route) => route.service.trim())?.service.trim() ??
+    (context.composeMetadata?.services.length === 1
+      ? context.composeMetadata.services[0]
+      : null)
   const [savedSettings, setSavedSettings] = useState({
     projectName: project.name,
     composePath: runtimeConfig.path ?? '',
@@ -686,15 +691,16 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                     </FieldLabel>
                     <Textarea
                       id="release-command"
-                      className="resize-none py-1.5 font-mono"
+                      className="min-h-8 resize-none overflow-hidden py-1.5 font-mono"
+                      rows={1}
                       value={releaseCommand}
-                      placeholder="e.g. php artisan migrate --force"
                       onChange={(event) =>
                         setReleaseCommand(event.target.value)
                       }
                     />
                     <FieldDescription>
-                      Runs once before services are updated. Leave empty to
+                      Runs once before services are updated. For example,{' '}
+                      <code>php artisan migrate --force</code>. Leave empty to
                       skip.
                     </FieldDescription>
                   </Field>
@@ -705,14 +711,17 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                     <Input
                       id="release-service"
                       value={releaseService}
-                      placeholder="Automatic"
+                      placeholder={
+                        defaultReleaseService
+                          ? `Default (${defaultReleaseService})`
+                          : 'Select a service'
+                      }
                       onChange={(event) =>
                         setReleaseService(event.target.value)
                       }
                     />
                     <FieldDescription>
-                      Service to run the pre-deploy command. When empty, uses
-                      the first routed service or the only Compose service.
+                      Service to run the pre-deploy command.
                     </FieldDescription>
                   </Field>
                 </div>
@@ -722,7 +731,8 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                   </FieldLabel>
                   <Textarea
                     id="deploy-command"
-                    className="resize-none font-mono"
+                    className="min-h-8 resize-none overflow-hidden py-1.5 font-mono"
+                    rows={1}
                     value={deployCommand}
                     placeholder={managedComposeCommand}
                     onChange={(event) => setDeployCommand(event.target.value)}
@@ -739,7 +749,8 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                   </FieldLabel>
                   <Textarea
                     id="rollback-command"
-                    className="resize-none font-mono"
+                    className="min-h-8 resize-none overflow-hidden py-1.5 font-mono"
+                    rows={1}
                     value={rollbackCommand}
                     placeholder={deployCommand.trim() || managedComposeCommand}
                     onChange={(event) => setRollbackCommand(event.target.value)}

@@ -103,7 +103,12 @@ export function TeamServers({
       <section className="flex items-center justify-between gap-4">
         <h1 className="flex items-center gap-x-3 text-2xl font-medium">
           <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-            <ResourceAvatar name={team.name} color={team.color} size="md" />
+            <ResourceAvatar
+              name={team.name}
+              src={team.image ?? undefined}
+              color={team.color}
+              size="md"
+            />
           </Link>
           <span className="text-muted-foreground/25 font-normal">/</span>
           <span>Servers</span>
@@ -123,10 +128,10 @@ export function TeamServers({
           </div>
         ) : null}
         {items.length > 0 ? (
-          <ul>
+          <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
             {items.map((server) => (
               <li
-                className="flex h-12 min-w-0 items-center gap-4 border border-b-0 px-4 text-sm first:rounded-t-xl last:rounded-b-xl last:border-b hover:bg-muted/50"
+                className="flex h-11 min-w-0 items-center gap-4 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50"
                 key={server.id}
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -203,7 +208,7 @@ export function TeamServers({
             ))}
           </ul>
         ) : (
-          <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+          <Empty className="min-h-60 border bg-card text-card-foreground">
             <EmptyHeader>
               <EmptyTitle>Connect your first server.</EmptyTitle>
               <EmptyDescription>

@@ -1,4 +1,4 @@
-import { Link, useRouter } from '@tanstack/react-router'
+import { getRouteApi, Link, useParams, useRouter } from '@tanstack/react-router'
 import {
   BanIcon,
   CopyIcon,
@@ -58,10 +58,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ResourceAvatar } from '@/components/resource-avatar'
-import {
-  SectionNavigation,
-  SectionNavigationPending,
-} from '@/components/section-navigation'
+import { SectionNavigation } from '@/components/section-navigation'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { ServerMetricChart } from '@/features/servers/server-metric-chart'
 import { getErrorMessage } from '@/lib/error-message'
@@ -79,12 +76,15 @@ import {
   getDeleteServerDiagnostic,
   updateServer,
 } from '@/server/servers/functions'
+
 import type {
   ServerDeleteDiagnostic,
   ServerDetail as ServerDetailData,
   ServerInstallCommand,
 } from '@/server/servers/service'
 import type { TeamSummary } from '@/server/teams/service'
+
+const teamRoute = getRouteApi('/$teamSlug')
 
 export function ServerDetail({
   server,
@@ -131,7 +131,12 @@ export function ServerDetail({
       <section>
         <h1 className="flex items-center gap-x-3 text-2xl font-medium">
           <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-            <ResourceAvatar name={team.name} color={team.color} size="md" />
+            <ResourceAvatar
+              name={team.name}
+              src={team.image ?? undefined}
+              color={team.color}
+              size="md"
+            />
           </Link>
           <span className="text-muted-foreground/25 font-normal">/</span>
           <Link
@@ -355,7 +360,7 @@ export function ServerDetail({
                         {
                           key: 'memory',
                           label: 'Memory',
-                          color: 'var(--chart-2)',
+                          color: 'var(--chart-1)',
                           getValue: (sample) =>
                             formatBytePercent(
                               sample.memoryUsedBytes,
@@ -378,7 +383,7 @@ export function ServerDetail({
                         {
                           key: 'disk',
                           label: 'Disk',
-                          color: 'var(--chart-5)',
+                          color: 'var(--chart-1)',
                           getValue: (sample) =>
                             formatBytePercent(
                               sample.diskUsedBytes,
@@ -402,14 +407,14 @@ export function ServerDetail({
                         {
                           key: 'received',
                           label: 'Received',
-                          color: 'var(--chart-3)',
+                          color: 'var(--chart-1)',
                           getValue: (sample) =>
                             sample.networkReceiveBytesPerSecond,
                         },
                         {
                           key: 'sent',
                           label: 'Sent',
-                          color: 'var(--chart-4)',
+                          color: 'var(--chart-2)',
                           getValue: (sample) =>
                             sample.networkTransmitBytesPerSecond,
                         },
@@ -451,53 +456,152 @@ export function ServerDetail({
 }
 
 export function ServerDetailPending() {
+  const params = useParams({ strict: false })
+  const context = teamRoute.useLoaderData()
+  const serverId = typeof params.serverId === 'string' ? params.serverId : ''
+  const server = context.servers.find((item) => item.id === serverId)
+
   return (
     <div className="space-y-8" aria-label="Loading server">
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-12 rounded-lg" />
-        <Skeleton className="h-8 w-64 max-w-full" />
-      </div>
+      <section>
+        <h1 className="flex min-w-0 items-center gap-x-3 text-2xl font-medium">
+          <a href={`/${context.team.slug}`}>
+            <ResourceAvatar
+              name={context.team.name}
+              src={context.team.image ?? undefined}
+              color={context.team.color}
+              size="md"
+            />
+          </a>
+          <span className="text-muted-foreground/25 font-normal">/</span>
+          <span>Servers</span>
+          <span className="text-muted-foreground/25 font-normal">/</span>
+          <span className="truncate">{server?.name ?? serverId}</span>
+        </h1>
+      </section>
       <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
         <div className="space-y-8">
-          <ServerCardPending bodyHeight="h-64" />
-          <ServerCardPending bodyHeight="h-48" />
-          <div className="overflow-hidden rounded-xl border">
-            <div className="space-y-2 border-b p-6">
-              <Skeleton className="h-5 w-20" />
-              <Skeleton className="h-4 w-72 max-w-full" />
-            </div>
-            <div className="grid gap-4 p-6 md:grid-cols-2">
+          <ServerGeneralPending />
+          <ServerHostPending />
+          <Card>
+            <CardHeader className="space-y-2 border-b">
+              <CardTitle>Metrics</CardTitle>
+              <CardDescription>
+                Up to 24 hours of host resource history. Missing samples remain
+                visible as gaps.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
               {Array.from({ length: 4 }, (_, index) => (
-                <div key={index} className="h-52 rounded-lg border p-4">
+                <div key={index} className="h-[230px] rounded-lg border p-4">
                   <div className="flex justify-between gap-4">
-                    <Skeleton className="h-4 w-24" />
+                    <span className="text-muted-foreground">
+                      {
+                        [
+                          'CPU usage',
+                          'Memory usage',
+                          'Disk usage',
+                          'Network traffic',
+                        ][index]
+                      }
+                    </span>
                     <Skeleton className="h-4 w-20" />
                   </div>
                   <Skeleton className="mt-6 h-36 w-full" />
                 </div>
               ))}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="space-y-2 border-b">
+              <CardTitle>Danger</CardTitle>
+              <CardDescription>
+                Administrative actions that affect this server.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Skeleton className="h-8 w-36" />
+              <Skeleton className="h-8 w-32" />
+            </CardContent>
+          </Card>
         </div>
-        <SectionNavigationPending className="hidden lg:flex" count={4} />
+        <SectionNavigation
+          className="hidden lg:flex"
+          items={[
+            { href: '#general', label: 'General' },
+            { href: '#host', label: 'Host' },
+            { href: '#metrics', label: 'Metrics' },
+            { href: '#danger', label: 'Danger', destructive: true },
+          ]}
+        />
       </div>
     </div>
   )
 }
 
-function ServerCardPending({ bodyHeight }: { bodyHeight: string }) {
+function ServerGeneralPending() {
   return (
-    <div className="overflow-hidden rounded-xl border">
-      <div className="space-y-2 border-b p-6">
-        <Skeleton className="h-5 w-24" />
-        <Skeleton className="h-4 w-64 max-w-full" />
-      </div>
-      <div className={`${bodyHeight} space-y-6 p-6`}>
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-2/3" />
-      </div>
-    </div>
+    <Card>
+      <CardHeader className="space-y-2 border-b">
+        <CardTitle>General</CardTitle>
+        <CardDescription>Basic details for this server.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-2">
+          <span className="text-sm font-medium">Status</span>
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-5 shrink-0 rounded-md" />
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-28" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <span className="text-sm font-medium">Name</span>
+          <Skeleton className="h-8 w-full" />
+        </div>
+        <div className="space-y-2">
+          <span className="text-sm font-medium">Server ID</span>
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-4 w-64 max-w-full" />
+        </div>
+      </CardContent>
+      <CardFooter className="justify-end gap-2">
+        <Skeleton className="h-8 w-16" />
+        <Skeleton className="h-8 w-16" />
+      </CardFooter>
+    </Card>
+  )
+}
+
+function ServerHostPending() {
+  return (
+    <Card>
+      <CardHeader className="space-y-2 border-b">
+        <CardTitle>Host</CardTitle>
+        <CardDescription>
+          System information reported by the agent.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-x-8 gap-y-5 md:grid-cols-2">
+          {[
+            'Hostname',
+            'Operating system',
+            'CPU',
+            'Memory',
+            'Architecture',
+            'Host uptime',
+            'Kernel',
+            'Agent version',
+          ].map((label, index) => (
+            <div className="space-y-2" key={index}>
+              <span className="font-medium">{label}</span>
+              <Skeleton className={index % 3 === 0 ? 'h-4 w-40' : 'h-4 w-28'} />
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

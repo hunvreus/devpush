@@ -62,7 +62,7 @@ export function DeploymentList({
   }, [router, shouldRefresh])
 
   return (
-    <ul>
+    <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
       {rows.map((deployment) => (
         <DeploymentRow
           key={deployment.id}
@@ -97,7 +97,7 @@ function DeploymentRow({
       : null
 
   return (
-    <li className="flex h-12 items-center gap-4 border border-b-0 px-4 text-sm first:rounded-t-xl last:rounded-b-xl last:border-b hover:bg-muted/50">
+    <li className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50">
       <DeploymentStatusIcon status={deployment.status} />
       <Tooltip>
         <TooltipTrigger asChild>

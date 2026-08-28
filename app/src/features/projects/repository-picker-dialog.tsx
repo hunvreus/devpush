@@ -229,19 +229,14 @@ export function RepositoryPickerDialog({
                   <RepoListSkeleton />
                 ) : filteredRepositories.length > 0 ? (
                   <ul
+                    className="overflow-hidden rounded-lg border"
                     aria-label="Repository list"
                     aria-live="polite"
                     role="listbox"
                   >
-                    {filteredRepositories.map((repo, index) => (
+                    {filteredRepositories.map((repo) => (
                       <li
-                        className={`flex h-12 items-center gap-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
-                          index > 0 ? 'border-t-0' : 'rounded-t-lg'
-                        } ${
-                          index === filteredRepositories.length - 1
-                            ? 'rounded-b-lg'
-                            : ''
-                        }`}
+                        className="flex h-11 items-center gap-2 border-b px-4 text-sm transition-colors last:border-b-0 hover:bg-muted/50"
                         key={`${repo.installationId}:${repo.id}`}
                         role="option"
                       >
@@ -300,20 +295,22 @@ export function RepositoryPickerDialog({
 function RepositoryToolbarSkeleton() {
   return (
     <div className="flex gap-2">
-      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
-      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
+      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 dark:bg-input/40" />
+      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 dark:bg-input/40" />
     </div>
   )
 }
 
 function RepoListSkeleton() {
   return (
-    <ul aria-label="Loading repositories" aria-live="polite">
+    <ul
+      className="overflow-hidden rounded-lg border"
+      aria-label="Loading repositories"
+      aria-live="polite"
+    >
       {Array.from({ length: 5 }).map((_, index) => (
         <li
-          className={`flex h-12 items-center justify-between gap-x-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
-            index > 0 ? 'border-t-0' : 'rounded-t-lg'
-          } ${index === 4 ? 'rounded-b-lg' : ''}`}
+          className="flex h-11 items-center justify-between gap-x-2 border-b px-4 text-sm last:border-b-0"
           key={index}
         >
           <span className="flex min-w-0 flex-1 items-center gap-2">

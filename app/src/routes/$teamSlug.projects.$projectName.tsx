@@ -61,7 +61,10 @@ function ProjectPending() {
 function getPendingSection(pathname: string): ProjectPendingSection {
   if (pathname.endsWith('/settings')) return 'settings'
   if (pathname.endsWith('/logs')) return 'logs'
-  if (pathname.includes('/backups')) return 'backups'
+
+  const backupPath = pathname.split('/backups/')[1]
+  if (backupPath) return 'backup'
+  if (pathname.endsWith('/backups')) return 'backups'
 
   const deploymentPath = pathname.split('/deployments/')[1]
   if (deploymentPath) return 'deployment'

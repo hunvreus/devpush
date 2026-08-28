@@ -41,7 +41,12 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
     <>
       <section>
         <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <ResourceAvatar name={project.name} color={project.color} size="md" />
+          <ResourceAvatar
+            name={project.name}
+            src={project.avatarUrl ?? undefined}
+            color={project.color}
+            size="md"
+          />
           {project.name}
         </h1>
       </section>
@@ -61,7 +66,7 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
           </Button>
         </header>
         <ul className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          <li className="rounded-xl border bg-card p-4 text-sm text-card-foreground shadow-sm">
+          <li className="rounded-xl border bg-card p-4 text-sm text-card-foreground">
             <header className="mb-4 flex items-center gap-x-2 truncate">
               <Link
                 to="/$teamSlug/projects/$projectName/deployments"
@@ -123,7 +128,7 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
               {formatAge(environment.runtime.observedAt)}.
             </p>
           </header>
-          <ul className="divide-y rounded-xl border bg-card text-sm text-card-foreground shadow-sm">
+          <ul className="divide-y rounded-xl border bg-card text-sm text-card-foreground">
             {environment.runtime.services.length > 0 ? (
               environment.runtime.services.map((service) => {
                 const status = getRuntimeServiceStatus(service)
@@ -194,7 +199,7 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
             </footer>
           </div>
         ) : (
-          <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+          <Empty className="min-h-60 border bg-card text-card-foreground">
             <EmptyHeader>
               <EmptyTitle>No deployments yet.</EmptyTitle>
               <EmptyDescription>

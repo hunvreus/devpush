@@ -10,8 +10,9 @@ All notable changes to devpush will be documented in this file.
 
 ### Fixed
 
-- Replaced stale or blank project, deployment, log, server, and settings loading
-  states with pending layouts that match the final page geometry.
+- Reassessed every skeleton state and aligned project, deployment, log, backup,
+  settings, server, repository-picker, and deploy-dialog placeholders with the
+  final controls, card spacing, section counts, and responsive geometry.
 - Repaired the frozen production lockfile and made validation accept either the
   Docker Compose plugin or the standalone `docker-compose` command.
 - Kept configured OAuth providers visible after client-side login-route reloads
@@ -44,6 +45,14 @@ All notable changes to devpush will be documented in this file.
 
 ### Changed
 
+- Adopted the neutral Nova `b0` interface preset with Inter interface
+  typography, JetBrains Mono for code-oriented content, card-backed grouped
+  lists, size-scaled rounded resource/account avatars, and medium-weight page
+  section navigation. Environment-variable actions now use a shared button
+  group, environment color selections use contrast-aware check marks, and
+  charts assign series colors consistently from `chart-1` onward using a
+  indigo-and-pink palette with light- and dark-mode contrast. Metric readouts
+  use tabular monospace numerals.
 - Flattened the unreleased database history into one clean 1.0 baseline
   migration and validated it against an empty PostgreSQL database.
 - Standardized every settings section navigation on one compact row style that

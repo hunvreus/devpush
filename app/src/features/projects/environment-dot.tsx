@@ -41,6 +41,14 @@ const environmentColorClasses: Record<string, string> = {
   zinc: 'bg-zinc-500',
 }
 
+const environmentColorForegroundClasses: Record<string, string> = {
+  amber: 'text-black',
+  cyan: 'text-black',
+  lime: 'text-black',
+  sky: 'text-black',
+  yellow: 'text-black',
+}
+
 export function getEnvironmentColor(index: number) {
   return environmentColors[(3 * (index - 1)) % environmentColors.length]
 }
@@ -71,7 +79,9 @@ export function EnvironmentColorOption({
       className={`flex size-5 items-center justify-center rounded-full ${environmentColorClasses[color] ?? environmentColorClasses.zinc}`}
     >
       {checked ? (
-        <CheckIcon className="size-3.5 text-foreground drop-shadow" />
+        <CheckIcon
+          className={`size-3.5 ${environmentColorForegroundClasses[color] ?? 'text-white'}`}
+        />
       ) : null}
     </span>
   )

@@ -596,8 +596,8 @@ function NewProjectLoadingContent() {
 function RepositoryToolbarSkeleton() {
   return (
     <div className="flex gap-2">
-      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
-      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 shadow-xs dark:bg-input/40" />
+      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 dark:bg-input/40" />
+      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 dark:bg-input/40" />
     </div>
   )
 }
@@ -690,12 +690,15 @@ function RepositoryStep({
         {isLoading ? (
           <RepoListSkeleton />
         ) : filteredRepos.length > 0 ? (
-          <ul role="listbox" aria-label="Repository list" aria-live="polite">
-            {filteredRepos.map((repo, index) => (
+          <ul
+            className="overflow-hidden rounded-lg border"
+            role="listbox"
+            aria-label="Repository list"
+            aria-live="polite"
+          >
+            {filteredRepos.map((repo) => (
               <li
-                className={`flex h-12 items-center gap-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
-                  index > 0 ? 'border-t-0' : 'rounded-t-lg'
-                } ${index === filteredRepos.length - 1 ? 'rounded-b-lg' : ''}`}
+                className="flex h-11 items-center gap-2 border-b px-4 text-sm transition-colors last:border-b-0 hover:bg-muted/50"
                 key={`${repo.installationId}:${repo.id}`}
                 role="option"
               >
@@ -934,14 +937,15 @@ function ConfigureStep({
             </FieldLabel>
             <Textarea
               aria-invalid={Boolean(fieldErrors.releaseCommand)}
-              className="resize-none py-1.5 font-mono"
+              className="min-h-8 resize-none overflow-hidden py-1.5 font-mono"
               id="new-project-release-command"
+              rows={1}
               value={releaseCommand}
-              placeholder="e.g. php artisan migrate --force"
               onChange={(event) => onReleaseCommandChange(event.target.value)}
             />
             <FieldDescription>
-              Runs once before services are updated. Leave empty to skip.
+              Runs once before services are updated. For example,{' '}
+              <code>php artisan migrate --force</code>. Leave empty to skip.
             </FieldDescription>
             <FieldError>{fieldErrors.releaseCommand}</FieldError>
           </Field>
@@ -957,8 +961,7 @@ function ConfigureStep({
               onChange={(event) => onReleaseServiceChange(event.target.value)}
             />
             <FieldDescription>
-              Service to run the pre-deploy command. When empty, uses the first
-              routed service or the only Compose service.
+              Service to run the pre-deploy command.
             </FieldDescription>
             <FieldError>{fieldErrors.releaseService}</FieldError>
           </Field>
@@ -1119,12 +1122,14 @@ function getNewProjectFieldErrors(error: unknown): NewProjectFieldErrors {
 
 function RepoListSkeleton() {
   return (
-    <ul aria-label="Loading repositories" aria-live="polite">
+    <ul
+      className="overflow-hidden rounded-lg border"
+      aria-label="Loading repositories"
+      aria-live="polite"
+    >
       {Array.from({ length: 5 }).map((_, index) => (
         <li
-          className={`flex h-12 items-center justify-between gap-x-2 border px-4 text-sm transition-colors hover:bg-muted/50 ${
-            index > 0 ? 'border-t-0' : 'rounded-t-lg'
-          } ${index === 4 ? 'rounded-b-lg' : ''}`}
+          className="flex h-11 items-center justify-between gap-x-2 border-b px-4 text-sm last:border-b-0"
           key={index}
         >
           <span className="flex min-w-0 flex-1 items-center gap-2">

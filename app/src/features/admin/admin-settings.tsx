@@ -522,9 +522,15 @@ export function AdminSettings({
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No version information found.
-                  </p>
+                  <Empty className="min-h-40">
+                    <EmptyHeader>
+                      <EmptyTitle>No installation information</EmptyTitle>
+                      <EmptyDescription>
+                        If you are not running a development version, check the
+                        installation and version-file configuration.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
                 )}
               </CardContent>
             </Card>
@@ -558,7 +564,7 @@ export function AdminSettings({
                         No users found.
                       </p>
                     ) : (
-                      <div className="overflow-hidden rounded-xl border">
+                      <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                         <Table>
                           <TableHeader>
                             <TableRow>
@@ -800,7 +806,7 @@ export function AdminSettings({
                 ) : (
                   <>
                     <div className="flex justify-end">{allowlistActions}</div>
-                    <div className="overflow-hidden rounded-xl border">
+                    <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                       <Table>
                         <TableHeader>
                           <TableRow>

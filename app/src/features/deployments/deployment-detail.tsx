@@ -89,6 +89,7 @@ export function DeploymentDetail({ context }: { context: DeploymentContext }) {
             >
               <ResourceAvatar
                 name={project.name}
+                src={project.avatarUrl ?? undefined}
                 color={project.color}
                 size="md"
               />

@@ -772,7 +772,7 @@ export function TeamSettings({
                     No members found.
                   </p>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border">
+                  <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -1002,7 +1002,7 @@ export function TeamSettings({
                       ? 'pending invite'
                       : 'pending invites'}
                   </h3>
-                  <div className="overflow-hidden rounded-xl border">
+                  <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                     <Table>
                       <TableHeader>
                         <TableRow>

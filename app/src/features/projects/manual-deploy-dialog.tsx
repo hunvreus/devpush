@@ -214,18 +214,24 @@ export function ManualDeployDialog({
                   onChange={setSelectedEnvironmentId}
                 />
               ) : (
-                <Skeleton className="h-8 w-36" />
+                <Skeleton className="h-7 w-36" />
               )}
               <div className="h-60 overflow-y-auto scrollbar">
-                <section>
+                <section className="overflow-hidden rounded-lg border">
                   {Array.from({ length: 6 }).map((_, index) => (
                     <label
                       key={index}
-                      className="flex h-12 items-center gap-x-3 border border-b-0 px-4 text-sm first:rounded-t-lg last:rounded-b-lg last:border-b"
+                      className="flex h-11 items-center gap-x-3 border-b px-4 text-sm last:border-b-0"
                     >
                       <span className="size-3.5 shrink-0 rounded-full border border-muted-foreground/40" />
-                      <span className="flex min-w-0 flex-1">
-                        <Skeleton className="h-4 flex-1 bg-muted-foreground/20" />
+                      <Skeleton className="h-4 w-14 shrink-0 bg-muted-foreground/20" />
+                      <span className="flex min-w-0 shrink-0 items-center gap-x-2">
+                        <Skeleton className="size-4 shrink-0 bg-muted-foreground/20" />
+                        <Skeleton className="h-4 w-16 bg-muted-foreground/20" />
+                      </span>
+                      <span className="flex min-w-0 flex-1 items-center gap-x-2">
+                        <Skeleton className="size-4 shrink-0 bg-muted-foreground/20" />
+                        <Skeleton className="h-4 min-w-0 flex-1 bg-muted-foreground/20" />
                       </span>
                       <Button
                         type="button"
@@ -251,11 +257,11 @@ export function ManualDeployDialog({
 
               <div className="h-60 overflow-y-auto scrollbar">
                 {options.commits.length > 0 ? (
-                  <section>
+                  <section className="overflow-hidden rounded-lg border">
                     {options.commits.map((commit) => (
                       <label
                         key={commit.sha}
-                        className="flex h-12 min-w-0 cursor-pointer items-center gap-x-3 border border-b-0 bg-clip-padding px-4 text-sm transition-colors first:rounded-t-lg last:rounded-b-lg last:border-b hover:bg-muted/50"
+                        className="flex h-11 min-w-0 cursor-pointer items-center gap-x-3 border-b px-4 text-sm transition-colors last:border-b-0 hover:bg-muted/50"
                       >
                         <input
                           type="radio"
@@ -317,7 +323,7 @@ export function ManualDeployDialog({
                     ))}
                   </section>
                 ) : (
-                  <section className="flex min-h-60 items-center justify-center rounded-xl border bg-card p-4 text-card-foreground shadow-sm">
+                  <section className="flex min-h-60 items-center justify-center rounded-xl border bg-card p-4 text-card-foreground">
                     <div className="max-w-sm text-center">
                       <h2 className="font-semibold">No commits</h2>
                       <p className="mt-1 text-sm text-muted-foreground">

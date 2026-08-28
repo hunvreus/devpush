@@ -1,3 +1,5 @@
+'use client'
+
 import * as React from 'react'
 import * as RechartsPrimitive from 'recharts'
 import type { TooltipValueType } from 'recharts'
@@ -81,7 +83,7 @@ function ChartContainer({
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   const colorConfig = Object.entries(config).filter(
-    ([, item]) => item.theme ?? item.color,
+    ([, itemConfig]) => itemConfig.theme ?? itemConfig.color,
   )
 
   if (!colorConfig.length) {

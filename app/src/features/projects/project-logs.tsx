@@ -166,6 +166,7 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
           >
             <ResourceAvatar
               name={project.name}
+              src={project.avatarUrl ?? undefined}
               color={project.color}
               size="md"
             />

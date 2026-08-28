@@ -1,10 +1,7 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-<style>
-  path { fill: #0a0a0a; }
-  @media (prefers-color-scheme: dark) {
-    path { fill: #fafafa; }
-  }
-</style>
-<path d="M8.6434 3L3.58609 22H0L5.05731 3H8.6434Z"/>
-<path d="M15.7091 21.0546L13.5329 18.8695L18.0692 14.2822H8.23039V11.0587H18.0692L13.5329 6.47145L15.7091 4.2863L24 12.6705L15.7091 21.0546Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+  <rect width="24" height="24" rx="5" fill="#0a0a0a" />
+  <g stroke="#fafafa" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m15.6 6.6 5.4 5.4-5.4 5.4" />
+    <path d="M7.5 3.9 3 20.1M5.25 12H21" />
+  </g>
 </svg>

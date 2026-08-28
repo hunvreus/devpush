@@ -44,11 +44,6 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
   EnvironmentColorOption,
   EnvironmentDot,
   environmentColors,
@@ -630,36 +625,51 @@ export function EnvironmentVariablesSettingsSection({
                 Add variables available to builds and deployments.
               </EmptyDescription>
             </EmptyHeader>
-            <EmptyContent className="flex-row justify-center">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={add}
+            <EmptyContent>
+              <EnvironmentVariableActions
                 disabled={isSaving}
-              >
-                <PlusIcon data-icon="inline-start" />
-                Add variable
-              </Button>
-              <PasteEnvFileDialog onInsert={insertEnvFile} />
+                onAdd={add}
+                onInsert={insertEnvFile}
+              />
             </EmptyContent>
           </Empty>
         )}
         {items.length > 0 ? (
-          <div className="mt-3 flex gap-x-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={add}
+          <div className="mt-3">
+            <EnvironmentVariableActions
               disabled={isSaving}
-            >
-              <PlusIcon data-icon="inline-start" />
-              Add variable
-            </Button>
-            <PasteEnvFileDialog onInsert={insertEnvFile} />
+              onAdd={add}
+              onInsert={insertEnvFile}
+            />
           </div>
         ) : null}
       </div>
     </SettingsSection>
+  )
+}
+
+function EnvironmentVariableActions({
+  disabled,
+  onAdd,
+  onInsert,
+}: {
+  disabled: boolean
+  onAdd: () => void
+  onInsert: (envFile: string) => void
+}) {
+  return (
+    <ButtonGroup>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onAdd}
+        disabled={disabled}
+      >
+        <PlusIcon data-icon="inline-start" />
+        Add variable
+      </Button>
+      <PasteEnvFileDialog disabled={disabled} onInsert={onInsert} />
+    </ButtonGroup>
   )
 }
 
@@ -695,8 +705,10 @@ function EnvVarValueTextarea({
 }
 
 function PasteEnvFileDialog({
+  disabled,
   onInsert,
 }: {
+  disabled: boolean
   onInsert: (envFile: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -710,21 +722,19 @@ function PasteEnvFileDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DialogTrigger asChild>
-            <Button
-              aria-label="Paste .env file"
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <FileTextIcon />
-            </Button>
-          </DialogTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Paste .env file</TooltipContent>
-      </Tooltip>
+      <IconActionTooltip label="Paste .env">
+        <DialogTrigger asChild>
+          <Button
+            aria-label="Paste .env"
+            disabled={disabled}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <FileTextIcon />
+          </Button>
+        </DialogTrigger>
+      </IconActionTooltip>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Paste .env file</DialogTitle>

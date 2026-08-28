@@ -62,6 +62,7 @@ export function DeploymentsPage({
           >
             <ResourceAvatar
               name={context.project.name}
+              src={context.project.avatarUrl ?? undefined}
               color={context.project.color}
               size="md"
             />
@@ -94,7 +95,7 @@ export function DeploymentsPage({
         {context.deployments.length > 0 ? (
           <DeploymentList deployments={filteredDeployments} />
         ) : (
-          <Empty className="min-h-60 border bg-card text-card-foreground shadow-sm">
+          <Empty className="min-h-60 border bg-card text-card-foreground">
             <EmptyHeader>
               <EmptyTitle>No deployments yet.</EmptyTitle>
               <EmptyDescription>
