@@ -10,6 +10,8 @@ All notable changes to devpush will be documented in this file.
 
 ### Fixed
 
+- Hardened GitHub App installation redirects against encoded and backslash-based
+  cross-origin targets, and updated Better Auth to the patched 1.6 release line.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.
