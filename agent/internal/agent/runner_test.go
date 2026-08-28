@@ -677,6 +677,29 @@ func TestTruncateLogLineIncludesSuffixWithinLimit(t *testing.T) {
 	assertContains(t, line, "... [truncated]")
 }
 
+func TestRunCommandTruncatesTheCommandEcho(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, filepath.Join(binDir, "successful-command"), "#!/bin/sh\nexit 0\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	runner := NewRunner(Config{}, nil)
+	logs := []string{}
+	if err := runner.runCommand(
+		t.Context(),
+		"",
+		&logs,
+		"successful-command",
+		strings.Repeat("x", maxDeploymentLogLineLen+100),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(logs) != 1 || len(logs[0]) > maxDeploymentLogLineLen {
+		t.Fatalf("expected one bounded command log, got %d entries and %d bytes", len(logs), len(logs[0]))
+	}
+	assertContains(t, logs[0], "... [truncated]")
+}
+
 func TestDeploymentLogBatchKeepsBoundedTail(t *testing.T) {
 	logs := make([]string, maxDeploymentLogBatchLines+2)
 	for index := range logs {

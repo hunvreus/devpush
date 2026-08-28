@@ -167,11 +167,17 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	}
 	publishedPortServices := model.servicesWithPublishedPorts()
 	if len(publishedPortServices) > 0 {
-		logs = append(logs, fmt.Sprintf("Warning: devpush managed ingress ignores published ports for services: %s.", strings.Join(publishedPortServices, ", ")))
+		logs = append(logs, truncateLogLine(
+			fmt.Sprintf("Warning: devpush managed ingress ignores published ports for services: %s.", strings.Join(publishedPortServices, ", ")),
+			maxDeploymentLogLineLen,
+		))
 	}
 	hostNetworkServices := model.servicesWithHostNetworking()
 	if len(hostNetworkServices) > 0 {
-		logs = append(logs, fmt.Sprintf("Warning: devpush managed ingress ignores host networking for services: %s.", strings.Join(hostNetworkServices, ", ")))
+		logs = append(logs, truncateLogLine(
+			fmt.Sprintf("Warning: devpush managed ingress ignores host networking for services: %s.", strings.Join(hostNetworkServices, ", ")),
+			maxDeploymentLogLineLen,
+		))
 	}
 	for _, route := range job.Routes {
 		if _, exists := model.Services[route.Service]; !exists {

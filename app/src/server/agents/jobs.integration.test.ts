@@ -4,12 +4,14 @@ import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
+import { currentAgentCapabilities } from './compatibility'
 import {
   agentJobs,
   backupArtifacts,
   backupRuns,
   deployments,
   environments,
+  githubInstallations,
   aliases,
   projects,
   servers,
@@ -18,11 +20,13 @@ import {
   user,
 } from '@/server/db/schema'
 import {
+  claimNextAgentJob,
   completeBackupCleanupJob,
   completeBackupJob,
   completeDeploymentJob,
   completeRestoreJob,
 } from './jobs'
+import { encryptDeploymentEnvVars } from '@/server/projects/deployment-config'
 
 const touchedArtifactIds: Array<string> = []
 const touchedAgentJobIds: Array<string> = []
@@ -30,6 +34,7 @@ const touchedBackupRunIds: Array<string> = []
 const touchedDeploymentIds: Array<string> = []
 const touchedEnvironmentIds: Array<string> = []
 const touchedHostnameIds: Array<string> = []
+const touchedInstallationIds: Array<number> = []
 const touchedProjectIds: Array<string> = []
 const touchedServerIds: Array<string> = []
 const touchedTeamIds: Array<string> = []
@@ -44,6 +49,49 @@ afterAll(async () => {
 })
 
 describe('agent deployment jobs', () => {
+  test('allows a deleted server to claim deployments intentionally left running', async () => {
+    const { deploymentId, projectId, serverId, token } = await createFixture()
+    const installationId = Math.floor(Math.random() * 1_000_000_000) + 1
+    touchedInstallationIds.push(installationId)
+    await db.insert(githubInstallations).values({
+      installationId,
+      accountLogin: 'acme',
+      accountType: 'Organization',
+      repositorySelection: 'selected',
+    })
+    await Promise.all([
+      db
+        .update(deployments)
+        .set({
+          status: 'queued',
+          phase: 'queued',
+          envVars: encryptDeploymentEnvVars([]),
+        })
+        .where(eq(deployments.id, deploymentId)),
+      db
+        .update(projects)
+        .set({ githubInstallationId: installationId, githubRepoId: 1 })
+        .where(eq(projects.id, projectId)),
+      db
+        .update(servers)
+        .set({ status: 'deleted' })
+        .where(eq(servers.id, serverId)),
+    ])
+
+    await expect(
+      claimNextAgentJob({
+        serverId,
+        token,
+        protocolVersion: 1,
+        capabilities: [...currentAgentCapabilities],
+        createAccessToken: async () => ({
+          token: 'installation-token',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      }),
+    ).resolves.toMatchObject({ type: 'deploy', id: deploymentId })
+  })
+
   test('records agent-side cancellation as canceled, not failed', async () => {
     const { deploymentId, serverId, token } = await createFixture()
 
@@ -603,6 +651,15 @@ async function cleanupRows() {
   if (touchedProjectIds.length > 0) {
     await db.delete(projects).where(inArray(projects.id, touchedProjectIds))
     touchedProjectIds.length = 0
+  }
+
+  if (touchedInstallationIds.length > 0) {
+    await db
+      .delete(githubInstallations)
+      .where(
+        inArray(githubInstallations.installationId, touchedInstallationIds),
+      )
+    touchedInstallationIds.length = 0
   }
 
   if (touchedServerIds.length > 0) {

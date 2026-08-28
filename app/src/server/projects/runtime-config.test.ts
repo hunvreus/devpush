@@ -26,4 +26,12 @@ describe('project runtime config', () => {
 
     expect(parseProjectRuntimeConfig(config)).toEqual(config)
   })
+
+  test('rejects oversized lifecycle commands', () => {
+    const config = createComposeRuntimeConfig({
+      deployCommand: 'x'.repeat(16 * 1024 + 1),
+    })
+
+    expect(parseProjectRuntimeConfig(config)).toBeNull()
+  })
 })

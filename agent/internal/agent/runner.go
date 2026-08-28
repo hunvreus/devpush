@@ -633,7 +633,10 @@ func (runner *Runner) runCommand(ctx context.Context, dir string, logs *[]string
 
 func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[]string, env []string, name string, args ...string) error {
 	safeArgs := redactArgs(args)
-	*logs = append(*logs, "$ "+name+" "+strings.Join(safeArgs, " "))
+	*logs = append(*logs, truncateLogLine(
+		"$ "+name+" "+strings.Join(safeArgs, " "),
+		maxDeploymentLogLineLen,
+	))
 
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir

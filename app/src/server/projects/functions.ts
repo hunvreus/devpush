@@ -35,7 +35,10 @@ import {
   listTeamServers,
   requireTeam,
 } from '@/server/teams/service'
-import { projectRuntimeConfigSchema } from './runtime-config'
+import {
+  maxLifecycleCommandLength,
+  projectRuntimeConfigSchema,
+} from './runtime-config'
 import type { ProjectRuntimeConfig } from './runtime-config'
 
 const teamSlugSchema = z.object({
@@ -76,7 +79,7 @@ const createProjectSchema = z.object({
       message: 'Health check paths must start with /.',
     })
     .optional(),
-  releaseCommand: z.string().trim().optional(),
+  releaseCommand: z.string().trim().max(maxLifecycleCommandLength).optional(),
   releaseService: z.string().trim().optional(),
   envVars: z.array(envVarSchema).optional(),
   projectName: projectMachineNameSchema,

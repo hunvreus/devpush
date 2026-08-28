@@ -2,6 +2,8 @@ import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
+import { currentAgentCapabilities } from '@/server/agents/compatibility'
+import { claimNextAgentJob } from '@/server/agents/jobs'
 import {
   agentJobs,
   deployments,
@@ -286,6 +288,154 @@ describe('server service integration', () => {
         token: registration.credential!,
       }),
     ).rejects.toThrow('Invalid or expired agent credential.')
+  })
+
+  test('allows deleted servers to finish work but rejects idle credentials', async () => {
+    const { teamId, teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'deleted-work-server',
+    })
+    touchedServerIds.push(server.id)
+    const enrollmentToken = server.installCommand.match(/dps_[\w-]+/)?.[0]
+    expect(enrollmentToken).toBeTruthy()
+
+    const registration = await registerAgent({
+      token: enrollmentToken!,
+      agentVersion: '1.0.0',
+      publicAddress: null,
+    })
+    const credential = registration.credential!
+
+    await db
+      .update(servers)
+      .set({ status: 'deleted' })
+      .where(eq(servers.id, server.id))
+
+    await expect(
+      requireAgentServer({ serverId: server.id, token: credential }),
+    ).rejects.toThrow('Server was deleted.')
+
+    const jobId = `it-cleanup-job-${crypto.randomUUID()}`
+    touchedJobIds.push(jobId)
+    await db.insert(agentJobs).values({
+      id: jobId,
+      type: 'deprovision',
+      serverId: server.id,
+      teamId,
+      payload: {
+        schemaVersion: 1,
+        runtimeIds: ['runtime-to-remove'],
+        removeVolumes: false,
+        reason: 'Team deleted.',
+      },
+    })
+
+    await expect(
+      requireAgentServer({ serverId: server.id, token: credential }),
+    ).resolves.toMatchObject({ id: server.id, status: 'deleted' })
+
+    const backupJobId = `it-backup-job-${crypto.randomUUID()}`
+    touchedJobIds.push(backupJobId)
+    await db
+      .update(agentJobs)
+      .set({ availableAt: new Date(Date.now() + 60_000) })
+      .where(eq(agentJobs.id, jobId))
+    await db.insert(agentJobs).values({
+      id: backupJobId,
+      type: 'backup',
+      serverId: server.id,
+      teamId,
+      payload: { schemaVersion: 1 },
+    })
+
+    await expect(
+      claimNextAgentJob({
+        serverId: server.id,
+        token: credential,
+        protocolVersion: 1,
+        capabilities: [...currentAgentCapabilities],
+      }),
+    ).resolves.toBeNull()
+
+    await db
+      .update(agentJobs)
+      .set({ status: 'succeeded', finishedAt: new Date() })
+      .where(eq(agentJobs.id, jobId))
+
+    await expect(
+      requireAgentServer({ serverId: server.id, token: credential }),
+    ).rejects.toThrow('Server was deleted.')
+    await expect(
+      db
+        .select({ status: agentJobs.status })
+        .from(agentJobs)
+        .where(eq(agentJobs.id, backupJobId)),
+    ).resolves.toEqual([{ status: 'queued' }])
+
+    const staleClaimedAt = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    await db
+      .update(agentJobs)
+      .set({
+        status: 'running',
+        attempt: 1,
+        maxAttempts: 2,
+        claimedAt: staleClaimedAt,
+        finishedAt: null,
+      })
+      .where(eq(agentJobs.id, jobId))
+
+    await expect(
+      requireAgentServer({
+        serverId: server.id,
+        token: credential,
+        cleanupJobId: jobId,
+      }),
+    ).resolves.toMatchObject({ id: server.id })
+    await expect(
+      db
+        .select({ status: agentJobs.status })
+        .from(agentJobs)
+        .where(eq(agentJobs.id, jobId)),
+    ).resolves.toEqual([{ status: 'running' }])
+
+    await expect(
+      requireAgentServer({ serverId: server.id, token: credential }),
+    ).resolves.toMatchObject({ id: server.id })
+    await expect(
+      db
+        .select({ status: agentJobs.status })
+        .from(agentJobs)
+        .where(eq(agentJobs.id, jobId)),
+    ).resolves.toEqual([{ status: 'queued' }])
+
+    await db
+      .update(agentJobs)
+      .set({
+        status: 'running',
+        attempt: 2,
+        claimedAt: staleClaimedAt,
+      })
+      .where(eq(agentJobs.id, jobId))
+
+    await expect(
+      requireAgentServer({
+        serverId: server.id,
+        token: credential,
+        cleanupJobId: jobId,
+      }),
+    ).resolves.toMatchObject({ id: server.id })
+
+    await expect(
+      requireAgentServer({ serverId: server.id, token: credential }),
+    ).rejects.toThrow('Server was deleted.')
+    await expect(
+      db
+        .select({ status: agentJobs.status })
+        .from(agentJobs)
+        .where(eq(agentJobs.id, jobId)),
+    ).resolves.toEqual([{ status: 'abandoned' }])
   })
 
   test('allows reusing server names after soft delete', async () => {

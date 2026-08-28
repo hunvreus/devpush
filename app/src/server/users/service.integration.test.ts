@@ -498,7 +498,7 @@ describe('deleteUserAccount integration', () => {
     ])
     expect(teamRows).toEqual([{ status: 'deleted' }])
     expect(projectRows).toEqual([{ status: 'deleted' }])
-    expect(serverRows).toEqual([{ status: 'disabled' }])
+    expect(serverRows).toEqual([{ status: 'deleted' }])
     expect(deploymentRows).toEqual([
       {
         status: 'canceled',

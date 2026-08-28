@@ -6,6 +6,7 @@ import { currentAgentCapabilities } from '@/server/agents/compatibility'
 import {
   agentJobs,
   aliases,
+  backupRuns,
   deployments,
   domains,
   environments,
@@ -34,6 +35,7 @@ import {
 import { createComposeRuntimeConfig } from './runtime-config'
 
 const touchedJobIds: Array<string> = []
+const touchedBackupRunIds: Array<string> = []
 const touchedInstallationIds: Array<number> = []
 const touchedHostnameIds: Array<string> = []
 const touchedDeploymentIds: Array<string> = []
@@ -310,6 +312,7 @@ describe('project settings integration', () => {
 
   test('deleting a project cancels active deployments and queues runtime cleanup', async () => {
     const {
+      environmentId,
       ownerId,
       projectId,
       projectName,
@@ -319,6 +322,26 @@ describe('project settings integration', () => {
       serverId,
       teamSlug,
     } = await createProjectFixture()
+    const backupRunId = makeId('backup-run')
+    const backupJobId = makeId('backup-job')
+    touchedBackupRunIds.push(backupRunId)
+    touchedJobIds.push(backupJobId)
+    await db.insert(backupRuns).values({
+      id: backupRunId,
+      projectId,
+      environmentId,
+      serverId,
+      runtimeId: 'runtime-production',
+      status: 'running',
+    })
+    await db.insert(agentJobs).values({
+      id: backupJobId,
+      type: 'backup',
+      status: 'running',
+      serverId,
+      projectId,
+      payload: { schemaVersion: 1, backupRunId },
+    })
     const inheritedEnvironmentId = makeId('environment')
     touchedEnvironmentIds.push(inheritedEnvironmentId)
     await db
@@ -383,6 +406,13 @@ describe('project settings integration', () => {
       })
       .from(agentJobs)
       .where(eq(agentJobs.projectId, projectId))
+    const backupRunRows = await db
+      .select({
+        status: backupRuns.status,
+        errorMessage: backupRuns.errorMessage,
+      })
+      .from(backupRuns)
+      .where(eq(backupRuns.id, backupRunId))
     touchedJobIds.push(...jobRows.map((row) => row.id))
 
     const deploymentById = new Map(
@@ -415,7 +445,17 @@ describe('project settings integration', () => {
       errorMessage: null,
     })
     expect(hostnameRows).toEqual([])
-    expect(jobRows).toHaveLength(2)
+    expect(jobRows).toHaveLength(3)
+    expect(jobRows.find((job) => job.id === backupJobId)).toMatchObject({
+      type: 'backup',
+      status: 'canceled',
+    })
+    expect(backupRunRows).toEqual([
+      {
+        status: 'canceled',
+        errorMessage: 'Canceled because the project was deleted.',
+      },
+    ])
     const deprovisionJob = jobRows.find((job) => job.type === 'deprovision')
     const purgeJob = jobRows.find((job) => job.type === 'purge')
 
@@ -1154,6 +1194,12 @@ async function cleanupRows() {
     await db.delete(agentJobs).where(inArray(agentJobs.id, touchedJobIds))
   }
 
+  if (touchedBackupRunIds.length > 0) {
+    await db
+      .delete(backupRuns)
+      .where(inArray(backupRuns.id, touchedBackupRunIds))
+  }
+
   if (touchedHostnameIds.length > 0) {
     await db.delete(aliases).where(inArray(aliases.id, touchedHostnameIds))
   }
@@ -1202,6 +1248,7 @@ async function cleanupRows() {
   }
 
   touchedJobIds.length = 0
+  touchedBackupRunIds.length = 0
   touchedInstallationIds.length = 0
   touchedHostnameIds.length = 0
   touchedDeploymentIds.length = 0

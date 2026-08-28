@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
@@ -628,6 +628,32 @@ describe('backup service integration', () => {
         agentJobId: expect.any(String),
       },
     ])
+  })
+
+  test('does not queue backups for deleted servers', async () => {
+    const { environmentId, projectId, serverId } =
+      await createProjectEnvironment()
+    const config = await upsertBackupConfig({
+      projectId,
+      environmentId,
+      enabled: true,
+      schedule: { cron: '30 2 * * *' },
+      destination: { bucket: 'devpush-backups' },
+    })
+    touchedBackupConfigIds.push(config.id)
+    await db
+      .update(servers)
+      .set({ status: 'deleted' })
+      .where(eq(servers.id, serverId))
+
+    await expect(
+      queueEnvironmentBackup({ projectId, environmentId }),
+    ).rejects.toThrow('Enabled backup configuration not found.')
+    await expect(
+      queueDueBackupSchedules({
+        now: new Date('2030-07-09T02:30:00.000Z'),
+      }),
+    ).resolves.toEqual([])
   })
 })
 

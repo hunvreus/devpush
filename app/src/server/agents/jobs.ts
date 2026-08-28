@@ -65,7 +65,7 @@ export async function claimNextAgentJob({
   capabilities?: Array<string>
   createAccessToken?: InstallationAccessTokenFactory
 }): Promise<AgentJob | null> {
-  await requireAgentServer({ serverId, token })
+  const server = await requireAgentServer({ serverId, token })
   await failStaleRunningDeploymentsForServer(serverId)
 
   if (protocolVersion !== currentAgentProtocolVersion) {
@@ -78,6 +78,17 @@ export async function claimNextAgentJob({
 
   if (cleanupJob) {
     return cleanupJob
+  }
+
+  if (server.status === 'deleted') {
+    return hasAgentCapability(capabilities, 'jobs.compose.deploy.v1')
+      ? claimNextDeploymentJob({
+          serverId,
+          token,
+          createAccessToken,
+          skipAgentAuth: true,
+        })
+      : null
   }
 
   const backupTypes = [
@@ -761,7 +772,11 @@ export async function completeCleanupJob({
   token: string
   completion: AgentCleanupCompletion
 }) {
-  await requireAgentServer({ serverId, token })
+  await requireAgentServer({
+    serverId,
+    token,
+    cleanupJobId: completion.jobId,
+  })
 
   const rows = await db
     .select({ job: agentJobs })

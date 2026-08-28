@@ -13,7 +13,10 @@ All notable changes to devpush will be documented in this file.
 - Bounded agent and GitHub webhook request bodies, pinned tokenized agent
   installers to the configured control-plane origin, and kept inherited
   project-server assignments intact during runtime reconciliation, log
-  ingestion, log retrieval, and server deletion diagnostics.
+  ingestion, log retrieval, and server deletion diagnostics. Deleted servers
+  can now finish bounded, retryable cleanup work without leaving their
+  credentials usable afterward, while project, team, account, and server
+  deletion consistently cancel incompatible backup work.
 - Hardened GitHub App installation redirects against encoded and backslash-based
   cross-origin targets, and updated Better Auth to the patched 1.6 release line.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,

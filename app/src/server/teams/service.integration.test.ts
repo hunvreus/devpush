@@ -2,7 +2,14 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
-import { teamInvites, teamMembers, teams, user } from '@/server/db/schema'
+import {
+  agentJobs,
+  servers,
+  teamInvites,
+  teamMembers,
+  teams,
+  user,
+} from '@/server/db/schema'
 import { removePublicFile } from '@/server/uploads/avatar'
 import {
   acceptTeamInvite,
@@ -24,6 +31,8 @@ const touchedInviteIds: Array<string> = []
 const touchedAvatarPaths: Array<string> = []
 const touchedTeamIds: Array<string> = []
 const touchedUserIds: Array<string> = []
+const touchedServerIds: Array<string> = []
+const touchedJobIds: Array<string> = []
 
 afterEach(async () => {
   await cleanupRows()
@@ -292,6 +301,57 @@ describe('team settings integration', () => {
       .where(eq(teams.id, teamId))
 
     expect(statusRows).toEqual([{ status: 'active' }])
+  })
+
+  test('deletes team servers and cancels unrelated agent work', async () => {
+    const { ownerId, teamId, teamSlug } = await createTeamWithMembers()
+    const serverId = makeId('server')
+    const jobId = makeId('job')
+    touchedServerIds.push(serverId)
+    touchedJobIds.push(jobId)
+
+    await db.insert(servers).values({
+      id: serverId,
+      teamId,
+      name: 'team-delete-server',
+      handle: 'team-delete-server',
+      status: 'connected',
+    })
+    await db.insert(agentJobs).values({
+      id: jobId,
+      type: 'backup',
+      serverId,
+      teamId,
+      payload: { schemaVersion: 1 },
+    })
+
+    await deleteTeam({
+      userId: ownerId,
+      teamSlug,
+      confirmationName: teamSlug,
+    })
+
+    const [serverRows, jobRows] = await Promise.all([
+      db
+        .select({ status: servers.status })
+        .from(servers)
+        .where(eq(servers.id, serverId)),
+      db
+        .select({
+          status: agentJobs.status,
+          errorMessage: agentJobs.errorMessage,
+        })
+        .from(agentJobs)
+        .where(eq(agentJobs.id, jobId)),
+    ])
+
+    expect(serverRows).toEqual([{ status: 'deleted' }])
+    expect(jobRows).toEqual([
+      {
+        status: 'canceled',
+        errorMessage: 'Canceled because the team was deleted.',
+      },
+    ])
   })
 
   test('lists only pending non-expired invites', async () => {
@@ -869,6 +929,14 @@ async function cleanupRows() {
       .where(inArray(teamInvites.id, touchedInviteIds))
   }
 
+  if (touchedJobIds.length > 0) {
+    await db.delete(agentJobs).where(inArray(agentJobs.id, touchedJobIds))
+  }
+
+  if (touchedServerIds.length > 0) {
+    await db.delete(servers).where(inArray(servers.id, touchedServerIds))
+  }
+
   if (touchedTeamIds.length > 0) {
     await db
       .delete(teamMembers)
@@ -890,6 +958,8 @@ async function cleanupRows() {
   touchedAvatarPaths.length = 0
   touchedTeamIds.length = 0
   touchedUserIds.length = 0
+  touchedServerIds.length = 0
+  touchedJobIds.length = 0
 }
 
 async function inviteAndGetToken({

@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, desc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm'
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  sql,
+} from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '@/server/db'
@@ -11,6 +20,7 @@ import {
   backupRuns,
   environments,
   projects,
+  servers,
 } from '@/server/db/schema'
 import { decryptSecret } from '@/server/secrets/crypto'
 
@@ -377,12 +387,21 @@ export async function queueEnvironmentBackup({
     .from(backupConfigs)
     .innerJoin(environments, eq(environments.id, backupConfigs.environmentId))
     .innerJoin(projects, eq(projects.id, environments.projectId))
+    .innerJoin(
+      servers,
+      eq(
+        servers.id,
+        sql<string>`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+      ),
+    )
     .where(
       and(
         eq(projects.id, projectId),
         eq(projects.status, 'active'),
         eq(environments.id, environmentId),
+        eq(environments.status, 'active'),
         eq(backupConfigs.enabled, true),
+        inArray(servers.status, ['connected', 'disconnected']),
       ),
     )
     .limit(1)
@@ -923,10 +942,19 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
     .from(backupConfigs)
     .innerJoin(environments, eq(environments.id, backupConfigs.environmentId))
     .innerJoin(projects, eq(projects.id, backupConfigs.projectId))
+    .innerJoin(
+      servers,
+      eq(
+        servers.id,
+        sql<string>`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+      ),
+    )
     .where(
       and(
         eq(backupConfigs.enabled, true),
         eq(projects.status, 'active'),
+        eq(environments.status, 'active'),
+        inArray(servers.status, ['connected', 'disconnected']),
         lte(backupConfigs.createdAt, now),
       ),
     )

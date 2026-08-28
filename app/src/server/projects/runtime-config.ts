@@ -1,17 +1,25 @@
 import { z } from 'zod'
 
+export const maxLifecycleCommandLength = 16 * 1024
+
+const lifecycleCommandSchema = z
+  .string()
+  .trim()
+  .max(maxLifecycleCommandLength)
+  .nullable()
+
 const composeRuntimeConfigSchema = z.strictObject({
   type: z.literal('compose'),
   path: z.string().trim().min(1).max(255).nullable(),
-  releaseCommand: z.string().trim().nullable(),
+  releaseCommand: lifecycleCommandSchema,
   releaseService: z.string().trim().min(1).nullable(),
   readinessPath: z
     .string()
     .trim()
     .regex(/^\//, 'Readiness paths must start with /.')
     .nullable(),
-  deployCommand: z.string().trim().nullable(),
-  rollbackCommand: z.string().trim().nullable(),
+  deployCommand: lifecycleCommandSchema,
+  rollbackCommand: lifecycleCommandSchema,
   timeoutSeconds: z.number().int().min(60).max(7200),
 })
 

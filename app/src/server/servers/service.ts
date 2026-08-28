@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
 
 import { reconcileReportedRuntimes } from '@/server/agents/reconciliation'
 import type { ReportedRuntime } from '@/server/agents/reconciliation'
@@ -11,6 +11,7 @@ import { config, currentAgentVersion } from '@/server/config'
 import { db } from '@/server/db'
 import {
   agentJobs,
+  backupRuns,
   deployments,
   environments,
   projects,
@@ -788,6 +789,36 @@ export async function deleteTeamServer({
   const now = new Date()
 
   await db.transaction(async (tx) => {
+    await tx
+      .update(agentJobs)
+      .set({
+        status: 'canceled',
+        errorMessage: 'Canceled because the server was deleted.',
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(agentJobs.serverId, server.id),
+          inArray(agentJobs.type, ['backup', 'restore', 'backup_cleanup']),
+          inArray(agentJobs.status, ['queued', 'running']),
+        ),
+      )
+    await tx
+      .update(backupRuns)
+      .set({
+        status: 'canceled',
+        errorMessage: 'Canceled because the server was deleted.',
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(backupRuns.serverId, server.id),
+          inArray(backupRuns.status, ['queued', 'running']),
+        ),
+      )
+
     if (cancelOngoingDeployments) {
       await tx
         .update(deployments)
@@ -851,13 +882,15 @@ export async function deleteTeamServer({
 }
 
 export async function requireAgentServer({
+  cleanupJobId,
   serverId,
   token,
 }: {
+  cleanupJobId?: string
   serverId: string
   token: string
 }) {
-  const { server } = await requireAgentCredential(token)
+  const { server } = await requireAgentCredential(token, { cleanupJobId })
 
   if (server.id !== serverId) {
     throw new AgentRequestError(401, 'Agent token does not match this server.')
@@ -945,7 +978,10 @@ async function findServerForCredential(token: string) {
   }
 }
 
-async function requireAgentCredential(token: string) {
+async function requireAgentCredential(
+  token: string,
+  { cleanupJobId }: { cleanupJobId?: string } = {},
+) {
   const auth = await findServerForCredential(token)
 
   if (auth.credentialType === 'enrollment') {
@@ -955,7 +991,91 @@ async function requireAgentCredential(token: string) {
     )
   }
 
+  if (auth.server.status === 'deleted') {
+    await recoverStaleDeletedServerCleanupJobs(auth.server.id, cleanupJobId)
+
+    if (!(await hasPermittedDeletedServerWork(auth.server.id))) {
+      throw new AgentRequestError(403, 'Server was deleted.')
+    }
+  }
+
   return auth
+}
+
+async function recoverStaleDeletedServerCleanupJobs(
+  serverId: string,
+  cleanupJobId?: string,
+) {
+  const now = new Date()
+  const cutoff = new Date(now.getTime() - 60 * 60 * 1000)
+  const staleJobFilter = and(
+    eq(agentJobs.serverId, serverId),
+    inArray(agentJobs.type, ['deprovision', 'purge']),
+    eq(agentJobs.status, 'running'),
+    lt(agentJobs.claimedAt, cutoff),
+    ...(cleanupJobId ? [ne(agentJobs.id, cleanupJobId)] : []),
+  )
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(agentJobs)
+      .set({
+        status: 'abandoned',
+        errorMessage: 'Cleanup stopped reporting after its final attempt.',
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          staleJobFilter,
+          sql`${agentJobs.attempt} >= ${agentJobs.maxAttempts}`,
+        ),
+      )
+    await tx
+      .update(agentJobs)
+      .set({
+        status: 'queued',
+        errorMessage: 'Cleanup stopped reporting and will be retried.',
+        claimedAt: null,
+        availableAt: now,
+        finishedAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          staleJobFilter,
+          sql`${agentJobs.attempt} < ${agentJobs.maxAttempts}`,
+        ),
+      )
+  })
+}
+
+async function hasPermittedDeletedServerWork(serverId: string) {
+  const [deploymentRows, jobRows] = await Promise.all([
+    db
+      .select({ id: deployments.id })
+      .from(deployments)
+      .where(
+        and(
+          eq(deployments.serverId, serverId),
+          inArray(deployments.status, ['queued', 'running']),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ id: agentJobs.id })
+      .from(agentJobs)
+      .where(
+        and(
+          eq(agentJobs.serverId, serverId),
+          inArray(agentJobs.type, ['deprovision', 'purge']),
+          inArray(agentJobs.status, ['queued', 'running']),
+        ),
+      )
+      .limit(1),
+  ])
+
+  return deploymentRows.length > 0 || jobRows.length > 0
 }
 
 function buildInstallCommand({

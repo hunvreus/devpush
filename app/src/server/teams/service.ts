@@ -6,7 +6,9 @@ import { config, currentAgentVersion } from '@/server/config'
 import { db } from '@/server/db'
 import { enqueueTeamDeprovisionJobs } from '@/server/agents/cleanup'
 import {
+  agentJobs,
   aliases,
+  backupRuns,
   domains,
   deployments,
   environments,
@@ -990,6 +992,49 @@ export async function deleteTeam({
       throw new Error('You cannot delete a default team.')
     }
 
+    const serverRows = await tx
+      .select({ id: servers.id })
+      .from(servers)
+      .where(eq(servers.teamId, team.id))
+    const serverIds = serverRows.map((server) => server.id)
+
+    if (serverIds.length > 0) {
+      await tx
+        .update(agentJobs)
+        .set({
+          status: 'canceled',
+          errorMessage: 'Canceled because the team was deleted.',
+          finishedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            inArray(agentJobs.serverId, serverIds),
+            inArray(agentJobs.type, [
+              'deploy',
+              'backup',
+              'restore',
+              'backup_cleanup',
+            ]),
+            inArray(agentJobs.status, ['queued', 'running']),
+          ),
+        )
+      await tx
+        .update(backupRuns)
+        .set({
+          status: 'canceled',
+          errorMessage: 'Canceled because the team was deleted.',
+          finishedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            inArray(backupRuns.serverId, serverIds),
+            inArray(backupRuns.status, ['queued', 'running']),
+          ),
+        )
+    }
+
     await enqueueTeamDeprovisionJobs(tx, {
       teamId: team.id,
       reason: 'Team deleted.',
@@ -1042,7 +1087,7 @@ export async function deleteTeam({
       .where(eq(projects.teamId, team.id))
     await tx
       .update(servers)
-      .set({ status: 'disabled', updatedAt: now })
+      .set({ status: 'deleted', updatedAt: now })
       .where(eq(servers.teamId, team.id))
     await tx
       .update(teams)

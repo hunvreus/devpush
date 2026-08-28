@@ -7,6 +7,7 @@ import { enqueueProjectDeprovisionJobs } from '@/server/agents/cleanup'
 import { canAgentRunDeployments } from '@/server/agents/compatibility'
 import { failStaleRunningDeploymentsForServer } from '@/server/agents/jobs'
 import {
+  agentJobs,
   aliases,
   backupArtifacts,
   backupConfigs,
@@ -591,15 +592,17 @@ export async function createProjectFromGitHub({
       defaultServerId: server?.id ?? null,
       routes: initialRoutes,
       envVars: scopedProjectEnvVars,
-      runtimeConfig: createComposeRuntimeConfig({
-        path: projectComposePath,
-        readinessPath: readinessPath?.trim() || null,
-        releaseCommand: releaseCommand?.trim() || null,
-        releaseService:
-          releaseCommand?.trim() && releaseService?.trim()
-            ? releaseService.trim()
-            : null,
-      }),
+      runtimeConfig: requireProjectRuntimeConfig(
+        createComposeRuntimeConfig({
+          path: projectComposePath,
+          readinessPath: readinessPath?.trim() || null,
+          releaseCommand: releaseCommand?.trim() || null,
+          releaseService:
+            releaseCommand?.trim() && releaseService?.trim()
+              ? releaseService.trim()
+              : null,
+        }),
+      ),
     })
 
     await tx.insert(environments).values({
@@ -1290,6 +1293,41 @@ export async function deleteProject({
       .from(environments)
       .where(eq(environments.projectId, context.project.id))
     const environmentIds = environmentRows.map((environment) => environment.id)
+
+    await tx
+      .update(agentJobs)
+      .set({
+        status: 'canceled',
+        errorMessage: 'Canceled because the project was deleted.',
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(agentJobs.projectId, context.project.id),
+          inArray(agentJobs.type, [
+            'deploy',
+            'backup',
+            'restore',
+            'backup_cleanup',
+          ]),
+          inArray(agentJobs.status, ['queued', 'running']),
+        ),
+      )
+    await tx
+      .update(backupRuns)
+      .set({
+        status: 'canceled',
+        errorMessage: 'Canceled because the project was deleted.',
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(backupRuns.projectId, context.project.id),
+          inArray(backupRuns.status, ['queued', 'running']),
+        ),
+      )
 
     if (environmentIds.length > 0) {
       if (removeDeployments) {

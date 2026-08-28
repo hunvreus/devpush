@@ -8,7 +8,9 @@ import { enqueueTeamDeprovisionJobs } from '@/server/agents/cleanup'
 import { db } from '@/server/db'
 import {
   account,
+  agentJobs,
   aliases,
+  backupRuns,
   deployments,
   domains,
   environments,
@@ -711,15 +713,58 @@ async function cleanupDeletedUserResources({
         )
       const activeTeamIds = activeTeamRows.map((team) => team.id)
 
-      for (const teamId of activeTeamIds) {
-        await lockTeamMembers(tx, teamId)
-        await enqueueTeamDeprovisionJobs(tx, {
-          teamId,
-          reason: 'Team deleted because the owning user was deleted.',
-        })
-      }
-
       if (activeTeamIds.length > 0) {
+        const serverRows = await tx
+          .select({ id: servers.id })
+          .from(servers)
+          .where(inArray(servers.teamId, activeTeamIds))
+        const serverIds = serverRows.map((server) => server.id)
+
+        if (serverIds.length > 0) {
+          await tx
+            .update(agentJobs)
+            .set({
+              status: 'canceled',
+              errorMessage: 'Canceled because the owning user was deleted.',
+              finishedAt: now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                inArray(agentJobs.serverId, serverIds),
+                inArray(agentJobs.type, [
+                  'deploy',
+                  'backup',
+                  'restore',
+                  'backup_cleanup',
+                ]),
+                inArray(agentJobs.status, ['queued', 'running']),
+              ),
+            )
+          await tx
+            .update(backupRuns)
+            .set({
+              status: 'canceled',
+              errorMessage: 'Canceled because the owning user was deleted.',
+              finishedAt: now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                inArray(backupRuns.serverId, serverIds),
+                inArray(backupRuns.status, ['queued', 'running']),
+              ),
+            )
+        }
+
+        for (const teamId of activeTeamIds) {
+          await lockTeamMembers(tx, teamId)
+          await enqueueTeamDeprovisionJobs(tx, {
+            teamId,
+            reason: 'Team deleted because the owning user was deleted.',
+          })
+        }
+
         const projectRows = await tx
           .select({ id: projects.id })
           .from(projects)
@@ -736,6 +781,11 @@ async function cleanupDeletedUserResources({
           )
 
           if (environmentIds.length > 0) {
+            await tx
+              .update(environments)
+              .set({ status: 'deleted', isProduction: false, updatedAt: now })
+              .where(inArray(environments.id, environmentIds))
+
             await tx
               .update(deployments)
               .set({
@@ -762,7 +812,7 @@ async function cleanupDeletedUserResources({
 
         await tx
           .update(servers)
-          .set({ status: 'disabled', updatedAt: now })
+          .set({ status: 'deleted', updatedAt: now })
           .where(inArray(servers.teamId, activeTeamIds))
         await tx
           .update(user)
