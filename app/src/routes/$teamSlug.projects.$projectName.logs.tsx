@@ -1,18 +1,20 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { z } from 'zod'
 
 import { ProjectLogs } from '@/features/projects/project-logs'
 import { ProjectRoutePending } from '@/features/projects/project-route-pending'
+import { stringSearchValidator } from '@/lib/search'
 import { getProjectLogs } from '@/server/projects/functions'
 
+const validateSearch = stringSearchValidator([
+  'branch',
+  'date',
+  'deploymentId',
+  'environmentId',
+  'keyword',
+] as const)
+
 export const Route = createFileRoute('/$teamSlug/projects/$projectName/logs')({
-  validateSearch: z.object({
-    branch: z.string().optional().catch(undefined),
-    date: z.string().optional().catch(undefined),
-    deploymentId: z.string().optional().catch(undefined),
-    environmentId: z.string().optional().catch(undefined),
-    keyword: z.string().optional().catch(undefined),
-  }),
+  validateSearch,
   loaderDeps: ({ search }) => search,
   loader: async ({ params, deps }) => {
     const context = await getProjectLogs({

@@ -6,10 +6,17 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { z } from 'zod'
 
 import { ProjectBackups } from '@/features/projects/project-backups'
 import { projectContextQueryOptions } from '@/lib/project-context-query'
+import { stringSearchValidator } from '@/lib/search'
+
+const validateSearch = stringSearchValidator([
+  'environment',
+  'server',
+  'status',
+  'time',
+] as const)
 
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/backups',
@@ -19,12 +26,7 @@ export const Route = createFileRoute(
       throw notFound()
     }
   },
-  validateSearch: z.object({
-    environment: z.string().optional().catch(undefined),
-    server: z.string().optional().catch(undefined),
-    status: z.string().optional().catch(undefined),
-    time: z.string().optional().catch(undefined),
-  }),
+  validateSearch,
   component: BackupsRoute,
 })
 

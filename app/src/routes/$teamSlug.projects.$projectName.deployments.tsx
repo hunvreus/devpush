@@ -5,20 +5,22 @@ import {
   useParams,
   useRouterState,
 } from '@tanstack/react-router'
-import { z } from 'zod'
 
 import { DeploymentsPage } from '@/features/deployments/deployments-page'
 import { projectContextQueryOptions } from '@/lib/project-context-query'
+import { stringSearchValidator } from '@/lib/search'
+
+const validateSearch = stringSearchValidator([
+  'branch',
+  'date',
+  'environment',
+  'status',
+] as const)
 
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/deployments',
 )({
-  validateSearch: z.object({
-    branch: z.string().optional().catch(undefined),
-    date: z.string().optional().catch(undefined),
-    environment: z.string().optional().catch(undefined),
-    status: z.string().optional().catch(undefined),
-  }),
+  validateSearch,
   component: DeploymentsRoute,
 })
 
