@@ -2,13 +2,14 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import { auth } from '@/lib/auth'
 import { config } from '@/server/config'
+import { getSafeRedirectPath } from '@/server/http/internal-redirect'
 
 export const Route = createFileRoute('/api/github/install')({
   server: {
     handlers: {
       GET: async ({ request }) => {
         const url = new URL(request.url)
-        const next = getSafeNextPath(url.searchParams.get('next'))
+        const next = getSafeRedirectPath(url.searchParams.get('next'))
         const session = await auth.api.getSession({
           headers: request.headers,
         })
@@ -34,11 +35,3 @@ export const Route = createFileRoute('/api/github/install')({
     },
   },
 })
-
-function getSafeNextPath(value: string | null) {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) {
-    return '/'
-  }
-
-  return value
-}

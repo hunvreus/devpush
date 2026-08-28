@@ -4,13 +4,14 @@ import {
   getAppInstallation,
   upsertGitHubInstallation,
 } from '@/server/github/service'
+import { getSafeRedirectPath } from '@/server/http/internal-redirect'
 
 export const Route = createFileRoute('/api/github/install/callback')({
   server: {
     handlers: {
       GET: async ({ request }) => {
         const url = new URL(request.url)
-        const next = getSafeNextPath(url.searchParams.get('state'))
+        const next = getSafeRedirectPath(url.searchParams.get('state'))
         const setupAction = url.searchParams.get('setup_action')
         const installationId = Number(url.searchParams.get('installation_id'))
 
@@ -29,11 +30,3 @@ export const Route = createFileRoute('/api/github/install/callback')({
     },
   },
 })
-
-function getSafeNextPath(value: string | null) {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) {
-    return '/'
-  }
-
-  return value
-}
