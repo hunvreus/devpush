@@ -82,8 +82,8 @@ services:
     command:
       [
         "sh",
-        "-lc",
-        "pnpm --dir app db:migrate && pnpm --dir app storage:sync-agents",
+        "-ec",
+        "node --enable-source-maps /repo/app/.maintenance/migrate.mjs && node --enable-source-maps /repo/app/.maintenance/sync-agent-binaries.mjs",
       ]
     restart: "no"
 

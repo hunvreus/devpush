@@ -27,30 +27,40 @@ RUN pnpm install --frozen-lockfile
 COPY app ./app
 
 RUN pnpm --dir app build
+RUN cd app && pnpm exec esbuild scripts/migrate.ts \
+    --bundle \
+    --platform=node \
+    --format=esm \
+    --target=node22 \
+    --sourcemap=linked \
+    --sources-content=false \
+    --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
+    --outfile=.maintenance/migrate.mjs
+RUN cd app && pnpm exec esbuild scripts/sync-agent-binaries.ts \
+    --bundle \
+    --platform=node \
+    --format=esm \
+    --target=node22 \
+    --sourcemap=linked \
+    --sources-content=false \
+    --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
+    --outfile=.maintenance/sync-agent-binaries.mjs
 
 FROM node:22-alpine
 
-WORKDIR /repo
+WORKDIR /repo/app
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV DEVPUSH_AGENT_BINARY_DIR=/repo/bin
 
-RUN corepack enable
-
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY app/package.json ./app/package.json
-RUN pnpm install --frozen-lockfile --prod=false
-
-COPY --from=app-builder /repo/app/.output ./app/.output
-COPY --from=app-builder /repo/app/drizzle.config.ts ./app/drizzle.config.ts
-COPY --from=app-builder /repo/app/scripts/migrate.ts ./app/scripts/migrate.ts
-COPY --from=app-builder /repo/app/scripts/sync-agent-binaries.ts ./app/scripts/sync-agent-binaries.ts
-COPY --from=app-builder /repo/app/src/server/db ./app/src/server/db
-COPY --from=agent-builder /out/devpush-agent-linux-amd64 ./bin/devpush-agent-linux-amd64
-COPY --from=agent-builder /out/devpush-agent-linux-arm64 ./bin/devpush-agent-linux-arm64
+COPY --from=app-builder /repo/app/.output ./.output
+COPY --from=app-builder /repo/app/.maintenance ./.maintenance
+COPY --from=app-builder /repo/app/src/server/db/migrations ./src/server/db/migrations
+COPY --from=agent-builder /out/devpush-agent-linux-amd64 /repo/bin/devpush-agent-linux-amd64
+COPY --from=agent-builder /out/devpush-agent-linux-arm64 /repo/bin/devpush-agent-linux-arm64
 
 EXPOSE 3000
 
-CMD ["sh", "-lc", "cd app && node .output/server/index.mjs"]
+CMD ["node", ".output/server/index.mjs"]

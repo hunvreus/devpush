@@ -54,6 +54,9 @@ All notable changes to devpush will be documented in this file.
 
 ### Changed
 
+- Reduced the production control-plane image by bundling its migration and
+  agent-publication runners at build time instead of installing the complete
+  development dependency tree in the runtime image.
 - Adopted the neutral Nova `b0` interface preset with Inter interface
   typography, JetBrains Mono for code-oriented content, card-backed grouped
   lists, size-scaled rounded resource/account avatars, and medium-weight page

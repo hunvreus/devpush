@@ -71,6 +71,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "0.28.1",
     "eslint": "^9.20.0",
     "jsdom": "^28.1.0",
     "prettier": "^3.8.1",

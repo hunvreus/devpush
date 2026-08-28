@@ -250,7 +250,9 @@ pnpm validate:config -- --env deploy/.env.production --remote
 
 `pnpm validate:production` checks the production Compose config, builds the
 control-plane image, and verifies that the runtime image contains the Linux
-agent binary, the built server entrypoint, and the migration tooling.
+agent binaries, the built server entrypoint, SQL migrations, and standalone
+maintenance runners without shipping development dependencies or a TypeScript
+runtime.
 
 `pnpm validate:remote` validates the generated server installer against a real
 remote host over SSH. It requires `DEVPUSH_SERVER_URL`, `DEVPUSH_REMOTE_HOST`,

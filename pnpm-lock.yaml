@@ -137,6 +137,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      esbuild:
+        specifier: 0.28.1
+        version: 0.28.1
       eslint:
         specifier: ^9.20.0
         version: 9.39.4(jiti@2.7.0)

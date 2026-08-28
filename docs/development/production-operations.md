@@ -9,9 +9,11 @@ install 1.0 against an empty database.
 Pin the image or source revision you deploy. Before every upgrade, create a
 PostgreSQL backup and review the new SQL files under
 `app/src/server/db/migrations`. A one-shot `migrate` Compose service runs
-`pnpm --dir app db:migrate` and publishes agent binaries to configured object
+the bundled migration runner and publishes agent binaries to configured object
 storage before the app starts. The app process never mutates the schema and
-production never runs `drizzle-kit push`.
+production never runs `drizzle-kit push`. Both maintenance runners are bundled
+during the image build, so the runtime does not contain the development
+dependency tree or require `tsx`.
 
 Keep `BETTER_AUTH_SECRET` and `DEVPUSH_SECRET_ENCRYPTION_KEY` stable across
 upgrades. Changing the encryption key makes stored application secrets
