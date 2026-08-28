@@ -14,6 +14,7 @@
     "dev:stop": "scripts/local-stop.sh",
     "dev:restart": "scripts/local-restart.sh",
     "build": "pnpm --dir app build",
+    "audit:dependencies": "pnpm audit --audit-level=high",
     "typecheck": "pnpm --dir app typecheck",
     "lint": "pnpm --dir app lint",
     "test": "pnpm --dir app test",

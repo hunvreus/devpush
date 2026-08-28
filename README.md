@@ -205,6 +205,7 @@ not.
 ```bash
 pnpm --dir app dev
 pnpm --dir app build
+pnpm audit:dependencies
 pnpm --dir app typecheck
 pnpm --dir app lint
 pnpm --dir app db:generate

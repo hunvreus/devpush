@@ -1,9 +1,23 @@
 packages:
   - app
 
-allowBuilds:
-  esbuild: true
-  lightningcss: true
-  unrs-resolver: true
+onlyBuiltDependencies:
+  - esbuild
+  - lightningcss
+  - unrs-resolver
 
 minimumReleaseAge: 1440
+
+overrides:
+  '@hono/node-server@>=1 <1.19.15': 1.19.15
+  body-parser@>=2 <2.3.0: 2.3.0
+  brace-expansion@<1.1.18: 1.1.18
+  brace-expansion@>=5 <5.0.9: 5.0.9
+  esbuild@<=0.24.2: 0.25.0
+  fast-uri@>=3 <3.1.5: 3.1.5
+  hono@>=4 <4.12.34: 4.12.34
+  ip-address@>=10 <10.3.1: 10.3.1
+  js-yaml@>=4 <4.3.1: 4.3.1
+  nanoid@>=3 <3.3.18: 3.3.18
+  postcss@>=8 <8.5.23: 8.5.23
+  undici@>=7 <7.29.0: 7.29.0

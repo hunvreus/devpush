@@ -54,6 +54,12 @@ All notable changes to devpush will be documented in this file.
 
 ### Changed
 
+- Reduced the shared client entry chunk by moving server metrics and Recharts
+  behind the server-detail route boundary and replacing simple route-filter
+  schemas with a typed string allowlist. Reclassified build-only UI tooling,
+  removed the unused JSDOM test environment, and pinned audited transitive
+  dependencies to patched versions while aligning ESLint with its shared
+  configuration.
 - Reduced the production control-plane image by bundling its migration and
   agent-publication runners at build time instead of installing the complete
   development dependency tree in the runtime image.
