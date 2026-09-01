@@ -18,7 +18,6 @@ export async function createGitHubApp({
   const normalizedBaseUrl = trimSlash(baseUrl)
   const normalizedAuthUrl = trimSlash(authUrl || normalizedBaseUrl)
   const state = randomBytes(16).toString('hex')
-  const webhookSecret = randomBytes(32).toString('base64url')
   const manifest = {
     name:
       appName.trim() ||
@@ -34,7 +33,6 @@ export async function createGitHubApp({
     setup_url: `${normalizedBaseUrl}/api/github/install/callback`,
     hook_attributes: {
       active: true,
-      secret: webhookSecret,
       url: `${normalizedBaseUrl}/api/github/webhook`,
     },
   }
@@ -60,7 +58,7 @@ export async function createGitHubApp({
       { cause: error },
     )
   }
-  if (!app.client_secret || !app.pem) {
+  if (!app.client_secret || !app.pem || !app.webhook_secret) {
     throw new Error('GitHub did not return the App credentials.')
   }
 
@@ -70,7 +68,7 @@ export async function createGitHubApp({
     GITHUB_APP_ID: String(app.id),
     GITHUB_APP_NAME: app.slug,
     GITHUB_APP_PRIVATE_KEY: app.pem,
-    GITHUB_APP_WEBHOOK_SECRET: webhookSecret,
+    GITHUB_APP_WEBHOOK_SECRET: app.webhook_secret,
   }
   await persist(values)
 

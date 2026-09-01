@@ -19,6 +19,7 @@ test('protects the local manifest page with a per-run token', async () => {
         id: 123,
         pem: 'private-key',
         slug: 'devpush-test',
+        webhook_secret: 'github-generated-webhook-secret',
       }
     },
     onAuthorize: resolveStartUrl,
@@ -34,6 +35,7 @@ test('protects the local manifest page with a per-run token', async () => {
   const page = await fetch(startUrl)
   assert.equal(page.status, 200)
   const html = await page.text()
+  assert.equal(html.includes('&quot;secret&quot;'), false)
   const state = html.match(/[?&]state=([a-f0-9]+)/u)?.[1]
   assert.ok(state)
 
@@ -45,6 +47,10 @@ test('protects the local manifest page with a per-run token', async () => {
 
   const result = await creation
   assert.equal(result.values.GITHUB_APP_ID, '123')
+  assert.equal(
+    result.values.GITHUB_APP_WEBHOOK_SECRET,
+    'github-generated-webhook-secret',
+  )
   assert.equal(
     result.installUrl,
     'https://github.com/apps/devpush-test/installations/new',

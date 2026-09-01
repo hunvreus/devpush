@@ -41,6 +41,8 @@ All notable changes to devpush will be documented in this file.
   the control-plane URL unless an explicit environment override already exists.
 - Grouped Cloudflare database setup logically by asking for Hyperdrive details
   immediately after PostgreSQL and before unrelated R2 storage details.
+- Fixed GitHub App manifest registration by accepting GitHub's generated webhook
+  secret instead of submitting an unsupported manifest field.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.
