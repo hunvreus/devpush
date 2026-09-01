@@ -53,7 +53,7 @@ All notable changes to devpush will be documented in this file.
 - Added serial PostgreSQL integration tests and CI coverage for migrations,
   authorization, webhook idempotency, backup scheduling and secret delivery,
   stale agent jobs, Cloudflare builds, and the Go agent completion outbox.
-- Added a unified interactive `pnpm run setup` wizard for local development,
+- Added a unified interactive `pnpm configure` wizard for local development,
   Cloudflare Workers, and Docker Compose, including GitHub App manifest setup,
   generated secrets, and confirmed Cloudflare R2/Hyperdrive provisioning without
   requiring edits to the tracked Wrangler configuration.

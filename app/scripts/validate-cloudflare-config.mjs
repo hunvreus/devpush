@@ -7,7 +7,7 @@ const configPath = resolve(
 )
 const secretsPath = resolve(process.cwd(), '.cloudflare-secrets.json')
 const source = await readFile(configPath, 'utf8').catch(() => {
-  throw new Error('Run `pnpm run setup` to generate app/wrangler.jsonc.')
+  throw new Error('Run `pnpm configure` to generate app/wrangler.jsonc.')
 })
 const config = JSON.parse(source)
 const hyperdriveId = config.hyperdrive?.find(
@@ -19,19 +19,19 @@ const bucketName = config.r2_buckets?.find(
 
 if (!hyperdriveId || /^0+$/.test(hyperdriveId)) {
   throw new Error(
-    'Run `pnpm run setup` to configure the DEVPUSH_DATABASE Hyperdrive binding.',
+    'Run `pnpm configure` to configure the DEVPUSH_DATABASE Hyperdrive binding.',
   )
 }
 
 if (!bucketName) {
   throw new Error(
-    'Run `pnpm run setup` to configure the DEVPUSH_OBJECTS R2 bucket binding.',
+    'Run `pnpm configure` to configure the DEVPUSH_OBJECTS R2 bucket binding.',
   )
 }
 
 const secrets = JSON.parse(
   await readFile(secretsPath, 'utf8').catch(() => {
-    throw new Error('Run `pnpm run setup` to generate Cloudflare secrets.')
+    throw new Error('Run `pnpm configure` to generate Cloudflare secrets.')
   }),
 )
 const values = { ...config.vars, ...secrets }
@@ -42,13 +42,13 @@ const missingSecrets = [
 
 if (missingSecrets.length > 0) {
   throw new Error(
-    `Cloudflare secrets are missing: ${missingSecrets.join(', ')}. Re-run \`pnpm run setup\`.`,
+    `Cloudflare secrets are missing: ${missingSecrets.join(', ')}. Re-run \`pnpm configure\`.`,
   )
 }
 
 if (typeof config.vars?.DEVPUSH_BASE_URL !== 'string') {
   throw new Error(
-    'Cloudflare configuration is missing DEVPUSH_BASE_URL. Re-run `pnpm run setup`.',
+    'Cloudflare configuration is missing DEVPUSH_BASE_URL. Re-run `pnpm configure`.',
   )
 }
 

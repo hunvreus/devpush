@@ -33,7 +33,7 @@ actual server and backup work.
 Run the repository setup wizard:
 
 ```bash
-pnpm run setup
+pnpm configure
 ```
 
 Choose **Cloudflare Workers**. The wizard collects the public control-plane URL
@@ -51,8 +51,8 @@ after deployment, but setup records it earlier because authentication origins,
 GitHub callback and webhook URLs, and generated agent installers need the final
 control-plane origin. If a custom domain is selected, setup adds it as a Worker
 Custom Domain. The zone must already be active in the same Cloudflare account
-and must not have a conflicting CNAME. Re-run setup before changing the public
-origin so dependent configuration can be updated together.
+and must not have a conflicting CNAME. Re-run `pnpm configure` before changing
+the public origin so dependent configuration can be updated together.
 
 devpush currently requires PostgreSQL; D1/SQLite is not a drop-in deployment
 option. The application schema, migrations, locking, and server services use
@@ -76,7 +76,7 @@ The generated deployment files are intentionally ignored by Git:
 
 The repository tracks `app/wrangler.template.jsonc`, which contains only shared
 Worker defaults and no installation-specific IDs or domains. Re-run
-`pnpm run setup` to change the Worker, database, R2 bucket, Hyperdrive
+`pnpm configure` to change the Worker, database, R2 bucket, Hyperdrive
 configuration, public URL, or GitHub App. Existing resources can be selected
 without recreating them.
 If resource creation is interrupted, the wizard keeps
@@ -101,9 +101,9 @@ maintenance endpoints.
 
 `DEVPUSH_BASE_URL` is embedded in generated server installers, so configure the
 final custom origin before enrolling servers. If the origin changes later,
-re-run setup to update the generated Worker variables and repoint each
-existing agent by changing `DEVPUSH_BASE_URL` in `/etc/devpush/agent.env` and
-restarting `devpush-agent`.
+re-run `pnpm configure` to update the generated Worker variables and repoint
+each existing agent by changing `DEVPUSH_BASE_URL` in
+`/etc/devpush/agent.env` and restarting `devpush-agent`.
 
 ## Validate and deploy
 

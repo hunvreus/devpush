@@ -35,7 +35,7 @@ const root = resolve(import.meta.dirname, "..");
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(
-    `Configure devpush\n\nUsage: pnpm run setup\n\nThe interactive wizard configures local development, Cloudflare, or Docker Compose.`,
+    `Configure devpush\n\nUsage: pnpm configure\n\nThe interactive wizard configures local development, Cloudflare, or Docker Compose.`,
   );
   process.exit(0);
 }
@@ -287,7 +287,7 @@ async function setupCloudflare() {
     databaseUrl !== existingDatabase.DATABASE_URL
   ) {
     throw new Error(
-      "The database URL changed, but the configured Hyperdrive still points to the previous database. Re-run setup and create or select the matching Hyperdrive configuration.",
+      "The database URL changed, but the configured Hyperdrive still points to the previous database. Re-run `pnpm configure` and create or select the matching Hyperdrive configuration.",
     );
   }
 

@@ -380,7 +380,7 @@ For a new checkout, use the interactive setup wizard. It creates `app/.env` and
 can configure the GitHub App as part of the same flow:
 
 ```bash
-pnpm run setup
+pnpm configure
 ```
 
 To replace only the GitHub App later, run

@@ -9,7 +9,7 @@ const root = resolve(import.meta.dirname, "..");
 const config = readCloudflareConfig(resolve(root, cloudflareConfigPath));
 
 if (!config?.bucketName) {
-  throw new Error("Run `pnpm run setup` and configure Cloudflare R2 first.");
+  throw new Error("Run `pnpm configure` and configure Cloudflare R2 first.");
 }
 
 const binaries = ["devpush-agent-linux-amd64", "devpush-agent-linux-arm64"].map(

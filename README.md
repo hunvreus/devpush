@@ -100,7 +100,7 @@ Run the interactive setup wizard to configure local development, Cloudflare, or
 Docker Compose:
 
 ```bash
-pnpm run setup
+pnpm configure
 ```
 
 The wizard writes only ignored, target-specific configuration, generates
@@ -209,7 +209,7 @@ The Cloudflare path, including resource provisioning, migrations, agent-binary
 publication, validation, and deployment, is documented in
 [Cloudflare deployment](./docs/development/cloudflare-deployment.md).
 
-Start either production setup path with `pnpm run setup`. It generates
+Start either production setup path with `pnpm configure`. It generates
 the ignored `app/wrangler.jsonc` plus secret files for Cloudflare, or
 `deploy/.env.production` for Docker Compose. It does not deploy or start the
 control plane. The tracked `app/wrangler.template.jsonc` is the updateable
@@ -258,7 +258,7 @@ pnpm --dir app typecheck
 pnpm --dir app lint
 pnpm --dir app db:generate
 pnpm --dir app db:migrate
-pnpm run setup
+pnpm configure
 pnpm run setup:github-app -- --env app/.env
 pnpm smoke:deploy
 pnpm smoke:agent

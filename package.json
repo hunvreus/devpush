@@ -9,7 +9,7 @@
     ]
   },
   "scripts": {
-    "setup": "node scripts/setup.mjs",
+    "configure": "node scripts/setup.mjs",
     "dev": "pnpm --dir app dev",
     "dev:start": "scripts/local-start.sh",
     "dev:stop": "scripts/local-stop.sh",
