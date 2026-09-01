@@ -52,9 +52,9 @@ async function main() {
     select({
       message: "Where will this devpush control plane run?",
       options: [
-        { value: "local", label: "Local development" },
         { value: "cloudflare", label: "Cloudflare Workers" },
         { value: "docker", label: "Docker Compose (self-hosted)" },
+        { value: "local", label: "Local development" },
       ],
     }),
   );
