@@ -46,6 +46,9 @@ All notable changes to devpush will be documented in this file.
 - Clarified setup completion with one ordered deployment path, deferred GitHub
   App installation to the in-product project flow, and simplified the local
   GitHub manifest callback page.
+- Deferred Hyperdrive binding access until a Cloudflare request scope exists,
+  generated readable unique GitHub App names, and clarified that CLI deployment
+  is manual until continuous deployment is configured separately.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.

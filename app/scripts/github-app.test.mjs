@@ -36,6 +36,10 @@ test('protects the local manifest page with a per-run token', async () => {
   assert.equal(page.status, 200)
   const html = await page.text()
   assert.equal(html.includes('&quot;secret&quot;'), false)
+  assert.match(
+    html,
+    /&quot;name&quot;:&quot;devpush-[a-z]+-[a-z]+-[a-f0-9]{4}&quot;/u,
+  )
   const state = html.match(/[?&]state=([a-f0-9]+)/u)?.[1]
   assert.ok(state)
 

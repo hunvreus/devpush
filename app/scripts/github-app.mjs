@@ -2,6 +2,59 @@ import { execFile } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 
+const appNameAdjectives = [
+  'bold',
+  'bright',
+  'calm',
+  'clever',
+  'cosmic',
+  'crisp',
+  'eager',
+  'electric',
+  'fierce',
+  'gentle',
+  'happy',
+  'lively',
+  'lucky',
+  'nimble',
+  'rapid',
+  'sharp',
+  'silly',
+  'sleek',
+  'steady',
+  'swift',
+  'vivid',
+  'warm',
+  'wild',
+  'witty',
+]
+const appNameNouns = [
+  'badger',
+  'beacon',
+  'comet',
+  'falcon',
+  'fox',
+  'gecko',
+  'heron',
+  'kite',
+  'lynx',
+  'meteor',
+  'otter',
+  'panda',
+  'pixel',
+  'quasar',
+  'raven',
+  'rocket',
+  'signal',
+  'sparrow',
+  'tiger',
+  'vector',
+  'whistle',
+  'wolf',
+  'wren',
+  'yak',
+]
+
 export async function createGitHubApp({
   appName = '',
   authUrl,
@@ -19,9 +72,7 @@ export async function createGitHubApp({
   const normalizedAuthUrl = trimSlash(authUrl || normalizedBaseUrl)
   const state = randomBytes(16).toString('hex')
   const manifest = {
-    name:
-      appName.trim() ||
-      `devpush ${new URL(normalizedBaseUrl).hostname} ${randomBytes(2).toString('hex')}`,
+    name: appName.trim() || generateGitHubAppName(),
     url: normalizedBaseUrl,
     callback_urls: [`${normalizedAuthUrl}/api/auth/callback/github`],
     description: 'Deploy GitHub repositories to your own servers with devpush.',
@@ -76,6 +127,14 @@ export async function createGitHubApp({
     installUrl: `https://github.com/apps/${app.slug}/installations/new`,
     values,
   }
+}
+
+function generateGitHubAppName() {
+  const bytes = randomBytes(4)
+  const adjective = appNameAdjectives[bytes[0] % appNameAdjectives.length]
+  const noun = appNameNouns[bytes[1] % appNameNouns.length]
+  const suffix = bytes.subarray(2).toString('hex')
+  return `devpush-${adjective}-${noun}-${suffix}`
 }
 
 async function waitForManifestCode({

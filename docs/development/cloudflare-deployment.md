@@ -129,6 +129,14 @@ same Wrangler operation. Migrations run before the new Worker because the new
 application version may depend on them; no manually repeated migration or agent
 upload commands are required for the normal deployment path.
 
+This command performs one deployment; setup does not connect the devpush source
+repository to an automatic deployment pipeline. For later manual updates, pull
+the desired revision, run `pnpm install --frozen-lockfile`, and rerun
+`pnpm deploy:cloudflare`. A first-class GitHub Actions deployment workflow is
+still pending because installation-specific Wrangler bindings, application
+secrets, the migration database URL, and Cloudflare credentials must be
+provisioned securely in CI rather than committed to the repository.
+
 The Worker reads agent binaries through its `DEVPUSH_OBJECTS` binding. The
 self-hosted app continues to use filesystem storage by default or the
 `DEVPUSH_STORAGE_*` S3-compatible variables when remote object storage is

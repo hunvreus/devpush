@@ -426,6 +426,8 @@ async function setupCloudflare() {
       "4. Install the GitHub App when prompted by devpush.",
       "",
       "Optional preflight: pnpm validate:cloudflare",
+      "Future updates: pull the new code and rerun pnpm deploy:cloudflare.",
+      "Continuous deployment is not configured by this wizard.",
     ].join("\n"),
     "Next steps",
   );

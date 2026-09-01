@@ -2,6 +2,10 @@
 
 ## Near-term
 
+- Add a first-class GitHub Actions setup flow for automatic Cloudflare
+  deployments, including secure provisioning of generated Wrangler bindings,
+  application secrets, the migration database URL, and scoped Cloudflare
+  credentials.
 - Complete clean remote VPS validation by running `pnpm validate:remote:proof`
   with public HTTPS control-plane config, a valid GitHub App private key, server
   install, GitHub-backed Compose deploy, public route smoke, and the generated

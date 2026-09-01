@@ -13,11 +13,10 @@ import * as schema from './schema'
 
 type Database = NodePgDatabase<typeof schema>
 
-const connectionString = getDatabaseConnectionString() ?? config.DATABASE_URL
 const requestDatabases = new AsyncLocalStorage<Database>()
 const pool = requiresRequestScopedDatabase()
   ? undefined
-  : new Pool({ connectionString })
+  : new Pool({ connectionString: config.DATABASE_URL })
 const pooledDatabase = pool ? drizzle(pool, { schema }) : undefined
 
 export const db = new Proxy({} as Database, {
@@ -39,7 +38,9 @@ export async function withDatabaseScope<TResult>(
     return callback()
   }
 
-  const client = new Client({ connectionString })
+  const client = new Client({
+    connectionString: getDatabaseConnectionString() ?? config.DATABASE_URL,
+  })
   await client.connect()
 
   try {
