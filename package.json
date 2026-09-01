@@ -38,6 +38,7 @@
     "setup:github-app": "node app/scripts/setup-github-app.mjs"
   },
   "devDependencies": {
-    "@clack/prompts": "^1.7.0"
+    "@clack/prompts": "^1.7.0",
+    "jsonc-parser": "^3.3.1"
   }
 }

@@ -86,6 +86,26 @@ test("reads deployment resources from a generated Cloudflare config", () => {
   assert.equal(readJsonConfig(path).name, "devpush-production");
 });
 
+test("reads comments and trailing commas from a JSONC template", () => {
+  const directory = mkdtempSync(join(tmpdir(), "devpush-setup-"));
+  const path = join(directory, "wrangler.template.jsonc");
+  writeFileSync(
+    path,
+    `{
+      // Shared Worker defaults.
+      "name": "devpush",
+      "observability": {
+        "enabled": true,
+      },
+    }`,
+  );
+
+  assert.deepEqual(readJsonConfig(path), {
+    name: "devpush",
+    observability: { enabled: true },
+  });
+});
+
 test("upserts env values without discarding unrelated configuration", () => {
   const directory = mkdtempSync(join(tmpdir(), "devpush-setup-"));
   const path = join(directory, ".env");

@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { parse, printParseErrorCode } from "jsonc-parser";
 
 export const cloudflareTemplatePath = "app/wrangler.template.jsonc";
 export const cloudflareConfigPath = "app/wrangler.jsonc";
@@ -89,7 +90,16 @@ export function readJsonConfig(filePath) {
   if (!existsSync(filePath)) return null;
 
   try {
-    const config = JSON.parse(readFileSync(filePath, "utf8"));
+    const errors = [];
+    const config = parse(readFileSync(filePath, "utf8"), errors, {
+      allowTrailingComma: true,
+    });
+    if (errors.length > 0) {
+      const first = errors[0];
+      throw new Error(
+        `${printParseErrorCode(first.error)} at offset ${first.offset}`,
+      );
+    }
     if (!config || typeof config !== "object" || Array.isArray(config)) {
       throw new Error("The root value must be an object.");
     }
