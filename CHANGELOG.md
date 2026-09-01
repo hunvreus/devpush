@@ -39,6 +39,8 @@ All notable changes to devpush will be documented in this file.
   during setup instead of requiring users to enter account infrastructure data.
 - Removed the redundant authentication-URL setup prompt; Better Auth now uses
   the control-plane URL unless an explicit environment override already exists.
+- Grouped Cloudflare database setup logically by asking for Hyperdrive details
+  immediately after PostgreSQL and before unrelated R2 storage details.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.

@@ -255,23 +255,13 @@ async function setupCloudflare() {
     bucketName = existingConfig.bucketName;
     hyperdriveId = existingConfig.hyperdriveId;
   } else if (resourceMode === "existing") {
-    bucketName = await ask(
-      text({ message: "R2 bucket name", validate: required }),
-    );
     hyperdriveId = await ask(
       text({ message: "Hyperdrive configuration ID", validate: required }),
     );
+    bucketName = await ask(
+      text({ message: "R2 bucket name", validate: required }),
+    );
   } else {
-    bucketName =
-      resourceMode === "resume" && pendingConfig.bucketName
-        ? pendingConfig.bucketName
-        : await ask(
-            text({
-              message: "New R2 bucket name",
-              initialValue: workerName,
-              validate: required,
-            }),
-          );
     hyperdriveId = resourceMode === "resume" ? pendingConfig.hyperdriveId : "";
     if (!hyperdriveId) {
       hyperdriveName = await ask(
@@ -282,6 +272,16 @@ async function setupCloudflare() {
         }),
       );
     }
+    bucketName =
+      resourceMode === "resume" && pendingConfig.bucketName
+        ? pendingConfig.bucketName
+        : await ask(
+            text({
+              message: "New R2 bucket name",
+              initialValue: workerName,
+              validate: required,
+            }),
+          );
   }
 
   if (
