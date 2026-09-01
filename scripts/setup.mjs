@@ -22,6 +22,7 @@ import {
   cloudflareSecretsPath,
   cloudflareTemplatePath,
   createCloudflareConfig,
+  getCloudflareWorkersSubdomain,
   readCloudflareConfig,
   readEnv,
   readJsonConfig,
@@ -177,7 +178,12 @@ async function setupCloudflare() {
       validate: validateWorkerName,
     }),
   );
+  await ensureCloudflareLogin();
+  const account = await getCloudflareAccount(
+    pendingConfig?.accountId || existingConfig?.accountId,
+  );
   const origin = await askCloudflareOrigin({
+    accountId: account.id,
     existingConfig,
     existingUrl:
       existingConfig?.vars.DEVPUSH_BASE_URL || existingSecrets.DEVPUSH_BASE_URL,
@@ -311,12 +317,15 @@ async function setupCloudflare() {
     if (resourceMode === "create") {
       writeFileAtomic(
         pendingPath,
-        createCloudflareConfig({ template, workerName }),
+        createCloudflareConfig({
+          accountId: account.id,
+          template,
+          workerName,
+        }),
         0o644,
       );
     }
     try {
-      await ensureCloudflareLogin();
       if (resourceMode === "create" || !pendingConfig.bucketName) {
         await runWrangler([
           "r2",
@@ -359,7 +368,6 @@ async function setupCloudflare() {
     bucketName = created.bucketName;
     hyperdriveId = created.hyperdriveId;
   } else {
-    await ensureCloudflareLogin();
     await runWrangler(["r2", "bucket", "info", bucketName]);
     await runWrangler(["hyperdrive", "get", hyperdriveId]);
   }
@@ -388,6 +396,7 @@ async function setupCloudflare() {
   writeFileAtomic(
     generatedPath,
     createCloudflareConfig({
+      accountId: account.id,
       bucketName,
       customDomain: origin.customDomain,
       hyperdriveId,
@@ -483,6 +492,48 @@ async function ensureCloudflareLogin() {
   await runWrangler(["login"]);
 }
 
+async function getCloudflareAccount(preferredAccountId = "") {
+  const identity = await runWranglerJson(["whoami", "--json"]);
+  const accounts = Array.isArray(identity?.accounts)
+    ? identity.accounts.filter(
+        (account) =>
+          typeof account?.id === "string" && typeof account?.name === "string",
+      )
+    : [];
+  if (accounts.length === 0) {
+    throw new Error(
+      "Wrangler did not return an authenticated Cloudflare account.",
+    );
+  }
+
+  const preferred = accounts.find(
+    (account) => account.id === preferredAccountId,
+  );
+  if (preferred) return preferred;
+  if (accounts.length === 1) return accounts[0];
+
+  const accountId = await ask(
+    select({
+      message: "Cloudflare account",
+      options: accounts.map((account) => ({
+        value: account.id,
+        label: account.name,
+      })),
+    }),
+  );
+  return accounts.find((account) => account.id === accountId);
+}
+
+async function getCloudflareApiToken() {
+  const credentials = await runWranglerJson(["auth", "token", "--json"], {
+    sensitive: true,
+  });
+  if (typeof credentials?.token !== "string" || !credentials.token) {
+    throw new Error("Wrangler did not return an authentication token.");
+  }
+  return credentials.token;
+}
+
 async function runWrangler(args, { allowFailure = false, quiet = false } = {}) {
   const progress = quiet ? null : spinner();
   progress?.start(`Running wrangler ${args.slice(0, 3).join(" ")}`);
@@ -499,11 +550,60 @@ async function runWrangler(args, { allowFailure = false, quiet = false } = {}) {
   }
 }
 
+async function runWranglerJson(args, { sensitive = false } = {}) {
+  const output = await runCaptured(
+    "pnpm",
+    ["--dir", "app", "exec", "wrangler", ...args],
+    { sensitive },
+  );
+  try {
+    return JSON.parse(output);
+  } catch {
+    throw new Error(
+      sensitive
+        ? "Wrangler returned an invalid authentication response."
+        : `Wrangler ${args.join(" ")} returned invalid JSON.`,
+    );
+  }
+}
+
 function run(command, args, options) {
   return new Promise((resolveCode, reject) => {
     const child = spawn(command, args, { cwd: root, ...options });
     child.once("error", reject);
     child.once("exit", (code) => resolveCode(code ?? 1));
+  });
+}
+
+function runCaptured(command, args, { sensitive = false } = {}) {
+  return new Promise((resolveOutput, reject) => {
+    const child = spawn(command, args, {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolveOutput(stdout);
+      else {
+        reject(
+          new Error(
+            sensitive
+              ? "Wrangler authentication token retrieval failed."
+              : stderr.trim() || "Wrangler command failed.",
+          ),
+        );
+      }
+    });
   });
 }
 
@@ -545,14 +645,11 @@ async function askAdminEmail(initialValue = "") {
 }
 
 async function askCloudflareOrigin({
+  accountId,
   existingConfig,
   existingUrl = "",
   workerName,
 }) {
-  const existingWorkersDevSubdomain = workersDevSubdomain(
-    existingUrl,
-    workerName,
-  );
   const mode = await ask(
     select({
       message: "Which public origin should this deployment use?",
@@ -573,14 +670,19 @@ async function askCloudflareOrigin({
   );
 
   if (mode === "workers-dev") {
-    const accountSubdomain = await ask(
-      text({
-        message: "Cloudflare workers.dev account subdomain",
-        initialValue: existingWorkersDevSubdomain,
-        placeholder: "your-account-subdomain",
-        validate: validateDnsLabel,
-      }),
-    );
+    const progress = spinner();
+    progress.start("Reading the Cloudflare workers.dev subdomain");
+    let accountSubdomain;
+    try {
+      accountSubdomain = await getCloudflareWorkersSubdomain({
+        accountId,
+        apiToken: await getCloudflareApiToken(),
+      });
+      progress.stop("Cloudflare workers.dev subdomain found");
+    } catch (error) {
+      progress.stop("Could not read the Cloudflare workers.dev subdomain");
+      throw error;
+    }
     const baseUrl = `https://${workerName}.${accountSubdomain}.workers.dev`;
     note(
       `${baseUrl}\nCloudflare returns this URL after deployment; setup records it now because authentication, GitHub callbacks, and generated agent installers need the final origin.`,
@@ -642,18 +744,6 @@ function validateWorkerName(value) {
   return validateDnsLabel(value) === undefined
     ? undefined
     : "Use a lowercase DNS-safe Worker name.";
-}
-
-function workersDevSubdomain(value, workerName) {
-  try {
-    const hostname = new URL(value).hostname;
-    const suffix = ".workers.dev";
-    if (!hostname.endsWith(suffix)) return "";
-    const labels = hostname.slice(0, -suffix.length).split(".");
-    return labels.length === 2 && labels[0] === workerName ? labels[1] : "";
-  } catch {
-    return "";
-  }
 }
 
 function relative(path) {

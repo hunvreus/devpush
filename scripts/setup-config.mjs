@@ -15,6 +15,7 @@ export const cloudflareSecretsPath = "app/.cloudflare-secrets.json";
 export const cloudflareDatabasePath = "app/.cloudflare-database.env";
 
 export function createCloudflareConfig({
+  accountId,
   bucketName,
   customDomain,
   hyperdriveId,
@@ -26,6 +27,7 @@ export function createCloudflareConfig({
   const config = {
     ...template,
     name: workerName,
+    ...(accountId ? { account_id: accountId } : {}),
     ...(vars && Object.keys(vars).length > 0 ? { vars } : {}),
     ...(hyperdriveId
       ? {
@@ -63,6 +65,7 @@ export function readCloudflareConfig(filePath) {
     );
 
     return {
+      accountId: config.account_id || "",
       bucketName: bucket?.bucket_name || "",
       customDomain:
         config.routes?.find((route) => route.custom_domain === true)?.pattern ||
@@ -84,6 +87,37 @@ export function readCloudflareConfig(filePath) {
   } catch {
     throw new Error(`Could not parse ${filePath}.`);
   }
+}
+
+export async function getCloudflareWorkersSubdomain({
+  accountId,
+  apiToken,
+  fetchImpl = fetch,
+}) {
+  const response = await fetchImpl(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`,
+    { headers: { Authorization: `Bearer ${apiToken}` } },
+  );
+  const body = await response.json();
+  const subdomain = body?.result?.subdomain;
+
+  if (response.ok && body?.success === true && typeof subdomain === "string") {
+    return subdomain;
+  }
+
+  const missing = body?.errors?.some((error) => error?.code === 10007);
+  if (missing) {
+    throw new Error(
+      `This Cloudflare account has no workers.dev subdomain. Create one at https://dash.cloudflare.com/${accountId}/workers/onboarding, then rerun \`pnpm configure\`.`,
+    );
+  }
+
+  const message = body?.errors?.find(
+    (error) => typeof error?.message === "string",
+  )?.message;
+  throw new Error(
+    `Cloudflare could not return the account workers.dev subdomain${message ? `: ${message}` : "."}`,
+  );
 }
 
 export function readJsonConfig(filePath) {

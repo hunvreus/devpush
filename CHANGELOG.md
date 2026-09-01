@@ -35,6 +35,8 @@ All notable changes to devpush will be documented in this file.
   moved generated Cloudflare configuration to ignored files, clarified
   workers.dev and custom-domain origin setup, and combined migrations, agent
   publication, and Worker deployment behind `pnpm deploy:cloudflare`.
+- Discovered the authenticated Cloudflare account and its workers.dev subdomain
+  during setup instead of requiring users to enter account infrastructure data.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.

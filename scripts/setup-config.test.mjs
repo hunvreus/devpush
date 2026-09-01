@@ -11,6 +11,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   createCloudflareConfig,
+  getCloudflareWorkersSubdomain,
   readCloudflareConfig,
   readEnv,
   readJsonConfig,
@@ -22,6 +23,7 @@ import {
 test("creates a deployment-specific Cloudflare config", () => {
   const config = JSON.parse(
     createCloudflareConfig({
+      accountId: "account-123",
       bucketName: "devpush-assets",
       customDomain: "devpush.example.com",
       hyperdriveId: "abc123",
@@ -35,6 +37,7 @@ test("creates a deployment-specific Cloudflare config", () => {
   );
 
   assert.equal(config.name, "devpush-production");
+  assert.equal(config.account_id, "account-123");
   assert.equal(config.main, "src/server.ts");
   assert.equal(config.compatibility_date, "2026-08-29");
   assert.equal(config.workers_dev, false);
@@ -59,6 +62,7 @@ test("reads deployment resources from a generated Cloudflare config", () => {
   writeFileSync(
     path,
     createCloudflareConfig({
+      accountId: "account-123",
       bucketName: "devpush-assets",
       hyperdriveId: "abc123",
       workersDev: true,
@@ -72,6 +76,7 @@ test("reads deployment resources from a generated Cloudflare config", () => {
   );
 
   assert.deepEqual(readCloudflareConfig(path), {
+    accountId: "account-123",
     bucketName: "devpush-assets",
     customDomain: "",
     hyperdriveId: "abc123",
@@ -84,6 +89,51 @@ test("reads deployment resources from a generated Cloudflare config", () => {
     workersDev: true,
   });
   assert.equal(readJsonConfig(path).name, "devpush-production");
+});
+
+test("discovers the workers.dev account subdomain", async () => {
+  const requests = [];
+  const subdomain = await getCloudflareWorkersSubdomain({
+    accountId: "account-123",
+    apiToken: "secret-token",
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          result: { subdomain: "example-account" },
+          success: true,
+        }),
+      };
+    },
+  });
+
+  assert.equal(subdomain, "example-account");
+  assert.equal(
+    requests[0].url,
+    "https://api.cloudflare.com/client/v4/accounts/account-123/workers/subdomain",
+  );
+  assert.equal(
+    requests[0].options.headers.Authorization,
+    "Bearer secret-token",
+  );
+});
+
+test("explains when the Cloudflare account has no workers.dev subdomain", async () => {
+  await assert.rejects(
+    getCloudflareWorkersSubdomain({
+      accountId: "account-123",
+      apiToken: "secret-token",
+      fetchImpl: async () => ({
+        ok: false,
+        json: async () => ({
+          errors: [{ code: 10007, message: "Subdomain not found" }],
+          success: false,
+        }),
+      }),
+    }),
+    /has no workers\.dev subdomain/u,
+  );
 });
 
 test("reads comments and trailing commas from a JSONC template", () => {

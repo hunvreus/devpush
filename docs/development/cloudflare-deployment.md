@@ -36,23 +36,25 @@ Run the repository setup wizard:
 pnpm configure
 ```
 
-Choose **Cloudflare Workers**. The wizard collects the public control-plane URL
-by constructing the selected Worker's `workers.dev` URL or configuring a custom
-domain, then collects the PostgreSQL origin URL. It creates or connects R2 and
-Hyperdrive, disables Hyperdrive query caching, records the installation-admin
-email, and optionally creates the GitHub App. Before any
+Choose **Cloudflare Workers**. The wizard reads the authenticated Cloudflare
+account and its `workers.dev` subdomain from Wrangler and Cloudflare, then
+constructs the selected Worker's public URL or configures a custom domain. It
+collects the PostgreSQL origin URL, creates or connects R2 and Hyperdrive,
+disables Hyperdrive query caching, records the installation-admin email, and
+optionally creates the GitHub App. Before any
 Cloudflare resources are created, it displays a confirmation prompt. It does
 not deploy the Worker.
 
 The Worker name defaults to `devpush` and is editable in the wizard. A
 `workers.dev` URL has the deterministic form
-`https://<worker>.<account-subdomain>.workers.dev`; Cloudflare also reports it
-after deployment, but setup records it earlier because authentication origins,
-GitHub callback and webhook URLs, and generated agent installers need the final
-control-plane origin. If a custom domain is selected, setup adds it as a Worker
-Custom Domain. The zone must already be active in the same Cloudflare account
-and must not have a conflicting CNAME. Re-run `pnpm configure` before changing
-the public origin so dependent configuration can be updated together.
+`https://<worker>.<account-subdomain>.workers.dev`; setup discovers the account
+subdomain automatically and records the URL before deployment because
+authentication origins, GitHub callback and webhook URLs, and generated agent
+installers need the final control-plane origin. If a custom domain is selected,
+setup adds it as a Worker Custom Domain. The zone must already be active in the
+same Cloudflare account and must not have a conflicting CNAME. Re-run
+`pnpm configure` before changing the public origin so dependent configuration
+can be updated together.
 
 devpush currently requires PostgreSQL; D1/SQLite is not a drop-in deployment
 option. The application schema, migrations, locking, and server services use
