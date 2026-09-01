@@ -178,8 +178,9 @@ async function setupCloudflare() {
       validate: validateWorkerName,
     }),
   );
-  await ensureCloudflareLogin();
+  const identity = await ensureCloudflareLogin();
   const account = await getCloudflareAccount(
+    identity,
     pendingConfig?.accountId || existingConfig?.accountId,
   );
   const origin = await askCloudflareOrigin({
@@ -474,11 +475,15 @@ async function setupGitHub(
 }
 
 async function ensureCloudflareLogin() {
-  const status = await runWrangler(["whoami", "--json"], {
-    allowFailure: true,
-    quiet: true,
-  });
-  if (status === 0) return;
+  const progress = spinner();
+  progress.start("Checking Cloudflare authentication");
+  try {
+    const identity = await runWranglerJson(["whoami", "--json"]);
+    progress.stop("Cloudflare authentication confirmed");
+    return identity;
+  } catch {
+    progress.stop("Cloudflare authentication required");
+  }
   const login = await ask(
     confirm({
       message: "Wrangler is not authenticated. Log in now?",
@@ -490,10 +495,10 @@ async function ensureCloudflareLogin() {
       "Cloudflare authentication is required to create resources.",
     );
   await runWrangler(["login"]);
+  return runWranglerJson(["whoami", "--json"]);
 }
 
-async function getCloudflareAccount(preferredAccountId = "") {
-  const identity = await runWranglerJson(["whoami", "--json"]);
+async function getCloudflareAccount(identity, preferredAccountId = "") {
   const accounts = Array.isArray(identity?.accounts)
     ? identity.accounts.filter(
         (account) =>
