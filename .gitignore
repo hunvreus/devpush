@@ -4,6 +4,10 @@
 .env.*
 !.env.example
 !.env.*.example
+app/wrangler.jsonc
+app/wrangler.pending.jsonc
+app/.cloudflare-secrets.json
+app/.cloudflare-database.env
 .version.json
 .claude/
 .vscode/

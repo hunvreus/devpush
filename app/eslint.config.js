@@ -23,11 +23,13 @@ export default [
   },
   {
     ignores: [
+      '.tmp/**',
       '.output/**',
       '.tanstack/**',
       'dist/**',
       'eslint.config.js',
       'prettier.config.js',
+      'worker-configuration.d.ts',
     ],
   },
 ]

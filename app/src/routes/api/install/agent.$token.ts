@@ -9,7 +9,7 @@ export const Route = createFileRoute('/api/install/agent/$token')({
       HEAD: async ({ params }) => {
         const script = buildTokenizedAgentInstallScript({
           autoUpdate: config.DEVPUSH_AGENT_AUTO_UPDATE,
-          serverUrl: config.BETTER_AUTH_URL,
+          baseUrl: config.DEVPUSH_BASE_URL,
           token: params.token,
           traefikEmail: config.DEVPUSH_TRAEFIK_EMAIL,
         })
@@ -21,7 +21,7 @@ export const Route = createFileRoute('/api/install/agent/$token')({
       GET: async ({ params }) => {
         const script = buildTokenizedAgentInstallScript({
           autoUpdate: config.DEVPUSH_AGENT_AUTO_UPDATE,
-          serverUrl: config.BETTER_AUTH_URL,
+          baseUrl: config.DEVPUSH_BASE_URL,
           token: params.token,
           traefikEmail: config.DEVPUSH_TRAEFIK_EMAIL,
         })

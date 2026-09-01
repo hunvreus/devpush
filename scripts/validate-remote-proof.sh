@@ -12,7 +12,7 @@ This chains:
 3. Clean remote server validation with full proof enabled.
 
 Required environment:
-  DEVPUSH_SERVER_URL       Public HTTPS control-plane URL
+  DEVPUSH_BASE_URL         Public HTTPS control-plane URL
   DEVPUSH_REMOTE_HOST      SSH target, e.g. root@203.0.113.10
   DEVPUSH_INSTALL_COMMAND  Server install command copied from devpush
   DEVPUSH_PROJECT_URL      Public HTTPS app route after a GitHub-backed deploy
@@ -21,7 +21,7 @@ Optional environment:
   DEVPUSH_PROOF_ENV        Env file for config/image validation, default: deploy/.env.production
 
 Example:
-  DEVPUSH_SERVER_URL=https://devpush.example.com \
+  DEVPUSH_BASE_URL=https://devpush.example.com \
   DEVPUSH_REMOTE_HOST=root@203.0.113.10 \
   DEVPUSH_INSTALL_COMMAND='tmp="$(mktemp)" && curl -fsSL ...' \
   DEVPUSH_PROJECT_URL=https://my-app.example.com \
@@ -52,7 +52,7 @@ step() {
   printf '\n==> %s\n' "$1"
 }
 
-required DEVPUSH_SERVER_URL
+required DEVPUSH_BASE_URL
 required DEVPUSH_REMOTE_HOST
 required DEVPUSH_INSTALL_COMMAND
 required DEVPUSH_PROJECT_URL
@@ -64,36 +64,36 @@ if [[ ! -f "$proof_env" ]]; then
   exit 2
 fi
 
-node - "$proof_env" "$DEVPUSH_SERVER_URL" <<'EOF'
+node - "$proof_env" "$DEVPUSH_BASE_URL" <<'EOF'
 const { readFileSync } = require('node:fs')
 
-const [, , envPath, serverUrl] = process.argv
+const [, , envPath, expectedBaseUrl] = process.argv
 const fileEnv = parseEnvFile(readFileSync(envPath, 'utf8'))
 const env = { ...fileEnv, ...process.env }
-const authUrl = env.BETTER_AUTH_URL
+const configuredBaseUrl = env.DEVPUSH_BASE_URL
 
-if (!authUrl) {
-  console.error(`BETTER_AUTH_URL is missing from ${envPath}`)
+if (!configuredBaseUrl) {
+  console.error(`DEVPUSH_BASE_URL is missing from ${envPath}`)
   process.exit(2)
 }
 
-let authOrigin
-let serverOrigin
+let configuredOrigin
+let expectedOrigin
 try {
-  authOrigin = new URL(authUrl).origin
+  configuredOrigin = new URL(configuredBaseUrl).origin
 } catch {
-  console.error(`BETTER_AUTH_URL is not a valid URL in ${envPath}`)
+  console.error(`DEVPUSH_BASE_URL is not a valid URL in ${envPath}`)
   process.exit(2)
 }
 try {
-  serverOrigin = new URL(serverUrl).origin
+  expectedOrigin = new URL(expectedBaseUrl).origin
 } catch {
-  console.error('DEVPUSH_SERVER_URL is not a valid URL.')
+  console.error('DEVPUSH_BASE_URL is not a valid URL.')
   process.exit(2)
 }
 
-if (authOrigin !== serverOrigin) {
-  console.error(`BETTER_AUTH_URL origin (${authOrigin}) must match DEVPUSH_SERVER_URL origin (${serverOrigin}).`)
+if (configuredOrigin !== expectedOrigin) {
+  console.error(`Configured DEVPUSH_BASE_URL origin (${configuredOrigin}) must match the remote proof origin (${expectedOrigin}).`)
   process.exit(2)
 }
 

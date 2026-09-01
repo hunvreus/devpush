@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { config } from '@/server/config'
 import {
   getObjectStore,
-  isRemoteObjectStorageConfigured,
+  isObjectStorageConfigured,
 } from '@/server/storage/object-store'
 
 export class AgentBinaryNotConfiguredError extends Error {}
@@ -46,7 +46,7 @@ export async function getAgentBinary(
   const normalizedPlatform = normalizePlatform(platform)
   const filename = binaryFilename(normalizedPlatform)
 
-  if (isRemoteObjectStorageConfigured()) {
+  if (isObjectStorageConfigured()) {
     const { body } = await getObjectStore().get(`agents/${filename}`)
     return { body, filename, size: body.byteLength }
   }
@@ -65,7 +65,7 @@ export async function getAgentBinary(
     throw new Error('Configured agent binary path is not a file.')
   }
 
-  await access(path, constants.R_OK | constants.X_OK)
+  await access(path, constants.R_OK)
 
   const body = await readFile(path)
   return { body, filename, size: file.size }
@@ -73,7 +73,7 @@ export async function getAgentBinary(
 
 export async function getAgentBinaryStatus(): Promise<AgentBinaryStatus> {
   try {
-    if (config.DEVPUSH_AGENT_BINARY_DIR || isRemoteObjectStorageConfigured()) {
+    if (config.DEVPUSH_AGENT_BINARY_DIR || isObjectStorageConfigured()) {
       await Promise.all(requiredDirectoryPlatforms.map(getAgentBinary))
     } else {
       await getAgentBinary()

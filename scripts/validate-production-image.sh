@@ -178,7 +178,7 @@ docker run -d \
   --network "$probe_network" \
   -e DATABASE_URL="$database_url" \
   -e BETTER_AUTH_SECRET=production-image-validation-secret \
-  -e BETTER_AUTH_URL=http://localhost:3000 \
+  -e DEVPUSH_BASE_URL=http://localhost:3000 \
   "$image" >/dev/null
 
 app_ready=false

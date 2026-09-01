@@ -28,7 +28,7 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	flushedEvents := 0
 
 	flushProgress := func() {
-		if strings.TrimSpace(runner.cfg.ServerURL) == "" {
+		if strings.TrimSpace(runner.cfg.BaseURL) == "" {
 			return
 		}
 		if flushedLogs == len(logs) && flushedEvents == len(events) {

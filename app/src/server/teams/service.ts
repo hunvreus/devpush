@@ -29,6 +29,7 @@ import { listServerMonitoringSummaries } from '@/server/servers/monitoring'
 import type { ServerMonitoringSummary } from '@/server/servers/monitoring'
 import { removePublicFile, resolveAvatarUpdate } from '@/server/uploads/avatar'
 import { canDeleteTeam } from './delete-policy'
+import { isInstallationAdmin } from '@/server/admin/access'
 
 const forbiddenTeamSlugs = new Set([
   'admin',
@@ -129,6 +130,7 @@ export type UserContext = {
     email: string
     image: string | null
     defaultTeamId: string | null
+    isInstallationAdmin: boolean
   }
   teams: Array<TeamSummary>
   defaultTeam: TeamSummary
@@ -260,6 +262,10 @@ export async function getUserContext(userId: string): Promise<UserContext> {
       email: currentUser.email,
       image: currentUser.image,
       defaultTeamId: currentUser.defaultTeamId,
+      isInstallationAdmin: await isInstallationAdmin({
+        id: currentUser.id,
+        email: currentUser.email,
+      }),
     },
     teams: mappedTeams,
     defaultTeam,
@@ -296,6 +302,16 @@ export async function requireTeam(userId: string, teamSlug: string) {
     ...team,
     color: getResourceColor(team.id),
   }
+}
+
+export async function requireTeamManager(userId: string, teamSlug: string) {
+  const team = await requireTeam(userId, teamSlug)
+
+  if (!canManageTeamSettings(team.role)) {
+    throw new Error('Forbidden')
+  }
+
+  return team
 }
 
 export async function createTeam({
@@ -1400,7 +1416,7 @@ async function upsertTeamInvite({
 
   const inviteUrl = new URL(
     `/invites/${token}`,
-    config.BETTER_AUTH_URL,
+    config.DEVPUSH_BASE_URL,
   ).toString()
 
   let emailSent = true

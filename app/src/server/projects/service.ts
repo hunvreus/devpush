@@ -2444,6 +2444,7 @@ export async function createRollbackDeployment({
       ?.name ?? 'environment'
 
   await db.transaction(async (tx) => {
+    await lockEnvironmentDeployments(tx, source.environmentId)
     await cancelActiveDeploymentsForEnvironment(tx, {
       environmentId: source.environmentId,
       message: 'Canceled because a rollback deployment was queued.',
@@ -2586,6 +2587,7 @@ export async function createRedeployDeployment({
       ?.name ?? 'environment'
 
   await db.transaction(async (tx) => {
+    await lockEnvironmentDeployments(tx, source.environmentId)
     await cancelActiveDeploymentsForEnvironment(tx, {
       environmentId: source.environmentId,
       message: 'Canceled because a redeployment was queued.',
@@ -2704,6 +2706,7 @@ export async function getManualDeploymentOptions({
 }
 
 export async function createDeploymentsForGitHubPush({
+  deliveryId,
   installationId,
   repositoryId,
   repositoryFullName,
@@ -2711,6 +2714,7 @@ export async function createDeploymentsForGitHubPush({
   gitSha,
   message,
 }: {
+  deliveryId: string
   installationId: number
   repositoryId: number
   repositoryFullName: string
@@ -2823,6 +2827,7 @@ export async function createDeploymentsForGitHubPush({
     }
 
     const deployment = await createDeploymentForEnvironment({
+      githubDeliveryId: deliveryId,
       environmentId: row.environment.id,
       gitBranch: branch,
       gitSha,
@@ -2836,11 +2841,19 @@ export async function createDeploymentsForGitHubPush({
       queuedMessage: `Queued ${row.project.githubRepo} from GitHub push to ${branch}.`,
     })
 
-    created.push({
-      deploymentId: deployment.deploymentId,
-      projectId: row.project.id,
-      environmentId: row.environment.id,
-    })
+    if (deployment.status === 'created') {
+      created.push({
+        deploymentId: deployment.deploymentId,
+        projectId: row.project.id,
+        environmentId: row.environment.id,
+      })
+    } else {
+      skipped.push({
+        projectId: row.project.id,
+        environmentId: row.environment.id,
+        reason: 'duplicate_delivery',
+      })
+    }
   }
 
   return {
@@ -3123,7 +3136,7 @@ function resolveRoutingIpv4(value: string | null) {
     return value
   }
 
-  const controlPlaneHost = new URL(config.BETTER_AUTH_URL).hostname
+  const controlPlaneHost = new URL(config.DEVPUSH_BASE_URL).hostname
 
   if (controlPlaneHost === 'localhost' || controlPlaneHost === '127.0.0.1') {
     return '127.0.0.1'
@@ -3203,6 +3216,7 @@ async function createDeploymentForEnvironment({
   commitMeta,
   queuedMessage,
   createdByUserId,
+  githubDeliveryId,
 }: {
   deploymentId?: string
   environmentId: string
@@ -3212,7 +3226,11 @@ async function createDeploymentForEnvironment({
   commitMeta: DeploymentCommitMeta
   queuedMessage: string
   createdByUserId?: string
-}): Promise<{ status: 'created'; deploymentId: string }> {
+  githubDeliveryId?: string
+}): Promise<{
+  status: 'created' | 'existing'
+  deploymentId: string
+}> {
   const now = new Date()
   const environmentRows = await db
     .select({
@@ -3323,29 +3341,40 @@ async function createDeploymentForEnvironment({
     }),
   )
 
-  await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
+    await lockEnvironmentDeployments(tx, environmentId)
+    const inserted = await tx
+      .insert(deployments)
+      .values({
+        id: deploymentId,
+        environmentId,
+        status: 'queued',
+        phase: 'queued',
+        trigger,
+        githubDeliveryId,
+        serverId: server.id,
+        repoId,
+        repoFullName: environmentRow.project.githubRepo,
+        gitSha,
+        gitBranch,
+        commitMeta,
+        config: deploymentConfig,
+        envVars,
+        runtimeId: environmentRow.environment.runtimeId,
+        createdByUserId,
+      })
+      .onConflictDoNothing()
+      .returning({ id: deployments.id })
+
+    if (!inserted.at(0)) {
+      return false
+    }
+
     await cancelActiveDeploymentsForEnvironment(tx, {
       environmentId,
+      excludeDeploymentId: deploymentId,
       message: `Canceled because a newer ${trigger} deployment was queued.`,
       now,
-    })
-
-    await tx.insert(deployments).values({
-      id: deploymentId,
-      environmentId,
-      status: 'queued',
-      phase: 'queued',
-      trigger,
-      serverId: server.id,
-      repoId,
-      repoFullName: environmentRow.project.githubRepo,
-      gitSha,
-      gitBranch,
-      commitMeta,
-      config: deploymentConfig,
-      envVars,
-      runtimeId: environmentRow.environment.runtimeId,
-      createdByUserId,
     })
 
     await tx.insert(deploymentLogs).values({
@@ -3379,9 +3408,11 @@ async function createDeploymentForEnvironment({
       https: generatedAliasUsesHttps(server.publicAddress),
       updatedAt: now,
     })
+
+    return true
   })
 
-  return { status: 'created', deploymentId }
+  return { status: created ? 'created' : 'existing', deploymentId }
 }
 
 function createDeploymentConfig({
@@ -3483,10 +3514,12 @@ async function cancelActiveDeploymentsForEnvironment(
   tx: DbTransaction,
   {
     environmentId,
+    excludeDeploymentId,
     message,
     now,
   }: {
     environmentId: string
+    excludeDeploymentId?: string
     message: string
     now: Date
   },
@@ -3497,6 +3530,9 @@ async function cancelActiveDeploymentsForEnvironment(
     .where(
       and(
         eq(deployments.environmentId, environmentId),
+        excludeDeploymentId
+          ? ne(deployments.id, excludeDeploymentId)
+          : undefined,
         inArray(deployments.status, ['queued', 'running']),
       ),
     )
@@ -3559,4 +3595,13 @@ async function cancelActiveDeploymentsForEnvironment(
     })
 
   return canceledIds
+}
+
+async function lockEnvironmentDeployments(
+  tx: DbTransaction,
+  environmentId: string,
+) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${environmentId}, 0))`,
+  )
 }

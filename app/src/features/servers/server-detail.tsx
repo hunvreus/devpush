@@ -61,6 +61,7 @@ import { SectionNavigation } from '@/components/section-navigation'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { ServerMetricChart } from '@/features/servers/server-metric-chart'
 import { getErrorMessage } from '@/lib/error-message'
+import { canManageTeamSettings } from '@/lib/team-role'
 import {
   formatAge,
   formatServerStatus,
@@ -94,6 +95,7 @@ export function ServerDetail({
   const [savedName, setSavedName] = useState(server.name)
   const [name, setName] = useState(server.name)
   const [isSaving, setIsSaving] = useState(false)
+  const canManageServer = canManageTeamSettings(team.role)
   const hasChanges = name.trim() !== savedName
 
   async function save() {
@@ -150,7 +152,7 @@ export function ServerDetail({
 
       <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
         <div className="space-y-8">
-          {server.status === 'connected' ? null : (
+          {server.status === 'connected' || !canManageServer ? null : (
             <ServerInstallCallout server={server} teamSlug={team.slug} />
           )}
 
@@ -207,6 +209,7 @@ export function ServerDetail({
                   <Input
                     id="server-name"
                     value={name}
+                    readOnly={!canManageServer}
                     onChange={(event) => setName(event.target.value)}
                   />
                 </Field>
@@ -243,29 +246,31 @@ export function ServerDetail({
                 </Field>
               </FieldGroup>
             </CardContent>
-            <CardFooter className="justify-end gap-x-2">
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={reset}
-                disabled={!hasChanges || isSaving}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void save()}
-                disabled={!hasChanges || isSaving || name.trim().length === 0}
-              >
-                {isSaving ? (
-                  <LoaderIcon
-                    data-icon="inline-start"
-                    className="animate-spin"
-                  />
-                ) : null}
-                Save
-              </Button>
-            </CardFooter>
+            {canManageServer ? (
+              <CardFooter className="justify-end gap-x-2">
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={reset}
+                  disabled={!hasChanges || isSaving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void save()}
+                  disabled={!hasChanges || isSaving || name.trim().length === 0}
+                >
+                  {isSaving ? (
+                    <LoaderIcon
+                      data-icon="inline-start"
+                      className="animate-spin"
+                    />
+                  ) : null}
+                  Save
+                </Button>
+              </CardFooter>
+            ) : null}
           </Card>
 
           <Card id="host" className="scroll-mt-8">
@@ -433,7 +438,9 @@ export function ServerDetail({
             </CardContent>
           </Card>
 
-          <ServerDangerSection server={server} teamSlug={team.slug} />
+          {canManageServer ? (
+            <ServerDangerSection server={server} teamSlug={team.slug} />
+          ) : null}
         </div>
 
         <aside className="hidden lg:block">
@@ -443,7 +450,15 @@ export function ServerDetail({
               { href: '#general', label: 'General' },
               { href: '#host', label: 'Host' },
               { href: '#metrics', label: 'Metrics' },
-              { href: '#danger', label: 'Danger', destructive: true },
+              ...(canManageServer
+                ? [
+                    {
+                      href: '#danger' as const,
+                      label: 'Danger',
+                      destructive: true,
+                    },
+                  ]
+                : []),
             ]}
           />
         </aside>

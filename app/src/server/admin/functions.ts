@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
 import { getAuthSession } from '@/server/auth/session.server'
+import { requireInstallationAdmin } from '@/server/admin/access'
 import {
   addAllowlistRule,
   banUser,
@@ -39,9 +40,11 @@ export const getAdminSettingsContext = createServerFn({
     return null
   }
 
+  await requireInstallationAdmin(session.user)
+
   const [userContext, adminOverview] = await Promise.all([
     getUserContext(session.user.id),
-    getAdminOverview(),
+    getAdminOverview(session.user.id),
   ])
 
   return {
@@ -59,7 +62,9 @@ export const addAllowlistRuleAction = createServerFn({ method: 'POST' })
       throw new Error('Unauthorized')
     }
 
-    await addAllowlistRule(data)
+    await requireInstallationAdmin(session.user)
+
+    await addAllowlistRule({ actorUserId: session.user.id, ...data })
   })
 
 export const importAllowlistEmailsAction = createServerFn({ method: 'POST' })
@@ -71,7 +76,9 @@ export const importAllowlistEmailsAction = createServerFn({ method: 'POST' })
       throw new Error('Unauthorized')
     }
 
-    await importAllowlistEmails(data)
+    await requireInstallationAdmin(session.user)
+
+    await importAllowlistEmails({ actorUserId: session.user.id, ...data })
   })
 
 export const deleteAllowlistRuleAction = createServerFn({ method: 'POST' })
@@ -83,7 +90,9 @@ export const deleteAllowlistRuleAction = createServerFn({ method: 'POST' })
       throw new Error('Unauthorized')
     }
 
-    await deleteAllowlistRule(data)
+    await requireInstallationAdmin(session.user)
+
+    await deleteAllowlistRule({ actorUserId: session.user.id, ...data })
   })
 
 export const banUserAction = createServerFn({ method: 'POST' })
@@ -94,6 +103,8 @@ export const banUserAction = createServerFn({ method: 'POST' })
     if (!session) {
       throw new Error('Unauthorized')
     }
+
+    await requireInstallationAdmin(session.user)
 
     await banUser({ actorUserId: session.user.id, targetUserId: data.userId })
   })
@@ -107,6 +118,8 @@ export const unbanUserAction = createServerFn({ method: 'POST' })
       throw new Error('Unauthorized')
     }
 
+    await requireInstallationAdmin(session.user)
+
     await unbanUser({ actorUserId: session.user.id, targetUserId: data.userId })
   })
 
@@ -118,6 +131,8 @@ export const deleteAdminUserAction = createServerFn({ method: 'POST' })
     if (!session) {
       throw new Error('Unauthorized')
     }
+
+    await requireInstallationAdmin(session.user)
 
     await deleteAdminUser({
       actorUserId: session.user.id,

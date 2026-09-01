@@ -18,7 +18,13 @@ import { isValidEmail } from '@/lib/validation'
 
 type PendingAction = null | 'email' | 'otp' | 'github' | 'google'
 
-export function LoginForm({ authMethods }: { authMethods: AuthMethods }) {
+export function LoginForm({
+  authMethods,
+  redirectPath,
+}: {
+  authMethods: AuthMethods
+  redirectPath: string
+}) {
   const [email, setEmail] = useState('')
   const [otp, setOtp] = useState('')
   const [step, setStep] = useState<'email' | 'otp'>('email')
@@ -81,7 +87,7 @@ export function LoginForm({ authMethods }: { authMethods: AuthMethods }) {
         return
       }
 
-      window.location.assign('/')
+      window.location.assign(redirectPath)
     } catch {
       setOtpError('Unable to verify code.')
     } finally {
@@ -106,7 +112,7 @@ export function LoginForm({ authMethods }: { authMethods: AuthMethods }) {
     try {
       const result = await authClient.signIn.social({
         provider,
-        callbackURL: '/',
+        callbackURL: redirectPath,
       })
 
       if (result.error) {

@@ -1,7 +1,6 @@
 # devpush
 
-devpush is being rebuilt as a Docker Compose deployment control plane with
-server-side agents.
+devpush is a Docker Compose deployment control plane with server-side agents.
 
 The control plane owns users, teams, projects, GitHub integration, deployment
 history, deploy logs, and UI workflows. Agents run on user servers, own Docker
@@ -12,7 +11,9 @@ the first remote deployment against a real server.
 
 ## Current status
 
-This repository contains the 1.0 implementation:
+This repository contains the 1.0 release candidate. Local builds, migrations,
+unit tests, and database integration tests are automated; the clean remote VPS
+proof remains an explicit release gate in [`TODO.md`](./TODO.md).
 
 > **Compatibility:** 1.0 uses a clean database baseline and is intentionally
 > incompatible with pre-1.0 installations. Start 1.0 with an empty database;
@@ -41,7 +42,7 @@ runtimes through the agent and stored separately from deploy logs.
 Install app dependencies:
 
 ```bash
-pnpm --dir app install
+pnpm install
 ```
 
 Start local Postgres:
@@ -66,7 +67,11 @@ Set these values in `app/.env`:
 
 ```env
 BETTER_AUTH_SECRET=replace-with-a-long-random-secret
-BETTER_AUTH_URL=http://localhost:7429
+DEVPUSH_BASE_URL=http://localhost:7429
+# Optional auth-only override; defaults to DEVPUSH_BASE_URL.
+BETTER_AUTH_URL=
+# Optional. When blank, the earliest-created user is the installation admin.
+DEVPUSH_ADMIN_EMAIL=
 DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush
 
 EMAIL_FROM="devpush <onboarding@resend.dev>"
@@ -88,18 +93,27 @@ DEVPUSH_AGENT_AUTO_UPDATE=false
 DEVPUSH_BACKUPS_ENABLED=false
 VITE_DEVPUSH_BACKUPS_ENABLED=false
 DEVPUSH_CRON_SECRET=
-DEVPUSH_SECRET_ENCRYPTION_KEY=
+DEVPUSH_SECRET_ENCRYPTION_KEY=replace-with-a-separate-long-random-secret
 ```
 
-Create the GitHub App and write its credentials into `app/.env` with:
+Run the interactive setup wizard to configure local development, Cloudflare, or
+Docker Compose:
 
 ```bash
-pnpm setup:github-app -- --env app/.env
+pnpm run setup
 ```
 
-The command opens GitHub for approval and completes the manifest exchange in a
-temporary local callback server. Use `--base-url` for a non-local control-plane
-URL and `--owner-type org --org <slug>` for an organization-owned app.
+The wizard writes only ignored, target-specific configuration, generates
+application secrets, and can create the GitHub App through GitHub's manifest
+flow. Cloudflare resource creation is shown for confirmation before Wrangler is
+run, and the application is never deployed by setup. The lower-level
+`pnpm run setup:github-app -- --env app/.env` command remains available to replace
+only the GitHub App configuration.
+
+`DEVPUSH_ADMIN_EMAIL` selects the installation-wide administrator. If it is
+unset, devpush grants that role to the earliest-created user. Team server
+management remains separate: only team owners and team admins can add, edit,
+disable, re-enroll, or delete that team's servers.
 
 OAuth callbacks:
 
@@ -134,8 +148,16 @@ pnpm --dir app cleanup:invites
 pnpm --dir app cleanup:users
 ```
 
-The app runs at the fixed local OAuth origin `http://localhost:7429`. Startup
-fails if that port is already in use.
+The app uses `http://localhost:7429` as its default local origin. Startup fails
+if that port is already in use.
+
+`DEVPUSH_BASE_URL` is the canonical control-plane origin used for generated
+links, server installers, and agent communication. `BETTER_AUTH_URL` is an
+optional auth-only override and defaults to `DEVPUSH_BASE_URL`. For a Lima VM,
+use `http://host.lima.internal:7429` as the base URL while retaining
+`http://localhost:7429` for Better Auth in the browser. Restart devpush before
+generating an install command. See
+[Local setup](./docs/development/local-setup.md#control-plane-origin-and-agent-connectivity).
 
 For the local workflow with the Lima test VM, use the helper scripts:
 
@@ -156,9 +178,12 @@ SMTP is not supported yet; email OTP uses Resend. For production, set
 For one-command server enrollment, build or provide Linux agent binaries and set
 `DEVPUSH_AGENT_BINARY_DIR` to the directory containing
 `devpush-agent-linux-amd64` and `devpush-agent-linux-arm64`. The installer
-detects the server architecture, downloads the matching binary from the control
-plane, creates the `devpush` system user, writes `/etc/devpush/agent.env`,
-installs a systemd service, and starts `devpush-agent`.
+supports apt-, dnf-, and yum-based systemd distributions; provisions Git,
+Docker Engine, the Compose plugin, and optional `rclone` when needed; detects
+the server architecture; verifies the downloaded binary checksum; creates the
+`devpush` system user; writes `/etc/devpush/agent.env`; installs a systemd
+service; and starts `devpush-agent`. Installation details are retained under
+`/var/log/devpush-agent/`, with `latest.log` pointing to the latest run.
 
 New projects use an exact nip.io host derived from the assigned server, such as
 `my-app-167-11-3-44.nip.io`. Local control planes fall back to
@@ -175,6 +200,29 @@ the agent.
 
 ## Production control plane
 
+The control plane supports two deployment targets:
+
+- Cloudflare Workers with Hyperdrive for PostgreSQL and R2 for object storage.
+- A self-hosted Node.js container using the production Docker Compose setup.
+
+The Cloudflare path, including resource provisioning, migrations, agent-binary
+publication, validation, and deployment, is documented in
+[Cloudflare deployment](./docs/development/cloudflare-deployment.md).
+
+Start either production setup path with `pnpm run setup`. It generates
+the ignored `app/wrangler.jsonc` plus secret files for Cloudflare, or
+`deploy/.env.production` for Docker Compose. It does not deploy or start the
+control plane. The tracked `app/wrangler.template.jsonc` is the updateable
+source of default Worker settings; setup overlays installation-specific names,
+URLs, routes, and resource bindings without asking users to edit tracked files.
+
+For Cloudflare, `pnpm deploy:cloudflare` validates the generated configuration,
+applies database migrations, builds and publishes both Linux agent binaries,
+and deploys the Worker. PostgreSQL must already exist and be reachable; it can
+come from any compatible provider and does not require Supabase.
+
+### Self-hosted control plane
+
 The production Compose file builds the TanStack Start app and embeds the
 Linux agent binary used by the server installer:
 
@@ -183,8 +231,8 @@ cp deploy/.env.production.example deploy/.env.production
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 ```
 
-Set `BETTER_AUTH_URL` to the public HTTPS URL of the control plane before adding
-servers. A one-shot Compose service applies reviewed SQL migrations before the
+Set `DEVPUSH_BASE_URL` to the public HTTPS URL of the control plane before
+adding servers. A one-shot Compose service applies reviewed SQL migrations before the
 app starts. Upgrade,
 rollback, health, maintenance, database backup, and agent update procedures are
 documented in
@@ -210,7 +258,8 @@ pnpm --dir app typecheck
 pnpm --dir app lint
 pnpm --dir app db:generate
 pnpm --dir app db:migrate
-pnpm setup:github-app -- --env app/.env
+pnpm run setup
+pnpm run setup:github-app -- --env app/.env
 pnpm smoke:deploy
 pnpm smoke:agent
 pnpm validate:local
@@ -221,6 +270,8 @@ pnpm validate:remote:proof
 pnpm agent:test
 pnpm agent:build
 pnpm agent:build:linux
+pnpm validate:cloudflare
+pnpm deploy:cloudflare
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 ```
 
@@ -228,7 +279,7 @@ docker compose --env-file deploy/.env.production -f deploy/compose.production.ym
 user/team/server/project, register the server agent, queue a deployment, claim
 it through the agent job protocol, complete it, verify persisted logs, and clean
 up the seeded rows. It requires `deploy/compose.yml` Postgres to be running and
-the schema to be synced with `pnpm --dir app db:push`.
+the committed migrations to be applied with `pnpm --dir app db:migrate`.
 
 `pnpm smoke:agent` runs the agent's opt-in Docker smoke tests. It creates
 temporary Git repositories with Compose files, runs the real agent deployment
@@ -242,7 +293,8 @@ smoke-mode config validation, and the real Docker/Traefik agent smoke. Set
 `DEVPUSH_SKIP_DOCKER_SMOKE=1` only when Docker is unavailable.
 
 `pnpm validate:config` checks the local configuration before a real run:
-auth URL, OAuth credentials, GitHub App private key, Resend OTP settings,
+base URL, optional auth override, OAuth credentials, GitHub App private key,
+Resend OTP settings,
 and the agent binary path. Use remote mode before adding a real VPS:
 
 ```bash
@@ -256,7 +308,7 @@ maintenance runners without shipping development dependencies or a TypeScript
 runtime.
 
 `pnpm validate:remote` validates the generated server installer against a real
-remote host over SSH. It requires `DEVPUSH_SERVER_URL`, `DEVPUSH_REMOTE_HOST`,
+remote host over SSH. It requires `DEVPUSH_BASE_URL`, `DEVPUSH_REMOTE_HOST`,
 and `DEVPUSH_INSTALL_COMMAND`; see
 [local setup](./docs/development/local-setup.md#remote-validation). Set
 `DEVPUSH_FULL_PROOF=1` with `DEVPUSH_PROJECT_URL` after a GitHub-backed deploy
@@ -265,7 +317,7 @@ best-effort remote diagnostics, including agent service status/logs, Docker
 containers/networks, and listeners on ports 80/443.
 
 The control-plane and deployed route URLs must use HTTPS unless
-`DEVPUSH_ALLOW_INSECURE_SERVER_URL=1` is set for a local or private test
+`DEVPUSH_ALLOW_INSECURE_BASE_URL=1` is set for a local or private test
 network.
 Successful remote validation writes a summary to
 `.tmp/remote-validation-<timestamp>.md` or `DEVPUSH_REMOTE_SUMMARY_PATH`.
@@ -274,7 +326,7 @@ Successful remote validation writes a summary to
 validation, production image validation, and remote full proof with
 `DEVPUSH_FULL_PROOF=1`. It requires `DEVPUSH_PROJECT_URL` in addition to the
 remote installer environment, and verifies that the proof env file
-`BETTER_AUTH_URL` matches `DEVPUSH_SERVER_URL`.
+`DEVPUSH_BASE_URL` matches the remote proof origin.
 
 For remote server enrollment, run `pnpm agent:build:linux` and set
 `DEVPUSH_AGENT_BINARY_DIR` to the generated `bin` directory.
@@ -283,5 +335,6 @@ For remote server enrollment, run `pnpm agent:build:linux` and set
 
 - [Architecture](./ARCHITECTURE.md)
 - [Local setup](./docs/development/local-setup.md)
+- [Cloudflare deployment](./docs/development/cloudflare-deployment.md)
 - [TODO](./TODO.md)
 - [Docs index](./docs/index.md)

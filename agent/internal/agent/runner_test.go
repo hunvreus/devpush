@@ -76,9 +76,9 @@ func TestRotateCredentialUsesCurrentCredentialAndPersistsReplacement(t *testing.
 	defer server.Close()
 
 	runner := NewRunner(Config{
-		ServerURL: server.URL,
-		Token:     "dpa_current",
-		StateDir:  stateDir,
+		BaseURL:  server.URL,
+		Token:    "dpa_current",
+		StateDir: stateDir,
 	}, nil)
 	if err := runner.RotateCredential(context.Background()); err != nil {
 		t.Fatal(err)
@@ -142,9 +142,9 @@ func TestRegisterWithRetryKeepsProcessAliveUntilControlPlaneReturns(t *testing.T
 	defer server.Close()
 
 	runner := NewRunner(Config{
-		ServerURL: server.URL,
-		Token:     "agent-token",
-		StateDir:  t.TempDir(),
+		BaseURL:  server.URL,
+		Token:    "agent-token",
+		StateDir: t.TempDir(),
 	}, nil)
 
 	serverID, err := runner.registerWithRetry(context.Background())
@@ -906,9 +906,9 @@ exit 1
 	defer server.Close()
 
 	runner := NewRunner(Config{
-		ServerURL: server.URL,
-		AgentID:   "server-1",
-		Token:     "agent-token",
+		BaseURL: server.URL,
+		AgentID: "server-1",
+		Token:   "agent-token",
 	}, nil)
 
 	runner.sendHeartbeat(t.Context())
@@ -962,9 +962,9 @@ exit 1
 	defer server.Close()
 
 	runner := NewRunner(Config{
-		ServerURL: server.URL,
-		AgentID:   "server-1",
-		Token:     "agent-token",
+		BaseURL: server.URL,
+		AgentID: "server-1",
+		Token:   "agent-token",
 	}, nil)
 
 	runner.sendHeartbeat(t.Context())
@@ -1406,10 +1406,10 @@ func TestRunDeploymentJobStopsWhenDeploymentIsCanceled(t *testing.T) {
 	defer server.Close()
 
 	runner := NewRunner(Config{
-		AgentID:   "server-1",
-		ServerURL: server.URL,
-		StateDir:  filepath.Join(tempDir, "state"),
-		Token:     "agent-token",
+		AgentID:  "server-1",
+		BaseURL:  server.URL,
+		StateDir: filepath.Join(tempDir, "state"),
+		Token:    "agent-token",
 	}, nil)
 
 	completion := runner.runDeploymentJob(t.Context(), deploymentJob{
@@ -1610,9 +1610,9 @@ fi
 	defer controlPlane.server.Close()
 
 	runner := NewRunner(Config{
-		ServerURL: controlPlane.server.URL,
-		StateDir:  filepath.Join(tempDir, "state"),
-		Token:     "agent-token",
+		BaseURL:  controlPlane.server.URL,
+		StateDir: filepath.Join(tempDir, "state"),
+		Token:    "agent-token",
 	}, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	controlPlane.cancel = cancel

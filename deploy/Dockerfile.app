@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS agent-builder
+FROM golang:1.27-alpine AS agent-builder
 
 WORKDIR /repo
 
@@ -47,6 +47,8 @@ RUN cd app && pnpm exec esbuild scripts/sync-agent-binaries.ts \
     --outfile=.maintenance/sync-agent-binaries.mjs
 
 FROM node:22-alpine
+
+RUN apk add --no-cache curl
 
 WORKDIR /repo/app
 

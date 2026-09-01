@@ -4,10 +4,18 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 const tempDirs: Array<string> = []
+const runtime = vi.hoisted(() => ({
+  bucket: undefined as R2Bucket | undefined,
+}))
+
+vi.mock('@/server/runtime/platform-env', () => ({
+  getR2ObjectStore: () => runtime.bucket,
+}))
 
 afterEach(() => {
   vi.resetModules()
   vi.unstubAllEnvs()
+  runtime.bucket = undefined
 
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true })
@@ -42,7 +50,7 @@ describe('agent binary status', () => {
     })
   })
 
-  test('reports not ready when the binary is missing executable permissions', async () => {
+  test('serves readable binaries without requiring an executable source file', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'devpush-agent-binary-'))
     tempDirs.push(dir)
 
@@ -55,10 +63,10 @@ describe('agent binary status', () => {
       binaryDir: dir,
     })
 
-    const status = await getAgentBinaryStatus()
-
-    expect(status.ready).toBe(false)
-    expect(status.message).toMatch(/permission denied|access/i)
+    await expect(getAgentBinaryStatus()).resolves.toEqual({
+      ready: true,
+      message: null,
+    })
   })
 
   test('resolves platform binaries from the configured directory', async () => {
@@ -101,6 +109,25 @@ describe('agent binary status', () => {
     await expect(
       getAgentBinary({ arch: 's390x', os: 'linux' }),
     ).rejects.toBeInstanceOf(AgentBinaryUnsupportedPlatformError)
+  })
+
+  test('loads platform binaries from a Cloudflare R2 binding', async () => {
+    runtime.bucket = {
+      get: vi.fn(async (key: string) => ({
+        arrayBuffer: async () =>
+          Uint8Array.from(Buffer.from(`binary:${key}`)).buffer,
+        httpMetadata: { contentType: 'application/octet-stream' },
+      })),
+    } as unknown as R2Bucket
+
+    const { getAgentBinary } = await loadAgentBinaryModule()
+
+    await expect(
+      getAgentBinary({ arch: 'arm64', os: 'linux' }),
+    ).resolves.toMatchObject({
+      body: Buffer.from('binary:agents/devpush-agent-linux-arm64'),
+      filename: 'devpush-agent-linux-arm64',
+    })
   })
 })
 

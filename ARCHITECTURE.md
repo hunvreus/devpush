@@ -33,6 +33,15 @@ job queues, webhook smoothing, rate limits, presence, or runtime log fanout.
 
 Important history must not exist only in ephemeral coordination storage.
 
+## Authorization invariant
+
+Installation administration and team administration are separate boundaries.
+`DEVPUSH_ADMIN_EMAIL` selects the installation administrator; when it is unset,
+the earliest-created user is the deterministic fallback. Admin routes and
+services enforce that policy on the server. A team owner or team admin may
+manage that team's servers; ordinary team members have read access but cannot
+create, mutate, enroll, disable, or delete servers.
+
 User uploads use a small object-store boundary. The default adapter writes to
 the local persistent uploads directory; configuring the complete
 `DEVPUSH_STORAGE_*` set switches avatars and published agent binaries to an
@@ -109,6 +118,23 @@ The agent job payload is assembled from that one deployment row. It does not
 copy current project, environment, or server settings into another operational
 record. GitHub installation tokens are generated at claim time and sent as
 short-lived job credentials.
+
+GitHub push delivery IDs are persisted with deployments and uniquely scoped to
+an environment. A retried webhook therefore resolves to the existing work
+instead of canceling or duplicating a deployment.
+
+Long-running agent jobs have type-specific deadlines. The agent persists every
+completion without its credential to a private local outbox before sending it
+and does not claim a new job until pending completions are acknowledged. It
+attaches the current credential only during delivery. The control plane fails
+jobs that exceed their deadline so a lost agent cannot hold an environment
+indefinitely.
+
+Remote backup credentials are encrypted before persistence. Queued job payloads
+contain ciphertext; the control plane decrypts it only after an authenticated,
+compatible agent claims the job. Backup schedule keys and a partial unique
+index guarantee at most one active backup per environment and one enqueue per
+UTC schedule minute.
 
 ## Log invariant
 

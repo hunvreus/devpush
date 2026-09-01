@@ -6,7 +6,7 @@ usage() {
 Validate devpush against a clean remote server.
 
 Required environment:
-  DEVPUSH_SERVER_URL       Public control-plane URL, e.g. https://devpush.example.com
+  DEVPUSH_BASE_URL         Public control-plane URL, e.g. https://devpush.example.com
   DEVPUSH_REMOTE_HOST      SSH target, e.g. root@203.0.113.10
   DEVPUSH_INSTALL_COMMAND  Server install command copied from devpush
 
@@ -20,13 +20,13 @@ Optional environment:
   DEVPUSH_REQUIRE_PROJECT_URL   Set to 1 to fail unless DEVPUSH_PROJECT_URL is set
   DEVPUSH_VALIDATE_TRAEFIK      Set to 1 to require the managed Traefik container
   DEVPUSH_TRAEFIK_CONTAINER     Traefik container name, default: devpush-traefik
-  DEVPUSH_ALLOW_INSECURE_SERVER_URL
+  DEVPUSH_ALLOW_INSECURE_BASE_URL
                                   Set to 1 to allow non-HTTPS control-plane and route URLs
   DEVPUSH_REMOTE_SUMMARY_PATH   Success summary file, default: .tmp/remote-validation-<timestamp>.md
   DEVPUSH_REMOTE_DIAGNOSTICS    Set to 0 to disable best-effort failure diagnostics
 
 Example:
-  DEVPUSH_SERVER_URL=https://devpush.example.com \
+  DEVPUSH_BASE_URL=https://devpush.example.com \
   DEVPUSH_REMOTE_HOST=root@203.0.113.10 \
   DEVPUSH_INSTALL_COMMAND='tmp="$(mktemp)" && curl -fsSL ...' \
   scripts/validate-remote.sh
@@ -52,18 +52,18 @@ required() {
   fi
 }
 
-required DEVPUSH_SERVER_URL
+required DEVPUSH_BASE_URL
 required DEVPUSH_REMOTE_HOST
 required DEVPUSH_INSTALL_COMMAND
 
-DEVPUSH_SERVER_URL="${DEVPUSH_SERVER_URL%/}"
+DEVPUSH_BASE_URL="${DEVPUSH_BASE_URL%/}"
 CURRENT_STEP="initializing"
 RUN_STARTED_AT="$(date -u "+%Y-%m-%d %H:%M:%S UTC")"
 RUN_ID="$(date -u "+%Y%m%dT%H%M%SZ")"
 SUMMARY_PATH="${DEVPUSH_REMOTE_SUMMARY_PATH:-.tmp/remote-validation-${RUN_ID}.md}"
 
-if [[ "$DEVPUSH_SERVER_URL" != https://* && "${DEVPUSH_ALLOW_INSECURE_SERVER_URL:-}" != "1" ]]; then
-  echo "DEVPUSH_SERVER_URL must use https:// for remote validation. Set DEVPUSH_ALLOW_INSECURE_SERVER_URL=1 only for local or private test networks." >&2
+if [[ "$DEVPUSH_BASE_URL" != https://* && "${DEVPUSH_ALLOW_INSECURE_BASE_URL:-}" != "1" ]]; then
+  echo "DEVPUSH_BASE_URL must use https:// for remote validation. Set DEVPUSH_ALLOW_INSECURE_BASE_URL=1 only for local or private test networks." >&2
   exit 2
 fi
 
@@ -77,8 +77,8 @@ if [[ "${DEVPUSH_REQUIRE_PROJECT_URL:-}" == "1" && -z "${DEVPUSH_PROJECT_URL:-}"
   exit 2
 fi
 
-if [[ -n "${DEVPUSH_PROJECT_URL:-}" && "$DEVPUSH_PROJECT_URL" != https://* && "${DEVPUSH_ALLOW_INSECURE_SERVER_URL:-}" != "1" ]]; then
-  echo "DEVPUSH_PROJECT_URL must use https:// for remote validation. Set DEVPUSH_ALLOW_INSECURE_SERVER_URL=1 only for local or private test networks." >&2
+if [[ -n "${DEVPUSH_PROJECT_URL:-}" && "$DEVPUSH_PROJECT_URL" != https://* && "${DEVPUSH_ALLOW_INSECURE_BASE_URL:-}" != "1" ]]; then
+  echo "DEVPUSH_PROJECT_URL must use https:// for remote validation. Set DEVPUSH_ALLOW_INSECURE_BASE_URL=1 only for local or private test networks." >&2
   exit 2
 fi
 
@@ -117,13 +117,13 @@ write_success_summary() {
     printf '- Status: passed\n'
     printf '- Started at: %s\n' "$RUN_STARTED_AT"
     printf '- Finished at: %s\n' "$(date -u "+%Y-%m-%d %H:%M:%S UTC")"
-    printf '- Control plane: %s\n' "$DEVPUSH_SERVER_URL"
+    printf '- Control plane: %s\n' "$DEVPUSH_BASE_URL"
     printf '- Remote host: %s\n' "$DEVPUSH_REMOTE_HOST"
     printf '- Full proof: %s\n' "${DEVPUSH_FULL_PROOF:-0}"
     printf '- Managed Traefik checked: %s\n' "${DEVPUSH_VALIDATE_TRAEFIK:-0}"
     printf '- Deployed route checked: %s\n' "${DEVPUSH_PROJECT_URL:-not checked}"
     printf '- Docker filter checked: %s\n' "${DEVPUSH_DOCKER_FILTER:-not checked}"
-    printf '- Insecure URL override: %s\n' "${DEVPUSH_ALLOW_INSECURE_SERVER_URL:-0}"
+    printf '- Insecure URL override: %s\n' "${DEVPUSH_ALLOW_INSECURE_BASE_URL:-0}"
     printf '\nThe install command is intentionally not recorded because it contains the server enrollment token.\n'
   } > "$SUMMARY_PATH"
   printf 'Wrote validation summary: %s\n' "$SUMMARY_PATH"
@@ -177,8 +177,8 @@ on_error() {
 trap on_error ERR
 
 step "Checking control-plane installer endpoints"
-curl -fsSI --retry 3 --retry-delay 2 --connect-timeout 5 "$DEVPUSH_SERVER_URL/api/install/agent" >/dev/null
-curl -fsSI --retry 3 --retry-delay 2 --connect-timeout 5 "$DEVPUSH_SERVER_URL/api/install/agent/binary" >/dev/null
+curl -fsSI --retry 3 --retry-delay 2 --connect-timeout 5 "$DEVPUSH_BASE_URL/api/install/agent" >/dev/null
+curl -fsSI --retry 3 --retry-delay 2 --connect-timeout 5 "$DEVPUSH_BASE_URL/api/install/agent/binary" >/dev/null
 
 step "Checking remote host prerequisites"
 remote 'command -v curl >/dev/null'

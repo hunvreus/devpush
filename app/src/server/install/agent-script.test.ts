@@ -24,16 +24,16 @@ afterEach(() => {
 })
 
 describe('agent install script', () => {
-  test('pins tokenized installers to the configured server URL', () => {
+  test('pins tokenized installers to the configured base URL', () => {
     const script = buildTokenizedAgentInstallScript({
       autoUpdate: true,
-      serverUrl: 'https://devpush.example',
+      baseUrl: 'https://devpush.example',
       token: "token-with-'quote",
       traefikEmail: 'ops@devpush.example',
     })
 
     expect(script).toContain(
-      "export DEVPUSH_SERVER_URL='https://devpush.example'",
+      "export DEVPUSH_BASE_URL='https://devpush.example'",
     )
     expect(script).toContain(
       "export DEVPUSH_AGENT_TOKEN='token-with-'\\''quote'",
@@ -86,13 +86,18 @@ if [ -z "$out" ]; then
   exit 0
 fi
 case "$url" in
-  *"/api/install/agent/binary?os=linux&arch=arm64"*) ;;
+  *"/api/install/agent/binary?os=linux&arch=arm64"*)
+    printf '#!/usr/bin/env sh\\necho devpush-agent-test\\n' > "$out"
+    ;;
+  *"/api/install/agent/checksum?os=linux&arch=arm64"*)
+    binary="$(dirname "$out")/devpush-agent-linux-arm64"
+    printf '%s  devpush-agent-linux-arm64\\n' "$(sha256sum "$binary" | cut -d' ' -f1)" > "$out"
+    ;;
   *)
     echo "unexpected binary URL: $url" >&2
     exit 1
     ;;
 esac
-printf '#!/usr/bin/env sh\\necho devpush-agent\\n' > "$out"
 `,
     )
     writeFakeCommand(bin, 'git', '#!/usr/bin/env bash\nexit 0\n')
@@ -129,18 +134,31 @@ exit 0
 `,
     )
 
-    execFileSync('bash', [script], {
+    const output = execFileSync('bash', [script], {
       env: {
         ...process.env,
         DEVPUSH_AGENT_TOKEN: 'dps_test_token',
         DEVPUSH_AGENT_AUTO_UPDATE: 'true',
         DEVPUSH_INSTALL_ROOT: root,
-        DEVPUSH_SERVER_URL: 'https://devpush.example',
+        DEVPUSH_BASE_URL: 'https://devpush.example',
         DEVPUSH_TRAEFIK_EMAIL: 'ops@devpush.example',
         PATH: `${bin}:${process.env.PATH ?? ''}`,
       },
-      stdio: 'pipe',
+      encoding: 'utf8',
     })
+
+    expect(output).toContain('██╗██████╗ ███████╗')
+    expect(output).toContain('Installation summary')
+    expect(output).toContain('Verifying agent checksum')
+    expect(output).toContain('devpush agent installation complete')
+    expect(output).toContain('devpush-agent-test')
+    expect(output).toContain('Useful commands')
+    expect(output).toContain('Next steps')
+    expect(output).toContain('Install log')
+
+    expect(
+      readFileSync(join(root, 'var/log/devpush-agent/latest.log'), 'utf8'),
+    ).toContain('devpush agent installation complete')
 
     expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
       'DEVPUSH_AGENT_TOKEN="dps_test_token"',
@@ -166,9 +184,8 @@ exit 0
     expect(
       readFileSync(join(root, 'usr/local/bin/devpush-agent'), 'utf8'),
     ).toContain('devpush-agent')
-    expect(readFileSync(systemctlLog, 'utf8')).toContain('enable devpush-agent')
     expect(readFileSync(systemctlLog, 'utf8')).toContain(
-      'restart devpush-agent',
+      'enable --now devpush-agent',
     )
     expect(
       readFileSync(join(root, 'usr/local/lib/devpush/update-agent'), 'utf8'),
@@ -184,7 +201,7 @@ exit 0
     )
   })
 
-  test('fails without a server URL', () => {
+  test('fails without a base URL', () => {
     const tempDir = createTempDir()
     const bin = join(tempDir, 'bin')
     const script = join(tempDir, 'install.sh')
@@ -202,6 +219,70 @@ exit 0
         },
         stdio: 'pipe',
       }),
+    ).toThrow()
+  })
+
+  test('rejects an agent binary with a mismatched checksum', () => {
+    const tempDir = createTempDir()
+    const root = join(tempDir, 'root')
+    const bin = join(tempDir, 'bin')
+    const script = join(tempDir, 'install.sh')
+
+    mkdirSync(root)
+    mkdirSync(bin)
+    writeFileSync(script, AGENT_INSTALL_SCRIPT, { mode: 0o755 })
+    writeFakeCommand(
+      bin,
+      'id',
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "-u" ] && [ -z "${2:-}" ]; then echo 0; else exit 1; fi\n',
+    )
+    writeFakeCommand(
+      bin,
+      'curl',
+      `#!/usr/bin/env bash
+set -euo pipefail
+out=""
+url=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" != "-fsSL" ] && [ "$1" != "-o" ] && [ -z "$url" ]; then url="$1"; fi
+  if [ "$1" = "-o" ]; then shift; out="$1"; fi
+  shift || true
+done
+case "$url" in
+  *"/binary?"*) printf '#!/usr/bin/env sh\necho tampered\n' > "$out" ;;
+  *"/checksum?"*) printf '%064d  devpush-agent-linux-amd64\n' 0 > "$out" ;;
+  *) exit 1 ;;
+esac
+`,
+    )
+    writeFakeCommand(bin, 'git', '#!/usr/bin/env bash\nexit 0\n')
+    writeFakeCommand(
+      bin,
+      'uname',
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "-s" ]; then echo Linux; else echo x86_64; fi\n',
+    )
+    writeFakeCommand(
+      bin,
+      'docker',
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "compose" ]; then exit 0; fi\nexit 0\n',
+    )
+    writeFakeCommand(bin, 'getent', '#!/usr/bin/env bash\nexit 1\n')
+    writeFakeCommand(bin, 'systemctl', '#!/usr/bin/env bash\nexit 0\n')
+
+    expect(() =>
+      execFileSync('bash', [script], {
+        env: {
+          ...process.env,
+          DEVPUSH_AGENT_TOKEN: 'dps_test_token',
+          DEVPUSH_INSTALL_ROOT: root,
+          DEVPUSH_BASE_URL: 'https://devpush.example',
+          PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+        },
+        stdio: 'pipe',
+      }),
+    ).toThrow()
+    expect(() =>
+      readFileSync(join(root, 'usr/local/bin/devpush-agent')),
     ).toThrow()
   })
 
@@ -236,7 +317,11 @@ exit 1
       `#!/usr/bin/env bash
 set -euo pipefail
 out=""
+url=""
 while [ "$#" -gt 0 ]; do
+  if [ "$1" != "-fsSL" ] && [ "$1" != "-o" ] && [ -z "$url" ]; then
+    url="$1"
+  fi
   if [ "$1" = "-o" ]; then
     shift
     out="$1"
@@ -246,7 +331,16 @@ done
 if [ -z "$out" ]; then
   exit 0
 fi
-printf '#!/usr/bin/env sh\\necho devpush-agent\\n' > "$out"
+case "$url" in
+  *"/api/install/agent/binary?os=linux&arch=amd64"*)
+    printf '#!/usr/bin/env sh\\necho devpush-agent-test\\n' > "$out"
+    ;;
+  *"/api/install/agent/checksum?os=linux&arch=amd64"*)
+    binary="$(dirname "$out")/devpush-agent-linux-amd64"
+    printf '%s  devpush-agent-linux-amd64\\n' "$(sha256sum "$binary" | cut -d' ' -f1)" > "$out"
+    ;;
+  *) exit 1 ;;
+esac
 `,
     )
     writeFakeCommand(bin, 'git', '#!/usr/bin/env bash\nexit 0\n')
@@ -293,7 +387,7 @@ exit 0
         ...process.env,
         DEVPUSH_AGENT_TOKEN: 'dps_test_token',
         DEVPUSH_INSTALL_ROOT: root,
-        DEVPUSH_SERVER_URL: 'https://devpush.example',
+        DEVPUSH_BASE_URL: 'https://devpush.example',
         PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
       },
       stdio: 'pipe',

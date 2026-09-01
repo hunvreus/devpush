@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { auth } from '@/lib/auth'
 import { config } from '@/server/config'
 import { getSafeRedirectPath } from '@/server/http/internal-redirect'
+import { createGitHubInstallState } from '@/server/github/install-state'
 
 export const Route = createFileRoute('/api/github/install')({
   server: {
@@ -28,7 +29,10 @@ export const Route = createFileRoute('/api/github/install')({
         const installUrl = new URL(
           `https://github.com/apps/${config.GITHUB_APP_NAME}/installations/new`,
         )
-        installUrl.searchParams.set('state', next)
+        installUrl.searchParams.set(
+          'state',
+          await createGitHubInstallState({ next, userId: session.user.id }),
+        )
 
         return Response.redirect(installUrl, 302)
       },

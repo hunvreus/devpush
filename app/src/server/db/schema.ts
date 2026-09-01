@@ -716,6 +716,7 @@ export const deployments = pgTable(
     status: deploymentStatus('status').notNull().default('queued'),
     phase: text('phase'),
     trigger: deploymentTrigger('trigger').notNull().default('user'),
+    githubDeliveryId: text('github_delivery_id'),
     repoId: bigint('repo_id', { mode: 'number' }).notNull(),
     repoFullName: text('repo_full_name').notNull(),
     gitSha: text('git_sha').notNull(),
@@ -741,6 +742,9 @@ export const deployments = pgTable(
     uniqueIndex('deployments_running_runtime_idx')
       .on(table.runtimeId)
       .where(sql`${table.status} = 'running'`),
+    uniqueIndex('deployments_github_delivery_environment_idx')
+      .on(table.githubDeliveryId, table.environmentId)
+      .where(sql`${table.githubDeliveryId} is not null`),
   ],
 )
 
@@ -761,6 +765,7 @@ export const backupRuns = pgTable(
       onDelete: 'restrict',
     }),
     runtimeId: text('runtime_id').notNull(),
+    scheduleKey: text('schedule_key'),
     status: backupStatus('status').notNull().default('queued'),
     manifest: jsonb('manifest'),
     errorMessage: text('error_message'),
@@ -784,6 +789,12 @@ export const backupRuns = pgTable(
     index('backup_runs_project_idx').on(table.projectId),
     index('backup_runs_deployment_idx').on(table.deploymentId),
     index('backup_runs_cleanup_idx').on(table.cleanupQueuedAt),
+    uniqueIndex('backup_runs_environment_schedule_idx')
+      .on(table.environmentId, table.scheduleKey)
+      .where(sql`${table.scheduleKey} is not null`),
+    uniqueIndex('backup_runs_active_environment_idx')
+      .on(table.environmentId)
+      .where(sql`${table.status} in ('queued', 'running')`),
   ],
 )
 

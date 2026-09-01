@@ -61,23 +61,15 @@ if (productionComposeEnv) {
   checkRequired("DATABASE_URL");
 }
 checkRequired("BETTER_AUTH_SECRET");
-checkRequired("BETTER_AUTH_URL");
+checkRequired("DEVPUSH_BASE_URL");
 
-const appUrl = readUrl("BETTER_AUTH_URL");
-if (appUrl) {
-  if (appUrl.pathname !== "/" || appUrl.search || appUrl.hash) {
-    errors.push(
-      "BETTER_AUTH_URL must be an origin only, without path, query, or fragment.",
-    );
-  }
-  if (remote && appUrl.protocol !== "https:") {
-    errors.push("BETTER_AUTH_URL must use https:// for remote validation.");
-  }
-  if (remote && isPrivateOrLocalHost(appUrl.hostname)) {
-    errors.push(
-      "BETTER_AUTH_URL must be public, not localhost, for remote validation.",
-    );
-  }
+const baseUrl = readUrl("DEVPUSH_BASE_URL");
+const authUrl = env.BETTER_AUTH_URL?.trim()
+  ? readUrl("BETTER_AUTH_URL")
+  : baseUrl;
+validateOrigin("DEVPUSH_BASE_URL", baseUrl);
+if (env.BETTER_AUTH_URL?.trim()) {
+  validateOrigin("BETTER_AUTH_URL", authUrl);
 }
 
 const authSecret = env.BETTER_AUTH_SECRET?.trim();
@@ -97,11 +89,39 @@ if (smoke) {
   finish();
 }
 
+checkRequired("DEVPUSH_SECRET_ENCRYPTION_KEY");
+
+const encryptionSecret = env.DEVPUSH_SECRET_ENCRYPTION_KEY?.trim();
+if (
+  encryptionSecret &&
+  (encryptionSecret.length < 32 ||
+    encryptionSecret === "dev-secret-encryption-key-change-me")
+) {
+  issue(
+    "DEVPUSH_SECRET_ENCRYPTION_KEY should be a separate generated secret with at least 32 characters.",
+  );
+}
+
+if (
+  env.DEVPUSH_ADMIN_EMAIL?.trim() &&
+  !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.DEVPUSH_ADMIN_EMAIL.trim())
+) {
+  errors.push("DEVPUSH_ADMIN_EMAIL must be a valid email address when set.");
+} else if (remote && !env.DEVPUSH_ADMIN_EMAIL?.trim()) {
+  warnings.push(
+    "DEVPUSH_ADMIN_EMAIL is unset; the earliest-created user will be the installation administrator.",
+  );
+}
+
 if (
   productionComposeEnv &&
   env.POSTGRES_PASSWORD?.startsWith("replace-with-")
 ) {
   issue("POSTGRES_PASSWORD must be changed before running production Compose.");
+}
+
+if (productionComposeEnv) {
+  checkRequired("DEVPUSH_CRON_SECRET");
 }
 
 checkPair("Google OAuth", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET");
@@ -156,11 +176,11 @@ if (!env.DEVPUSH_AGENT_BINARY_DIR && productionComposeEnv) {
           `DEVPUSH_AGENT_BINARY_DIR entry is not a file: ${binaryPath}`,
         );
       } else {
-        accessSync(binaryPath, constants.R_OK | constants.X_OK);
+        accessSync(binaryPath, constants.R_OK);
       }
     } catch (error) {
       errors.push(
-        `DEVPUSH_AGENT_BINARY_DIR entry is not readable/executable: ${binaryPath}`,
+        `DEVPUSH_AGENT_BINARY_DIR entry is not readable: ${binaryPath}`,
       );
     }
   }
@@ -173,8 +193,8 @@ if (
   errors.push("DEVPUSH_TRAEFIK_EMAIL must be a valid email address when set.");
 }
 
-if (appUrl) {
-  const base = appUrl.origin;
+if (authUrl) {
+  const base = authUrl.origin;
   console.log("Expected OAuth callbacks:");
   console.log(`  Google:     ${base}/api/auth/callback/google`);
   console.log(`  GitHub:     ${base}/api/auth/callback/github`);
@@ -209,6 +229,25 @@ function readUrl(name) {
   } catch {
     errors.push(`${name} must be a valid URL.`);
     return null;
+  }
+}
+
+function validateOrigin(name, url) {
+  if (!url) {
+    return;
+  }
+  if (url.pathname !== "/" || url.search || url.hash) {
+    errors.push(
+      `${name} must be an origin only, without path, query, or fragment.`,
+    );
+  }
+  if (remote && url.protocol !== "https:") {
+    errors.push(`${name} must use https:// for remote validation.`);
+  }
+  if (remote && isPrivateOrLocalHost(url.hostname)) {
+    errors.push(
+      `${name} must be public, not localhost, for remote validation.`,
+    );
   }
 }
 

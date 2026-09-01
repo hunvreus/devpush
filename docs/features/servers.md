@@ -5,6 +5,10 @@ not open inbound connections to servers; agents register once, then use outbound
 HTTP polling for heartbeats, jobs, deploy progress, cleanup work, and runtime
 logs.
 
+All team members may view server state. Only team owners and team admins may
+add, rename, enroll, disable, enable, or delete servers. These permissions are
+enforced in server services as well as reflected in the UI.
+
 Enrollment tokens expire after one hour and are exchanged for a dedicated agent
 credential. Rotation is staged: the old credential remains valid until the
 agent persists and proves possession of the replacement, so a lost response
@@ -12,6 +16,12 @@ does not require reinstallation. Disabling blocks authentication without
 erasing the credential. Rotation is initiated on the host with
 `sudo devpush-agent credential rotate`; it is not exposed as routine server
 administration in the app.
+
+Generated installers receive the control plane's configured
+`DEVPUSH_BASE_URL` and persist it in `/etc/devpush/agent.env`. The agent uses
+that origin for registration, heartbeats, jobs, logs, and binary updates.
+Changing the control-plane origin does not rewrite existing agent config; update
+that file and restart the service to repoint an enrolled server.
 
 Agent upgrades use the checksum-verified root-owned updater described in
 [Production operations](../development/production-operations.md). The agent

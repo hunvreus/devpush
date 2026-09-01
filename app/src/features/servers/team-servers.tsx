@@ -62,6 +62,7 @@ import { ResourceAvatar } from '@/components/resource-avatar'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { getErrorMessage, getFieldErrorMessage } from '@/lib/error-message'
 import { cn } from '@/lib/utils'
+import { canManageTeamSettings } from '@/lib/team-role'
 import {
   createInstallCommand,
   createServer,
@@ -94,6 +95,7 @@ export function TeamServers({
   const router = useRouter()
   const [items, setItems] = useState<Array<ServerItem>>(servers)
   const [addServerOpen, setAddServerOpen] = useState(false)
+  const canManageServers = canManageTeamSettings(team.role)
   useEffect(() => {
     setItems(servers)
   }, [servers])
@@ -113,7 +115,7 @@ export function TeamServers({
           <span className="text-muted-foreground/25 font-normal">/</span>
           <span>Servers</span>
         </h1>
-        {items.length > 0 ? (
+        {items.length > 0 && canManageServers ? (
           <Button onClick={() => setAddServerOpen(true)}>
             <PlusIcon data-icon="inline-start" />
             Add server
@@ -197,13 +199,15 @@ export function TeamServers({
                   </Badge>
                 ) : null}
 
-                <div className="ml-auto flex items-center gap-1">
-                  <ServerActionsMenu
-                    server={server}
-                    teamSlug={team.slug}
-                    onChanged={() => void router.invalidate()}
-                  />
-                </div>
+                {canManageServers ? (
+                  <div className="ml-auto flex items-center gap-1">
+                    <ServerActionsMenu
+                      server={server}
+                      teamSlug={team.slug}
+                      onChanged={() => void router.invalidate()}
+                    />
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -215,22 +219,26 @@ export function TeamServers({
                 Add a server before creating and deploying projects.
               </EmptyDescription>
             </EmptyHeader>
-            <EmptyContent>
-              <Button onClick={() => setAddServerOpen(true)}>
-                <PlusIcon data-icon="inline-start" />
-                Add server
-              </Button>
-            </EmptyContent>
+            {canManageServers ? (
+              <EmptyContent>
+                <Button onClick={() => setAddServerOpen(true)}>
+                  <PlusIcon data-icon="inline-start" />
+                  Add server
+                </Button>
+              </EmptyContent>
+            ) : null}
           </Empty>
         )}
       </section>
 
-      <AddServerDialog
-        open={addServerOpen}
-        teamSlug={team.slug}
-        onOpenChange={setAddServerOpen}
-        onCreated={(server) => setItems((current) => [server, ...current])}
-      />
+      {canManageServers ? (
+        <AddServerDialog
+          open={addServerOpen}
+          teamSlug={team.slug}
+          onOpenChange={setAddServerOpen}
+          onCreated={(server) => setItems((current) => [server, ...current])}
+        />
+      ) : null}
     </>
   )
 }
@@ -819,5 +827,5 @@ export function InstallCommand({
 }
 
 export function getInstallDescription(serverName: string) {
-  return `Run this command on ${serverName} to install or reconnect the agent. The host must have Docker installed and be able to reach this devpush instance. The enrollment token expires after 1 hour.`
+  return `Run this command on ${serverName} to provision Docker and install or reconnect the agent. The host must run a supported systemd-based Linux distribution and be able to reach this devpush instance. The enrollment token expires after 1 hour.`
 }

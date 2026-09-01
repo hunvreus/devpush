@@ -18,6 +18,7 @@ import {
 } from '@/server/db/schema'
 import { claimNextAgentJob } from '@/server/agents/jobs'
 import { currentAgentCapabilities } from '@/server/agents/compatibility'
+import { encryptSecret } from '@/server/secrets/crypto'
 import {
   createBackupRun,
   listEnvironmentBackupRuns,
@@ -247,6 +248,8 @@ describe('backup service integration', () => {
         schemaVersion: 1,
       },
     })
+    expect(queued).not.toBeNull()
+    if (!queued) throw new Error('Backup was not queued.')
     touchedBackupRunIds.push(queued.backupRunId)
     touchedAgentJobIds.push(queued.agentJobId)
 
@@ -320,6 +323,106 @@ describe('backup service integration', () => {
         localBasePath: `/var/lib/devpush/backups/${projectId}/${environmentId}/${queued.backupRunId}`,
       },
     })
+  })
+
+  test('keeps remote backup secrets encrypted until an agent claims the job', async () => {
+    const { environmentId, projectId, serverId, token } =
+      await createProjectEnvironment()
+    const rawSecret = `remote-secret-${crypto.randomUUID()}`
+    const config = await upsertBackupConfig({
+      projectId,
+      environmentId,
+      enabled: true,
+      destination: {
+        bucket: 'devpush-backups',
+        accessKeyId: 'remote-access-key',
+        secretAccessKeyCiphertext: encryptSecret(rawSecret),
+      },
+      retention: {
+        local: { count: 7, days: 0, maxStorageGb: 0 },
+        remote: { enabled: true, count: 7, days: 0, maxStorageGb: 0 },
+      },
+    })
+    touchedBackupConfigIds.push(config.id)
+
+    const queued = await queueEnvironmentBackup({ projectId, environmentId })
+    expect(queued).not.toBeNull()
+    if (!queued) throw new Error('Backup was not queued.')
+    touchedBackupRunIds.push(queued.backupRunId)
+    touchedAgentJobIds.push(queued.agentJobId)
+
+    const stored = await db
+      .select({ payload: agentJobs.payload })
+      .from(agentJobs)
+      .where(eq(agentJobs.id, queued.agentJobId))
+    expect(JSON.stringify(stored[0]?.payload)).not.toContain(rawSecret)
+
+    const claimed = await claimNextAgentJob({
+      serverId,
+      token,
+      protocolVersion: 1,
+      capabilities: [...currentAgentCapabilities],
+    })
+    expect(claimed).toMatchObject({
+      backup: {
+        destination: {
+          accessKeyId: 'remote-access-key',
+          secretAccessKey: rawSecret,
+        },
+      },
+    })
+    expect(JSON.stringify(claimed)).not.toContain('secretAccessKeyCiphertext')
+  })
+
+  test('fails backup jobs whose agent completion never arrives', async () => {
+    const { environmentId, projectId, serverId, token } =
+      await createProjectEnvironment()
+    const config = await upsertBackupConfig({
+      projectId,
+      environmentId,
+      enabled: true,
+      destination: { bucket: 'devpush-backups' },
+    })
+    touchedBackupConfigIds.push(config.id)
+    const queued = await queueEnvironmentBackup({ projectId, environmentId })
+    expect(queued).not.toBeNull()
+    if (!queued) throw new Error('Backup was not queued.')
+    touchedBackupRunIds.push(queued.backupRunId)
+    touchedAgentJobIds.push(queued.agentJobId)
+    const claimedAt = new Date(Date.now() - 26 * 60 * 60 * 1000)
+
+    await Promise.all([
+      db
+        .update(agentJobs)
+        .set({ status: 'running', claimedAt })
+        .where(eq(agentJobs.id, queued.agentJobId)),
+      db
+        .update(backupRuns)
+        .set({ status: 'running', startedAt: claimedAt })
+        .where(eq(backupRuns.id, queued.backupRunId)),
+    ])
+
+    await expect(
+      claimNextAgentJob({
+        serverId,
+        token,
+        protocolVersion: 1,
+        capabilities: [...currentAgentCapabilities],
+      }),
+    ).resolves.toBeNull()
+
+    await expect(
+      Promise.all([
+        db
+          .select({ status: agentJobs.status })
+          .from(agentJobs)
+          .where(eq(agentJobs.id, queued.agentJobId)),
+        db
+          .select({ status: backupRuns.status })
+          .from(backupRuns)
+          .where(eq(backupRuns.id, queued.backupRunId)),
+      ]),
+    ).resolves.toEqual([[{ status: 'failed' }], [{ status: 'failed' }]])
   })
 
   test('queues retention cleanup jobs once for expired backups', async () => {
@@ -628,6 +731,12 @@ describe('backup service integration', () => {
         agentJobId: expect.any(String),
       },
     ])
+
+    await expect(
+      queueDueBackupSchedules({
+        now: new Date('2030-07-09T02:30:45.000Z'),
+      }),
+    ).resolves.toEqual([])
   })
 
   test('does not queue backups for deleted servers', async () => {

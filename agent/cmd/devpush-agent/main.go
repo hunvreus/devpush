@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,6 +15,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
+		fmt.Printf("devpush-agent %s\n", agent.Version)
+		return
+	}
+
 	if len(os.Args) >= 3 && os.Args[1] == "credential" && os.Args[2] == "rotate" {
 		rotateCredential(os.Args[3:])
 		return

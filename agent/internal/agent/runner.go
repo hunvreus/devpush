@@ -165,7 +165,7 @@ func (runner *Runner) Run(ctx context.Context) error {
 	}
 	runner.log.Info(
 		"starting devpush agent",
-		"server_url", runner.cfg.ServerURL,
+		"base_url", runner.cfg.BaseURL,
 		"state_dir", runner.cfg.StateDir,
 	)
 
@@ -476,6 +476,11 @@ func parseComposeLogLine(runtimeID string, line string) (runtimeLogLine, bool) {
 }
 
 func (runner *Runner) claimAndRunJob(ctx context.Context) {
+	if err := runner.flushPendingCompletions(ctx); err != nil {
+		runner.log.Warn("deliver pending completion failed", "error", err)
+		return
+	}
+
 	var response nextJobResponse
 	err := runner.post(ctx, "/api/agents/jobs/next", agentRequest{
 		ServerID:        runner.cfg.AgentID,
@@ -492,7 +497,7 @@ func (runner *Runner) claimAndRunJob(ctx context.Context) {
 		return
 	}
 
-	jobCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	jobCtx, cancel := context.WithTimeout(ctx, agentJobTimeout(*response.Job))
 	defer cancel()
 
 	switch response.Job.Type {
@@ -537,32 +542,38 @@ func (runner *Runner) reportProgress(ctx context.Context, progress jobProgress) 
 }
 
 func (runner *Runner) completeJob(ctx context.Context, completion jobCompletion) error {
-	var response completeJobResponse
-	return runner.post(ctx, "/api/agents/jobs/complete", completion, &response)
+	return runner.deliverCompletion(ctx, completion.DeploymentID, completion)
 }
 
 func (runner *Runner) completeCleanupJob(ctx context.Context, completion cleanupJobCompletion) error {
-	var response completeJobResponse
-	return runner.post(ctx, "/api/agents/jobs/complete", completion, &response)
+	return runner.deliverCompletion(ctx, completion.JobID, completion)
 }
 
 func (runner *Runner) completeBackupJob(ctx context.Context, completion backupJobCompletion) error {
-	var response completeJobResponse
-	return runner.post(ctx, "/api/agents/jobs/complete", completion, &response)
+	return runner.deliverCompletion(ctx, completion.JobID, completion)
 }
 
 func (runner *Runner) completeBackupCleanupJob(ctx context.Context, completion backupCleanupJobCompletion) error {
-	var response completeJobResponse
-	return runner.post(ctx, "/api/agents/jobs/complete", completion, &response)
+	return runner.deliverCompletion(ctx, completion.JobID, completion)
 }
 
 func (runner *Runner) completeRestoreJob(ctx context.Context, completion restoreJobCompletion) error {
-	var response completeJobResponse
-	return runner.post(ctx, "/api/agents/jobs/complete", completion, &response)
+	return runner.deliverCompletion(ctx, completion.JobID, completion)
+}
+
+func agentJobTimeout(job agentJob) time.Duration {
+	switch job.Type {
+	case "backup", "backup_cleanup", "restore":
+		return 24 * time.Hour
+	case "deprovision", "purge":
+		return 2 * time.Hour
+	default:
+		return 3 * time.Hour
+	}
 }
 
 func (runner *Runner) deploymentCanceled(ctx context.Context, deploymentID string) bool {
-	if strings.TrimSpace(runner.cfg.ServerURL) == "" {
+	if strings.TrimSpace(runner.cfg.BaseURL) == "" {
 		return false
 	}
 
@@ -1369,7 +1380,7 @@ func (runner *Runner) post(ctx context.Context, path string, payload any, respon
 		return err
 	}
 
-	url := strings.TrimRight(runner.cfg.ServerURL, "/") + path
+	url := strings.TrimRight(runner.cfg.BaseURL, "/") + path
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err

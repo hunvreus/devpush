@@ -31,7 +31,7 @@ export function TeamInviteEmailTemplate({
   teamName,
   to,
 }: TeamInviteEmailTemplateProps) {
-  const logoUrl = new URL(emailLogoPath, config.BETTER_AUTH_URL).toString()
+  const logoUrl = new URL(emailLogoPath, config.DEVPUSH_BASE_URL).toString()
 
   return (
     <Html>

@@ -22,7 +22,6 @@ import {
   projects,
   servers,
 } from '@/server/db/schema'
-import { decryptSecret } from '@/server/secrets/crypto'
 
 const s3DestinationSchema = z.object({
   bucket: z
@@ -72,10 +71,7 @@ const backupScheduleSchema = z.object({
   cron: z
     .string()
     .trim()
-    .regex(
-      /^(\S+\s+){4}\S+$/,
-      'Backup schedules must use a five-field cron expression.',
-    ),
+    .refine(isValidCron, 'Enter a valid five-field cron expression.'),
 })
 
 const backupVolumesSchema = z.object({
@@ -372,11 +368,13 @@ export async function queueEnvironmentBackup({
   environmentId,
   deploymentId,
   manifest,
+  scheduleKey,
 }: {
   projectId: string
   environmentId: string
   deploymentId?: string | null
   manifest?: unknown
+  scheduleKey?: string
 }) {
   const rows = await db
     .select({
@@ -451,19 +449,28 @@ export async function queueEnvironmentBackup({
     databaseDumps,
   } satisfies BackupJobPayload
 
-  await db.transaction(async (tx) => {
-    await tx.insert(backupRuns).values({
-      id: backupRunId,
-      projectId,
-      environmentId,
-      deploymentId: deploymentId ?? null,
-      serverId,
-      runtimeId: row.environment.runtimeId,
-      status: 'queued',
-      manifest: manifest ?? null,
-      createdAt: now,
-      updatedAt: now,
-    })
+  const created = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(backupRuns)
+      .values({
+        id: backupRunId,
+        projectId,
+        environmentId,
+        deploymentId: deploymentId ?? null,
+        serverId,
+        runtimeId: row.environment.runtimeId,
+        scheduleKey,
+        status: 'queued',
+        manifest: manifest ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: backupRuns.id })
+
+    if (!inserted.at(0)) {
+      return false
+    }
 
     await tx.insert(agentJobs).values({
       id: agentJobId,
@@ -478,7 +485,13 @@ export async function queueEnvironmentBackup({
       createdAt: now,
       updatedAt: now,
     })
+
+    return true
   })
+
+  if (!created) {
+    return null
+  }
 
   return {
     backupRunId,
@@ -504,7 +517,7 @@ function buildBackupJobDestination({
 
   return {
     ...stripStoredSecret(destination),
-    secretAccessKey: decryptSecret(destination.secretAccessKeyCiphertext),
+    secretAccessKeyCiphertext: destination.secretAccessKeyCiphertext,
   }
 }
 
@@ -729,7 +742,7 @@ function buildRestoreJobDestination(
 
   return {
     ...stripStoredSecret(destination),
-    secretAccessKey: decryptSecret(destination.secretAccessKeyCiphertext),
+    secretAccessKeyCiphertext: destination.secretAccessKeyCiphertext,
   }
 }
 
@@ -972,21 +985,6 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
       continue
     }
 
-    const activeRuns = await db
-      .select({ id: backupRuns.id })
-      .from(backupRuns)
-      .where(
-        and(
-          eq(backupRuns.environmentId, row.config.environmentId),
-          inArray(backupRuns.status, ['queued', 'running']),
-        ),
-      )
-      .limit(1)
-
-    if (activeRuns.at(0)) {
-      continue
-    }
-
     const queuedJob = await queueEnvironmentBackup({
       projectId: row.config.projectId,
       environmentId: row.config.environmentId,
@@ -995,7 +993,12 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
         schedule,
         scheduledAt: now.toISOString(),
       },
+      scheduleKey: `${row.config.environmentId}:${toUtcMinute(now)}`,
     })
+
+    if (!queuedJob) {
+      continue
+    }
 
     queued.push({
       backupRunId: queuedJob.backupRunId,
@@ -1125,16 +1128,77 @@ function buildBackupLocalBasePath({
   return `/var/lib/devpush/backups/${projectId}/${environmentId}/${backupRunId}`
 }
 
-function isCronDue(cron: string, now: Date) {
+export function isCronDue(cron: string, now: Date) {
   const [minute, hour, dayOfMonth, month, dayOfWeek] = cron.trim().split(/\s+/)
 
+  const minuteMatches = matchesCronPart(minute, now.getUTCMinutes(), 0, 59)
+  const hourMatches = matchesCronPart(hour, now.getUTCHours(), 0, 23)
+  const monthMatches = matchesCronPart(month, now.getUTCMonth() + 1, 1, 12)
+  const dayOfMonthMatches = matchesCronPart(dayOfMonth, now.getUTCDate(), 1, 31)
+  const dayOfWeekMatches = matchesCronPart(dayOfWeek, now.getUTCDay(), 0, 7)
+  const dayMatches =
+    dayOfMonth === '*'
+      ? dayOfWeekMatches
+      : dayOfWeek === '*'
+        ? dayOfMonthMatches
+        : dayOfMonthMatches || dayOfWeekMatches
+
+  return minuteMatches && hourMatches && monthMatches && dayMatches
+}
+
+export function isValidCron(cron: string) {
+  const parts = cron.trim().split(/\s+/)
+  const ranges = [
+    [0, 59],
+    [0, 23],
+    [1, 31],
+    [1, 12],
+    [0, 7],
+  ] as const
+
   return (
-    matchesCronPart(minute, now.getUTCMinutes(), 0, 59) &&
-    matchesCronPart(hour, now.getUTCHours(), 0, 23) &&
-    matchesCronPart(dayOfMonth, now.getUTCDate(), 1, 31) &&
-    matchesCronPart(month, now.getUTCMonth() + 1, 1, 12) &&
-    matchesCronPart(dayOfWeek, now.getUTCDay(), 0, 7)
+    parts.length === 5 &&
+    parts.every((part, index) =>
+      isValidCronPart(part, ranges[index][0], ranges[index][1]),
+    )
   )
+}
+
+function isValidCronPart(part: string, min: number, max: number) {
+  return part.split(',').every((token) => {
+    const segments = token.split('/')
+    const base = segments[0]
+    const hasStep = segments.length === 2
+    if (segments.length > 2 || !base) return false
+
+    if (hasStep) {
+      const step = Number(segments[1])
+      if (!Number.isInteger(step) || step < 1 || step > max - min + 1) {
+        return false
+      }
+    }
+
+    if (base === '*') return true
+
+    if (base.includes('-')) {
+      const range = base.split('-')
+      if (range.length !== 2) return false
+      const start = Number(range[0])
+      const end = Number(range[1])
+      return (
+        Number.isInteger(start) &&
+        Number.isInteger(end) &&
+        start >= min &&
+        end <= max &&
+        start <= end
+      )
+    }
+
+    const numeric = Number(base)
+    return (
+      !hasStep && Number.isInteger(numeric) && numeric >= min && numeric <= max
+    )
+  })
 }
 
 function matchesCronPart(
@@ -1144,45 +1208,37 @@ function matchesCronPart(
   max: number,
 ) {
   for (const token of part.split(',')) {
-    if (token === '*') {
-      return true
-    }
+    const [base, rawStep] = token.split('/')
+    const step = rawStep ? Number(rawStep) : 1
+    let start = min
+    let end = max
 
-    if (token.startsWith('*/')) {
-      const step = Number(token.slice(2))
-      if (Number.isInteger(step) && step > 0 && value % step === 0) {
-        return true
+    if (base !== '*') {
+      if (base.includes('-')) {
+        const [rawStart, rawEnd] = base.split('-', 2)
+        start = Number(rawStart)
+        end = Number(rawEnd)
+      } else {
+        start = Number(base)
+        end = start
       }
     }
 
-    if (token.includes('-')) {
-      const [rawStart, rawEnd] = token.split('-', 2)
-      const start = Number(rawStart)
-      const end = Number(rawEnd)
-      if (
-        Number.isInteger(start) &&
-        Number.isInteger(end) &&
-        start >= min &&
-        end <= max &&
-        value >= start &&
-        value <= end
-      ) {
-        return true
-      }
-    }
-
-    const numeric = Number(token)
+    const normalizedValue = max === 7 && value === 0 && end === 7 ? 7 : value
     if (
-      Number.isInteger(numeric) &&
-      numeric >= min &&
-      numeric <= max &&
-      (numeric === value || (max === 7 && numeric === 7 && value === 0))
+      normalizedValue >= start &&
+      normalizedValue <= end &&
+      (normalizedValue - start) % step === 0
     ) {
       return true
     }
   }
 
   return false
+}
+
+function toUtcMinute(value: Date) {
+  return value.toISOString().slice(0, 16)
 }
 
 function toBackupConfigSummary(row: typeof backupConfigs.$inferSelect) {

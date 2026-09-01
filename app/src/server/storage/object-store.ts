@@ -9,6 +9,7 @@ import {
 } from '@aws-sdk/client-s3'
 
 import { config } from '@/server/config'
+import { getR2ObjectStore } from '@/server/runtime/platform-env'
 
 type StoredObject = {
   body: Buffer
@@ -24,11 +25,43 @@ export interface ObjectStore {
 let store: ObjectStore | undefined
 
 export function getObjectStore() {
+  const r2 = getR2ObjectStore()
+
+  if (r2) {
+    return createR2ObjectStore(r2)
+  }
+
   store ??= isRemoteObjectStorageConfigured()
     ? createS3ObjectStore()
     : createLocalObjectStore()
 
   return store
+}
+
+export function isObjectStorageConfigured() {
+  return Boolean(getR2ObjectStore()) || isRemoteObjectStorageConfigured()
+}
+
+function createR2ObjectStore(bucket: R2Bucket): ObjectStore {
+  return {
+    async delete(key) {
+      await bucket.delete(key)
+    },
+    async get(key) {
+      const object = await bucket.get(key)
+      if (!object) throw new Error(`Object ${key} was not found.`)
+
+      return {
+        body: Buffer.from(await object.arrayBuffer()),
+        contentType: object.httpMetadata?.contentType,
+      }
+    },
+    async put(key, body, contentType) {
+      await bucket.put(key, body, {
+        httpMetadata: contentType ? { contentType } : undefined,
+      })
+    },
+  }
 }
 
 export function isRemoteObjectStorageConfigured() {

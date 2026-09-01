@@ -89,7 +89,7 @@ EOF
 )
 
 for attempt in {1..15}; do
-  if (cd app && node_modules/.bin/drizzle-kit push --force); then
+  if pnpm --dir app db:migrate; then
     break
   fi
 
@@ -100,6 +100,9 @@ for attempt in {1..15}; do
 
   sleep 2
 done
+
+step "Running database integration tests"
+pnpm test:integration
 
 step "Running control-plane deploy lifecycle smoke"
 pnpm smoke:deploy

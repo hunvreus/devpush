@@ -19,6 +19,10 @@ Keep `BETTER_AUTH_SECRET` and `DEVPUSH_SECRET_ENCRYPTION_KEY` stable across
 upgrades. Changing the encryption key makes stored application secrets
 unreadable.
 
+Set `DEVPUSH_ADMIN_EMAIL` explicitly in production. Leaving it unset delegates
+installation administration to the earliest-created user, which is intended as
+a bootstrap fallback rather than an operational role-management mechanism.
+
 Migrations are forward-only. To roll back a schema-changing release, stop the
 app, restore the pre-upgrade dump into an empty database, and deploy the previous
 pinned image or source revision.
@@ -31,9 +35,9 @@ maintenance endpoint hourly to expire invites and process account cleanup jobs.
 `DEVPUSH_CRON_SECRET` is required by production Compose.
 
 The scheduler is deliberately an external HTTP caller rather than in-process
-application state. VPS deployments use the Compose companion. A future Workers
-deployment can call the same endpoints from Cron Triggers without changing job
-behavior.
+application state. VPS deployments use the Compose companion. Cloudflare
+deployments use the configured Cron Trigger to invoke the same maintenance
+services directly inside the Worker.
 
 ## Control-plane backups
 
@@ -68,6 +72,19 @@ sudo systemctl disable --now devpush-agent-update.timer
 ```
 
 The main agent remains unprivileged; only the updater service runs as root.
+
+The installer records its phase output and suppressed package-manager details
+in a root-readable timestamped log under `/var/log/devpush-agent/`.
+`/var/log/devpush-agent/latest.log` points to the latest installation run. The
+running agent writes to the systemd journal; inspect it with
+`sudo journalctl -u devpush-agent -f`.
+
+The control plane embeds its configured `DEVPUSH_BASE_URL` into new install
+scripts. Changing the public control-plane origin requires updating
+`DEVPUSH_BASE_URL` and restarting or redeploying the control plane before
+generating new commands. Existing agents retain their old URL in
+`/etc/devpush/agent.env`; update that file and restart `devpush-agent` when an
+origin moves.
 
 The version in `app/package.json` identifies the bundled agent release shown as the
 latest available version. `DEVPUSH_RECOMMENDED_AGENT_VERSION` is optional and

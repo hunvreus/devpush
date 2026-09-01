@@ -46,13 +46,19 @@ Backup execution currently does this:
   target service restore commands.
 
 Remote backups require `rclone` on the server. The installer attempts to install
-it on apt-based hosts and warns when it is unavailable.
+it through apt, dnf, or yum when available and warns when it is unavailable.
 
 The control-plane installer can download the agent from
 `/api/install/agent/binary` when `DEVPUSH_AGENT_BINARY_DIR` points to a
 directory containing `devpush-agent-linux-amd64` and
 `devpush-agent-linux-arm64` on the control-plane host. The installer detects
 the server architecture and requests the matching binary.
+
+The generated script receives the control plane's configured
+`DEVPUSH_BASE_URL` and persists it in
+`/etc/devpush/agent.env`. Change that file and restart `devpush-agent` to repoint
+an existing installation. Installer logs are retained under
+`/var/log/devpush-agent/`, with `latest.log` pointing to the latest run.
 
 The installer also creates `/usr/local/lib/devpush/update-agent`. This root-owned
 helper verifies the published SHA-256 checksum before replacing the binary and
@@ -72,7 +78,7 @@ sudo devpush-agent credential rotate
 Example config:
 
 ```env
-DEVPUSH_SERVER_URL=https://devpush.example.com
+DEVPUSH_BASE_URL=https://devpush.example.com
 DEVPUSH_AGENT_TOKEN=one-time-enrollment-token
 DEVPUSH_AGENT_ID=optional-existing-agent-id
 DEVPUSH_STATE_DIR=/var/lib/devpush-agent

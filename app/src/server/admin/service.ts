@@ -6,13 +6,15 @@ import { allowlist, session, user } from '@/server/db/schema'
 import { isValidAllowlistPattern, normalizeEmail } from '@/server/auth/access'
 import { getInstallationInfo } from '@/server/admin/installation'
 import { deleteUserAccount } from '@/server/users/service'
+import { requireInstallationAdminById } from '@/server/admin/access'
 
 export type AdminOverview = Awaited<ReturnType<typeof getAdminOverview>>
 export type AllowlistRuleType = 'email' | 'domain' | 'pattern'
 
 const emailSchema = z.string().trim().email().max(320)
 
-export async function getAdminOverview() {
+export async function getAdminOverview(actorUserId: string) {
+  await requireInstallationAdminById(actorUserId)
   const [users, allowlistEntries, installation] = await Promise.all([
     db
       .select({
@@ -62,12 +64,15 @@ export async function getAdminOverview() {
 }
 
 export async function addAllowlistRule({
+  actorUserId,
   type,
   value,
 }: {
+  actorUserId: string
   type: AllowlistRuleType
   value: string
 }) {
+  await requireInstallationAdminById(actorUserId)
   const normalizedValue = normalizeAllowlistValue(type, value)
 
   await db
@@ -80,7 +85,14 @@ export async function addAllowlistRule({
     .onConflictDoNothing()
 }
 
-export async function importAllowlistEmails({ emails }: { emails: string }) {
+export async function importAllowlistEmails({
+  actorUserId,
+  emails,
+}: {
+  actorUserId: string
+  emails: string
+}) {
+  await requireInstallationAdminById(actorUserId)
   const values = Array.from(
     new Set(
       emails
@@ -114,7 +126,14 @@ export async function importAllowlistEmails({ emails }: { emails: string }) {
     .onConflictDoNothing()
 }
 
-export async function deleteAllowlistRule({ id }: { id: string }) {
+export async function deleteAllowlistRule({
+  actorUserId,
+  id,
+}: {
+  actorUserId: string
+  id: string
+}) {
+  await requireInstallationAdminById(actorUserId)
   await db.delete(allowlist).where(eq(allowlist.id, id))
 }
 
@@ -125,6 +144,7 @@ export async function banUser({
   actorUserId: string
   targetUserId: string
 }) {
+  await requireInstallationAdminById(actorUserId)
   if (actorUserId === targetUserId) {
     throw new Error('You cannot ban yourself.')
   }
@@ -145,6 +165,7 @@ export async function unbanUser({
   actorUserId: string
   targetUserId: string
 }) {
+  await requireInstallationAdminById(actorUserId)
   if (actorUserId === targetUserId) {
     throw new Error('You cannot unban yourself.')
   }
@@ -162,6 +183,7 @@ export async function deleteAdminUser({
   actorUserId: string
   targetUserId: string
 }) {
+  await requireInstallationAdminById(actorUserId)
   if (actorUserId === targetUserId) {
     throw new Error('You cannot delete yourself from admin.')
   }

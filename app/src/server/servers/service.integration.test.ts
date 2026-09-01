@@ -64,6 +64,31 @@ describe('server service integration', () => {
     expect(server.name).toBe('test-server')
   })
 
+  test('allows owners and admins, but not members, to manage servers', async () => {
+    const { teamId, teamSlug, userId } = await createFixture()
+
+    await db
+      .update(teamMembers)
+      .set({ role: 'member' })
+      .where(eq(teamMembers.teamId, teamId))
+    await expect(
+      createPendingServer({ userId, teamSlug, name: 'member-server' }),
+    ).rejects.toThrow('Forbidden')
+
+    await db
+      .update(teamMembers)
+      .set({ role: 'admin' })
+      .where(eq(teamMembers.teamId, teamId))
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'admin-server',
+    })
+    touchedServerIds.push(server.id)
+
+    expect(server.name).toBe('admin-server')
+  })
+
   test('rejects duplicate machine names in the same team', async () => {
     const { teamSlug, userId } = await createFixture()
 

@@ -347,6 +347,7 @@ async function main() {
     }
 
     const pushResult = await createDeploymentsForGitHubPush({
+      deliveryId: 'smoke-push-1',
       installationId,
       repositoryId: 123456789,
       repositoryFullName: 'devpush/smoke-compose',
@@ -385,6 +386,7 @@ async function main() {
     }
 
     const duplicatePushResult = await createDeploymentsForGitHubPush({
+      deliveryId: 'smoke-push-2',
       installationId,
       repositoryId: 123456789,
       repositoryFullName: 'devpush/smoke-compose',

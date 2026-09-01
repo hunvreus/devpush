@@ -11,7 +11,7 @@ import (
 
 type Config struct {
 	AgentID          string
-	ServerURL        string
+	BaseURL          string
 	Token            string
 	StateDir         string
 	DockerHost       string
@@ -63,7 +63,7 @@ func LoadConfig(path string) (Config, error) {
 
 	cfg := Config{
 		AgentID:          firstNonEmpty(os.Getenv("DEVPUSH_AGENT_ID"), values["DEVPUSH_AGENT_ID"]),
-		ServerURL:        firstNonEmpty(os.Getenv("DEVPUSH_SERVER_URL"), values["DEVPUSH_SERVER_URL"]),
+		BaseURL:          firstNonEmpty(os.Getenv("DEVPUSH_BASE_URL"), values["DEVPUSH_BASE_URL"]),
 		Token:            firstNonEmpty(os.Getenv("DEVPUSH_AGENT_TOKEN"), values["DEVPUSH_AGENT_TOKEN"]),
 		StateDir:         firstNonEmpty(os.Getenv("DEVPUSH_STATE_DIR"), values["DEVPUSH_STATE_DIR"], "/var/lib/devpush-agent"),
 		DockerHost:       firstNonEmpty(os.Getenv("DOCKER_HOST"), values["DOCKER_HOST"]),
@@ -73,8 +73,8 @@ func LoadConfig(path string) (Config, error) {
 		GitCloneBase:     firstNonEmpty(os.Getenv("DEVPUSH_GIT_CLONE_BASE_URL"), values["DEVPUSH_GIT_CLONE_BASE_URL"], "https://github.com"),
 	}
 
-	if cfg.ServerURL == "" {
-		return Config{}, errors.New("DEVPUSH_SERVER_URL is required")
+	if cfg.BaseURL == "" {
+		return Config{}, errors.New("DEVPUSH_BASE_URL is required")
 	}
 	if cfg.Token == "" {
 		return Config{}, errors.New("DEVPUSH_AGENT_TOKEN is required")

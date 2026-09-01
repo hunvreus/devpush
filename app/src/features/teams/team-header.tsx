@@ -184,17 +184,19 @@ function TeamHeader({
         </nav>
 
         <nav className="flex items-center gap-x-2" aria-label="User menu">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="hidden sm:inline-flex"
-          >
-            <Link to="/admin">
-              <SettingsIcon data-icon="inline-start" />
-              Admin
-            </Link>
-          </Button>
+          {userContext.user.isInstallationAdmin ? (
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex"
+            >
+              <Link to="/admin">
+                <SettingsIcon data-icon="inline-start" />
+                Admin
+              </Link>
+            </Button>
+          ) : null}
           <HelpMenu />
           <NotificationsMenu invites={userContext.invites} />
           <UserMenu userContext={userContext} />

@@ -15,6 +15,7 @@ import { NewProjectDialogLauncher } from '@/features/repositories/new-project-di
 import { ResourceAvatar } from '@/components/resource-avatar'
 import { AddServerDialog } from '@/features/servers/team-servers'
 import { routeUrl } from '@/lib/urls'
+import { canManageTeamSettings } from '@/lib/team-role'
 import type { DeploymentSummary } from '@/server/projects/service'
 import {
   Tooltip,
@@ -41,6 +42,7 @@ export function TeamHome({
   const router = useRouter()
   const [addServerOpen, setAddServerOpen] = useState(false)
   const hasProjects = projects.length > 0
+  const canManageServers = canManageTeamSettings(team.role)
 
   return (
     <>
@@ -64,7 +66,10 @@ export function TeamHome({
         </section>
       ) : servers.length === 0 ? (
         <section>
-          <EmptyServers onAddServer={() => setAddServerOpen(true)} />
+          <EmptyServers
+            canAddServer={canManageServers}
+            onAddServer={() => setAddServerOpen(true)}
+          />
         </section>
       ) : (
         <section>
@@ -81,12 +86,14 @@ export function TeamHome({
         </section>
       ) : null}
 
-      <AddServerDialog
-        open={addServerOpen}
-        teamSlug={team.slug}
-        onOpenChange={setAddServerOpen}
-        onCreated={() => void router.invalidate()}
-      />
+      {canManageServers ? (
+        <AddServerDialog
+          open={addServerOpen}
+          teamSlug={team.slug}
+          onOpenChange={setAddServerOpen}
+          onCreated={() => void router.invalidate()}
+        />
+      ) : null}
     </>
   )
 }
@@ -128,7 +135,13 @@ export function TeamProjects({
   )
 }
 
-function EmptyServers({ onAddServer }: { onAddServer: () => void }) {
+function EmptyServers({
+  canAddServer,
+  onAddServer,
+}: {
+  canAddServer: boolean
+  onAddServer: () => void
+}) {
   return (
     <Empty className="min-h-60 border bg-card text-card-foreground">
       <EmptyHeader>
@@ -137,12 +150,14 @@ function EmptyServers({ onAddServer }: { onAddServer: () => void }) {
           Add a server before creating and deploying projects.
         </EmptyDescription>
       </EmptyHeader>
-      <EmptyContent>
-        <Button type="button" onClick={onAddServer}>
-          <PlusIcon data-icon="inline-start" />
-          Add server
-        </Button>
-      </EmptyContent>
+      {canAddServer ? (
+        <EmptyContent>
+          <Button type="button" onClick={onAddServer}>
+            <PlusIcon data-icon="inline-start" />
+            Add server
+          </Button>
+        </EmptyContent>
+      ) : null}
     </Empty>
   )
 }

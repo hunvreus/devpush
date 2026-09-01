@@ -749,14 +749,17 @@ describe('project settings integration', () => {
         ],
       })
       .where(eq(projects.id, projectId))
-    const result = await createDeploymentsForGitHubPush({
+    const deliveryId = crypto.randomUUID()
+    const push = {
+      deliveryId,
       installationId,
       repositoryId: repoId,
       repositoryFullName: 'example/project',
       branch: 'main',
       gitSha: 'abcdef123456',
       message: 'Push deployment',
-    })
+    }
+    const result = await createDeploymentsForGitHubPush(push)
     const deploymentId = result.created.at(0)?.deploymentId
 
     if (!deploymentId) {
@@ -764,6 +767,11 @@ describe('project settings integration', () => {
     }
 
     touchedDeploymentIds.push(deploymentId)
+
+    await expect(createDeploymentsForGitHubPush(push)).resolves.toMatchObject({
+      created: [],
+      skipped: [{ projectId, environmentId, reason: 'duplicate_delivery' }],
+    })
 
     const rows = await db
       .select({ deployment: deployments })
@@ -803,6 +811,29 @@ describe('project settings integration', () => {
       rollbackCommand: './scripts/rollback',
       timeoutSeconds: 900,
     })
+
+    const concurrent = await Promise.all(
+      ['concurrent-a', 'concurrent-b'].map((gitSha) =>
+        createDeploymentsForGitHubPush({
+          ...push,
+          deliveryId: crypto.randomUUID(),
+          gitSha,
+        }),
+      ),
+    )
+    const concurrentIds = concurrent.flatMap((item) =>
+      item.created.map((created) => created.deploymentId),
+    )
+    touchedDeploymentIds.push(...concurrentIds)
+    expect(concurrentIds).toHaveLength(2)
+
+    const environmentDeployments = await db
+      .select({ status: deployments.status })
+      .from(deployments)
+      .where(eq(deployments.environmentId, environmentId))
+    expect(
+      environmentDeployments.filter((item) => item.status === 'queued'),
+    ).toHaveLength(1)
   })
 
   test('push deployments snapshot env vars using environment ids', async () => {
@@ -848,6 +879,7 @@ describe('project settings integration', () => {
       .where(eq(projects.id, projectId))
 
     const result = await createDeploymentsForGitHubPush({
+      deliveryId: crypto.randomUUID(),
       installationId,
       repositoryId: repoId,
       repositoryFullName: 'example/project',
@@ -991,6 +1023,7 @@ describe('project settings integration', () => {
     ]
 
     const result = await createDeploymentsForGitHubPush({
+      deliveryId: crypto.randomUUID(),
       installationId,
       repositoryId: repoId,
       repositoryFullName: 'example/project',

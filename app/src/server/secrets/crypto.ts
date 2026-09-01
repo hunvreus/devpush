@@ -46,7 +46,11 @@ export function decryptSecret(payload: string) {
 }
 
 function encryptionKey() {
+  if (!config.DEVPUSH_SECRET_ENCRYPTION_KEY) {
+    throw new Error('DEVPUSH_SECRET_ENCRYPTION_KEY is required.')
+  }
+
   return createHash('sha256')
-    .update(config.DEVPUSH_SECRET_ENCRYPTION_KEY ?? config.BETTER_AUTH_SECRET)
+    .update(config.DEVPUSH_SECRET_ENCRYPTION_KEY)
     .digest()
 }

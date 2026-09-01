@@ -60,6 +60,14 @@ export const Route = createFileRoute('/api/github/webhook')({
 
         let payload: ReturnType<typeof parseGitHubPushPayload> | null = null
         const event = request.headers.get('x-github-event')
+        const deliveryId = request.headers.get('x-github-delivery')?.trim()
+
+        if (!deliveryId || deliveryId.length > 255) {
+          return Response.json(
+            { error: 'Missing or invalid GitHub delivery ID.' },
+            { status: 400 },
+          )
+        }
 
         if (
           event === 'installation' ||
@@ -134,6 +142,7 @@ export const Route = createFileRoute('/api/github/webhook')({
         }
 
         const result = await createDeploymentsForGitHubPush({
+          deliveryId,
           installationId,
           repositoryId,
           repositoryFullName,

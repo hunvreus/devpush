@@ -4,21 +4,21 @@
 
 - Node.js 22 or newer.
 - pnpm 10.17 or newer.
-- Go 1.25 or newer.
+- Go 1.27 or newer.
 - Docker for local Postgres.
 
 ## Control plane
 
 ```bash
 cp app/.env.example app/.env
-pnpm --dir app install
+pnpm install
 docker compose -f deploy/compose.yml up -d
 pnpm --dir app db:migrate
 pnpm --dir app dev
 ```
 
-The app runs at the fixed local OAuth origin `http://localhost:7429`. Startup
-fails if that port is already in use.
+The app uses `http://localhost:7429` as its default local origin. Startup fails
+if that port is already in use.
 
 For normal local testing with the Lima agent VM:
 
@@ -33,6 +33,49 @@ default, syncs the database, and starts the control plane in the background.
 Use `DEVPUSH_LIMA_INSTANCE=name` for another VM, or `DEVPUSH_REQUIRE_LIMA=0`
 when testing only the web app. The dev server log is `.tmp/devpush-dev.log`.
 
+### Control-plane origin and agent connectivity
+
+`DEVPUSH_BASE_URL` is the canonical public origin for generated links, server
+enrollment, and agent communication. A generated installer exports it as
+`DEVPUSH_BASE_URL`, persists it in `/etc/devpush/agent.env`, and the systemd
+service loads it on every start. The agent uses that URL for registration,
+heartbeats, jobs, logs, and binary updates.
+
+`BETTER_AUTH_URL` is an optional auth-only origin. It defaults to
+`DEVPUSH_BASE_URL`, but can differ when the browser and agent need different
+names for the same local control plane. For a Lima agent, use:
+
+```env
+DEVPUSH_BASE_URL=http://host.lima.internal:7429
+BETTER_AUTH_URL=http://localhost:7429
+```
+
+Inside Lima, `host.lima.internal` resolves to the macOS host. The browser keeps
+using localhost for authentication, while the generated installer and agent use
+the Lima-reachable base URL. Verify it from the VM before enrollment:
+
+```bash
+limactl shell devpush-test curl http://host.lima.internal:7429/api/health
+```
+
+Use the actual Lima instance name through `DEVPUSH_LIMA_INSTANCE` when it is not
+`devpush-test`. Use a stable HTTPS origin for a remote server or any flow that
+must be internet-accessible.
+
+There is no UI setting for this runtime configuration. Change
+`DEVPUSH_BASE_URL` and restart or redeploy the app before creating new install
+commands. Existing agents keep their persisted URL; repoint one by editing
+`DEVPUSH_BASE_URL` in `/etc/devpush/agent.env` and restarting it:
+
+```bash
+sudo systemctl restart devpush-agent
+```
+
+Agents installed before this configuration change may still have
+`DEVPUSH_SERVER_URL` in that file. Rename the key to `DEVPUSH_BASE_URL` before
+starting the updated agent, or reinstall the agent with a newly generated
+command.
+
 ## Production control plane
 
 The production Compose file builds the app and the Linux agent binary into
@@ -43,7 +86,7 @@ cp deploy/.env.production.example deploy/.env.production
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 ```
 
-Set `BETTER_AUTH_URL` in `deploy/.env.production` to the public HTTPS URL before
+Set `DEVPUSH_BASE_URL` in `deploy/.env.production` to the public HTTPS URL before
 adding servers. The server installer uses that URL to register agents and
 download `/api/install/agent/binary`.
 
@@ -65,8 +108,16 @@ Set these values in `app/.env`:
 
 ```bash
 BETTER_AUTH_SECRET=replace-with-a-long-random-secret
-BETTER_AUTH_URL=http://localhost:7429
+DEVPUSH_BASE_URL=http://localhost:7429
+# BETTER_AUTH_URL=http://localhost:7429
+DEVPUSH_ADMIN_EMAIL=admin@example.com
+DEVPUSH_SECRET_ENCRYPTION_KEY=replace-with-a-separate-long-random-secret
 ```
+
+The admin email is optional for local development; when blank, the first user
+becomes the installation administrator. Set it explicitly for deployed
+instances. Keep the encryption key stable: changing it makes stored secrets
+unreadable.
 
 ### Email OTP with Resend
 
@@ -123,7 +174,7 @@ main().catch(async (error) => {
   process.exit(1)
 })
 NODE
-DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush_integration pnpm --dir app db:push
+DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush_integration pnpm --dir app db:migrate
 DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush_integration pnpm --dir app test:integration
 ```
 
@@ -166,9 +217,9 @@ Before validating a real remote server, run the stricter config check:
 pnpm validate:config -- --env deploy/.env.production --remote
 ```
 
-That verifies the public auth URL, OAuth credentials, GitHub App private key,
+That verifies the public base URL, optional auth override, OAuth credentials, GitHub App private key,
 Resend settings and the packaged agent binary directory. Remote validation
-rejects localhost/private control-plane hosts and paths on `BETTER_AUTH_URL`.
+rejects localhost/private control-plane hosts and paths on `DEVPUSH_BASE_URL`.
 
 Then validate the production image:
 
@@ -188,14 +239,14 @@ Use this after the control plane is reachable from the internet and
 Create a server in devpush, copy the generated install command, then run:
 
 ```bash
-DEVPUSH_SERVER_URL=https://devpush.example.com \
+DEVPUSH_BASE_URL=https://devpush.example.com \
 DEVPUSH_REMOTE_HOST=root@203.0.113.10 \
 DEVPUSH_INSTALL_COMMAND='tmp="$(mktemp)" && curl -fsSL ...' \
 pnpm validate:remote
 ```
 
-`DEVPUSH_SERVER_URL` and `DEVPUSH_PROJECT_URL` must use HTTPS by default. Set
-`DEVPUSH_ALLOW_INSECURE_SERVER_URL=1` only for local or private test networks.
+`DEVPUSH_BASE_URL` and `DEVPUSH_PROJECT_URL` must use HTTPS by default. Set
+`DEVPUSH_ALLOW_INSECURE_BASE_URL=1` only for local or private test networks.
 
 The script checks:
 
@@ -243,7 +294,7 @@ After that, complete the product flow in the UI:
 You can add a deployed route check to the same command:
 
 ```bash
-DEVPUSH_SERVER_URL=https://devpush.example.com \
+DEVPUSH_BASE_URL=https://devpush.example.com \
 DEVPUSH_REMOTE_HOST=root@203.0.113.10 \
 DEVPUSH_INSTALL_COMMAND='tmp="$(mktemp)" && curl -fsSL ...' \
 DEVPUSH_PROJECT_URL=https://my-app.example.com \
@@ -255,7 +306,7 @@ For the full remote proof, require the deployed route and managed Traefik
 checks:
 
 ```bash
-DEVPUSH_SERVER_URL=https://devpush.example.com \
+DEVPUSH_BASE_URL=https://devpush.example.com \
 DEVPUSH_REMOTE_HOST=root@203.0.113.10 \
 DEVPUSH_INSTALL_COMMAND='tmp="$(mktemp)" && curl -fsSL ...' \
 DEVPUSH_PROJECT_URL=https://my-app.example.com \
@@ -272,7 +323,7 @@ directly.
 To run every remote proof gate in order, use:
 
 ```bash
-DEVPUSH_SERVER_URL=https://devpush.example.com \
+DEVPUSH_BASE_URL=https://devpush.example.com \
 DEVPUSH_REMOTE_HOST=root@203.0.113.10 \
 DEVPUSH_INSTALL_COMMAND='tmp="$(mktemp)" && curl -fsSL ...' \
 DEVPUSH_PROJECT_URL=https://my-app.example.com \
@@ -280,7 +331,7 @@ pnpm validate:remote:proof
 ```
 
 That command requires `deploy/.env.production` by default, verifies that
-`BETTER_AUTH_URL` in that env file matches `DEVPUSH_SERVER_URL`, then runs remote
+`DEVPUSH_BASE_URL` in that env file matches the requested proof origin, then runs remote
 config validation, production image validation, and `pnpm validate:remote` with
 `DEVPUSH_FULL_PROOF=1`.
 
@@ -325,13 +376,16 @@ GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVA
 GITHUB_APP_WEBHOOK_SECRET=...
 ```
 
-Create a correctly configured app and write the generated credentials with:
+For a new checkout, use the interactive setup wizard. It creates `app/.env` and
+can configure the GitHub App as part of the same flow:
 
 ```bash
-pnpm setup:github-app -- --env app/.env
+pnpm run setup
 ```
 
-The helper opens GitHub for approval, requests repository **Contents: Read-only**
+To replace only the GitHub App later, run
+`pnpm run setup:github-app -- --env app/.env`. The helper opens GitHub for approval,
+requests repository **Contents: Read-only**
 permission, subscribes to **Push** and **Installation target**, configures OAuth
 and webhooks, and exchanges the one-time manifest code locally. GitHub delivers
 **Installation** and **Installation repositories** lifecycle events to every
@@ -350,8 +404,9 @@ Webhook URL:
 http://localhost:7429/api/github/webhook
 ```
 
-Replace `http://localhost:7429` with the configured `BETTER_AUTH_URL` origin in
-production.
+Replace `http://localhost:7429` with the configured auth origin in production.
+Unless explicitly overridden with `BETTER_AUTH_URL`, this is
+`DEVPUSH_BASE_URL`.
 
 ### Object storage
 
@@ -394,9 +449,12 @@ DEVPUSH_TRAEFIK_EMAIL=ops@example.com
 ```
 
 The server install command shown in the UI detects Linux `amd64` or `arm64`,
-downloads the matching binary from `/api/install/agent/binary`, creates the
-`devpush` system user, writes `/etc/devpush/agent.env`, installs a systemd
-service, and starts the agent.
+downloads and checksum-verifies the matching binary from the configured control
+plane, provisions required host packages on supported apt-, dnf-, and yum-based
+systemd distributions, creates the `devpush` system user, writes
+`/etc/devpush/agent.env`, installs a systemd service, and starts the agent.
+Detailed installation output is stored in timestamped files under
+`/var/log/devpush-agent/`; `latest.log` points to the latest run.
 
 New projects default to an exact nip.io host derived from the assigned server,
 such as `my-app-167-11-3-44.nip.io`. A local control plane uses
@@ -416,7 +474,7 @@ Let's Encrypt certificates.
 Run the agent manually for local protocol testing:
 
 ```bash
-DEVPUSH_SERVER_URL=http://localhost:7429 \
+DEVPUSH_BASE_URL=http://localhost:7429 \
 DEVPUSH_AGENT_TOKEN=dev-token \
 go run ./agent/cmd/devpush-agent -config /tmp/missing-devpush-agent.env
 ```

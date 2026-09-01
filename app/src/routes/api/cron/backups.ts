@@ -11,6 +11,13 @@ export const Route = createFileRoute('/api/cron/backups')({
           return Response.json({ error: 'Not found.' }, { status: 404 })
         }
 
+        if (!config.DEVPUSH_CRON_SECRET) {
+          return Response.json(
+            { error: 'Scheduled backups are not configured.' },
+            { status: 503 },
+          )
+        }
+
         const authorization = request.headers.get('authorization')
         const expected = `Bearer ${config.DEVPUSH_CRON_SECRET}`
 

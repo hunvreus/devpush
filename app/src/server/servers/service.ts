@@ -31,7 +31,7 @@ import type {
   ServerMetricsSample,
   ServerMonitoringSummary,
 } from '@/server/servers/monitoring'
-import { requireTeam } from '@/server/teams/service'
+import { requireTeam, requireTeamManager } from '@/server/teams/service'
 import { getEffectiveServerStatus } from '@/server/servers/status'
 import type { ServerStatus } from '@/server/servers/status'
 
@@ -211,7 +211,7 @@ export async function updateTeamServer({
 }) {
   const nextName = name.trim()
   validateServerMachineName(nextName)
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeamManager(userId, teamSlug)
   const existingRows = await db
     .select({ id: servers.id })
     .from(servers)
@@ -262,7 +262,7 @@ export async function disableTeamServer({
   teamSlug: string
   serverId: string
 }) {
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeamManager(userId, teamSlug)
   const existingRows = await db
     .select({ id: servers.id, name: servers.name })
     .from(servers)
@@ -317,7 +317,7 @@ export async function enableTeamServer({
   teamSlug: string
   serverId: string
 }) {
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeamManager(userId, teamSlug)
   const existingRows = await db
     .select({ id: servers.id, status: servers.status })
     .from(servers)
@@ -367,7 +367,7 @@ export async function createPendingServer({
 }): Promise<CreatedServer> {
   const nextName = name.trim()
   validateServerMachineName(nextName)
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeamManager(userId, teamSlug)
   const duplicateRows = await db
     .select({ id: servers.id })
     .from(servers)
@@ -414,7 +414,7 @@ export async function createPendingServer({
     name: nextName,
     status: 'pending',
     installCommand: buildInstallCommand({
-      serverUrl: config.BETTER_AUTH_URL,
+      baseUrl: config.DEVPUSH_BASE_URL,
       token: enrollmentToken,
     }),
   }
@@ -429,7 +429,7 @@ export async function createServerInstallCommand({
   teamSlug: string
   serverId: string
 }): Promise<ServerInstallCommand> {
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeamManager(userId, teamSlug)
   const serverRows = await db
     .select({
       id: servers.id,
@@ -487,7 +487,7 @@ export async function createServerInstallCommand({
   return {
     serverId: server.id,
     installCommand: buildInstallCommand({
-      serverUrl: config.BETTER_AUTH_URL,
+      baseUrl: config.DEVPUSH_BASE_URL,
       token: enrollmentToken,
     }),
   }
@@ -699,7 +699,7 @@ export async function getServerDeleteDiagnostic({
   teamSlug: string
   serverId: string
 }): Promise<ServerDeleteDiagnostic> {
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeamManager(userId, teamSlug)
   const serverRows = await db
     .select({
       id: servers.id,
@@ -761,7 +761,7 @@ export async function deleteTeamServer({
   teamSlug: string
   serverId: string
 }) {
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeamManager(userId, teamSlug)
   const serverRows = await db
     .select({
       id: servers.id,
@@ -1079,13 +1079,13 @@ async function hasPermittedDeletedServerWork(serverId: string) {
 }
 
 function buildInstallCommand({
-  serverUrl,
+  baseUrl,
   token,
 }: {
-  serverUrl: string
+  baseUrl: string
   token: string
 }) {
-  const installUrl = `${serverUrl.replace(/\/$/, '')}/api/install/agent`
+  const installUrl = `${baseUrl.replace(/\/$/, '')}/api/install/agent`
   const tokenInstallUrl = `${installUrl}/${encodeURIComponent(token)}`
 
   return `tmp="$(mktemp)" && curl -fsSL ${shellQuote(tokenInstallUrl)} -o "$tmp" && sudo bash "$tmp"; status=$?; test -z "\${tmp:-}" || rm -f "$tmp"; exit "$status"`

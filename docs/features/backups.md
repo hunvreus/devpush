@@ -45,6 +45,11 @@ The cron route enqueues due backup runs for enabled
 policies. Cron expressions are evaluated in UTC. Agents only poll and execute
 queued jobs; they do not schedule backup runs themselves.
 
+Cron uses standard five-field semantics, including OR behavior when both day of
+month and day of week are constrained. A schedule-minute key prevents duplicate
+enqueues, and the database permits only one queued or running backup per
+environment.
+
 Manual backup runs can also be queued from the Backups page.
 
 ## Local artifacts
@@ -68,8 +73,9 @@ the object/file names.
 
 Remote backups are optional per policy. When enabled, the agent uploads the
 local artifacts to S3-compatible storage with `rclone` using a temporary 0600
-config file. S3 credentials are stored encrypted by the control plane and are
-sent to the agent only in the backup or cleanup job payload.
+config file. S3 credentials are stored encrypted by the control plane. Queued
+jobs retain only ciphertext; the secret is decrypted and returned only when an
+authenticated compatible agent claims a backup, restore, or cleanup job.
 
 Remote object keys are deterministic:
 
@@ -78,7 +84,7 @@ projects/<projectId>/environments/<environmentId>/backups/<policyId>/<runId>/<ar
 ```
 
 Servers need `rclone` installed for remote backups. The installer attempts to
-install it on apt-based hosts and warns when it cannot.
+install it through apt, dnf, or yum when available and warns when it cannot.
 
 ## Retention
 

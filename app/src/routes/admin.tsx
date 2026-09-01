@@ -5,7 +5,16 @@ import { getAdminSettingsContext } from '@/server/admin/functions'
 
 export const Route = createFileRoute('/admin')({
   loader: async () => {
-    const context = await getAdminSettingsContext()
+    let context
+
+    try {
+      context = await getAdminSettingsContext()
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Forbidden') {
+        throw redirect({ to: '/' })
+      }
+      throw error
+    }
 
     if (!context) {
       throw redirect({ to: '/auth/login' })

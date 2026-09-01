@@ -1,17 +1,36 @@
 import { createFileRoute } from '@tanstack/react-router'
 
+import { auth } from '@/lib/auth'
 import {
   getAppInstallation,
   upsertGitHubInstallation,
 } from '@/server/github/service'
-import { getSafeRedirectPath } from '@/server/http/internal-redirect'
+import { verifyGitHubInstallState } from '@/server/github/install-state'
 
 export const Route = createFileRoute('/api/github/install/callback')({
   server: {
     handlers: {
       GET: async ({ request }) => {
         const url = new URL(request.url)
-        const next = getSafeRedirectPath(url.searchParams.get('state'))
+        const session = await auth.api.getSession({ headers: request.headers })
+        const state = url.searchParams.get('state')
+
+        if (!session || !state) {
+          return Response.json({ error: 'Unauthorized.' }, { status: 401 })
+        }
+
+        let next: string
+        try {
+          next = await verifyGitHubInstallState({
+            state,
+            userId: session.user.id,
+          })
+        } catch {
+          return Response.json(
+            { error: 'Invalid or expired GitHub installation state.' },
+            { status: 400 },
+          )
+        }
         const setupAction = url.searchParams.get('setup_action')
         const installationId = Number(url.searchParams.get('installation_id'))
 

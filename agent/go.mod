@@ -1,3 +1,3 @@
 module github.com/devpush/devpush/agent
 
-go 1.25
+go 1.27

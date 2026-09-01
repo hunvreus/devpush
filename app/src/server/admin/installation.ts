@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 
 import { config } from '@/server/config'
+import { getWorkerVersionMetadata } from '@/server/runtime/platform-env'
 
 export type InstallationInfo = {
   current: {
@@ -85,6 +86,19 @@ export async function getInstallationInfo(): Promise<InstallationInfo> {
 }
 
 async function readCurrentInstallation(): Promise<InstallationInfo['current']> {
+  const workerVersion = getWorkerVersionMetadata()
+  if (workerVersion) {
+    return {
+      arch: null,
+      distro: 'Cloudflare Workers',
+      distroVersion: null,
+      gitCommit: workerVersion.id,
+      gitRef: workerVersion.tag || workerVersion.id,
+      installId: workerVersion.id,
+      updatedAt: null,
+    }
+  }
+
   try {
     const raw = await readFile(versionFilePath, 'utf8')
     const versionInfo = versionFileSchema.parse(JSON.parse(raw))

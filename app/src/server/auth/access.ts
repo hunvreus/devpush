@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import safeRegex from 'safe-regex2'
 
 import { db } from '@/server/db'
 import { allowlist, user } from '@/server/db/schema'
@@ -58,7 +59,8 @@ async function isEmailAllowlisted(email: string) {
     }
 
     try {
-      return new RegExp(entry.value).test(normalizedEmail)
+      if (!isValidAllowlistPattern(entry.value)) return false
+      return new RegExp(`^(?:${entry.value})$`, 'i').test(normalizedEmail)
     } catch {
       return false
     }
@@ -70,10 +72,5 @@ export function normalizeEmail(email: string | null | undefined) {
 }
 
 export function isValidAllowlistPattern(value: string) {
-  try {
-    new RegExp(value)
-    return true
-  } catch {
-    return false
-  }
+  return value.length <= 255 && safeRegex(value)
 }

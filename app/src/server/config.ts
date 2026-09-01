@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import packageMetadata from '../../package.json'
 
-const optionalString = z.preprocess((value) => {
+function normalizeOptional(value: unknown) {
   if (value === '') {
     return undefined
   }
@@ -20,7 +20,13 @@ const optionalString = z.preprocess((value) => {
   }
 
   return value
-}, z.string().min(1).optional())
+}
+
+const optionalString = z.preprocess(
+  normalizeOptional,
+  z.string().min(1).optional(),
+)
+const optionalUrl = z.preprocess(normalizeOptional, z.string().url().optional())
 const optionalEmail = z.preprocess(
   (value) => (value === '' ? undefined : value),
   z.string().email().optional(),
@@ -37,7 +43,9 @@ const envSchema = z
       .min(1)
       .default('postgres://devpush:devpush@localhost:7543/devpush'),
     BETTER_AUTH_SECRET: z.string().min(1).default('dev-secret-change-me'),
-    BETTER_AUTH_URL: z.string().url().default('http://localhost:7429'),
+    DEVPUSH_BASE_URL: z.string().url().default('http://localhost:7429'),
+    BETTER_AUTH_URL: optionalUrl,
+    DEVPUSH_ADMIN_EMAIL: optionalEmail,
     EMAIL_FROM: optionalString,
     RESEND_API_KEY: optionalString,
     GOOGLE_CLIENT_ID: optionalString,
@@ -64,14 +72,6 @@ const envSchema = z
     DEVPUSH_TRAEFIK_EMAIL: optionalEmail,
   })
   .superRefine((value, context) => {
-    if (value.DEVPUSH_BACKUPS_ENABLED && !value.DEVPUSH_CRON_SECRET) {
-      context.addIssue({
-        code: 'custom',
-        path: ['DEVPUSH_CRON_SECRET'],
-        message: 'DEVPUSH_CRON_SECRET is required when backups are enabled.',
-      })
-    }
-
     const storageValues = [
       value.DEVPUSH_STORAGE_ENDPOINT,
       value.DEVPUSH_STORAGE_BUCKET,
@@ -88,7 +88,15 @@ const envSchema = z
       })
     }
   })
+  .transform((value) => ({
+    ...value,
+    BETTER_AUTH_URL: value.BETTER_AUTH_URL ?? value.DEVPUSH_BASE_URL,
+  }))
 
-export const config = envSchema.parse(process.env)
+export function parseConfig(env: NodeJS.ProcessEnv) {
+  return envSchema.parse(env)
+}
+
+export const config = parseConfig(process.env)
 
 export const currentAgentVersion = packageMetadata.version

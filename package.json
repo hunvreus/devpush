@@ -9,6 +9,7 @@
     ]
   },
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "dev": "pnpm --dir app dev",
     "dev:start": "scripts/local-start.sh",
     "dev:stop": "scripts/local-stop.sh",
@@ -17,7 +18,8 @@
     "audit:dependencies": "pnpm audit --audit-level=high",
     "typecheck": "pnpm --dir app typecheck",
     "lint": "pnpm --dir app lint",
-    "test": "pnpm --dir app test",
+    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs app/scripts/github-app.test.mjs",
+    "test:integration": "pnpm --dir app test:integration",
     "smoke:deploy": "pnpm --dir app smoke:deploy",
     "smoke:agent": "GOCACHE=$PWD/.tmp/go-build-cache DEVPUSH_RUN_DOCKER_SMOKE=1 go test ./agent/internal/agent -run 'TestRunDeploymentJob(RunsRealDockerCompose|RoutesThroughRealTraefik)' -count=1 -v",
     "validate:local": "scripts/validate-local.sh",
@@ -29,7 +31,13 @@
     "agent:build:linux": "pnpm agent:build:linux:amd64 && pnpm agent:build:linux:arm64",
     "agent:build:linux:amd64": "GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=amd64 node scripts/build-agent.mjs bin/devpush-agent-linux-amd64",
     "agent:build:linux:arm64": "GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=arm64 node scripts/build-agent.mjs bin/devpush-agent-linux-arm64",
+    "publish:agents:cloudflare": "node scripts/publish-cloudflare-agents.mjs",
+    "validate:cloudflare": "pnpm --dir app validate:cloudflare",
+    "deploy:cloudflare": "pnpm --dir app validate:cloudflare:config && pnpm --dir app db:migrate:cloudflare && pnpm agent:build:linux && pnpm publish:agents:cloudflare && pnpm --dir app deploy:cloudflare:worker",
     "agent:test": "GOCACHE=$PWD/.tmp/go-build-cache go test ./agent/...",
     "setup:github-app": "node app/scripts/setup-github-app.mjs"
+  },
+  "devDependencies": {
+    "@clack/prompts": "^1.7.0"
   }
 }
