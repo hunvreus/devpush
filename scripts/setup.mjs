@@ -70,10 +70,9 @@ async function setupLocal() {
   const baseUrl = await askBaseUrl(
     existing.DEVPUSH_BASE_URL || "http://localhost:7429",
   );
-  const authUrl = await askAuthUrl(existing.BETTER_AUTH_URL);
+  const authUrl = existing.BETTER_AUTH_URL || baseUrl;
   const adminEmail = await askAdminEmail(existing.DEVPUSH_ADMIN_EMAIL);
   const values = {
-    BETTER_AUTH_URL: authUrl,
     BETTER_AUTH_SECRET: existing.BETTER_AUTH_SECRET || secret(),
     DATABASE_URL:
       existing.DATABASE_URL ||
@@ -113,7 +112,7 @@ async function setupDocker() {
   const baseUrl = await askBaseUrl(
     existing.DEVPUSH_BASE_URL || "https://devpush.example.com",
   );
-  const authUrl = await askAuthUrl(existing.BETTER_AUTH_URL);
+  const authUrl = existing.BETTER_AUTH_URL || baseUrl;
   const adminEmail = await askAdminEmail(existing.DEVPUSH_ADMIN_EMAIL);
   const postgresPassword = await ask(
     password({
@@ -126,7 +125,6 @@ async function setupDocker() {
     }),
   );
   const values = {
-    BETTER_AUTH_URL: authUrl,
     BETTER_AUTH_SECRET: existing.BETTER_AUTH_SECRET || secret(),
     DEVPUSH_BASE_URL: baseUrl,
     DEVPUSH_ADMIN_EMAIL: adminEmail,
@@ -191,9 +189,8 @@ async function setupCloudflare() {
     workerName,
   });
   const baseUrl = origin.baseUrl;
-  const authUrl = await askAuthUrl(
-    existingConfig?.vars.BETTER_AUTH_URL || existingSecrets.BETTER_AUTH_URL,
-  );
+  const authUrl =
+    existingConfig?.vars.BETTER_AUTH_URL || existingSecrets.BETTER_AUTH_URL;
   const adminEmail = await askAdminEmail(
     existingConfig?.vars.DEVPUSH_ADMIN_EMAIL ||
       existingSecrets.DEVPUSH_ADMIN_EMAIL,
@@ -618,17 +615,6 @@ async function askBaseUrl(initialValue) {
       message: "Public control-plane URL",
       initialValue,
       validate: validateUrl,
-    }),
-  );
-  return value.trim().replace(/\/+$/gu, "");
-}
-
-async function askAuthUrl(initialValue = "") {
-  const value = await ask(
-    text({
-      message: "Authentication URL (blank uses the control-plane URL)",
-      initialValue,
-      validate: (input) => (input.trim() ? validateUrl(input) : undefined),
     }),
   );
   return value.trim().replace(/\/+$/gu, "");

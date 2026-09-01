@@ -37,6 +37,8 @@ All notable changes to devpush will be documented in this file.
   publication, and Worker deployment behind `pnpm deploy:cloudflare`.
 - Discovered the authenticated Cloudflare account and its workers.dev subdomain
   during setup instead of requiring users to enter account infrastructure data.
+- Removed the redundant authentication-URL setup prompt; Better Auth now uses
+  the control-plane URL unless an explicit environment override already exists.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.
