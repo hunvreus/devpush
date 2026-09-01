@@ -49,6 +49,8 @@ All notable changes to devpush will be documented in this file.
 - Deferred Hyperdrive binding access until a Cloudflare request scope exists,
   generated readable unique GitHub App names, and clarified that CLI deployment
   is manual until continuous deployment is configured separately.
+- Added explicit Resend configuration to Cloudflare setup and hid email login
+  when the deployed installation has no email provider configured.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.

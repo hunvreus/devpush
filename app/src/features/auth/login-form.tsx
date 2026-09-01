@@ -195,69 +195,67 @@ function EmailStep({
 
   return (
     <>
-      <div className="grid gap-3">
-        <Field data-invalid={Boolean(error)}>
-          <Input
-            aria-invalid={Boolean(error)}
-            id="email"
-            type="email"
-            placeholder="Enter your email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => onEmailChange(event.target.value)}
-            disabled={busy}
-            required
-          />
-          <FieldError>{error}</FieldError>
-        </Field>
-
-        <Field>
-          <Button type="submit" disabled={busy}>
-            Continue with email
-            {pending === 'email' ? <Spinner data-icon="inline-end" /> : null}
-          </Button>
-        </Field>
-      </div>
-
-      {hasSocialProvider ? (
-        <>
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            <span>Or</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
+      {authMethods.email ? (
+        <div className="grid gap-3">
+          <Field data-invalid={Boolean(error)}>
+            <Input
+              aria-invalid={Boolean(error)}
+              id="email"
+              type="email"
+              placeholder="Enter your email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => onEmailChange(event.target.value)}
+              disabled={busy}
+              required
+            />
+            <FieldError>{error}</FieldError>
+          </Field>
 
           <Field>
-            {authMethods.github ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void onProviderSignIn('github')}
-              >
-                <GithubIcon data-icon="inline-start" />
-                Continue with GitHub
-                {pending === 'github' ? (
-                  <Spinner data-icon="inline-end" />
-                ) : null}
-              </Button>
-            ) : null}
-            {authMethods.google ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void onProviderSignIn('google')}
-              >
-                <GoogleIcon data-icon="inline-start" />
-                Continue with Google
-                {pending === 'google' ? (
-                  <Spinner data-icon="inline-end" />
-                ) : null}
-              </Button>
-            ) : null}
+            <Button type="submit" disabled={busy}>
+              Continue with email
+              {pending === 'email' ? <Spinner data-icon="inline-end" /> : null}
+            </Button>
           </Field>
-        </>
+        </div>
+      ) : null}
+
+      {authMethods.email && hasSocialProvider ? (
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <div className="h-px flex-1 bg-border" />
+          <span>Or</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+      ) : null}
+
+      {hasSocialProvider ? (
+        <Field>
+          {authMethods.github ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void onProviderSignIn('github')}
+            >
+              <GithubIcon data-icon="inline-start" />
+              Continue with GitHub
+              {pending === 'github' ? <Spinner data-icon="inline-end" /> : null}
+            </Button>
+          ) : null}
+          {authMethods.google ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void onProviderSignIn('google')}
+            >
+              <GoogleIcon data-icon="inline-start" />
+              Continue with Google
+              {pending === 'google' ? <Spinner data-icon="inline-end" /> : null}
+            </Button>
+          ) : null}
+        </Field>
       ) : null}
     </>
   )

@@ -199,6 +199,7 @@ async function setupCloudflare() {
     existingConfig?.vars.DEVPUSH_ADMIN_EMAIL ||
       existingSecrets.DEVPUSH_ADMIN_EMAIL,
   );
+  const email = await setupResend(existingSecrets);
   note(
     [
       "Cloudflare does not create the application database.",
@@ -389,8 +390,13 @@ async function setupCloudflare() {
     BETTER_AUTH_SECRET: existingSecrets.BETTER_AUTH_SECRET || secret(),
     DEVPUSH_SECRET_ENCRYPTION_KEY:
       existingSecrets.DEVPUSH_SECRET_ENCRYPTION_KEY || secret(),
+    ...email.values,
     ...github?.values,
   };
+  if (!email.enabled) {
+    delete secrets.EMAIL_FROM;
+    delete secrets.RESEND_API_KEY;
+  }
   delete secrets.BETTER_AUTH_URL;
   delete secrets.DEVPUSH_ADMIN_EMAIL;
   delete secrets.DEVPUSH_BASE_URL;
@@ -474,6 +480,58 @@ async function setupGitHub(
     ownerType,
     persist,
   });
+}
+
+async function setupResend(existing) {
+  const configured = Boolean(existing.EMAIL_FROM && existing.RESEND_API_KEY);
+  const enabled = await ask(
+    confirm({
+      message: configured
+        ? "Keep email sign-in with Resend enabled?"
+        : "Configure email sign-in with Resend?",
+      initialValue: configured,
+    }),
+  );
+
+  if (!enabled) {
+    return { enabled: false, values: {} };
+  }
+
+  note(
+    [
+      "Email sign-in and team invitations use Resend.",
+      "For production, use a sender on a domain verified in Resend.",
+      "onboarding@resend.dev can only send test email to your Resend account address.",
+    ].join("\n"),
+    "Email",
+  );
+  const apiKey = await ask(
+    password({
+      message: configured
+        ? "Resend API key (leave blank to keep it)"
+        : "Resend API key",
+      mask: "•",
+      validate: (value) =>
+        value || existing.RESEND_API_KEY
+          ? undefined
+          : "A Resend API key is required.",
+    }),
+  );
+  const from = await ask(
+    text({
+      message: "Email sender",
+      initialValue: existing.EMAIL_FROM || "devpush <onboarding@resend.dev>",
+      validate: required,
+    }),
+  );
+
+  return {
+    enabled: true,
+    values: {
+      EMAIL_FROM: from,
+      RESEND_API_KEY: apiKey || existing.RESEND_API_KEY,
+    },
+  };
 }
 
 async function ensureCloudflareLogin() {

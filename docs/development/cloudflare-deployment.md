@@ -85,9 +85,11 @@ If resource creation is interrupted, the wizard keeps
 `app/wrangler.pending.jsonc`; the next run offers to resume and skips
 any resource whose binding was already recorded.
 
-Add Google and Resend values to `app/.cloudflare-secrets.json` when those
-integrations are enabled. Set `DEVPUSH_BASE_URL` to the final HTTPS
-control-plane origin.
+The setup wizard can configure Resend email sign-in and writes `EMAIL_FROM`
+and `RESEND_API_KEY` to `app/.cloudflare-secrets.json`. Without both values,
+email sign-in and email invitations are disabled. Add Google credentials to
+that file manually when Google sign-in is enabled. Set `DEVPUSH_BASE_URL` to
+the final HTTPS control-plane origin.
 Set `DEVPUSH_ADMIN_EMAIL` explicitly for production; leaving it blank makes the
 earliest-created user the installation administrator. Keep
 `DEVPUSH_SECRET_ENCRYPTION_KEY` stable across deployments because it protects
