@@ -712,7 +712,7 @@ async function askCloudflareOrigin({
 async function ask(prompt) {
   const value = await prompt;
   if (isCancel(value)) {
-    cancel("Setup cancelled. No remaining steps were run.");
+    cancel("Setup cancelled.");
     process.exit(0);
   }
   return value;
