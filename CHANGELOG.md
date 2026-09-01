@@ -43,6 +43,9 @@ All notable changes to devpush will be documented in this file.
   immediately after PostgreSQL and before unrelated R2 storage details.
 - Fixed GitHub App manifest registration by accepting GitHub's generated webhook
   secret instead of submitting an unsupported manifest field.
+- Clarified setup completion with one ordered deployment path, deferred GitHub
+  App installation to the in-product project flow, and simplified the local
+  GitHub manifest callback page.
 - Reassessed every skeleton state and aligned project, deployment, log, backup,
   settings, server, repository-picker, and deploy-dialog placeholders with the
   final controls, card spacing, section counts, and responsive geometry.

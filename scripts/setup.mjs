@@ -94,15 +94,15 @@ async function setupLocal() {
   note(
     [
       `Configuration: ${relative(envPath)}`,
-      "Start: pnpm dev:start",
-      "App: " + baseUrl,
+      "",
+      "1. Start devpush: pnpm dev:start",
+      `2. Open ${baseUrl}`,
+      "3. Create a project and install the GitHub App when prompted.",
     ]
       .filter(Boolean)
       .join("\n"),
-    "Ready",
+    "Next steps",
   );
-  if (github)
-    note(`Install the GitHub App:\n${github.installUrl}`, "Next step");
   outro("Local configuration is complete. Nothing was deployed.");
 }
 
@@ -143,11 +143,15 @@ async function setupDocker() {
   upsertEnv(envPath, values);
 
   note(
-    `Configuration: ${relative(envPath)}\nStart: docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build`,
-    "Ready",
+    [
+      `Configuration: ${relative(envPath)}`,
+      "",
+      "1. Start devpush: docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build",
+      `2. Open ${baseUrl}`,
+      "3. Create a project and install the GitHub App when prompted.",
+    ].join("\n"),
+    "Next steps",
   );
-  if (github)
-    note(`Install the GitHub App:\n${github.installUrl}`, "Next step");
   outro("Docker configuration is complete. Nothing was started or deployed.");
 }
 
@@ -416,16 +420,15 @@ async function setupCloudflare() {
 
   note(
     [
-      `Wrangler: ${cloudflareConfigPath}`,
-      `Secrets: ${cloudflareSecretsPath}`,
-      `Database: ${cloudflareDatabasePath}`,
+      "1. Deploy devpush: pnpm deploy:cloudflare",
+      `2. Open ${baseUrl}`,
+      "3. Sign in and create a project.",
+      "4. Install the GitHub App when prompted by devpush.",
       "",
-      "Validate without changing production: pnpm validate:cloudflare",
-      "Migrate, publish agents, and deploy: pnpm deploy:cloudflare",
+      "Optional preflight: pnpm validate:cloudflare",
     ].join("\n"),
     "Next steps",
   );
-  if (github) note(`Install the GitHub App:\n${github.installUrl}`, "GitHub");
   outro(
     "Cloudflare resources are configured. The application was not deployed.",
   );

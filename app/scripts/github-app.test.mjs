@@ -44,6 +44,10 @@ test('protects the local manifest page with a per-run token', async () => {
   callbackUrl.searchParams.set('code', 'manifest-code')
   const callback = await fetch(callbackUrl)
   assert.equal(callback.status, 200)
+  assert.match(
+    await callback.text(),
+    /<strong>GitHub App created\.<\/strong> Return to the terminal\./u,
+  )
 
   const result = await creation
   assert.equal(result.values.GITHUB_APP_ID, '123')

@@ -127,7 +127,9 @@ async function waitForManifestCode({
     }
 
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-    response.end('<h1>GitHub App created.</h1><p>Return to the terminal.</p>')
+    response.end(
+      '<!doctype html><title>GitHub App created</title><p><strong>GitHub App created.</strong> Return to the terminal.</p>',
+    )
     resolveCode(code)
   })
 
