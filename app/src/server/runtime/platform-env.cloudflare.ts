@@ -1,10 +1,6 @@
 import { env } from 'cloudflare:workers'
 
-export function getDatabaseConnectionString() {
-  return env.DEVPUSH_DATABASE.connectionString
-}
-
-export function requiresRequestScopedDatabase() {
+export function isCloudflareRuntime() {
   return true
 }
 
@@ -14,4 +10,8 @@ export function getR2ObjectStore() {
 
 export function getWorkerVersionMetadata() {
   return env.CF_VERSION_METADATA
+}
+
+export function getWorkspaceUpdates() {
+  return env.DEVPUSH_WORKSPACE_UPDATES
 }

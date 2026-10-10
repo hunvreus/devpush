@@ -9,14 +9,43 @@ import {
   AlertTitle,
 } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import type { ProjectContext } from '@/server/projects/service'
+import { ServerAvailabilityAlert } from '@/features/servers/server-availability-alert'
+import { getServerAvailabilityNotice } from '@/features/servers/server-availability'
+import { TeamPage } from '@/features/teams/team-header'
+import type { ProjectContext } from '@/server/projects/types'
 
 type ProjectLayoutContext = Pick<
   ProjectContext,
   'team' | 'project' | 'environment' | 'environments' | 'servers'
 >
 
-export function ProjectLayout({
+type ProjectPageContext = ProjectLayoutContext &
+  Pick<ProjectContext, 'teamProjects' | 'userContext'>
+
+export function ProjectPage({
+  children,
+  context,
+}: {
+  children: ReactNode
+  context: ProjectPageContext
+}) {
+  return (
+    <TeamPage
+      contentClassName="space-y-8"
+      currentProject={context.project}
+      currentProjects={context.teamProjects}
+      currentTeam={context.team}
+      servers={context.servers}
+      userContext={context.userContext}
+    >
+      <ProjectLayout context={context} contentClassName="space-y-8">
+        {children}
+      </ProjectLayout>
+    </TeamPage>
+  )
+}
+
+function ProjectLayout({
   children,
   contentClassName,
   context,
@@ -55,8 +84,13 @@ export function ProjectLayout({
           </AlertAction>
         </Alert>
       ) : null}
-      {serverBlockReason ? (
-        <Alert variant="destructive">
+      {serverBlockReason?.targetServerId ? (
+        <ServerAvailabilityAlert
+          notice={serverBlockReason}
+          team={context.team}
+        />
+      ) : serverBlockReason ? (
+        <Alert>
           <TriangleAlertIcon />
           <AlertTitle>{serverBlockReason.title}</AlertTitle>
           <AlertDescription>{serverBlockReason.description}</AlertDescription>
@@ -92,6 +126,7 @@ function getServerBlockReason(context: ProjectLayoutContext) {
     )
   ) {
     return {
+      targetServerId: null,
       title: 'No server assigned',
       description: 'Assign a server before deploying this project.',
     }
@@ -118,19 +153,27 @@ function getServerBlockReason(context: ProjectLayoutContext) {
 
   if (missingServers.length > 0) {
     return {
+      targetServerId: null,
       title: 'Project server missing',
       description:
         'One or more assigned servers no longer exist. Choose another server before deploying this project.',
     }
   }
 
-  if (unavailableServers.length > 0) {
+  const unavailable = unavailableServers.at(0)
+  if (unavailable) {
+    if (
+      unavailableServers.every((server) => server.status === 'disconnected')
+    ) {
+      return getServerAvailabilityNotice(unavailableServers)
+    }
     return {
+      targetServerId: unavailable.id,
       title:
         unavailableServers.length === 1
           ? 'Project server unavailable'
           : 'Project servers unavailable',
-      description: `${formatServerList(unavailableServers)} ${unavailableServers.length === 1 ? 'is' : 'are'} not connected. Reconnect or choose another server before deploying this project.`,
+      description: `${formatServerList(unavailableServers)} ${unavailableServers.length === 1 ? 'is' : 'are'} not connected.`,
     }
   }
 

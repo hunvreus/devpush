@@ -109,7 +109,7 @@ function getComposeTcpTargetPort(value: unknown) {
     return isValidPort(value) ? value : null
   }
   if (typeof value === 'string') {
-    const [mapping, protocol = 'tcp'] = value.split('/')
+    const [mapping = '', protocol = 'tcp'] = value.split('/')
     if (protocol.toLowerCase() !== 'tcp') {
       return null
     }
@@ -143,7 +143,7 @@ function isValidPort(port: number) {
 
 function getComposeVolumeName(mount: unknown) {
   if (typeof mount === 'string') {
-    const [source] = mount.split(':')
+    const [source = ''] = mount.split(':')
     const trimmed = source.trim()
     return isNamedComposeVolume(trimmed) ? trimmed : null
   }

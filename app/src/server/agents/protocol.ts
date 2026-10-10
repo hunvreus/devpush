@@ -1,3 +1,5 @@
+import { metricSampleSchema } from '@/server/servers/metric-history-schema'
+import { notifyAgentMutation } from '@/server/realtime/agent-events'
 import { z } from 'zod'
 
 import type {
@@ -37,6 +39,7 @@ const deploymentPhases = [
   'release_command_succeeded',
   'revision_started',
   'readiness_check_started',
+  'readiness_check_succeeded',
   'traffic_switched',
   'old_revision_retired',
   'completed',
@@ -82,7 +85,7 @@ const completeDeploymentJobSchema = agentCredentialsSchema.extend({
   deploymentId: z.string().min(1),
   status: completionStatusSchema,
   gitSha: z.string().min(1).nullable(),
-  logStartSeq: z.number().int().positive().optional(),
+  logStartSeq: z.number().int().positive(),
   logs: deploymentLogsSchema,
   events: deploymentEventsSchema,
 })
@@ -193,19 +196,7 @@ export const heartbeatSchema = agentCredentialsSchema
         uptimeSeconds: z.number().int().min(0).optional(),
       })
       .optional(),
-    metrics: z
-      .object({
-        cpuPercent: z.number().min(0).max(100).optional(),
-        memoryUsedBytes: z.number().int().min(0).optional(),
-        memoryTotalBytes: z.number().int().min(0).optional(),
-        diskUsedBytes: z.number().int().min(0).optional(),
-        diskTotalBytes: z.number().int().min(0).optional(),
-        networkReceiveBytesPerSecond: z.number().min(0).optional(),
-        networkTransmitBytesPerSecond: z.number().min(0).optional(),
-        diskReadBytesPerSecond: z.number().min(0).optional(),
-        diskWriteBytesPerSecond: z.number().min(0).optional(),
-      })
-      .optional(),
+    metricSamples: z.array(metricSampleSchema).max(240).optional(),
   })
 
 type DeploymentEvent = z.infer<typeof deploymentEventSchema>
@@ -286,7 +277,7 @@ export type AgentJobCompletion = {
   deploymentId: string
   status: 'succeeded' | 'failed' | 'canceled'
   gitSha: string | null
-  logStartSeq?: number
+  logStartSeq: number
   logs: Array<string>
   events: Array<DeploymentEvent>
 }
@@ -356,7 +347,9 @@ export async function handleAgentRequest<T>(
   try {
     const body = await readRequestText(request, maxAgentRequestBytes)
     const payload = schema.parse(JSON.parse(body))
-    return Response.json(await handler(payload))
+    const result = await handler(payload)
+    await notifyAgentMutation(new URL(request.url).pathname, payload, result)
+    return Response.json(result)
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return Response.json(

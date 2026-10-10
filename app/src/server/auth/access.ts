@@ -1,8 +1,10 @@
-import { sql } from 'drizzle-orm'
-import safeRegex from 'safe-regex2'
+import { eq, sql } from 'drizzle-orm'
+import { isValidAllowlistPattern } from '@/lib/allowlist-schema'
 
 import { db } from '@/server/db'
 import { allowlist, user } from '@/server/db/schema'
+
+export { isValidAllowlistPattern } from '@/lib/allowlist-schema'
 
 export async function assertEmailCanAuthenticate(
   email: string | null | undefined,
@@ -13,11 +15,14 @@ export async function assertEmailCanAuthenticate(
     throw new Error('Email address is required.')
   }
 
-  const existingUsers = await db
-    .select({ status: user.status })
-    .from(user)
-    .where(sql`lower(${user.email}) = ${normalizedEmail}`)
-    .limit(1)
+  const [existingUsers, allowlisted] = await Promise.all([
+    db
+      .select({ status: user.status })
+      .from(user)
+      .where(sql`lower(${user.email}) = ${normalizedEmail}`)
+      .limit(1),
+    isEmailAllowlisted(normalizedEmail),
+  ])
   const existingUser = existingUsers.at(0)
 
   if (existingUser?.status === 'banned') {
@@ -28,7 +33,27 @@ export async function assertEmailCanAuthenticate(
     throw new Error('This account has been deleted.')
   }
 
-  if (!(await isEmailAllowlisted(normalizedEmail))) {
+  if (!allowlisted) {
+    throw new Error('This email address is not allowed to sign in.')
+  }
+}
+
+export async function assertUserCanCreateSession(userId: string) {
+  const [currentUsers, entries] = await Promise.all([
+    db
+      .select({ email: user.email, status: user.status })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1),
+    listAllowlistEntries(),
+  ])
+  const currentUser = currentUsers.at(0)
+
+  if (!currentUser || currentUser.status !== 'active') {
+    throw new Error('This account cannot sign in.')
+  }
+
+  if (!isEmailAllowedByEntries(currentUser.email, entries)) {
     throw new Error('This email address is not allowed to sign in.')
   }
 }
@@ -37,9 +62,21 @@ async function isEmailAllowlisted(email: string) {
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail) return false
 
-  const entries = await db
+  return isEmailAllowedByEntries(normalizedEmail, await listAllowlistEntries())
+}
+
+function listAllowlistEntries() {
+  return db
     .select({ type: allowlist.type, value: allowlist.value })
     .from(allowlist)
+}
+
+function isEmailAllowedByEntries(
+  email: string,
+  entries: Array<{ type: 'domain' | 'email' | 'pattern'; value: string }>,
+) {
+  const normalizedEmail = normalizeEmail(email)
+  if (!normalizedEmail) return false
 
   if (entries.length === 0) {
     return true
@@ -69,8 +106,4 @@ async function isEmailAllowlisted(email: string) {
 
 export function normalizeEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() || null
-}
-
-export function isValidAllowlistPattern(value: string) {
-  return value.length <= 255 && safeRegex(value)
 }

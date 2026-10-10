@@ -325,7 +325,23 @@ else
   warn "A custom binary URL was supplied without DEVPUSH_AGENT_CHECKSUM_URL; its checksum was not verified."
 fi
 
-install -m 0755 "\${tmp_binary}" "\${BIN_DIR}/devpush-agent"
+if [ -f "\${ETC_DIR}/agent.env" ] && [ -x "\${BIN_DIR}/devpush-agent" ]; then
+  previous_base="$(sed -n 's/^DEVPUSH_BASE_URL="\\(.*\\)"$/\\1/p' "\${ETC_DIR}/agent.env")"
+  if [ "\${previous_base%/}" != "\${DEVPUSH_BASE_URL%/}" ]; then
+    fail "Use devpush-agent maintenance switch to change control planes safely."
+  fi
+  if systemctl is-active --quiet devpush-agent; then
+    # The existing process drains jobs before an atomic binary replacement.
+    run_step "Safely updating devpush agent" "\${BIN_DIR}/devpush-agent" maintenance update --binary "\${tmp_binary}"
+  elif ! cmp -s "\${tmp_binary}" "\${BIN_DIR}/devpush-agent"; then
+    install -m 0755 "\${tmp_binary}" "\${BIN_DIR}/devpush-agent.new"
+    mv "\${BIN_DIR}/devpush-agent.new" "\${BIN_DIR}/devpush-agent"
+  fi
+  previous_token="$(sed -n 's/^DEVPUSH_AGENT_TOKEN="\\(.*\\)"$/\\1/p' "\${ETC_DIR}/agent.env")"
+  if [ -n "\${previous_token}" ]; then DEVPUSH_AGENT_TOKEN="\${previous_token}"; fi
+else
+  install -m 0755 "\${tmp_binary}" "\${BIN_DIR}/devpush-agent"
+fi
 AGENT_VERSION="$("\${BIN_DIR}/devpush-agent" version 2>/dev/null || printf unknown)"
 ok "Installed \${AGENT_VERSION}"
 
@@ -355,15 +371,16 @@ case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *
 base="\${DEVPUSH_BASE_URL%/}/api/install/agent"
 tmp="$(mktemp -d)"
 trap 'rm -rf "\${tmp}"' EXIT
+echo "Downloading devpush agent..."
 curl -fsSL "\${base}/binary?os=\${os}&arch=\${arch}" -o "\${tmp}/devpush-agent-linux-\${arch}"
 curl -fsSL "\${base}/checksum?os=\${os}&arch=\${arch}" -o "\${tmp}/checksum"
+echo "Verifying downloaded binary..."
 (cd "\${tmp}" && sha256sum -c checksum)
 if cmp -s "\${tmp}/devpush-agent-linux-\${arch}" /usr/local/bin/devpush-agent; then
   echo "devpush agent is already current."
   exit 0
 fi
-install -m 0755 "\${tmp}/devpush-agent-linux-\${arch}" /usr/local/bin/devpush-agent
-systemctl restart devpush-agent
+/usr/local/bin/devpush-agent maintenance update --binary "\${tmp}/devpush-agent-linux-\${arch}"
 echo "devpush agent updated."
 EOF
 chmod 0755 "\${LIB_DIR}/update-agent"

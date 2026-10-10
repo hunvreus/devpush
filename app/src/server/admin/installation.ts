@@ -55,7 +55,11 @@ let latestTagCache:
     }
   | undefined
 
-export async function getInstallationInfo(): Promise<InstallationInfo> {
+export async function getInstallationInfo({
+  includeLatest = true,
+}: {
+  includeLatest?: boolean
+} = {}): Promise<InstallationInfo> {
   const current = await readCurrentInstallation()
 
   if (!current) {
@@ -63,6 +67,10 @@ export async function getInstallationInfo(): Promise<InstallationInfo> {
       current: null,
       latest: null,
     }
+  }
+
+  if (!includeLatest) {
+    return { current, latest: null }
   }
 
   const latestTag = await getLatestReleaseTag()

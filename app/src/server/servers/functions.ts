@@ -1,7 +1,8 @@
+import { serverNameSchema } from '@/lib/server-name-schema'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
-import { getAuthSession } from '@/server/auth/session.server'
+import { requireAuthSession } from '@/server/auth/session.server'
 import {
   createPendingServer,
   createServerInstallCommand,
@@ -12,19 +13,9 @@ import {
   updateTeamServer,
 } from '@/server/servers/service'
 
-const serverMachineNameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(100)
-  .regex(
-    /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/,
-    'Server names can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen.',
-  )
-
 const createServerSchema = z.object({
   teamSlug: z.string().min(1),
-  name: serverMachineNameSchema,
+  name: serverNameSchema,
 })
 
 const serverInstallCommandSchema = z.object({
@@ -35,7 +26,7 @@ const serverInstallCommandSchema = z.object({
 const updateServerSchema = z.object({
   teamSlug: z.string().min(1),
   serverId: z.string().min(1),
-  name: serverMachineNameSchema,
+  name: serverNameSchema,
 })
 
 const disableServerSchema = z.object({
@@ -66,11 +57,7 @@ export const createServer = createServerFn({ method: 'POST' })
     createServerSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before adding a server.')
-    }
+    const session = await requireAuthSession('Sign in before adding a server.')
 
     return createPendingServer({
       userId: session.user.id,
@@ -84,11 +71,9 @@ export const createInstallCommand = createServerFn({ method: 'POST' })
     serverInstallCommandSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before enrolling a server.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before enrolling a server.',
+    )
 
     return createServerInstallCommand({
       userId: session.user.id,
@@ -102,11 +87,9 @@ export const updateServer = createServerFn({ method: 'POST' })
     updateServerSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before updating a server.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before updating a server.',
+    )
 
     await updateTeamServer({
       userId: session.user.id,
@@ -122,11 +105,9 @@ export const disableServer = createServerFn({ method: 'POST' })
       disableServerSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before disabling a server.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before disabling a server.',
+    )
 
     await disableTeamServer({
       userId: session.user.id,
@@ -141,11 +122,9 @@ export const enableServer = createServerFn({ method: 'POST' })
     enableServerSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before enabling a server.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before enabling a server.',
+    )
 
     await enableTeamServer({
       userId: session.user.id,
@@ -159,11 +138,9 @@ export const getDeleteServerDiagnostic = createServerFn({ method: 'POST' })
     deleteServerDiagnosticSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before deleting a server.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before deleting a server.',
+    )
 
     return getServerDeleteDiagnostic({
       userId: session.user.id,
@@ -182,11 +159,9 @@ export const deleteServer = createServerFn({ method: 'POST' })
     }) => deleteServerSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before deleting a server.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before deleting a server.',
+    )
 
     await deleteTeamServer({
       userId: session.user.id,

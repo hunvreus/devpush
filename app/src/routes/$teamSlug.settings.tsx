@@ -1,34 +1,52 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { createFileRoute } from '@tanstack/react-router'
 
 import { TeamSettings } from '@/features/teams/team-settings'
-import { getTeamSettingsContext } from '@/server/auth/context'
+import { TeamSettingsPending } from '@/features/teams/team-route-pending'
+import {
+  teamSectionQueryOptions,
+  teamShellQueryOptions,
+} from '@/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug/settings')({
-  loader: async ({ params }) => {
-    const context = await getTeamSettingsContext({
-      data: { teamSlug: params.teamSlug },
-    })
-
-    if (!context) {
-      throw redirect({ to: '/auth/login' })
-    }
-
-    return context
-  },
+  loader: ({ context, params }) =>
+    context.queryClient.fetchQuery(
+      teamSectionQueryOptions({
+        section: 'settings',
+        teamSlug: params.teamSlug,
+      }),
+    ),
+  pendingMs: 150,
+  pendingMinMs: 200,
+  pendingComponent: TeamSettingsPending,
   component: TeamSettingsRoute,
 })
 
 function TeamSettingsRoute() {
-  const context = Route.useLoaderData()
+  const params = Route.useParams()
+  const { data: shell } = useSuspenseQuery(
+    teamShellQueryOptions({ teamSlug: params.teamSlug }),
+  )
+  const { data: section } = useSuspenseQuery(
+    teamSectionQueryOptions({
+      section: 'settings',
+      teamSlug: params.teamSlug,
+    }),
+  )
+
+  if (section.section !== 'settings') {
+    throw new Error('Team settings context is unavailable.')
+  }
 
   return (
     <TeamSettings
-      team={context.team}
-      currentUserId={context.userContext.user.id}
-      isDefaultTeam={context.userContext.user.defaultTeamId === context.team.id}
-      members={context.members}
-      invites={context.invites}
-      canDeleteTeam={context.deletionStatus.canDelete}
+      team={shell.team}
+      currentUserId={shell.userContext.user.id}
+      isDefaultTeam={shell.userContext.user.defaultTeamId === shell.team.id}
+      backupStorage={section.settings.backupStorage}
+      members={section.settings.members}
+      invites={section.settings.invites}
+      canDeleteTeam={section.settings.deletionStatus.canDelete}
     />
   )
 }

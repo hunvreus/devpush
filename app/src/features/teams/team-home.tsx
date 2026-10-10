@@ -1,4 +1,6 @@
+import { refreshView } from '@/lib/action-feedback'
 import { Link, useRouter } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { GithubIcon, Link2Icon, PlusIcon, SettingsIcon } from 'lucide-react'
 import { useState } from 'react'
 
@@ -10,13 +12,17 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
-import { DeploymentList } from '@/features/deployments/deployment-list'
-import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog'
+import {
+  DeploymentList,
+  DeploymentListPending,
+} from '@/features/deployments/deployment-list'
+import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog-launcher'
 import { ResourceAvatar } from '@/components/resource-avatar'
 import { AddServerDialog } from '@/features/servers/team-servers'
 import { routeUrl } from '@/lib/urls'
+import { invalidateTeamContext } from '@/lib/team-context-query'
 import { canManageTeamSettings } from '@/lib/team-role'
-import type { DeploymentSummary } from '@/server/projects/service'
+import type { DeploymentSummary } from '@/server/projects/types'
 import {
   Tooltip,
   TooltipContent,
@@ -26,35 +32,31 @@ import type {
   ProjectSummary,
   ServerSummary,
   TeamSummary,
-} from '@/server/teams/service'
+} from '@/server/teams/types'
+import { TeamHeading } from './team-heading'
 
 export function TeamHome({
   team,
   deployments,
+  deploymentsPending = false,
   projects,
   servers,
 }: {
   team: TeamSummary
   deployments: Array<DeploymentSummary>
+  deploymentsPending?: boolean
   projects: Array<ProjectSummary>
   servers: Array<ServerSummary>
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [addServerOpen, setAddServerOpen] = useState(false)
   const hasProjects = projects.length > 0
   const canManageServers = canManageTeamSettings(team.role)
 
   return (
     <>
-      <section className="flex items-center gap-3">
-        <ResourceAvatar
-          name={team.name}
-          src={team.image ?? undefined}
-          color={team.color}
-          size="md"
-        />
-        <h1 className="text-2xl font-medium">{team.name}</h1>
-      </section>
+      <TeamHeading team={team} />
 
       {hasProjects ? (
         <section className="space-y-4">
@@ -77,12 +79,26 @@ export function TeamHome({
         </section>
       )}
 
-      {deployments.length > 0 ? (
+      {deploymentsPending ? (
         <section className="space-y-4">
           <header className="flex h-8 items-center">
             <h2 className="text-base font-medium">Latest deployments</h2>
           </header>
-          <DeploymentList deployments={deployments} displayProject />
+          <DeploymentListPending
+            displayProject
+            label="Latest deployments loading"
+          />
+        </section>
+      ) : deployments.length > 0 ? (
+        <section className="space-y-4">
+          <header className="flex h-8 items-center">
+            <h2 className="text-base font-medium">Latest deployments</h2>
+          </header>
+          <DeploymentList
+            deployments={deployments}
+            displayProject
+            teamSlug={team.slug}
+          />
         </section>
       ) : null}
 
@@ -91,7 +107,15 @@ export function TeamHome({
           open={addServerOpen}
           teamSlug={team.slug}
           onOpenChange={setAddServerOpen}
-          onCreated={() => void router.invalidate()}
+          onCreated={() => {
+            void refreshView(
+              () =>
+                invalidateTeamContext(queryClient, team.slug).then(() =>
+                  router.invalidate(),
+                ),
+              'teams-team-home-refresh',
+            )
+          }}
         />
       ) : null}
     </>
@@ -107,22 +131,13 @@ export function TeamProjects({
 }) {
   return (
     <>
-      <header className="flex items-center justify-between gap-4">
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-            <ResourceAvatar
-              name={team.name}
-              src={team.image ?? undefined}
-              color={team.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span>Projects</span>
-        </h1>
-
-        {projects.length > 0 ? <NewProjectButton teamSlug={team.slug} /> : null}
-      </header>
+      <TeamHeading
+        team={team}
+        crumb={<span>Projects</span>}
+        actions={
+          projects.length > 0 ? <NewProjectButton teamSlug={team.slug} /> : null
+        }
+      />
 
       <section>
         {projects.length > 0 ? (

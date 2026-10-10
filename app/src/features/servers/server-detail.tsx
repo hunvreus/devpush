@@ -1,3 +1,7 @@
+import { useQueryClient } from '@tanstack/react-query'
+import { invalidateResourceQueries } from '@/lib/resource-cache'
+import { serverNameSchema } from '@/lib/server-name-schema'
+import { afterMutation, copyText } from '@/lib/action-feedback'
 import { Link, useRouter } from '@tanstack/react-router'
 import {
   BanIcon,
@@ -6,7 +10,7 @@ import {
   SquareTerminalIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -23,14 +27,6 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Empty,
@@ -41,6 +37,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field'
@@ -56,8 +53,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { SectionNavigation } from '@/components/section-navigation'
+import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
+import { TeamHeading } from '@/features/teams/team-heading'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { ServerMetricChart } from '@/features/servers/server-metric-chart'
 import { getErrorMessage } from '@/lib/error-message'
@@ -82,7 +79,7 @@ import type {
   ServerDetail as ServerDetailData,
   ServerInstallCommand,
 } from '@/server/servers/service'
-import type { TeamSummary } from '@/server/teams/service'
+import type { TeamSummary } from '@/server/teams/types'
 
 export function ServerDetail({
   server,
@@ -92,13 +89,27 @@ export function ServerDetail({
   team: TeamSummary
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [savedName, setSavedName] = useState(server.name)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
   const [name, setName] = useState(server.name)
   const [isSaving, setIsSaving] = useState(false)
   const canManageServer = canManageTeamSettings(team.role)
   const hasChanges = name.trim() !== savedName
 
   async function save() {
+    if (isSaving || !canManageServer || !hasChanges) return
+    const parsed = serverNameSchema.safeParse(name)
+    if (!parsed.success) {
+      setNameError(
+        parsed.error.issues[0]?.message ?? 'Enter a valid server name.',
+      )
+      document.getElementById('server-name')?.focus()
+      return
+    }
+    setNameError(null)
+    setSaveError(null)
     setIsSaving(true)
 
     try {
@@ -113,141 +124,100 @@ export function ServerDetail({
       setName(nextName)
       setSavedName(nextName)
       toast.success('Server saved.')
-      await router.invalidate()
+      await afterMutation(async () => {
+        await invalidateResourceQueries(queryClient, team.slug)
+        await router.invalidate()
+      }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to save server.'))
+      setSaveError(getErrorMessage(error, 'Unable to save server.'))
     } finally {
       setIsSaving(false)
     }
   }
 
   function reset() {
+    setSaveError(null)
+    setNameError(null)
     setName(savedName)
   }
 
   return (
     <div className="space-y-8">
-      <section>
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-            <ResourceAvatar
-              name={team.name}
-              src={team.image ?? undefined}
-              color={team.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <Link
-            className="hover:underline"
-            to="/$teamSlug/servers"
-            params={{ teamSlug: team.slug }}
-          >
-            Servers
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span className="truncate">{savedName}</span>
-        </h1>
-      </section>
-
-      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-        <div className="space-y-8">
-          {server.status === 'connected' || !canManageServer ? null : (
-            <ServerInstallCallout server={server} teamSlug={team.slug} />
-          )}
-
-          {server.agentUpdate.status === 'current' ? null : (
-            <Alert
-              variant={
-                server.agentUpdate.status === 'required'
-                  ? 'destructive'
-                  : 'default'
-              }
+      <TeamHeading
+        team={team}
+        crumb={
+          <>
+            <Link
+              className="hover:underline"
+              to="/$teamSlug/servers"
+              params={{ teamSlug: team.slug }}
             >
-              <AlertTitle className="flex items-center gap-2">
-                Agent update {server.agentUpdate.status}
-                {server.agentUpdate.latestVersion ? (
-                  <Badge variant="outline">
-                    {server.agentUpdate.latestVersion}
-                  </Badge>
-                ) : null}
-              </AlertTitle>
-              <AlertDescription>
-                {server.agentUpdate.reason} Update manually with{' '}
-                <code>sudo /usr/local/lib/devpush/update-agent</code>.
-              </AlertDescription>
-            </Alert>
-          )}
+              Servers
+            </Link>
+            <span className="text-muted-foreground/25 font-normal">/</span>
+            <span className="truncate">{savedName}</span>
+          </>
+        }
+      />
 
-          <Card id="general" className="scroll-mt-8">
-            <CardHeader className="border-b">
-              <CardTitle>General</CardTitle>
-              <CardDescription>Basic details for this server.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Status</p>
-                <div className="flex items-center gap-2 text-sm">
-                  <ServerAvatar
-                    name={savedName}
-                    status={server.status}
-                    size="sm"
-                  />
-                  <span>{formatServerStatus(server.status)}</span>
-                  <span className="text-muted-foreground">
-                    ·{' '}
-                    {server.lastSeenAt
-                      ? formatAge(server.lastSeenAt)
-                      : 'Never contacted'}
-                  </span>
-                </div>
-              </div>
+      <SettingsLayout
+        navigation={[
+          { href: '#general', label: 'General' },
+          { href: '#host', label: 'Host' },
+          { href: '#metrics', label: 'Metrics' },
+          ...(canManageServer
+            ? [
+                {
+                  href: '#danger' as const,
+                  label: 'Danger',
+                  destructive: true,
+                },
+              ]
+            : []),
+        ]}
+      >
+        {server.status === 'connected' || !canManageServer ? null : (
+          <ServerInstallCallout server={server} teamSlug={team.slug} />
+        )}
 
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="server-name">Name</FieldLabel>
-                  <Input
-                    id="server-name"
-                    value={name}
-                    readOnly={!canManageServer}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="server-id">Server ID</FieldLabel>
-                  <InputGroup>
-                    <InputGroupInput
-                      id="server-id"
-                      className="font-mono text-[13px] text-muted-foreground"
-                      value={server.id}
-                      readOnly
-                    />
-                    <InputGroupAddon align="inline-end">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <InputGroupButton
-                            size="icon-sm"
-                            type="button"
-                            aria-label="Copy server ID"
-                            onClick={() =>
-                              void navigator.clipboard.writeText(server.id)
-                            }
-                          >
-                            <CopyIcon />
-                          </InputGroupButton>
-                        </TooltipTrigger>
-                        <TooltipContent>Copy server ID</TooltipContent>
-                      </Tooltip>
-                    </InputGroupAddon>
-                  </InputGroup>
-                  <FieldDescription>
-                    A unique identifier used by the API and agent.
-                  </FieldDescription>
-                </Field>
-              </FieldGroup>
-            </CardContent>
-            {canManageServer ? (
-              <CardFooter className="justify-end gap-x-2">
+        {server.agentUpdate.status === 'current' ? null : (
+          <Alert
+            variant={
+              server.agentUpdate.status === 'required'
+                ? 'destructive'
+                : 'default'
+            }
+          >
+            <AlertTitle className="flex items-center gap-2">
+              Agent update {server.agentUpdate.status}
+              {server.agentUpdate.latestVersion ? (
+                <Badge variant="outline">
+                  {server.agentUpdate.latestVersion}
+                </Badge>
+              ) : null}
+            </AlertTitle>
+            <AlertDescription>
+              {server.agentUpdate.reason}{' '}
+              {canManageServer ? (
+                <>
+                  Update manually with{' '}
+                  <code>sudo /usr/local/lib/devpush/update-agent</code>.
+                </>
+              ) : (
+                'Contact a workspace owner or admin to update the agent.'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <SettingsSection
+          id="general"
+          title="General"
+          description="Basic details for this server."
+          contentClassName="space-y-6"
+          footer={
+            canManageServer ? (
+              <>
                 <Button
                   variant="ghost"
                   type="button"
@@ -257,9 +227,9 @@ export function ServerDetail({
                   Cancel
                 </Button>
                 <Button
-                  type="button"
-                  onClick={() => void save()}
-                  disabled={!hasChanges || isSaving || name.trim().length === 0}
+                  type="submit"
+                  form="server-general-form"
+                  disabled={!hasChanges || isSaving}
                 >
                   {isSaving ? (
                     <LoaderIcon
@@ -269,209 +239,245 @@ export function ServerDetail({
                   ) : null}
                   Save
                 </Button>
-              </CardFooter>
-            ) : null}
-          </Card>
+              </>
+            ) : undefined
+          }
+        >
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Status</p>
+            <div className="flex items-center gap-2 text-sm">
+              <ServerAvatar name={savedName} status={server.status} size="sm" />
+              <span>{formatServerStatus(server.status)}</span>
+              <span className="text-muted-foreground">
+                ·{' '}
+                {server.lastSeenAt
+                  ? formatAge(server.lastSeenAt)
+                  : 'Never contacted'}
+              </span>
+            </div>
+          </div>
 
-          <Card id="host" className="scroll-mt-8">
-            <CardHeader className="border-b">
-              <CardTitle>Host</CardTitle>
-              <CardDescription>
-                System information reported by the agent.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
-                <ServerDetailField label="Hostname">
-                  {server.hostname ?? 'Not reported'}
-                </ServerDetailField>
-                <ServerDetailField label="Operating system">
-                  {server.operatingSystem ?? 'Not reported'}
-                </ServerDetailField>
-                <ServerDetailField label="CPU">
-                  {server.cpuCoreCount
-                    ? formatCount(server.cpuCoreCount, 'core')
-                    : 'Not reported'}
-                </ServerDetailField>
-                <ServerDetailField label="Memory">
-                  {server.monitoring.latestMetrics?.memoryTotalBytes
-                    ? formatBytes(
-                        server.monitoring.latestMetrics.memoryTotalBytes,
-                      )
-                    : 'Not reported'}
-                </ServerDetailField>
-                <ServerDetailField label="Architecture">
-                  {server.architecture ?? 'Not reported'}
-                </ServerDetailField>
-                <ServerDetailField label="Host uptime">
-                  {server.status === 'connected' &&
-                  server.hostUptimeSeconds !== null
-                    ? formatDuration(server.hostUptimeSeconds)
-                    : 'Not reported'}
-                </ServerDetailField>
-                <ServerDetailField label="Kernel">
-                  {server.kernelVersion ?? 'Not reported'}
-                </ServerDetailField>
-                <ServerDetailField label="Agent version">
-                  {server.agentVersion ?? 'Not reported'}
-                </ServerDetailField>
-              </dl>
-            </CardContent>
-          </Card>
+          <form
+            id="server-general-form"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault()
+              void save()
+            }}
+          >
+            <FieldGroup>
+              <Field data-invalid={Boolean(nameError)}>
+                <FieldLabel htmlFor="server-name">Name (required)</FieldLabel>
+                <Input
+                  id="server-name"
+                  required
+                  maxLength={100}
+                  disabled={isSaving}
+                  aria-invalid={Boolean(nameError)}
+                  aria-describedby="server-name-error"
+                  value={name}
+                  readOnly={!canManageServer}
+                  onChange={(event) => {
+                    setName(event.target.value)
+                    setNameError(null)
+                  }}
+                />
+                <FieldError id="server-name-error">{nameError}</FieldError>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="server-id">Server ID</FieldLabel>
+                <InputGroup>
+                  <InputGroupInput
+                    id="server-id"
+                    className="font-mono text-[13px] text-muted-foreground"
+                    value={server.id}
+                    readOnly
+                  />
+                  <InputGroupAddon align="inline-end">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <InputGroupButton
+                          size="icon-sm"
+                          type="button"
+                          aria-label="Copy server ID"
+                          onClick={() => void copyText(server.id, 'Server ID')}
+                        >
+                          <CopyIcon />
+                        </InputGroupButton>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy server ID</TooltipContent>
+                    </Tooltip>
+                  </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>
+                  A unique identifier used by the API and agent.
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
+            <FieldError role="alert">{saveError}</FieldError>
+          </form>
+        </SettingsSection>
 
-          <Card id="metrics" className="scroll-mt-8">
-            <CardHeader className="border-b">
-              <CardTitle>Metrics</CardTitle>
-              <CardDescription>
-                Up to 24 hours of host resource history. Missing samples remain
-                visible as gaps.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {server.monitoring.latestMetrics ? (
-                <>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <ServerMetricChart
-                      domain={[0, 100]}
-                      label="CPU usage"
-                      latestValue={formatPercent(
-                        server.monitoring.latestMetrics.cpuPercent,
-                      )}
-                      points={server.metricSeries}
-                      formatValue={formatPercent}
-                      series={[
-                        {
-                          key: 'cpu',
-                          label: 'CPU',
-                          color: 'var(--chart-1)',
-                          getValue: (sample) => sample.cpuPercent,
-                        },
-                      ]}
-                      window={server.metricWindow}
-                    />
-                    <ServerMetricChart
-                      domain={[0, 100]}
-                      label="Memory usage"
-                      latestValue={formatByteRatio(
-                        server.monitoring.latestMetrics.memoryUsedBytes,
-                        server.monitoring.latestMetrics.memoryTotalBytes,
-                      )}
-                      points={server.metricSeries}
-                      formatValue={formatPercent}
-                      series={[
-                        {
-                          key: 'memory',
-                          label: 'Memory',
-                          color: 'var(--chart-1)',
-                          getValue: (sample) =>
-                            formatBytePercent(
-                              sample.memoryUsedBytes,
-                              sample.memoryTotalBytes,
-                            ),
-                        },
-                      ]}
-                      window={server.metricWindow}
-                    />
-                    <ServerMetricChart
-                      domain={[0, 100]}
-                      label="Disk usage"
-                      latestValue={formatByteRatio(
-                        server.monitoring.latestMetrics.diskUsedBytes,
-                        server.monitoring.latestMetrics.diskTotalBytes,
-                      )}
-                      points={server.metricSeries}
-                      formatValue={formatPercent}
-                      series={[
-                        {
-                          key: 'disk',
-                          label: 'Disk',
-                          color: 'var(--chart-1)',
-                          getValue: (sample) =>
-                            formatBytePercent(
-                              sample.diskUsedBytes,
-                              sample.diskTotalBytes,
-                            ),
-                        },
-                      ]}
-                      window={server.metricWindow}
-                    />
-                    <ServerMetricChart
-                      label="Network traffic"
-                      latestValue={formatNetworkSummary(
-                        server.monitoring.latestMetrics
-                          .networkReceiveBytesPerSecond,
-                        server.monitoring.latestMetrics
-                          .networkTransmitBytesPerSecond,
-                      )}
-                      points={server.metricSeries}
-                      formatValue={formatBytesPerSecond}
-                      series={[
-                        {
-                          key: 'received',
-                          label: 'Received',
-                          color: 'var(--chart-1)',
-                          getValue: (sample) =>
-                            sample.networkReceiveBytesPerSecond,
-                        },
-                        {
-                          key: 'sent',
-                          label: 'Sent',
-                          color: 'var(--chart-2)',
-                          getValue: (sample) =>
-                            sample.networkTransmitBytesPerSecond,
-                        },
-                      ]}
-                      window={server.metricWindow}
-                    />
-                  </div>
-                </>
-              ) : (
-                <Empty className="min-h-40 border">
-                  <EmptyHeader>
-                    <EmptyTitle>No metrics reported yet.</EmptyTitle>
-                    <EmptyDescription>
-                      Metrics will appear after the agent reports host data.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              )}
-            </CardContent>
-          </Card>
+        <SettingsSection
+          id="host"
+          title="Host"
+          description="System information reported by the agent."
+        >
+          <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
+            <ServerDetailField label="Hostname">
+              {server.hostname ?? 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="Operating system">
+              {server.operatingSystem ?? 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="CPU">
+              {server.cpuCoreCount
+                ? formatCount(server.cpuCoreCount, 'core')
+                : 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="Memory">
+              {server.monitoring.latestMetrics?.memoryTotalBytes
+                ? formatBytes(server.monitoring.latestMetrics.memoryTotalBytes)
+                : 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="Architecture">
+              {server.architecture ?? 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="Host uptime">
+              {server.status === 'connected' &&
+              server.hostUptimeSeconds !== null
+                ? formatDuration(server.hostUptimeSeconds)
+                : 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="Kernel">
+              {server.kernelVersion ?? 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="Agent version">
+              {server.agentVersion ?? 'Not reported'}
+            </ServerDetailField>
+          </dl>
+        </SettingsSection>
 
-          {canManageServer ? (
-            <ServerDangerSection server={server} teamSlug={team.slug} />
-          ) : null}
-        </div>
-
-        <aside className="hidden lg:block">
-          <SectionNavigation
-            className="sticky top-[122px]"
-            items={[
-              { href: '#general', label: 'General' },
-              { href: '#host', label: 'Host' },
-              { href: '#metrics', label: 'Metrics' },
-              ...(canManageServer
-                ? [
+        <SettingsSection
+          id="metrics"
+          title="Metrics"
+          description="Up to 24 hours of host resource history. Missing samples remain visible as gaps."
+          contentClassName="space-y-4"
+        >
+          {server.monitoring.latestMetrics ? (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                <ServerMetricChart
+                  domain={[0, 100]}
+                  label="CPU usage"
+                  latestValue={formatPercent(
+                    server.monitoring.latestMetrics.cpuPercent,
+                  )}
+                  points={server.metricSeries}
+                  formatValue={formatPercent}
+                  series={[
                     {
-                      href: '#danger' as const,
-                      label: 'Danger',
-                      destructive: true,
+                      key: 'cpu',
+                      label: 'CPU',
+                      color: 'var(--chart-1)',
+                      getValue: (sample) => sample.cpuPercent,
                     },
-                  ]
-                : []),
-            ]}
-          />
-        </aside>
-      </div>
+                  ]}
+                  window={server.metricWindow}
+                />
+                <ServerMetricChart
+                  domain={[0, 100]}
+                  label="Memory usage"
+                  latestValue={formatByteRatio(
+                    server.monitoring.latestMetrics.memoryUsedBytes,
+                    server.monitoring.latestMetrics.memoryTotalBytes,
+                  )}
+                  points={server.metricSeries}
+                  formatValue={formatPercent}
+                  series={[
+                    {
+                      key: 'memory',
+                      label: 'Memory',
+                      color: 'var(--chart-1)',
+                      getValue: (sample) =>
+                        formatBytePercent(
+                          sample.memoryUsedBytes,
+                          sample.memoryTotalBytes,
+                        ),
+                    },
+                  ]}
+                  window={server.metricWindow}
+                />
+                <ServerMetricChart
+                  domain={[0, 100]}
+                  label="Disk usage"
+                  latestValue={formatByteRatio(
+                    server.monitoring.latestMetrics.diskUsedBytes,
+                    server.monitoring.latestMetrics.diskTotalBytes,
+                  )}
+                  points={server.metricSeries}
+                  formatValue={formatPercent}
+                  series={[
+                    {
+                      key: 'disk',
+                      label: 'Disk',
+                      color: 'var(--chart-1)',
+                      getValue: (sample) =>
+                        formatBytePercent(
+                          sample.diskUsedBytes,
+                          sample.diskTotalBytes,
+                        ),
+                    },
+                  ]}
+                  window={server.metricWindow}
+                />
+                <ServerMetricChart
+                  label="Network traffic"
+                  latestValue={formatNetworkSummary(
+                    server.monitoring.latestMetrics
+                      .networkReceiveBytesPerSecond,
+                    server.monitoring.latestMetrics
+                      .networkTransmitBytesPerSecond,
+                  )}
+                  points={server.metricSeries}
+                  formatValue={formatBytesPerSecond}
+                  series={[
+                    {
+                      key: 'received',
+                      label: 'Received',
+                      color: 'var(--chart-1)',
+                      getValue: (sample) => sample.networkReceiveBytesPerSecond,
+                    },
+                    {
+                      key: 'sent',
+                      label: 'Sent',
+                      color: 'var(--chart-2)',
+                      getValue: (sample) =>
+                        sample.networkTransmitBytesPerSecond,
+                    },
+                  ]}
+                  window={server.metricWindow}
+                />
+              </div>
+            </>
+          ) : (
+            <ServerMetricsEmpty />
+          )}
+        </SettingsSection>
+
+        {canManageServer ? (
+          <ServerDangerSection server={server} teamSlug={team.slug} />
+        ) : null}
+      </SettingsLayout>
     </div>
   )
 }
 
-function ServerInstallCallout({
+export function ServerInstallCallout({
   server,
   teamSlug,
 }: {
-  server: ServerDetailData
+  server: Pick<ServerDetailData, 'id' | 'name' | 'status'>
   teamSlug: string
 }) {
   const [installCommand, setInstallCommand] = useState<string | null>(null)
@@ -479,6 +485,7 @@ function ServerInstallCallout({
   const [error, setError] = useState<string | null>(null)
 
   async function createCommand() {
+    if (isCreating || server.status === 'disabled') return
     setIsCreating(true)
     setError(null)
 
@@ -509,35 +516,37 @@ function ServerInstallCallout({
           </p>
         ) : installCommand ? (
           <InstallCommand className="mt-2 max-w-xl" command={installCommand} />
-        ) : error ? (
-          <p className="text-sm text-destructive">{error}</p>
         ) : (
-          <Button
-            className="mt-2"
-            disabled={isCreating}
-            onClick={() => void createCommand()}
-            type="button"
-            variant="outline"
-          >
-            {isCreating ? (
-              <LoaderIcon data-icon="inline-start" className="animate-spin" />
-            ) : null}
-            Generate install command
-          </Button>
+          <div className="space-y-3">
+            {error ? <FieldError role="alert">{error}</FieldError> : null}
+            <Button
+              className="mt-2"
+              disabled={isCreating}
+              onClick={() => void createCommand()}
+              type="button"
+              variant="outline"
+            >
+              {isCreating ? (
+                <LoaderIcon data-icon="inline-start" className="animate-spin" />
+              ) : null}
+              {error ? 'Retry' : 'Generate install command'}
+            </Button>
+          </div>
         )}
       </AlertDescription>
     </Alert>
   )
 }
 
-function ServerDangerSection({
+export function ServerDangerSection({
   server,
   teamSlug,
 }: {
-  server: ServerDetailData
+  server: Pick<ServerDetailData, 'id' | 'name' | 'status'>
   teamSlug: string
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [isChangingStatus, setIsChangingStatus] = useState(false)
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [disableConfirmation, setDisableConfirmation] = useState('')
@@ -551,13 +560,25 @@ function ServerDangerSection({
   >(null)
   const [isLoadingDeleteDiagnostic, setIsLoadingDeleteDiagnostic] =
     useState(false)
+  const diagnosticRequest = useRef(0)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [serverDeleted, setServerDeleted] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const isDisabled = server.status === 'disabled'
   const canDisable =
     !isChangingStatus && (isDisabled || disableConfirmation === server.name)
-  const canDelete = !isDeleting && deleteConfirmation.trim() === server.name
+  const canDelete =
+    !isDeleting && !serverDeleted && deleteConfirmation.trim() === server.name
 
   async function toggleServerStatus() {
+    if (
+      isChangingStatus ||
+      isDeleting ||
+      serverDeleted ||
+      (!isDisabled && disableConfirmation !== server.name)
+    )
+      return
+    setActionError(null)
     setIsChangingStatus(true)
 
     try {
@@ -577,9 +598,12 @@ function ServerDangerSection({
       toast.success(isDisabled ? 'Server enabled.' : 'Server disabled.')
       setStatusDialogOpen(false)
       setDisableConfirmation('')
-      await router.invalidate()
+      await afterMutation(async () => {
+        await invalidateResourceQueries(queryClient, teamSlug)
+        await router.invalidate()
+      }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      toast.error(
+      setActionError(
         getErrorMessage(
           error,
           isDisabled ? 'Unable to enable server.' : 'Unable to disable server.',
@@ -591,6 +615,7 @@ function ServerDangerSection({
   }
 
   async function loadDeleteDiagnostic() {
+    const request = ++diagnosticRequest.current
     setIsLoadingDeleteDiagnostic(true)
     setDeleteDiagnostic(null)
     setDeleteDiagnosticError(null)
@@ -599,17 +624,28 @@ function ServerDangerSection({
       const diagnostic = await getDeleteServerDiagnostic({
         data: { teamSlug, serverId: server.id },
       })
+      if (request !== diagnosticRequest.current) return
       setDeleteDiagnostic(diagnostic)
     } catch (error) {
+      if (request !== diagnosticRequest.current) return
       setDeleteDiagnosticError(
         getErrorMessage(error, 'Unable to inspect server usage.'),
       )
     } finally {
-      setIsLoadingDeleteDiagnostic(false)
+      if (request === diagnosticRequest.current)
+        setIsLoadingDeleteDiagnostic(false)
     }
   }
 
   async function deleteCurrentServer() {
+    if (
+      isDeleting ||
+      isChangingStatus ||
+      serverDeleted ||
+      deleteConfirmation.trim() !== server.name
+    )
+      return
+    setActionError(null)
     setIsDeleting(true)
 
     try {
@@ -621,16 +657,27 @@ function ServerDangerSection({
           cancelOngoingDeployments,
         },
       })
+      setServerDeleted(true)
+      setDeleteOpen(false)
       toast.success('Server deleted.')
-      await router.navigate({ to: '/$teamSlug/servers', params: { teamSlug } })
+      await afterMutation(async () => {
+        await invalidateResourceQueries(queryClient, teamSlug)
+        await router.navigate({
+          to: '/$teamSlug/servers',
+          params: { teamSlug },
+        })
+      }, 'The action completed, but opening the next page failed. Please reload.')
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to delete server.'))
+      setActionError(getErrorMessage(error, 'Unable to delete server.'))
     } finally {
       setIsDeleting(false)
     }
   }
 
   function onDeleteOpenChange(open: boolean) {
+    if (isDeleting || isChangingStatus || serverDeleted) return
+    diagnosticRequest.current += 1
+    setActionError(null)
     setDeleteOpen(open)
 
     if (!open) {
@@ -645,6 +692,8 @@ function ServerDangerSection({
   }
 
   function onStatusOpenChange(open: boolean) {
+    if (isChangingStatus || isDeleting || serverDeleted) return
+    setActionError(null)
     setStatusDialogOpen(open)
 
     if (!open) {
@@ -653,173 +702,180 @@ function ServerDangerSection({
   }
 
   return (
-    <Card id="danger" className="scroll-mt-8">
-      <CardHeader className="border-b">
-        <CardTitle>Danger</CardTitle>
-        <CardDescription>
-          Administrative actions that affect this server.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col items-start gap-2">
-        <AlertDialog open={statusDialogOpen} onOpenChange={onStatusOpenChange}>
-          <AlertDialogTrigger asChild>
-            <Button
+    <SettingsSection
+      id="danger"
+      title="Danger"
+      description="Administrative actions that affect this server."
+      contentClassName="flex flex-col items-start gap-2"
+    >
+      <AlertDialog open={statusDialogOpen} onOpenChange={onStatusOpenChange}>
+        <AlertDialogTrigger asChild>
+          <Button
+            variant={isDisabled ? 'default' : 'destructive'}
+            disabled={isChangingStatus}
+          >
+            {isChangingStatus ? (
+              <LoaderIcon data-icon="inline-start" className="animate-spin" />
+            ) : !isDisabled ? (
+              <BanIcon data-icon="inline-start" />
+            ) : null}
+            {isDisabled ? 'Enable server' : 'Disable server'}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isDisabled ? 'Enable this server?' : 'Disable this server?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isDisabled
+                ? `${server.name} will accept its existing agent credential again. Reinstallation is not required.`
+                : `This blocks new enrollment commands and agent token use for ${server.name}. Type "${server.name}" to confirm.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {!isDisabled ? (
+            <Field>
+              <Input
+                aria-label={`Type ${server.name} to confirm`}
+                required
+                id="disable-server-confirmation"
+                placeholder={server.name}
+                value={disableConfirmation}
+                onChange={(event) => setDisableConfirmation(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && canDisable) {
+                    event.preventDefault()
+                    void toggleServerStatus()
+                  }
+                }}
+                disabled={isChangingStatus}
+              />
+            </Field>
+          ) : null}
+          <FieldError role="alert">{actionError}</FieldError>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isChangingStatus}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
               variant={isDisabled ? 'default' : 'destructive'}
-              disabled={isChangingStatus}
+              disabled={!canDisable}
+              onClick={(event) => {
+                event.preventDefault()
+                void toggleServerStatus()
+              }}
             >
               {isChangingStatus ? (
-                <LoaderIcon data-icon="inline-start" className="animate-spin" />
+                <LoaderIcon className="animate-spin" />
               ) : !isDisabled ? (
-                <BanIcon data-icon="inline-start" />
+                <BanIcon />
               ) : null}
               {isDisabled ? 'Enable server' : 'Disable server'}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {isDisabled ? 'Enable this server?' : 'Disable this server?'}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {isDisabled
-                  ? `${server.name} will accept its existing agent credential again. Reinstallation is not required.`
-                  : `This blocks new enrollment commands and agent token use for ${server.name}. Type "${server.name}" to confirm.`}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            {!isDisabled ? (
-              <Field>
-                <Input
-                  aria-label={`Type ${server.name} to confirm`}
-                  id="disable-server-confirmation"
-                  placeholder={server.name}
-                  value={disableConfirmation}
-                  onChange={(event) =>
-                    setDisableConfirmation(event.target.value)
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && canDisable) {
-                      event.preventDefault()
-                      void toggleServerStatus()
-                    }
-                  }}
-                  disabled={isChangingStatus}
-                />
-              </Field>
-            ) : null}
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isChangingStatus}>
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                variant={isDisabled ? 'default' : 'destructive'}
-                disabled={!canDisable}
-                onClick={(event) => {
-                  event.preventDefault()
-                  void toggleServerStatus()
-                }}
-              >
-                {isChangingStatus ? (
-                  <LoaderIcon className="animate-spin" />
-                ) : !isDisabled ? (
-                  <BanIcon />
-                ) : null}
-                {isDisabled ? 'Enable server' : 'Disable server'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-        <AlertDialog open={deleteOpen} onOpenChange={onDeleteOpenChange}>
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" disabled={isDeleting}>
-              {isDeleting ? (
-                <LoaderIcon data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <Trash2Icon data-icon="inline-start" />
-              )}
-              Delete server
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this server?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This permanently removes {server.name} from server lists and
-                assignment pickers, deletes its monitoring data, and cannot be
-                undone. {`Type "${server.name}" to confirm.`}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
+      <AlertDialog open={deleteOpen} onOpenChange={onDeleteOpenChange}>
+        <AlertDialogTrigger asChild>
+          <Button variant="destructive" disabled={isDeleting || serverDeleted}>
+            {isDeleting ? (
+              <LoaderIcon data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <Trash2Icon data-icon="inline-start" />
+            )}
+            Delete server
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this server?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes {server.name} from server lists and
+              assignment pickers, deletes its monitoring data, and cannot be
+              undone. {`Type "${server.name}" to confirm.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
 
-            <div className="space-y-4">
-              {isLoadingDeleteDiagnostic ? (
-                <p className="text-sm text-muted-foreground">
-                  Inspecting server usage...
-                </p>
-              ) : deleteDiagnosticError ? (
-                <p className="text-sm text-destructive">
+          <div className="space-y-4">
+            {isLoadingDeleteDiagnostic ? (
+              <p className="text-sm text-muted-foreground">
+                Inspecting server usage...
+              </p>
+            ) : deleteDiagnosticError ? (
+              <div className="space-y-2">
+                <p role="alert" className="text-sm text-destructive">
                   {deleteDiagnosticError}
                 </p>
-              ) : deleteDiagnostic ? (
-                <p className="text-sm">
-                  {deleteDiagnostic.projectCount === 0
-                    ? 'This will impact no active projects or environments.'
-                    : `This will impact ${formatCount(deleteDiagnostic.projectCount, 'project')} and ${formatCount(deleteDiagnostic.environmentCount, 'environment')}.`}
-                </p>
-              ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void loadDeleteDiagnostic()}
+                >
+                  Retry inspection
+                </Button>
+              </div>
+            ) : deleteDiagnostic ? (
+              <p className="text-sm">
+                {deleteDiagnostic.projectCount === 0
+                  ? 'This will impact no active projects or environments.'
+                  : `This will impact ${formatCount(deleteDiagnostic.projectCount, 'project')} and ${formatCount(deleteDiagnostic.environmentCount, 'environment')}.`}
+              </p>
+            ) : null}
 
-              <label className="flex items-center gap-3 text-sm">
-                <Checkbox
-                  checked={cancelOngoingDeployments}
-                  onCheckedChange={(checked) =>
-                    setCancelOngoingDeployments(checked === true)
+            <Field orientation="horizontal">
+              <Checkbox
+                id="delete-server-cancel-deployments"
+                checked={cancelOngoingDeployments}
+                onCheckedChange={(checked) =>
+                  setCancelOngoingDeployments(checked === true)
+                }
+                disabled={isDeleting || serverDeleted}
+              />
+              <FieldLabel htmlFor="delete-server-cancel-deployments">
+                Cancel ongoing deployments on this server
+              </FieldLabel>
+            </Field>
+
+            <Field>
+              <Input
+                aria-label={`Type ${server.name} to confirm`}
+                required
+                id="delete-server-confirmation"
+                placeholder={server.name}
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && canDelete) {
+                    event.preventDefault()
+                    void deleteCurrentServer()
                   }
-                  disabled={isDeleting}
-                />
-                <span className="font-medium">
-                  Cancel ongoing deployments on this server
-                </span>
-              </label>
-
-              <Field>
-                <Input
-                  aria-label={`Type ${server.name} to confirm`}
-                  id="delete-server-confirmation"
-                  placeholder={server.name}
-                  value={deleteConfirmation}
-                  onChange={(event) =>
-                    setDeleteConfirmation(event.target.value)
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && canDelete) {
-                      event.preventDefault()
-                      void deleteCurrentServer()
-                    }
-                  }}
-                  disabled={isDeleting}
-                />
-              </Field>
-            </div>
-
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeleting}>
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                disabled={!canDelete}
-                onClick={(event) => {
-                  event.preventDefault()
-                  void deleteCurrentServer()
                 }}
-              >
-                {isDeleting ? <LoaderIcon className="animate-spin" /> : null}
-                Delete server
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </CardContent>
-    </Card>
+                disabled={isDeleting || serverDeleted}
+              />
+            </Field>
+          </div>
+
+          <FieldError role="alert">{actionError}</FieldError>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting || serverDeleted}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!canDelete}
+              onClick={(event) => {
+                event.preventDefault()
+                void deleteCurrentServer()
+              }}
+            >
+              {isDeleting ? <LoaderIcon className="animate-spin" /> : null}
+              Delete server
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SettingsSection>
   )
 }
 
@@ -842,7 +898,7 @@ function ServerDetailField({
   )
 }
 
-function formatPercent(value: number | null) {
+export function formatPercent(value: number | null) {
   if (value === null) {
     return 'Not reported'
   }
@@ -850,7 +906,7 @@ function formatPercent(value: number | null) {
   return `${value.toFixed(1)}%`
 }
 
-function formatByteRatio(used: number | null, total: number | null) {
+export function formatByteRatio(used: number | null, total: number | null) {
   if (used === null || total === null || total <= 0) {
     return 'Not reported'
   }
@@ -862,7 +918,10 @@ function formatBytesPerSecond(value: number | null) {
   return value === null ? 'Not reported' : `${formatBytes(value)}/s`
 }
 
-function formatNetworkSummary(received: number | null, sent: number | null) {
+export function formatNetworkSummary(
+  received: number | null,
+  sent: number | null,
+) {
   if (received === null && sent === null) {
     return 'Not reported'
   }
@@ -901,4 +960,17 @@ function formatBytes(value: number) {
   }
 
   return `${current.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+export function ServerMetricsEmpty() {
+  return (
+    <Empty className="min-h-40 border">
+      <EmptyHeader>
+        <EmptyTitle>No metrics reported yet.</EmptyTitle>
+        <EmptyDescription>
+          Metrics will appear after the agent reports host data.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  )
 }

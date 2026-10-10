@@ -46,7 +46,7 @@ export function ServerAvatar({
         className,
       )}
     >
-      <Icon />
+      <Icon className="shrink-0" />
     </span>
   )
 }

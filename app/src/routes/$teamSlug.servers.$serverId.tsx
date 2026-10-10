@@ -1,32 +1,23 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { createFileRoute } from '@tanstack/react-router'
 
 import { ServerDetail } from '@/features/servers/server-detail'
 import { ServerDetailPending } from '@/features/servers/server-detail-pending'
-import { getTeamServerContext } from '@/server/auth/context'
+import { serverContextQueryOptions } from '@/lib/server-context-query'
 
 export const Route = createFileRoute('/$teamSlug/servers/$serverId')({
-  loader: async ({ params }) => {
-    const context = await getTeamServerContext({
-      data: {
-        teamSlug: params.teamSlug,
-        serverId: params.serverId,
-      },
-    })
-
-    if (!context) {
-      throw redirect({ to: '/auth/login' })
-    }
-
-    return context
-  },
-  pendingMs: 0,
-  pendingMinMs: 300,
+  loader: ({ context, params }) =>
+    context.queryClient.fetchQuery(serverContextQueryOptions(params)),
+  pendingMs: 150,
+  pendingMinMs: 200,
   pendingComponent: ServerDetailPending,
   component: TeamServerRoute,
 })
 
 function TeamServerRoute() {
-  const context = Route.useLoaderData()
+  const { data: context } = useSuspenseQuery(
+    serverContextQueryOptions(Route.useParams()),
+  )
 
   return <ServerDetail team={context.team} server={context.server} />
 }

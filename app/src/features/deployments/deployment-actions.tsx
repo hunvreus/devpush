@@ -1,3 +1,4 @@
+import { afterMutation } from '@/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -8,7 +9,7 @@ import {
   Undo2Icon,
 } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { FieldError } from '@/components/ui/field'
 
 import {
   AlertDialog,
@@ -31,13 +32,26 @@ import {
 import { getErrorMessage } from '@/lib/error-message'
 import { invalidateProjectContext } from '@/lib/project-context-query'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
-import type { DeploymentSummary } from '@/server/projects/service'
+import type { DeploymentSummary } from '@/server/projects/types'
+
+type ActionDeployment = Pick<
+  DeploymentSummary,
+  | 'id'
+  | 'status'
+  | 'projectName'
+  | 'gitSha'
+  | 'gitBranch'
+  | 'environmentName'
+  | 'environmentColor'
+  | 'commitMessage'
+  | 'githubRepo'
+>
 
 export function DeploymentActions({
   deployment,
   teamSlug,
 }: {
-  deployment: DeploymentSummary
+  deployment: ActionDeployment
   teamSlug: string
 }) {
   const router = useRouter()
@@ -46,11 +60,15 @@ export function DeploymentActions({
   const [isRedeploying, setIsRedeploying] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
   const [isRollingBack, setIsRollingBack] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const busy = isRedeploying || isRollingBack
   const canRedeploy =
     deployment.status !== 'queued' && deployment.status !== 'running'
   const canRollback = deployment.status === 'succeeded'
 
   async function redeploy() {
+    if (busy || !canRedeploy) return
+    setActionError(null)
     setIsRedeploying(true)
 
     try {
@@ -63,26 +81,38 @@ export function DeploymentActions({
       })
 
       setRedeployOpen(false)
-      await invalidateProjectContext(queryClient, {
-        teamSlug,
-        projectName: deployment.projectName,
-      })
-      await router.navigate({
-        to: '/$teamSlug/projects/$projectName/deployments/$deploymentId',
-        params: {
-          teamSlug,
-          projectName: deployment.projectName,
-          deploymentId: nextDeployment.deploymentId,
-        },
-      })
+      await afterMutation(
+        () =>
+          invalidateProjectContext(queryClient, {
+            teamSlug,
+            projectName: deployment.projectName,
+          }),
+        'The action completed, but refreshing the data failed. Please reload.',
+      )
+      await afterMutation(
+        () =>
+          router.navigate({
+            to: '/$teamSlug/projects/$projectName/deployments/$deploymentId',
+            params: {
+              teamSlug,
+              projectName: deployment.projectName,
+              deploymentId: nextDeployment.deploymentId,
+            },
+          }),
+        'The action completed, but opening the next page failed. Please reload.',
+      )
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to queue redeploy.'))
+      setActionError(
+        getErrorMessage(error, 'Unable to queue redeploy. Please try again.'),
+      )
     } finally {
       setIsRedeploying(false)
     }
   }
 
   async function rollback() {
+    if (busy || !canRollback) return
+    setActionError(null)
     setIsRollingBack(true)
 
     try {
@@ -95,20 +125,30 @@ export function DeploymentActions({
       })
 
       setRollbackOpen(false)
-      await invalidateProjectContext(queryClient, {
-        teamSlug,
-        projectName: deployment.projectName,
-      })
-      await router.navigate({
-        to: '/$teamSlug/projects/$projectName/deployments/$deploymentId',
-        params: {
-          teamSlug,
-          projectName: deployment.projectName,
-          deploymentId: nextDeployment.deploymentId,
-        },
-      })
+      await afterMutation(
+        () =>
+          invalidateProjectContext(queryClient, {
+            teamSlug,
+            projectName: deployment.projectName,
+          }),
+        'The action completed, but refreshing the data failed. Please reload.',
+      )
+      await afterMutation(
+        () =>
+          router.navigate({
+            to: '/$teamSlug/projects/$projectName/deployments/$deploymentId',
+            params: {
+              teamSlug,
+              projectName: deployment.projectName,
+              deploymentId: nextDeployment.deploymentId,
+            },
+          }),
+        'The action completed, but opening the next page failed. Please reload.',
+      )
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to queue rollback.'))
+      setActionError(
+        getErrorMessage(error, 'Unable to queue rollback. Please try again.'),
+      )
     } finally {
       setIsRollingBack(false)
     }
@@ -118,12 +158,13 @@ export function DeploymentActions({
     <>
       <DropdownMenuContent align="end" className="w-auto">
         <DropdownMenuItem
-          disabled={!canRollback}
+          disabled={!canRollback || busy}
           className="whitespace-nowrap"
           onSelect={(event) => {
             event.preventDefault()
 
-            if (canRollback) {
+            if (canRollback && !busy) {
+              setActionError(null)
               setRollbackOpen(true)
             }
           }}
@@ -132,12 +173,13 @@ export function DeploymentActions({
           Roll back
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={!canRedeploy}
+          disabled={!canRedeploy || busy}
           className="whitespace-nowrap"
           onSelect={(event) => {
             event.preventDefault()
 
-            if (canRedeploy) {
+            if (canRedeploy && !busy) {
+              setActionError(null)
               setRedeployOpen(true)
             }
           }}
@@ -147,7 +189,15 @@ export function DeploymentActions({
         </DropdownMenuItem>
       </DropdownMenuContent>
 
-      <AlertDialog open={redeployOpen} onOpenChange={setRedeployOpen}>
+      <AlertDialog
+        open={redeployOpen}
+        onOpenChange={(next) => {
+          if (!busy) {
+            setRedeployOpen(next)
+            setActionError(null)
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -160,6 +210,7 @@ export function DeploymentActions({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <DeploymentActionSummary deployment={deployment} />
+          <FieldError>{actionError}</FieldError>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isRedeploying}>
               Cancel
@@ -177,7 +228,15 @@ export function DeploymentActions({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={rollbackOpen} onOpenChange={setRollbackOpen}>
+      <AlertDialog
+        open={rollbackOpen}
+        onOpenChange={(next) => {
+          if (!busy) {
+            setRollbackOpen(next)
+            setActionError(null)
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -190,6 +249,7 @@ export function DeploymentActions({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <DeploymentActionSummary deployment={deployment} />
+          <FieldError>{actionError}</FieldError>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isRollingBack}>
               Cancel
@@ -213,7 +273,7 @@ export function DeploymentActions({
 function DeploymentActionSummary({
   deployment,
 }: {
-  deployment: DeploymentSummary
+  deployment: ActionDeployment
 }) {
   const hasCommit = deployment.gitSha !== 'pending'
 
@@ -237,8 +297,8 @@ function DeploymentActionSummary({
             <GitBranchIcon />
             <span className="truncate">{deployment.gitBranch}</span>
           </span>
-          <span className="flex min-w-0 flex-1 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
-            <GitCommitHorizontalIcon />
+          <span className="flex min-w-0 flex-1 items-center gap-x-2 text-muted-foreground [&>svg]:shrink-0 [&>svg]:opacity-50">
+            <GitCommitHorizontalIcon className="size-5 shrink-0" />
             <span className="truncate">
               {deployment.commitMessage ?? 'Commit message unavailable'}
             </span>
@@ -251,7 +311,7 @@ function DeploymentActionSummary({
               aria-label="View commit on GitHub"
               className="text-muted-foreground transition-colors hover:text-foreground"
             >
-              <ArrowUpRightIcon className="size-4" />
+              <ArrowUpRightIcon className="size-4 shrink-0" />
             </a>
           ) : null}
         </div>

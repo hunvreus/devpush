@@ -1,4 +1,5 @@
-import { Link, useParams, useRouter } from '@tanstack/react-router'
+import { navigateFilters } from '@/lib/action-feedback'
+import { useParams, useRouter } from '@tanstack/react-router'
 import {
   CircleCheckIcon,
   CircleXIcon,
@@ -29,8 +30,8 @@ import {
   getDeployBlockReason,
   hasActiveDeployment,
 } from '@/features/projects/deploy-readiness'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import type { ProjectContext } from '@/server/projects/service'
+import { ProjectHeading } from '@/features/projects/project-heading'
+import type { ProjectContext } from '@/server/projects/types'
 import { filterDeployments } from './deployment-filters'
 import type { DeploymentsSearch } from './deployment-filters'
 
@@ -50,50 +51,39 @@ export function DeploymentsPage({
 
   return (
     <>
-      <section className="flex items-center justify-between gap-4">
-        <h1 className="flex min-w-0 items-center gap-x-3 text-2xl font-medium">
-          <Link
-            to="/$teamSlug/projects/$projectName"
-            params={{
-              teamSlug: params.teamSlug,
-              projectName: params.projectName,
-            }}
-            className="shrink-0"
-          >
-            <ResourceAvatar
-              name={context.project.name}
-              src={context.project.avatarUrl ?? undefined}
-              color={context.project.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span className="truncate">Deployments</span>
-        </h1>
-        {context.deployments.length > 0 ? (
-          <ManualDeployDialog
-            teamSlug={params.teamSlug}
-            projectName={params.projectName}
-            environments={context.environments}
-            hasActiveDeployment={hasActiveDeploy}
-            disabled={Boolean(deployBlockReason)}
-          >
-            <Button
+      <ProjectHeading
+        teamSlug={params.teamSlug}
+        project={context.project}
+        crumbs={[<span className="truncate">Deployments</span>]}
+        actions={
+          context.deployments.length > 0 ? (
+            <ManualDeployDialog
+              teamSlug={params.teamSlug}
+              projectName={params.projectName}
+              environments={context.environments}
+              hasActiveDeployment={hasActiveDeploy}
               disabled={Boolean(deployBlockReason)}
-              title={deployBlockReason ?? undefined}
             >
-              <CloudUploadIcon data-icon="inline-start" />
-              Deploy
-            </Button>
-          </ManualDeployDialog>
-        ) : null}
-      </section>
+              <Button
+                disabled={Boolean(deployBlockReason)}
+                title={deployBlockReason ?? undefined}
+              >
+                <CloudUploadIcon data-icon="inline-start" />
+                Deploy
+              </Button>
+            </ManualDeployDialog>
+          ) : undefined
+        }
+      />
       <section className="space-y-4">
         <header>
           <DeploymentFilters context={context} filters={filters} />
         </header>
         {context.deployments.length > 0 ? (
-          <DeploymentList deployments={filteredDeployments} />
+          <DeploymentList
+            deployments={filteredDeployments}
+            teamSlug={context.team.slug}
+          />
         ) : (
           <Empty className="min-h-60 border bg-card text-card-foreground">
             <EmptyHeader>
@@ -172,21 +162,25 @@ function DeploymentFilters({
   const selectedBranchLabel =
     activeFilters.branch === 'all' ? 'All branches' : activeFilters.branch
   const updateFilter = (name: keyof typeof activeFilters, value: string) => {
-    void router.navigate({
-      to: '/$teamSlug/projects/$projectName/deployments',
-      params,
-      search: {
-        ...filters,
-        [name]: value === 'all' ? undefined : value,
-      },
-    })
+    void navigateFilters(() =>
+      router.navigate({
+        to: '/$teamSlug/projects/$projectName/deployments',
+        params,
+        search: (current) => ({
+          ...current,
+          [name]: value === 'all' ? undefined : value,
+        }),
+      }),
+    )
   }
   const resetFilters = () => {
-    void router.navigate({
-      to: '/$teamSlug/projects/$projectName/deployments',
-      params,
-      search: {},
-    })
+    void navigateFilters(() =>
+      router.navigate({
+        to: '/$teamSlug/projects/$projectName/deployments',
+        params,
+        search: {},
+      }),
+    )
   }
 
   return (

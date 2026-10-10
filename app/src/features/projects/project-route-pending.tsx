@@ -1,19 +1,73 @@
-import { getRouteApi, useParams } from '@tanstack/react-router'
-
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { Skeleton } from '@/components/ui/skeleton'
-import { SectionNavigation } from '@/components/section-navigation'
-import type { SectionNavigationItem } from '@/components/section-navigation'
+import { ProjectBackupsPending } from './project-backups-pending'
+import { ProjectBackupDetailsPending } from './project-backup-details-pending'
+import { ProjectSettings } from './project-settings'
+import { ProjectBackups } from './project-backups'
+import { ProjectBackupDetails } from './project-backup-details'
+import { ProjectLogs } from './project-logs'
+import { DeploymentsPage } from '@/features/deployments/deployments-page'
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+  DeploymentDetail,
+  DeploymentMetadata,
+  DeploymentLogsPending,
+} from '@/features/deployments/deployment-detail'
+import { stringSearchValidator } from '@/lib/search'
+import type { ProjectContext, DeploymentContext } from '@/server/projects/types'
+import { useParams, useRouterState, useHydrated } from '@tanstack/react-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 
-const teamRoute = getRouteApi('/$teamSlug')
+import { TeamPage } from '@/features/teams/team-header'
+import { getCachedTeamContexts } from '@/lib/team-context-query'
+import {
+  projectContextQueryOptions,
+  projectShellQueryOptions,
+  projectLogsQueryOptions,
+} from '@/lib/project-context-query'
+import { ProjectOverview } from '@/features/projects/project-overview'
+import { DeploymentListPending } from '@/features/deployments/deployment-list'
+import type { ProjectPendingSection } from '@/features/projects/pending-section'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { ResourceAvatar } from '@/components/resource-avatar'
+import { Select, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupButton,
+} from '@/components/ui/input-group'
+import {
+  CircleHelpIcon,
+  Clock3Icon,
+  ServerIcon,
+  GitBranchIcon,
+  GitCommitHorizontalIcon,
+  ArrowRightIcon,
+  ArrowUpRightIcon,
+  Link2Icon,
+  MoreHorizontalIcon,
+  ChevronsUpDownIcon,
+  CopyIcon,
+  SettingsIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  Trash2Icon,
+  UploadIcon,
+} from 'lucide-react'
+import {
+  Field,
+  FieldLabel,
+  FieldDescription,
+  FieldGroup,
+} from '@/components/ui/field'
+import { copyText } from '@/lib/action-feedback'
+import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
+import { projectSettingsNavigationItems } from './project-settings-utils'
+import { ProjectHeading } from './project-heading'
+import { EnvironmentDot } from './environment-dot'
 
 type PendingProjectContext = {
   avatarUrl: string | null
@@ -26,87 +80,201 @@ type PendingProjectContext = {
     | 'lime'
     | 'sky'
     | 'zinc'
+  deployments?: ProjectContext['deployments']
+  environments?: ProjectContext['environments']
+  projectId?: string
+  githubRepo?: string
   deploymentId: string | null
   projectName: string
   teamSlug: string
 }
-
-const projectSettingsNavigationItems: Array<SectionNavigationItem> = [
-  { href: '#general', label: 'General' },
-  { href: '#build-and-deploy', label: 'Build & Deploy' },
-  { href: '#environments', label: 'Environments' },
-  { href: '#environment-variables', label: 'Environment variables' },
-  { href: '#servers', label: 'Servers' },
-  { href: '#routes', label: 'Routes' },
-  { href: '#domains', label: 'Domains' },
-  { href: '#danger', label: 'Danger', destructive: true },
-]
-
-const backupNavigationItems: Array<SectionNavigationItem> = [
-  { href: '#general', label: 'General' },
-  { href: '#destination', label: 'Remote backups' },
-  { href: '#retention', label: 'Retention' },
-  { href: '#volumes', label: 'Volumes' },
-  { href: '#databases', label: 'Databases' },
-  { href: '#danger', label: 'Danger', destructive: true },
-]
-
-export type ProjectPendingSection =
-  | 'backup'
-  | 'backups'
-  | 'deployment'
-  | 'deployments'
-  | 'logs'
-  | 'overview'
-  | 'settings'
 
 export function ProjectRoutePending({
   section,
 }: {
   section: ProjectPendingSection
 }) {
+  return (
+    <ProjectPendingPage>
+      <ProjectSectionPending section={section} />
+    </ProjectPendingPage>
+  )
+}
+
+export function ProjectSectionPending({
+  section,
+}: {
+  section: ProjectPendingSection
+}) {
   const params = useParams({ strict: false })
-  const teamContext = teamRoute.useLoaderData()
+  const hydrated = useHydrated()
+  const queryClient = useQueryClient()
   const projectName =
     typeof params.projectName === 'string' ? params.projectName : 'Project'
-  const project = teamContext.projects.find((item) => item.name === projectName)
+  const teamSlug =
+    typeof params.teamSlug === 'string' ? params.teamSlug : 'team'
+  const cachedProject = (
+    hydrated ? getCachedTeamContexts(queryClient, teamSlug) : []
+  )
+    .flatMap((context) => context.projects)
+    .find((project) => project.name === projectName)
+  const { data: shellResult } = useQuery({
+    ...projectShellQueryOptions({ projectName, teamSlug }),
+    enabled: false,
+  })
+  const { data: overviewResult } = useQuery({
+    ...projectContextQueryOptions(
+      { projectName, teamSlug, scope: 'overview' },
+      queryClient,
+    ),
+    enabled: false,
+  })
+  const cachedShell = hydrated ? shellResult : undefined
+  const cachedOverview = hydrated ? overviewResult : undefined
   const pendingContext: PendingProjectContext = {
-    avatarUrl: project?.avatarUrl ?? null,
-    color: project?.color,
+    deployments: (hydrated
+      ? queryClient.getQueriesData<ProjectContext>({
+          queryKey: ['project-context', teamSlug, projectName],
+        })
+      : []
+    )
+      .sort(
+        ([first], [second]) =>
+          (queryClient.getQueryState(second)?.dataUpdatedAt ?? 0) -
+          (queryClient.getQueryState(first)?.dataUpdatedAt ?? 0),
+      )
+      .flatMap(([, value]) => value?.deployments ?? [])
+      .filter(
+        (item, index, items) =>
+          items.findIndex((other) => other.id === item.id) === index,
+      ),
+    environments: cachedShell?.environments,
+    projectId: cachedShell?.project.id ?? cachedProject?.id,
+    githubRepo: cachedShell?.project.githubRepo ?? cachedProject?.githubRepo,
+    avatarUrl:
+      cachedShell?.project.avatarUrl ?? cachedProject?.avatarUrl ?? null,
+    color: cachedShell?.project.color ?? cachedProject?.color,
     deploymentId:
       typeof params.deploymentId === 'string' ? params.deploymentId : null,
     projectName,
-    teamSlug:
-      typeof params.teamSlug === 'string'
-        ? params.teamSlug
-        : teamContext.team.slug,
+    teamSlug,
   }
+  const search = useRouterState({ select: (state) => state.location.search })
+  const { data: logsResult } = useQuery({
+    ...projectLogsQueryOptions(
+      {
+        projectName,
+        teamSlug,
+        ...stringSearchValidator([
+          'branch',
+          'date',
+          'deploymentId',
+          'environmentId',
+          'keyword',
+        ] as const)(search),
+      },
+      queryClient,
+    ),
+    enabled: false,
+  })
+  const cachedLogs = hydrated ? logsResult : undefined
+  if (section === 'logs' && cachedLogs)
+    return <ProjectLogs context={cachedLogs} />
+  const scope = section === 'backup' ? 'backups' : section
+  const sectionResult = queryClient.getQueryData<ProjectContext>([
+    'project-context',
+    teamSlug,
+    projectName,
+    scope,
+  ])
+  const cached = hydrated ? sectionResult : undefined
+  if (cached && section === 'settings')
+    return <ProjectSettings context={cached} />
+  if (cached && section === 'deployments')
+    return (
+      <DeploymentsPage
+        context={cached}
+        filters={stringSearchValidator([
+          'branch',
+          'date',
+          'environment',
+          'status',
+        ] as const)(search)}
+      />
+    )
+  if (cached && section === 'backups')
+    return (
+      <ProjectBackups
+        context={cached}
+        filters={stringSearchValidator([
+          'environment',
+          'server',
+          'status',
+          'time',
+        ] as const)(search)}
+      />
+    )
+  if (cached && section === 'backup' && typeof params.backupId === 'string')
+    return <ProjectBackupDetails context={cached} backupId={params.backupId} />
+  const deploymentResult = queryClient.getQueryData<DeploymentContext>([
+    'deployment-context',
+    teamSlug,
+    projectName,
+    params.deploymentId,
+  ])
+  const deployment = hydrated ? deploymentResult : undefined
+  if (section === 'deployment' && deployment)
+    return <DeploymentDetail context={deployment} />
+  let content
 
   if (section === 'settings') {
-    return <ProjectSettingsPending context={pendingContext} />
+    content = <ProjectSettingsPending context={pendingContext} />
+  } else if (section === 'deployment') {
+    content = <DeploymentDetailPending context={pendingContext} />
+  } else if (section === 'backup') {
+    content = (
+      <BackupDetailPending
+        context={pendingContext}
+        canManage={cachedShell ? cachedShell.team.role !== 'member' : undefined}
+      />
+    )
+  } else if (section === 'logs') {
+    content = <ProjectLogsPending context={pendingContext} />
+  } else if (section === 'deployments') {
+    content = <DeploymentsPending context={pendingContext} />
+  } else if (section === 'backups') {
+    content = (
+      <ProjectBackupsPending
+        heading={
+          <ProjectHeadingPending
+            context={pendingContext}
+            crumbs={['Backups']}
+          />
+        }
+        canManage={cachedShell ? cachedShell.team.role !== 'member' : undefined}
+      />
+    )
+  } else {
+    content =
+      cachedOverview || cachedShell ? (
+        <ProjectOverview
+          context={cachedOverview ?? cachedShell!}
+          deploymentsPending={!cachedOverview}
+        />
+      ) : (
+        <ProjectOverviewPending context={pendingContext} />
+      )
   }
 
-  if (section === 'deployment') {
-    return <DeploymentDetailPending context={pendingContext} />
-  }
+  return content
+}
 
-  if (section === 'backup') {
-    return <BackupDetailPending context={pendingContext} />
-  }
-
-  if (section === 'logs') {
-    return <ProjectLogsPending context={pendingContext} />
-  }
-
-  if (section === 'deployments') {
-    return <DeploymentsPending context={pendingContext} />
-  }
-
-  if (section === 'backups') {
-    return <BackupsPending context={pendingContext} />
-  }
-
-  return <ProjectOverviewPending context={pendingContext} />
+function ProjectPendingPage({ children }: { children: ReactNode }) {
+  return (
+    <TeamPage contentClassName="space-y-8" projectNavigation pending>
+      {children}
+    </TeamPage>
+  )
 }
 
 function ProjectOverviewPending({
@@ -122,11 +290,14 @@ function ProjectOverviewPending({
         <SectionHeadingPending action label="Environments" />
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 1 }, (_, index) => (
-            <div className="h-28 rounded-xl border p-4" key={index}>
+            <div
+              className="rounded-xl border bg-card p-4 text-sm text-card-foreground"
+              key={index}
+            >
               <Skeleton className="mb-4 h-4 w-28" />
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-4/5" />
-                <Skeleton className="h-4 w-24" />
+              <div className="space-y-1">
+                <Skeleton className="h-5 w-4/5" />
+                <Skeleton className="h-5 w-24" />
               </div>
             </div>
           ))}
@@ -134,11 +305,8 @@ function ProjectOverviewPending({
       </section>
 
       <section className="space-y-4">
-        <SectionHeadingPending action label="Latest deployments" />
-        <ListPending rows={4} />
-        <div className="flex justify-end">
-          <Skeleton className="h-8 w-32" />
-        </div>
+        <SectionHeadingPending label="Latest deployments" />
+        <DeploymentListPending label="Latest deployments loading" />
       </section>
     </div>
   )
@@ -147,18 +315,19 @@ function ProjectOverviewPending({
 function DeploymentsPending({ context }: { context: PendingProjectContext }) {
   return (
     <div className="space-y-8" aria-label="Loading deployments">
-      <ProjectHeadingPending
-        action
-        context={context}
-        crumbs={['Deployments']}
-      />
+      <ProjectHeadingPending context={context} crumbs={['Deployments']} />
       <section className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {Array.from({ length: 4 }, (_, index) => (
-            <Skeleton className="h-8 w-32" key={index} />
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <PendingFilter
+            name="environment"
+            label="All environments"
+            unknownSelection
+          />
+          <PendingFilter name="status" label="All statuses" />
+          <PendingFilter name="date" label="All dates" />
+          <PendingFilter name="branch" label="All branches" />
         </div>
-        <ListPending rows={5} />
+        <DeploymentListPending label="Deployments loading" />
       </section>
     </div>
   )
@@ -169,35 +338,73 @@ function DeploymentDetailPending({
 }: {
   context: PendingProjectContext
 }) {
+  const deployment = context.deployments?.find(
+    (item) => item.id === context.deploymentId,
+  )
   return (
     <div className="space-y-8" aria-label="Loading deployment">
       <ProjectHeadingPending
-        actions={2}
         context={context}
         crumbs={[
           'Deployments',
           context.deploymentId?.slice(0, 7) ?? 'Deployment',
         ]}
         monoLast
+        controls={
+          <div className="flex items-center gap-2">
+            <Button disabled>
+              <Link2Icon data-icon="inline-start" />
+              Visit
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled
+              aria-label="Deployment options"
+            >
+              <MoreHorizontalIcon />
+            </Button>
+          </div>
+        }
       />
 
-      <section className="space-y-4 text-sm">
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
-          <MetadataItemPending textWidth="w-20" />
-          <MetadataItemPending textWidth="w-8" />
-          <Skeleton className="h-5 w-16" />
-        </div>
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
-          <MetadataItemPending dot textWidth="w-20" />
-          <MetadataItemPending textWidth="w-10" />
-          <MetadataItemPending textWidth="w-10" />
-          <MetadataItemPending textWidth="w-40" />
-        </div>
-      </section>
+      {deployment ? (
+        <DeploymentMetadata
+          deployment={deployment}
+          deployments={context.deployments ?? []}
+          teamSlug={context.teamSlug}
+          projectName={context.projectName}
+        />
+      ) : (
+        <section className="space-y-4 text-sm">
+          <div className="flex min-h-5 flex-wrap items-center gap-x-8 gap-y-2">
+            <div className="w-28 shrink-0">
+              <MetadataItemPending icon={<CircleHelpIcon />} textWidth="w-20" />
+            </div>
+            <div className="min-w-16">
+              <MetadataItemPending icon={<Clock3Icon />} textWidth="w-8" />
+            </div>
+            <div className="h-5 min-w-20" />
+          </div>
+          <div className="flex min-h-5 flex-wrap items-center gap-x-8 gap-y-2">
+            <MetadataItemPending icon={<EnvironmentDot />} textWidth="w-20" />
+            <MetadataItemPending icon={<ServerIcon />} textWidth="w-36" />
+            <MetadataItemPending icon={<GitBranchIcon />} textWidth="w-10" />
+            <MetadataItemPending
+              icon={<GitCommitHorizontalIcon />}
+              iconSize={20}
+              textWidth="w-40"
+            />
+          </div>
+        </section>
+      )}
       <section className="space-y-4">
         <DeploymentLogAreaPending />
-        <div className="flex justify-end">
-          <Skeleton className="h-7 w-20" />
+        <div className="flex min-h-8 items-start justify-end">
+          <Button variant="outline" size="sm" disabled>
+            All logs
+            <ArrowRightIcon data-icon="inline-end" />
+          </Button>
         </div>
       </section>
     </div>
@@ -205,43 +412,73 @@ function DeploymentDetailPending({
 }
 
 function MetadataItemPending({
-  dot = false,
+  icon,
+  iconSize = 16,
   textWidth,
 }: {
-  dot?: boolean
+  icon: ReactNode
+  iconSize?: 16 | 20
   textWidth: string
 }) {
   return (
-    <div className="flex items-center gap-x-2">
-      <Skeleton
-        className={dot ? 'size-2 shrink-0 rounded-full' : 'size-4 shrink-0'}
-      />
+    <div
+      className={`flex h-5 items-center gap-x-2 text-muted-foreground [&>svg]:shrink-0 [&>svg]:opacity-50 ${iconSize === 20 ? '[&>svg]:size-5' : '[&>svg]:size-4'}`}
+    >
+      {icon}
       <Skeleton className={`h-4 ${textWidth}`} />
     </div>
   )
 }
-
 function DeploymentLogAreaPending() {
   return (
-    <div className="h-[500px] overflow-hidden rounded-lg border border-border p-2">
-      {Array.from({ length: 15 }, (_, index) => (
-        <LogLinePending index={index} key={index} />
-      ))}
+    <div className="relative h-[500px] rounded-lg border p-2" aria-busy="true">
+      <DeploymentLogsPending />
     </div>
   )
 }
 
 function ProjectLogsPending({ context }: { context: PendingProjectContext }) {
+  const keyword = useRouterState({
+    select: (state) => state.location.search.keyword,
+  })
   return (
     <div className="space-y-8" aria-label="Loading project logs">
-      <ProjectHeadingPending actions={1} context={context} crumbs={['Logs']} />
+      <ProjectHeadingPending
+        context={context}
+        crumbs={['Logs']}
+        controls={
+          <Button variant="outline" size="icon" disabled aria-label="Refresh">
+            <RefreshCwIcon />
+          </Button>
+        }
+      />
       <section>
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <Skeleton className="h-8 w-48" />
-            {Array.from({ length: 4 }, (_, index) => (
-              <Skeleton className="h-8 w-32" key={index} />
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <InputGroup className="w-48">
+              <InputGroupAddon>
+                <SearchIcon />
+              </InputGroupAddon>
+              <InputGroupInput
+                aria-label="Find in logs"
+                placeholder="Find in logs"
+                value={typeof keyword === 'string' ? keyword : ''}
+                readOnly
+                disabled
+              />
+            </InputGroup>
+            <PendingFilter
+              name="deploymentId"
+              label="All deployments"
+              unknownSelection
+            />
+            <PendingFilter
+              name="environmentId"
+              label="All environments"
+              unknownSelection
+            />
+            <PendingFilter name="date" label="All dates" />
+            <PendingFilter name="branch" label="All branches" />
           </div>
           <LogAreaPending />
         </div>
@@ -258,229 +495,445 @@ function ProjectSettingsPending({
   return (
     <div className="space-y-8" aria-label="Loading project settings">
       <ProjectHeadingPending context={context} crumbs={['Project settings']} />
-      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-        <div className="space-y-8">
-          {[
-            {
-              bodyHeight: 'h-[23.5rem]',
-              description:
-                'General settings for the project including the Git repository.',
-              rows: 4,
-              title: 'General',
-            },
-            {
-              bodyHeight: 'h-[47.5rem]',
-              description:
-                'Configure the Compose file, deployment commands, and health checks.',
-              largeRows: 3,
-              rows: 7,
-              title: 'Build & Deploy',
-            },
-            {
-              bodyHeight: 'h-[11.5rem]',
-              description:
-                'Deployments will be associated with the first environment with a matching branch pattern.',
-              rows: 2,
-              title: 'Environments',
-            },
-            {
-              bodyHeight: 'h-40',
-              description:
-                'Variables available at build time and runtime. Changes will take effect after a new deployment.',
-              rows: 2,
-              title: 'Environment variables',
-            },
-            {
-              bodyHeight: 'h-44',
-              description:
-                'Choose a default server, then override individual environments when needed.',
-              rows: 2,
-              title: 'Servers',
-            },
-            {
-              bodyHeight: 'h-32',
-              description:
-                'Default routes apply to every environment. Environment routes add paths or override the default target for the same path.',
-              rows: 1,
-              title: 'Routes',
-            },
-            {
-              bodyHeight: 'h-40',
-              description:
-                "Custom domain names associated with this project's environments.",
-              rows: 2,
-              title: 'Domains',
-            },
-            {
-              bodyHeight: 'h-8',
-              compact: true,
-              description:
-                'Permanently delete the project and all of its configuration, environments and deployments.',
-              rows: 1,
-              title: 'Danger',
-            },
-          ].map((config, index) => (
-            <SettingsCardPending {...config} footer={index < 7} key={index} />
-          ))}
-        </div>
-        <SectionNavigation
-          className="hidden lg:flex"
-          items={projectSettingsNavigationItems}
-        />
-      </div>
+      <SettingsLayout navigation={projectSettingsNavigationItems}>
+        <ProjectGeneralPending context={context} />
+        <BuildDeployPending />
+        <EnvironmentSettingsPending context={context} />
+        <EnvironmentVariablesPending />
+        <ServerSettingsPending context={context} />
+        <RouteSettingsPending />
+        <DomainSettingsPending />
+        <DangerSettingsPending />
+      </SettingsLayout>
     </div>
   )
 }
 
-function BackupsPending({ context }: { context: PendingProjectContext }) {
+function ProjectGeneralPending({
+  context,
+}: {
+  context: PendingProjectContext
+}) {
   return (
-    <div className="space-y-8" aria-label="Loading backups">
-      <ProjectHeadingPending context={context} crumbs={['Backups']} />
+    <SettingsSection
+      id="general"
+      title="General"
+      description="General settings for the project including the Git repository."
+      footer={<SettingsFooterPending />}
+    >
       <div className="space-y-8">
-        <section className="space-y-4">
-          <SectionHeadingPending action label="Backup policies" />
-          <ListPending rows={3} />
-        </section>
-        <section className="space-y-4">
-          <SectionHeadingPending action label="Backup runs" />
-          <div className="flex flex-wrap gap-2">
-            <Skeleton className="h-8 w-44" />
-            <Skeleton className="h-8 w-36" />
-            <Skeleton className="h-8 w-32" />
-            <Skeleton className="h-8 w-32" />
+        <Field>
+          <FieldLabel>Avatar</FieldLabel>
+          <div className="flex items-center gap-x-2">
+            <ResourceAvatar
+              name={context.projectName}
+              src={context.avatarUrl ?? undefined}
+              color={context.color}
+              size="md"
+            />
+            <Button variant="outline" size="sm" disabled>
+              <UploadIcon data-icon="inline-start" />
+              Upload image
+            </Button>
+            {context.avatarUrl ? (
+              <Button
+                variant="destructive"
+                size="icon-sm"
+                disabled
+                aria-label="Remove image"
+              >
+                <Trash2Icon />
+              </Button>
+            ) : null}
           </div>
-          <ListPending rows={5} />
-        </section>
+        </Field>
+        <Field>
+          <FieldLabel>Project name</FieldLabel>
+          <Input value={context.projectName} readOnly disabled />
+        </Field>
+        <Field>
+          <FieldLabel>Git repository</FieldLabel>
+          <div className="flex items-center">
+            <Button
+              variant="outline"
+              disabled
+              className="rounded-r-none border-r-0 font-normal"
+            >
+              {context.githubRepo ?? <Skeleton className="h-4 w-40" />}
+              <ChevronsUpDownIcon data-icon="inline-end" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="rounded-l-none"
+              disabled
+              aria-label="View on GitHub"
+            >
+              <ArrowUpRightIcon />
+            </Button>
+          </div>
+        </Field>
+        <Field>
+          <FieldLabel>Project ID</FieldLabel>
+          <InputGroup>
+            <InputGroupInput
+              className="font-mono text-[13px] text-muted-foreground"
+              value={context.projectId ?? ''}
+              readOnly
+              disabled={!context.projectId}
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                size="icon-sm"
+                aria-label="Copy project ID"
+                disabled={!context.projectId}
+                onClick={() =>
+                  context.projectId &&
+                  void copyText(context.projectId, 'Project ID')
+                }
+              >
+                <CopyIcon />
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          <FieldDescription>
+            A unique identifier used in API, environment variables, etc.
+          </FieldDescription>
+        </Field>
       </div>
-    </div>
+    </SettingsSection>
   )
 }
 
-function BackupDetailPending({ context }: { context: PendingProjectContext }) {
+function BuildDeployPending() {
   return (
-    <div className="space-y-8" aria-label="Loading backup policy">
-      <ProjectHeadingPending context={context} crumbs={['Backups', null]} />
-      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-        <div className="space-y-8">
-          {[
-            {
-              bodyHeight: 'h-80',
-              description:
-                'Name, environment, and schedule for this backup policy.',
-              rows: 4,
-              title: 'General',
-            },
-            {
-              bodyHeight: 'h-[35rem]',
-              description: 'Upload backup artifacts to remote object storage.',
-              rows: 6,
-              title: 'Remote backups',
-            },
-            {
-              bodyHeight: 'h-72',
-              description:
-                'Limits retained local and remote backup generations by count, age, and storage.',
-              rows: 4,
-              title: 'Retention',
-            },
-            {
-              bodyHeight: 'h-56',
-              description:
-                'Archive named Compose volumes for this environment.',
-              rows: 3,
-              title: 'Volume backups',
-            },
-            {
-              bodyHeight: 'h-64',
-              description:
-                'Run database dump commands before the archive is uploaded.',
-              rows: 3,
-              title: 'Database dumps',
-            },
-            {
-              bodyHeight: 'h-8',
-              compact: true,
-              description:
-                'Delete this backup policy. Existing backup runs are kept.',
-              rows: 1,
-              title: 'Danger',
-            },
-          ].map((config, index) => (
-            <SettingsCardPending {...config} footer={index < 5} key={index} />
-          ))}
-        </div>
-        <SectionNavigation
-          className="hidden lg:flex"
-          items={backupNavigationItems}
+    <SettingsSection
+      id="build-and-deploy"
+      title="Build & Deploy"
+      description="Configure the Compose file, deployment commands, and health checks."
+      footer={<SettingsFooterPending />}
+    >
+      <FieldGroup>
+        <SettingsFieldPending
+          label="Compose file path"
+          description="Repository-relative path to the Compose file. Defaults to compose.yml."
         />
+        <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]">
+          <SettingsFieldPending
+            label="Pre-deploy command"
+            multiline
+            description={
+              <>
+                Runs once before services are updated. For example,{' '}
+                <code>php artisan migrate --force</code>. Leave empty to skip.
+              </>
+            }
+          />
+          <SettingsFieldPending
+            label="Pre-deploy service"
+            description="Service to run the pre-deploy command."
+          />
+        </div>
+        <SettingsFieldPending
+          label="Deploy command"
+          multiline
+          placeholder="docker compose up -d --no-build"
+          description={
+            <>
+              Runs on the server to update services after images and the
+              pre-deploy command are ready. When empty, uses{' '}
+              <code>docker compose up -d --no-build</code>.
+            </>
+          }
+        />
+        <SettingsFieldPending
+          label="Rollback command"
+          multiline
+          placeholder="docker compose up -d --no-build"
+          description="Runs on the server when deploying a previous revision. When empty, uses the deploy command."
+        />
+        <SettingsFieldPending
+          label="Command timeout (required)"
+          description="Maximum runtime for either command: 60–7,200 seconds."
+        />
+        <SettingsFieldPending
+          label="Health check path"
+          description="Path requested after deployment to confirm the service is ready."
+        />
+      </FieldGroup>
+    </SettingsSection>
+  )
+}
+
+function SettingsFieldPending({
+  multiline = false,
+  placeholder,
+  description,
+  label,
+}: {
+  multiline?: boolean
+  placeholder?: string
+  description?: ReactNode
+  label: string
+}) {
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      {multiline ? (
+        <Textarea
+          aria-label={label}
+          disabled
+          rows={1}
+          className="min-h-8 resize-none overflow-hidden py-1.5 font-mono"
+          placeholder={placeholder}
+        />
+      ) : (
+        <Skeleton className="h-8 w-full" />
+      )}
+      {description ? <FieldDescription>{description}</FieldDescription> : null}
+    </Field>
+  )
+}
+
+function SettingsFooterPending() {
+  return (
+    <>
+      <Button variant="ghost" disabled>
+        Cancel
+      </Button>
+      <Button disabled>Save</Button>
+    </>
+  )
+}
+
+function EnvironmentSettingsPending({
+  context,
+}: {
+  context: PendingProjectContext
+}) {
+  return (
+    <SettingsTablePending
+      title="Environments"
+      description="Deployments will be associated with the first environment with a matching branch pattern."
+      columns="grid-cols-[repeat(3,minmax(0,1fr))_2rem]"
+      headers={[
+        'Name (required)',
+        'Identifier (required)',
+        'Branch (required)',
+        '',
+      ]}
+      rows={context.environments?.length ?? 1}
+      values={context.environments?.map((environment) => [
+        environment.name,
+        environment.slug,
+        environment.branch,
+        null,
+      ])}
+      action="Add environment"
+    />
+  )
+}
+
+function EnvironmentVariablesPending() {
+  return (
+    <SettingsTablePending
+      title="Environment variables"
+      description="Variables available at build time and runtime. Changes will take effect after a new deployment."
+      columns="grid-cols-[200px_minmax(0,1fr)_220px_2rem]"
+      headers={['Key', 'Value', 'Environment', '']}
+      rows={1}
+      action="Add variable"
+    />
+  )
+}
+
+function ServerSettingsPending({
+  context,
+}: {
+  context: PendingProjectContext
+}) {
+  return (
+    <SettingsTablePending
+      title="Servers"
+      description="Choose a default server, then override individual environments when needed."
+      columns="grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+      headers={['Scope', 'Server']}
+      rows={1 + (context.environments?.length ?? 1)}
+      values={[
+        ['Default', null],
+        ...(context.environments?.map((environment) => [
+          environment.name,
+          null,
+        ]) ?? [[null, null]]),
+      ]}
+    />
+  )
+}
+
+function RouteSettingsPending() {
+  return (
+    <SettingsTablePending
+      title="Routes"
+      description="Default routes apply to every environment. Environment routes add paths or override the default target for the same path."
+      columns="grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem]"
+      headers={['Scope', 'Path *', '', 'Service *', 'Port *', 'Strip', '']}
+      rows={1}
+      action="Add route"
+    />
+  )
+}
+
+function DomainSettingsPending() {
+  return (
+    <SettingsTablePending
+      title="Domains"
+      description="Custom domain names associated with this project's environments."
+      columns="grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_5.5rem_2.5rem]"
+      headers={['Host *', 'Environment *', 'Base route', 'HTTPS', 'Status', '']}
+      rows={1}
+      action="Add domain"
+    />
+  )
+}
+
+function DangerSettingsPending() {
+  return (
+    <SettingsSection
+      id="danger"
+      title="Danger"
+      description="Permanently delete the project and all of its configuration, environments and deployments."
+    >
+      <Button variant="destructive" disabled>
+        Delete project
+      </Button>
+    </SettingsSection>
+  )
+}
+
+function SettingsTablePending({
+  action,
+  columns,
+  description,
+  headers,
+  rows,
+  title,
+  values,
+}: {
+  action?: string
+  columns: string
+  description: string
+  headers: Array<string>
+  rows: number
+  values?: Array<Array<string | null>>
+  title: string
+}) {
+  return (
+    <SettingsSection
+      id={title.toLowerCase().replaceAll(' ', '-')}
+      title={title}
+      description={description}
+      footer={<SettingsFooterPending />}
+    >
+      <div
+        className={`grid gap-x-2 border-b ${title === 'Routes' || title === 'Domains' ? 'pb-2' : 'pb-3'} text-sm font-medium ${columns}`}
+      >
+        {headers.map((header, index) => (
+          <span key={`${header}:${index}`}>{header}</span>
+        ))}
       </div>
-    </div>
+      {Array.from({ length: rows }, (_, row) => (
+        <div
+          className={`grid min-h-12 items-center gap-x-2 border-b py-2 ${columns}`}
+          key={row}
+        >
+          {headers.map((header, column) =>
+            values?.[row]?.[column] != null ? (
+              title === 'Servers' ? (
+                <span className="text-sm" key={column}>
+                  {values[row][column]}
+                </span>
+              ) : (
+                <Input
+                  key={column}
+                  value={values[row][column] ?? ''}
+                  readOnly
+                  disabled
+                />
+              )
+            ) : (
+              <Skeleton
+                className={
+                  header === '' ? 'size-8 justify-self-end' : 'h-8 w-full'
+                }
+                key={column}
+              />
+            ),
+          )}
+        </div>
+      ))}
+      {action ? (
+        <Button className="mt-3" variant="outline" disabled>
+          <PlusIcon data-icon="inline-start" />
+          {action}
+        </Button>
+      ) : null}
+    </SettingsSection>
+  )
+}
+
+function BackupDetailPending({
+  context,
+  canManage,
+}: {
+  context: PendingProjectContext
+  canManage?: boolean
+}) {
+  return (
+    <ProjectBackupDetailsPending
+      canManage={canManage}
+      heading={
+        <ProjectHeadingPending context={context} crumbs={['Backups', null]} />
+      }
+    />
   )
 }
 
 function ProjectHeadingPending({
-  actions = 0,
-  action = false,
+  controls,
   context,
   crumbs = [],
   monoLast = false,
 }: {
-  actions?: number
-  action?: boolean
+  controls?: ReactNode
   context: PendingProjectContext
   crumbs?: Array<string | null>
   monoLast?: boolean
 }) {
-  const actionCount = actions || (action ? 1 : 0)
-
   return (
-    <header className="flex min-h-10 items-center justify-between gap-4">
-      <h1 className="flex min-w-0 items-center gap-x-3 text-2xl font-medium">
-        <a
-          className="shrink-0"
-          href={`/${context.teamSlug}/projects/${context.projectName}`}
-        >
-          <ResourceAvatar
-            name={context.projectName}
-            src={context.avatarUrl ?? undefined}
-            color={context.color}
-            size="md"
-          />
-        </a>
-        {crumbs.length === 0 ? (
-          <span className="truncate">{context.projectName}</span>
+    <ProjectHeading
+      teamSlug={context.teamSlug}
+      project={{
+        avatarUrl: context.avatarUrl,
+        color: context.color,
+        name: context.projectName,
+      }}
+      crumbs={crumbs.map((crumb, index) =>
+        crumb ? (
+          <span
+            className={
+              monoLast && index === crumbs.length - 1
+                ? 'truncate font-mono'
+                : 'truncate'
+            }
+          >
+            {crumb}
+          </span>
         ) : (
-          crumbs.map((crumb, index) => (
-            <span className="contents" key={`${crumb ?? 'loading'}:${index}`}>
-              <span className="text-muted-foreground/25 font-normal">/</span>
-              {crumb ? (
-                <span
-                  className={
-                    monoLast && index === crumbs.length - 1
-                      ? 'truncate font-mono'
-                      : 'truncate'
-                  }
-                >
-                  {crumb}
-                </span>
-              ) : (
-                <Skeleton className="h-8 w-32" />
-              )}
-            </span>
-          ))
-        )}
-      </h1>
-      {actionCount > 0 ? (
-        <div className="flex gap-2">
-          {Array.from({ length: actionCount }, (_, index) => (
-            <Skeleton
-              className={index === 0 ? 'h-8 w-20 shrink-0' : 'size-8 shrink-0'}
-              key={index}
-            />
-          ))}
-        </div>
-      ) : null}
-    </header>
+          <Skeleton className="h-8 w-32" />
+        ),
+      )}
+      actions={controls}
+    />
   )
 }
 
@@ -494,109 +947,64 @@ function SectionHeadingPending({
   return (
     <div className="flex h-8 items-center justify-between gap-4">
       <h2 className="text-base font-medium">{label}</h2>
-      {action ? <Skeleton className="h-8 w-36" /> : null}
-    </div>
-  )
-}
-
-function ListPending({ rows }: { rows: number }) {
-  return (
-    <div className="overflow-hidden rounded-xl border">
-      {Array.from({ length: rows }, (_, index) => (
-        <div
-          className="flex h-11 items-center gap-4 border-b px-4 last:border-b-0"
-          key={index}
-        >
-          <Skeleton className="size-4 shrink-0 rounded-full" />
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-4 w-28" />
-          <Skeleton className="h-4 min-w-20 flex-1" />
-          <Skeleton className="size-8 shrink-0" />
-        </div>
-      ))}
+      {action ? (
+        <Button disabled>
+          <SettingsIcon data-icon="inline-start" />
+          Manage environments
+        </Button>
+      ) : null}
     </div>
   )
 }
 
 function LogAreaPending() {
   return (
-    <div className="h-[500px] overflow-hidden rounded-lg border p-2">
-      {Array.from({ length: 15 }, (_, index) => (
-        <LogLinePending badge index={index} key={index} />
-      ))}
+    <div className="relative h-[500px] rounded-lg border p-2" aria-busy="true">
+      <p role="status" className="p-2 text-sm text-muted-foreground">
+        Loading logs…
+      </p>
     </div>
   )
 }
 
-function LogLinePending({
-  badge = false,
-  index,
+function PendingFilter({
+  name,
+  label,
+  className,
+  unknownSelection = false,
 }: {
-  badge?: boolean
-  index: number
+  name: string
+  label: string
+  className?: string
+  unknownSelection?: boolean
 }) {
+  const search = useRouterState({ select: (state) => state.location.search })
+  const value = (search as Record<string, unknown>)[name]
+  const selected = typeof value === 'string' && value !== 'all' && value !== ''
+  const dates: Record<string, string> = {
+    today: 'Today',
+    '24h': 'Last 24 hours',
+    '7d': 'Last 7 days',
+    '30d': 'Last 30 days',
+  }
+  const selectedLabel = selected
+    ? name === 'date'
+      ? (dates[value] ?? label)
+      : name === 'status'
+        ? value.charAt(0).toUpperCase() + value.slice(1)
+        : value
+    : label
   return (
-    <div className="flex items-start gap-x-4 rounded-md px-2 py-1.5">
-      <Skeleton className={badge ? 'h-5 w-28 shrink-0' : 'h-5 w-16 shrink-0'} />
-      {badge ? <Skeleton className="h-5 w-16 shrink-0" /> : null}
-      <div className="min-w-0 flex-1">
-        <Skeleton
-          className="h-5"
-          style={{ width: `${42 + ((index * 11) % 47)}%` }}
-        />
-      </div>
-    </div>
-  )
-}
-
-function SettingsCardPending({
-  bodyHeight,
-  compact = false,
-  description,
-  footer = true,
-  largeRows = 0,
-  rows,
-  title,
-}: {
-  bodyHeight: string
-  compact?: boolean
-  description: string
-  footer?: boolean
-  largeRows?: number
-  rows: number
-  title: string
-}) {
-  return (
-    <Card>
-      <CardHeader className="space-y-2 border-b">
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className={`${bodyHeight} overflow-hidden`}>
-        {compact ? (
-          <Skeleton className="h-8 w-36" />
-        ) : (
-          <div className="space-y-6">
-            {Array.from({ length: rows }, (_, index) => (
-              <div className="space-y-2" key={index}>
-                <Skeleton
-                  className={index % 3 === 1 ? 'h-4 w-32' : 'h-4 w-24'}
-                />
-                <Skeleton
-                  className={index < largeRows ? 'h-16 w-full' : 'h-8 w-full'}
-                />
-                <Skeleton className="h-4 w-2/3" />
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-      {footer ? (
-        <CardFooter className="justify-end gap-2">
-          <Skeleton className="h-8 w-16" />
-          <Skeleton className="h-8 w-16" />
-        </CardFooter>
-      ) : null}
-    </Card>
+    <Select disabled>
+      <SelectTrigger className={className} aria-label={label}>
+        <SelectValue>
+          {selected && unknownSelection ? (
+            <Skeleton className="h-4 w-24" />
+          ) : (
+            selectedLabel
+          )}
+        </SelectValue>
+      </SelectTrigger>
+    </Select>
   )
 }

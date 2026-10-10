@@ -17,6 +17,7 @@ WORKDIR /repo
 ARG VITE_DEVPUSH_BACKUPS_ENABLED=false
 ENV VITE_DEVPUSH_BACKUPS_ENABLED=$VITE_DEVPUSH_BACKUPS_ENABLED
 
+RUN apk add --no-cache python3 make g++
 RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -29,6 +30,7 @@ COPY app ./app
 RUN pnpm --dir app build
 RUN cd app && pnpm exec esbuild scripts/migrate.ts \
     --bundle \
+    --external:better-sqlite3 \
     --platform=node \
     --format=esm \
     --target=node22 \
@@ -38,6 +40,7 @@ RUN cd app && pnpm exec esbuild scripts/migrate.ts \
     --outfile=.maintenance/migrate.mjs
 RUN cd app && pnpm exec esbuild scripts/sync-agent-binaries.ts \
     --bundle \
+    --external:better-sqlite3 \
     --platform=node \
     --format=esm \
     --target=node22 \
@@ -59,7 +62,10 @@ ENV DEVPUSH_AGENT_BINARY_DIR=/repo/bin
 
 COPY --from=app-builder /repo/app/.output ./.output
 COPY --from=app-builder /repo/app/.maintenance ./.maintenance
-COPY --from=app-builder /repo/app/src/server/db/migrations ./src/server/db/migrations
+COPY --from=app-builder /repo/app/src/server/db/migrations-sqlite ./src/server/db/migrations-sqlite
+COPY --from=app-builder /repo/app/src/server/db/migrations-logs ./src/server/db/migrations-logs
+COPY app/scripts/backup-sqlite.mjs ./.maintenance/backup-sqlite.mjs
+RUN ln -s .output/server/node_modules node_modules
 COPY --from=agent-builder /out/devpush-agent-linux-amd64 /repo/bin/devpush-agent-linux-amd64
 COPY --from=agent-builder /out/devpush-agent-linux-arm64 /repo/bin/devpush-agent-linux-arm64
 

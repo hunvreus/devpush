@@ -5,14 +5,13 @@
 - Node.js 22 or newer.
 - pnpm 10.17 or newer.
 - Go 1.27 or newer.
-- Docker for local Postgres.
+- Docker for testing agent deployments.
 
 ## Control plane
 
 ```bash
 cp app/.env.example app/.env
 pnpm install
-docker compose -f deploy/compose.yml up -d
 pnpm --dir app db:migrate
 pnpm --dir app dev
 ```
@@ -28,7 +27,7 @@ pnpm dev:stop
 pnpm dev:restart
 ```
 
-`pnpm dev:start` starts local Postgres, requires the `devpush-test` Lima VM by
+`pnpm dev:start` requires the `devpush-test` Lima VM by
 default, syncs the database, and starts the control plane in the background.
 Use `DEVPUSH_LIMA_INSTANCE=name` for another VM, or `DEVPUSH_REQUIRE_LIMA=0`
 when testing only the web app. The dev server log is `.tmp/devpush-dev.log`.
@@ -62,24 +61,164 @@ Use the actual Lima instance name through `DEVPUSH_LIMA_INSTANCE` when it is not
 `devpush-test`. Use a stable HTTPS origin for a remote server or any flow that
 must be internet-accessible.
 
-There is no UI setting for this runtime configuration. Change
-`DEVPUSH_BASE_URL` and restart or redeploy the app before creating new install
-commands. Existing agents keep their persisted URL; repoint one by editing
-`DEVPUSH_BASE_URL` in `/etc/devpush/agent.env` and restarting it:
+For temporary remote-agent testing, a Cloudflare Quick Tunnel must remain
+running alongside the local control plane. When its process stops, the remote
+agent loses its route to the laptop and appears disconnected even if the host,
+agent service, and deployed containers are healthy. A new Quick Tunnel can have
+a different URL; existing agents retain the previous URL. Check the persisted
+`DEVPUSH_BASE_URL`, agent logs, and tunnel process before treating this as a host
+outage. Quick Tunnel hostnames cannot be reused after the tunnel is recreated.
+Use a stable named tunnel hostname for repeated remote testing. When forwarding
+into Vite, `--http-host-header localhost` avoids granting a whole shared hostname
+suffix access through Vite's host allowlist.
+
+The shared remote test server uses the named tunnel `devpush-local` at
+`https://devpush-local.hostnull.com`, forwarding to `http://localhost:7429`.
+Its Cloudflare-managed route sets the HTTP Host header to `localhost`.
+From the repository root, start the connector alongside the local app:
 
 ```bash
-sudo systemctl restart devpush-agent
+.tmp/cloudflared/cloudflared tunnel --no-autoupdate run \
+  --token-file .data/cloudflared/devpush-local.token
 ```
+
+The connector token is a private, Git-ignored local credential (mode `0600`),
+not an application environment variable. Keep it across development sessions.
+Restarting this connector preserves the public hostname; stopping it or the
+local app still makes the remote agent unavailable. The downloaded binary is
+in `.tmp/cloudflared`; an installed `cloudflared` can run the same command.
+
+On the shared macOS development machine, the connector is supervised by
+`~/Library/LaunchAgents/com.devpush.local-tunnel.plist`. It starts at login and
+restarts after exit, using `.data/cloudflared/cloudflared` and the existing token.
+Logs are written to `.data/cloudflared/connector.log`. Check its state with
+`launchctl print gui/$(id -u)/com.devpush.local-tunnel` and verify
+`https://devpush-local.hostnull.com/api/health` returns HTTP 200. Cloudflare error
+1033 means no healthy tunnel connector is available; a healthy local endpoint
+alone does not prove remote agents can reach it. The dev start/stop commands
+manage the local app, while launchd manages this connector independently.
+The laptop must be awake, online, and running the local app. Use a hosted
+control plane when remote agents need availability independent of the laptop.
+
+Restoring a tunnel to the same control plane is endpoint recovery, not migration
+to another installation. Preserve the agent's server ID, credentials and state
+folder. First verify the new tunnel reaches the existing local instance, drain
+active work and completion reports, then back up and atomically update only the
+persisted URL. Restart the agent, require a confirmed heartbeat, and resume job
+claims; restore the backup if confirmation fails. Deployed containers keep
+running. Release the maintenance lock before invoking the separate resume
+command, since that command acquires the same lock.
+
+There is no UI setting for this runtime configuration. Change
+`DEVPUSH_BASE_URL` and restart or redeploy the app before creating new install
+commands. Existing agents keep their persisted URL and credentials. Use the
+maintenance switch flow below instead of changing only the agent URL.
 
 Agents installed before this configuration change may still have
 `DEVPUSH_SERVER_URL` in that file. Rename the key to `DEVPUSH_BASE_URL` before
 starting the updated agent, or reinstall the agent with a newly generated
-command.
+command on a host that has not already enrolled.
+
+## Agent maintenance
+
+The root-owned updater `/usr/local/lib/devpush/update-agent` downloads and verifies
+the binary, then invokes `devpush-agent maintenance update --binary PATH`.
+Identical binaries do not restart the service. Changed binaries wait up to
+30 minutes for the current job and its saved completion reports, with heartbeats
+continuing. Timeout or delivery failure postpones the update and resumes claims.
+An unsuccessful restart/confirmation heartbeat restores the previous binary.
+
+Switch an empty server to another control plane:
+
+1. Create a fresh server record on the destination and generate an install command.
+2. Save only its `dps_...` enrollment token to a root-readable file on the VM.
+3. Run:
+
+```bash
+sudo devpush-agent maintenance switch \
+  --url https://destination.example.com --token-file /root/destination-token
+```
+
+The destination must use HTTPS and the source must support `/api/agents/switch`.
+Managed projects, deployment history, Compose containers, and outstanding jobs
+block switching. Destination credentials are isolated from the original state.
+The source is disabled before selecting the new config; a failed confirmation
+heartbeat restores the original config and re-enables the source. Applications
+are never stopped by maintenance. Remove the disabled source record separately
+after a successful switch.
+
+For recovery, the original config and signed source rollback data are retained
+as `/etc/devpush/agent.env.switch-backup` and its `.json` companion with mode
+`0600`. Treat them as credentials. A process crash, power loss, or failed source
+rollback requires operator recovery; automatic rollback covers reported runtime
+errors, not an interrupted maintenance command. Failed staging may leave a
+destination record and state directory; inspect before retrying.
+
+`sudo devpush-agent maintenance drain` pauses claims without stopping the agent.
+Use `sudo devpush-agent maintenance resume` to undo a manual drain. Maintenance
+commands exclude concurrent maintenance operations. Agent binaries installed
+before drain support cannot be upgraded automatically through this path; they
+fail closed and require an operator-supervised idle bootstrap. Existing agents
+must receive the updated updater before using the new safe update flow.
+
+## Hetzner test server
+
+Use `pnpm setup:hetzner` to create a disposable remote agent server without a
+provider integration in the product. Requires Node.js 22 and a Hetzner Cloud
+project API token (read/write for creation) in `HETZNER_API_TOKEN`.
+
+1. Add a server in the staging devpush UI and save its install command in a
+   private file, for example `.tmp/hetzner-install.sh` with permissions `0600`.
+   The command must use the public staging HTTPS origin, not localhost or Lima.
+2. Add your public SSH key to the same Hetzner project in Hetzner Console.
+3. List current options, then choose names from the response:
+
+```bash
+pnpm setup:hetzner -- --list
+pnpm setup:hetzner -- --name devpush-test --location REGION --type TYPE \
+  --ssh-key KEY_NAME --install-file .tmp/hetzner-install.sh
+```
+
+The second command previews current server prices without creating anything.
+The default image is Ubuntu 24.04; use `--image NAME` to select another compatible
+system image. Public IP charges are additional. Repeat with `--create` to create
+a billable server. The helper validates live availability and architecture, then
+passes the command as cloud-init user data. It does not create a devpush record.
+
+Creation output includes the Hetzner server ID and SSH address. Creation does not
+prove enrollment succeeded: check the devpush server status and, through SSH,
+`cloud-init status --wait` and `/var/log/cloud-init-output.log`. The command is
+sent to Hetzner and stored on the VM; treat the file and cloud-init logs as secrets.
+The helper never retries creation automatically. If the outcome is uncertain,
+check Hetzner Console before rerunning to avoid duplicate servers.
+
+The helper records its new server and Primary IP IDs in the Git-ignored
+`.data/hetzner-test.json` (no API or enrollment tokens). Use `--state PATH` for
+multiple test instances. An existing tracking file prevents another creation
+from overwriting resource IDs. If creation is uncertain, the pending file is
+retained; reconcile it through Hetzner Console before removing it or retrying.
+
+Preview cleanup, then delete the tracked server and its newly created IPs:
+
+```bash
+node --env-file=.env scripts/setup-hetzner.mjs --destroy
+node --env-file=.env scripts/setup-hetzner.mjs --destroy --yes
+```
+
+Cleanup retains state on failure so rerunning can resume. Missing resources are
+accepted; IPs reassigned to another server are never deleted. This only cleans
+resources tracked by this helper, not existing SSH keys, networks, firewalls,
+volumes, or servers created before tracking was added. Remove the devpush record
+separately. Powering off a server does not stop billing.
 
 ## Production control plane
 
 The production Compose file builds the app and the Linux agent binary into
 one control-plane image:
+
+Copy the example, fill every blank secret in `deploy/.env.production` with an
+independently generated value, then start Compose. The interactive
+`pnpm configure` self-hosted path generates these values automatically.
 
 ```bash
 cp deploy/.env.production.example deploy/.env.production
@@ -94,7 +233,7 @@ The one-shot `migrate` service runs reviewed SQL migrations with
 `pnpm --dir app db:migrate` before starting the Node server. It never runs
 `drizzle-kit push` in production. The app also mounts the `app_uploads` named volume at
 `/repo/app/public/uploads` so uploaded avatars are not lost when the app
-container is recreated.
+container is recreated. Both SQLite files persist in the `control_plane_data` volume mounted at `/app/storage`.
 
 ## Auth
 
@@ -121,6 +260,13 @@ unreadable.
 
 ### Email OTP with Resend
 
+Sign-in waits for Resend to accept the email before displaying code entry.
+The form shows sending/verifying progress immediately and stays disabled during
+successful navigation. A request-scoped Better Auth hook makes OTP and account verification email failures
+return HTTP 503 rather than being logged and swallowed by its background helper.
+This confirms provider acceptance, not inbox delivery. UI and auth integration
+tests cover pending requests, failures, retries, and concurrent sends.
+
 Required:
 
 ```bash
@@ -145,42 +291,106 @@ pnpm --dir app db:push
 ```
 
 `db:push` is for disposable local databases and rapid schema iteration only.
-Commit generated migrations and apply them with `pnpm --dir app db:migrate` for
-production-compatible validation.
+Generate main migrations with `pnpm --dir app db:generate` and log migrations
+with `pnpm --dir app db:generate:logs`. Commit both and apply them with
+`pnpm --dir app db:migrate` for production-compatible validation.
 
-The local Compose database is exposed on host port `7543` to avoid conflicts
-with local Postgres or SSH tunnels on `5432`.
-
-For DB-backed service integration tests, use a disposable database:
+Local SQLite files default to `app/.data/devpush.sqlite` and
+`app/.data/logs.sqlite` when commands run from `app/`. Override them with
+`DEVPUSH_DATABASE_PATH` and `DEVPUSH_LOG_DATABASE_PATH`; the paths must differ.
+Database integration tests create isolated temporary SQLite and D1 stores and
+apply committed migrations automatically:
 
 ```bash
-pnpm --dir app exec node - <<'NODE'
-const { Client } = require('pg')
-const dbName = 'devpush_integration'
-const c = new Client({
-  connectionString: 'postgres://devpush:devpush@localhost:7543/postgres',
-})
-async function main() {
-  await c.connect()
-  await c.query(`drop database if exists ${dbName} with (force)`)
-  await c.query(`create database ${dbName}`)
-  await c.end()
-}
-main().catch(async (error) => {
-  console.error(error)
-  try {
-    await c.end()
-  } catch {}
-  process.exit(1)
-})
-NODE
-DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush_integration pnpm --dir app db:migrate
-DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush_integration pnpm --dir app test:integration
+pnpm test:integration
 ```
+
+## CI checks and Worker smoke tests
+
+UI actions should use `getErrorMessage` (or `getFieldErrorMessage`) with an
+action-specific fallback. HTTP 5xx responses and recognized technical diagnostics
+use that fallback; network failures and rate limits get retry guidance. Preserve
+actionable validation messages, and keep full failure details in server logs.
+
+Keep loading states active through navigation. Close confirmations only after
+the mutation succeeds. Use `afterMutation` for refresh/navigation following a
+committed write so a failed follow-up cannot be reported as a failed write.
+Use `copyText` for clipboard feedback and `refreshView` for background refreshes;
+query-driven lists must distinguish failures from empty results and stale data.
+
+Account general settings share a validation schema between browser and server.
+Required Name/Username errors and avatar errors stay inline; server validation
+returns field errors rather than relying on serialized exception text.
+
+Team general settings use the same pattern for name, slug, and avatar fields.
+Account/team general settings submit through real forms and prevent changes
+during saves. Server creation and editing share their naming constraints.
+
+CI runs typecheck, full lint, unit tests, native SQLite and libSQL integration
+suites, the Node build, Go tests/vet, and the high-severity dependency audit.
+The D1 integration tests run in both integration invocations.
+
+A separate job builds and executes Workers with both D1 and remote libSQL. It
+checks login, concurrent health requests, and scheduled deletion of expired
+records in the main and log stores. Run the same checks locally with:
+
+```bash
+pnpm --dir app smoke:worker d1
+pnpm --dir app smoke:worker libsql
+```
+
+The libSQL smoke needs two disposable libSQL HTTP servers on loopback ports
+7561 and 7562, as configured in `.github/workflows/ci.yml`. Override these with
+`DEVPUSH_DATABASE_URL` and `DEVPUSH_LOG_DATABASE_URL`; non-loopback hosts are
+rejected. The script migrates those databases and writes test records. D1 uses
+isolated local storage. Both commands generate temporary configuration under
+`app/.tmp/` and stop their Wrangler process afterward. They do not deploy.
+
+TypeScript enables `noUncheckedIndexedAccess`: handle missing query rows and
+indexed values explicitly. Keep runtime guards; avoid assertions that merely
+hide possible missing data. Tests use `required()` when a fixture must exist.
+
+Add UI components with `pnpm dlx shadcn@latest add ...`. The application keeps
+its shadcn 4.19.0 stylesheet, with its license notice, in `src/styles/shadcn.css`;
+using the CLI does not require retaining its dependencies in the application.
+
+## Remote libSQL / Turso
+
+Node and Cloudflare Workers can use two remote libSQL databases.
+Choose **Turso / remote libSQL** during `pnpm configure`, or set:
+
+```env
+DEVPUSH_DATABASE_URL=libsql://your-main-database.turso.io
+DEVPUSH_DATABASE_AUTH_TOKEN=your-main-token
+DEVPUSH_LOG_DATABASE_URL=libsql://your-log-database.turso.io
+DEVPUSH_LOG_DATABASE_AUTH_TOKEN=your-log-token
+```
+
+Both URLs are required and must identify separate databases. Tokens are optional
+for a self-hosted libSQL server that does not require authentication. URLs take
+precedence over file paths. Supported schemes are `libsql://`, `https://` and
+`http://`; HTTP is useful for local server testing. Do not put credentials in URLs.
+Without remote URLs, Node keeps using better-sqlite3 for local files. Workers
+use their D1 bindings when neither remote URL is configured.
+
+For Node, run `pnpm --dir app db:migrate` to apply both committed migration sets,
+then start the app. For Workers, the wizard stores URLs and tokens in
+`app/.cloudflare-secrets.json`; use `pnpm --dir app db:migrate:cloudflare`. This changes the selected storage; it does not copy existing
+local data to the remote databases. Run only one migration process at a time.
+
+The adapter sends guarded SQL batches through libSQL's atomic write batches.
+It does not expose callback transactions or use embedded replicas. The local
+Docker backup profile does not export remote databases; use the database
+provider's backup/export tooling for both stores.
+
+Run `pnpm --dir app test:integration:libsql` to exercise the shared service suite
+through libSQL with disposable local databases. This verifies the adapter and
+SQL behavior; hosted credentials and network availability require a separate
+check against the configured service.
 
 ## Smoke checks
 
-After local Postgres is running and the schema is synced:
+After applying both SQLite migration sets:
 
 ```bash
 pnpm smoke:deploy
@@ -478,3 +688,98 @@ DEVPUSH_BASE_URL=http://localhost:7429 \
 DEVPUSH_AGENT_TOKEN=dev-token \
 go run ./agent/cmd/devpush-agent -config /tmp/missing-devpush-agent.env
 ```
+
+Avatar form regression tests cover cancelling and replacing pending file reads,
+read failures, retries, and unmounting. Account, team, and project forms show
+image-read progress and block Save while reading; Cancel invalidates the read.
+
+Project general/build form tests exercise missing names, invalid paths and
+timeouts, server-side name conflicts, pending submit guards, network retry,
+and preservation of unsaved edits across sections. These forms share the
+server schema and return structured validation errors.
+
+Admin form tests cover rule/import validation, pending dismissal, failed
+requests, and confirmation retries. Allowlist service integration tests verify
+large imports, duplicate normalization, atomic rollback, and admin permissions.
+
+Account email forms preserve failed requests and show delivery errors in the
+form. Account confirmation tests cover disconnect, team departure, and deletion
+with exact confirmation, pending Escape prevention, retry, and success closure.
+
+Project creation tests cover required fields, shared path/command/environment
+constraints, pending edit/dismissal guards, and navigation failure after creation.
+Duplicate environment keys are rejected per environment during creation.
+
+Repository picker DOM tests cover inline retry, selection, and late responses
+from closed dialogs. Invitation tests cover pending cancellation and prevent
+repeating successful acceptance when navigation fails.
+
+Route/domain settings tests cover required fields, hostname/path/port rules,
+normalized duplicates, pending submissions, request retry, and preserving domain
+edits when saving routes. Shared schemas enforce the same request constraints
+on the client and server.
+
+Environment variable tests cover required/duplicate keys, empty values, scoped
+overrides, pending requests, retry, and invalid imports without partial insertion.
+The `.env` importer accepts optional `export`, comments, quoted whitespace and
+multiline quoted values; malformed assignments report their line number.
+
+Environment definition tests cover required fields, duplicate identifiers,
+Production protection, wildcard branch rules, pending submission, and failed
+save retry. Production protection follows the saved environment identity.
+
+Server assignment DOM tests cover new environments after context refresh,
+unsaved selections, pending controls and retry. Persistence integration verifies
+that definition-only environment saves retain stored server assignments.
+
+Deployment-dialog tests cover options retry, late-response cancellation, pending
+selection/dismissal, active-deployment confirmation, and navigation warnings after
+queueing. Redeploy/rollback and project-deletion tests verify inline failures,
+retry, pending dismissal and successful dialog closure without live deployments.
+
+Backup creation/restore tests cover context refresh, name/command limits,
+cron ranges and steps, pending dismissal, acknowledgement before closing, and
+request failure/retry. Restore requests are awaited by the dialog; callers must
+propagate failures so the dialog can retain its input and display the error.
+
+Backup detail DOM tests cover refresh preservation, retention upper/integer
+limits, database dump rows, pending controls and failed-save retry. Request
+errors focus a form-level message; shared schema errors focus their input.
+
+Backup action tests cover run/pause failure and retry, shared mutation locks,
+list/detail deletion confirmation and pending dismissal. Authentication tests
+also dispatch repeated form submissions to check handler-level duplicate guards.
+
+Search/filter DOM coverage verifies rapid filter composition, reset, failed
+navigation and retry, repository search clearing, and keyword debounce cleanup
+on reset/unmount. Project creation also tests retrying repository loading and
+canceling its pending dialog before data finishes loading.
+
+Caching regression tests cover team-scoped invalidation, canceled pre-mutation
+reads, stale shared-project refresh, runtime-log polling and final deployment-log
+snapshots. Router tests verify selective SSR and pending defaults. Worker smoke
+checks that authenticated route documents return skeletons without waiting for
+session data; this does not replace authenticated browser navigation/load tests.
+
+Team cache tests verify direct metadata updates across navigation snapshots while
+preserving unrelated data and timestamps. Deployment polling tests use query
+observers with fake timers to verify scoped refresh, hidden-tab pause, and stopping
+on completion. Team settings DOM tests ensure a successful general save does not
+invalidate the router.
+
+## Workspace WebSockets
+
+Normal `pnpm dev` uses Nitro’s WebSocket support, matching the browser notification
+flow used on Cloudflare. One Node process owns its workspace connections.
+Authenticated agent mutations and deployment enqueues broadcast change hints;
+queries refetch their authorized snapshots. Blocked sockets fall back to polling.
+Cloudflare’s local simulator is still needed to test Durable Object hibernation.
+
+The production Node build enables the same upgrade handler. Reverse proxies must
+forward WebSocket upgrades for `/api/workspaces/updates`. Do not run multiple
+Node instances expecting immediate cross-process broadcasts without adding a
+shared pub/sub transport.
+
+Use a separate Docker host for each control-plane test agent. Two agents on one
+Docker daemon can reconcile each other's runtimes as orphans, even with separate
+state directories. Keep staging enrollment tests isolated from local deployments.

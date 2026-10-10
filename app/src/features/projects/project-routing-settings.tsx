@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import type { FormErrors } from '@/lib/form-errors'
 import { ArrowRightIcon, LoaderIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +11,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
-import { Field } from '@/components/ui/field'
+import { Field, FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -24,7 +26,7 @@ import type {
   ProjectDomain,
   ProjectEnvironmentConfig,
   ProjectRoute,
-} from '@/server/projects/service'
+} from '@/server/projects/types'
 import { ProjectSettingsActionTooltip as IconActionTooltip } from './project-settings-section'
 import { getEffectiveProjectRoutes as getEffectiveRouteDefinitions } from './project-settings-utils'
 
@@ -44,8 +46,10 @@ export function RouteSettingsTable({
   routes,
   environments,
   onChange,
+  errors = {},
 }: {
   routes: Array<ProjectRouteDefinition>
+  errors?: FormErrors
   environments: Array<ProjectEnvironmentConfig>
   onChange: (routes: Array<ProjectRouteDefinition>) => void
 }) {
@@ -80,10 +84,10 @@ export function RouteSettingsTable({
           <div>
             <div className="grid w-full grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
               <div>Scope</div>
-              <div>Path</div>
+              <div>Path *</div>
               <div />
-              <div>Service</div>
-              <div>Port</div>
+              <div>Service *</div>
+              <div>Port *</div>
               <div>Strip</div>
               <div />
             </div>
@@ -92,7 +96,10 @@ export function RouteSettingsTable({
                 className="grid w-full grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem] items-center gap-x-2 border-b py-2"
                 key={index}
               >
-                <Field className="gap-0">
+                <RoutingField
+                  name={`routes.${index}.environmentId`}
+                  errors={errors}
+                >
                   <Select
                     value={route.environmentId ?? '__all__'}
                     onValueChange={(value) =>
@@ -101,7 +108,14 @@ export function RouteSettingsTable({
                       })
                     }
                   >
-                    <SelectTrigger aria-label="Route scope" className="w-full">
+                    <SelectTrigger
+                      {...routingFieldProps(
+                        `routes.${index}.environmentId`,
+                        errors,
+                      )}
+                      aria-label="Route scope"
+                      className="w-full"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -116,31 +130,38 @@ export function RouteSettingsTable({
                       ))}
                     </SelectContent>
                   </Select>
-                </Field>
-                <Field className="gap-0">
+                </RoutingField>
+                <RoutingField name={`routes.${index}.path`} errors={errors}>
                   <Input
+                    {...routingFieldProps(`routes.${index}.path`, errors)}
                     aria-label="Route path"
+                    required
                     value={route.path}
                     onChange={(event) =>
                       updateRoute(index, { path: event.target.value })
                     }
                     placeholder="/"
                   />
-                </Field>
-                <ArrowRightIcon className="mx-auto size-4 text-muted-foreground" />
-                <Field className="gap-0">
+                </RoutingField>
+                <ArrowRightIcon className="mx-auto size-4 shrink-0 text-muted-foreground" />
+                <RoutingField name={`routes.${index}.service`} errors={errors}>
                   <Input
+                    {...routingFieldProps(`routes.${index}.service`, errors)}
                     aria-label="Route service"
+                    required
                     value={route.service}
                     onChange={(event) =>
                       updateRoute(index, { service: event.target.value })
                     }
                     placeholder="web"
                   />
-                </Field>
-                <Field className="gap-0">
+                </RoutingField>
+                <RoutingField name={`routes.${index}.port`} errors={errors}>
                   <Input
+                    {...routingFieldProps(`routes.${index}.port`, errors)}
                     aria-label="Route port"
+                    required
+                    step={1}
                     type="number"
                     min={1}
                     max={65535}
@@ -150,7 +171,7 @@ export function RouteSettingsTable({
                     }
                     placeholder="3000"
                   />
-                </Field>
+                </RoutingField>
                 <div className="flex h-full items-center gap-2">
                   <Switch
                     aria-label="Strip route prefix"
@@ -176,6 +197,7 @@ export function RouteSettingsTable({
               </div>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground">* Required</p>
           <Button variant="outline" type="button" onClick={addRoute}>
             <PlusIcon data-icon="inline-start" />
             Add route
@@ -248,8 +270,10 @@ export function DomainSettingsTable({
   onVerify,
   verifyingDomainId,
   verificationDisabled,
+  errors = {},
 }: {
   domains: Array<ProjectDomainAlias>
+  errors?: FormErrors
   environments: Array<ProjectEnvironmentConfig>
   routes: Array<ProjectRouteDefinition>
   onChange: (domains: Array<ProjectDomainAlias>) => void
@@ -290,29 +314,35 @@ export function DomainSettingsTable({
         <>
           <div>
             <div className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_5.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
-              <div>Host</div>
-              <div>Environment</div>
+              <div>Host *</div>
+              <div>Environment *</div>
               <div>Base route</div>
               <div>HTTPS</div>
               <div>Status</div>
               <div />
             </div>
-            {domains.map((domain) => (
+            {domains.map((domain, index) => (
               <div
                 className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_5.5rem_2.5rem] items-center gap-x-2 border-b py-2"
                 key={domain.id}
               >
-                <Field className="gap-0">
+                <RoutingField name={`domains.${index}.host`} errors={errors}>
                   <Input
+                    {...routingFieldProps(`domains.${index}.host`, errors)}
                     aria-label="Domain host"
+                    required
+                    maxLength={253}
                     value={domain.host}
                     onChange={(event) =>
                       updateDomain(domain.id, { host: event.target.value })
                     }
                     placeholder="myapp.com"
                   />
-                </Field>
-                <Field className="gap-0">
+                </RoutingField>
+                <RoutingField
+                  name={`domains.${index}.environmentId`}
+                  errors={errors}
+                >
                   <Select
                     value={domain.environment}
                     onValueChange={(value) =>
@@ -320,6 +350,10 @@ export function DomainSettingsTable({
                     }
                   >
                     <SelectTrigger
+                      {...routingFieldProps(
+                        `domains.${index}.environmentId`,
+                        errors,
+                      )}
                       aria-label="Domain environment"
                       className="w-full"
                     >
@@ -336,8 +370,11 @@ export function DomainSettingsTable({
                       ))}
                     </SelectContent>
                   </Select>
-                </Field>
-                <Field className="gap-0">
+                </RoutingField>
+                <RoutingField
+                  name={`domains.${index}.basePath`}
+                  errors={errors}
+                >
                   <Select
                     value={domain.baseRoute || 'all'}
                     onValueChange={(value) =>
@@ -347,6 +384,10 @@ export function DomainSettingsTable({
                     }
                   >
                     <SelectTrigger
+                      {...routingFieldProps(
+                        `domains.${index}.basePath`,
+                        errors,
+                      )}
                       aria-label="Domain base route"
                       className="w-full"
                     >
@@ -364,7 +405,7 @@ export function DomainSettingsTable({
                       ))}
                     </SelectContent>
                   </Select>
-                </Field>
+                </RoutingField>
                 <div className="flex h-full items-center justify-center">
                   <Switch
                     aria-label="HTTPS"
@@ -415,6 +456,7 @@ export function DomainSettingsTable({
               </div>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground">* Required</p>
           <Button variant="outline" type="button" onClick={addDomain}>
             <PlusIcon data-icon="inline-start" />
             Add domain
@@ -437,5 +479,30 @@ export function DomainSettingsTable({
         </Empty>
       )}
     </div>
+  )
+}
+
+function routingFieldProps(name: string, errors: FormErrors) {
+  return {
+    id: name,
+    'aria-invalid': Boolean(errors[name]),
+    'aria-describedby': errors[name] ? `${name}-error` : undefined,
+  }
+}
+
+function RoutingField({
+  name,
+  errors,
+  children,
+}: {
+  name: string
+  errors: FormErrors
+  children: ReactNode
+}) {
+  return (
+    <Field className="gap-1" data-invalid={Boolean(errors[name])}>
+      {children}
+      <FieldError id={`${name}-error`}>{errors[name]}</FieldError>
+    </Field>
   )
 }

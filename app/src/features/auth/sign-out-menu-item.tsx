@@ -1,0 +1,39 @@
+import { useState } from 'react'
+import { useRouter } from '@tanstack/react-router'
+import { toast } from 'sonner'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { authClient } from '@/lib/auth/client'
+import { afterMutation } from '@/lib/action-feedback'
+import { getErrorMessage } from '@/lib/error-message'
+
+export function SignOutMenuItem() {
+  const router = useRouter()
+  const [pending, setPending] = useState(false)
+  return (
+    <DropdownMenuItem
+      variant="destructive"
+      className="whitespace-nowrap"
+      disabled={pending}
+      onClick={async (event) => {
+        event.preventDefault()
+        setPending(true)
+        try {
+          const result = await authClient.signOut()
+          if (result.error) throw result.error
+          await afterMutation(
+            () => router.navigate({ to: '/auth/login' }),
+            'You signed out, but opening the login page failed. Please reload.',
+          )
+        } catch (error) {
+          toast.error(
+            getErrorMessage(error, 'Unable to sign out. Please try again.'),
+          )
+        } finally {
+          setPending(false)
+        }
+      }}
+    >
+      {pending ? 'Signing out…' : 'Sign out'}
+    </DropdownMenuItem>
+  )
+}

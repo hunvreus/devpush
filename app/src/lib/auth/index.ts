@@ -2,20 +2,26 @@ import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { betterAuth } from 'better-auth'
 import { emailOTP } from 'better-auth/plugins/email-otp'
 import { tanstackStartCookies } from 'better-auth/tanstack-start'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import { decodeJwt } from 'jose'
 
 import { getAuthMethods, getGitHubOAuthCredentials } from '@/lib/auth/config'
 import { db } from '@/server/db'
+import { replacePendingIdentity } from '@/server/auth/provider-identity'
 import * as schema from '@/server/db/schema'
-import { assertEmailCanAuthenticate } from '@/server/auth/access'
+import {
+  assertEmailCanAuthenticate,
+  assertUserCanCreateSession,
+} from '@/server/auth/access'
 import {
   sendEmailChangeEmail,
   sendEmailVerificationEmail,
   sendOtpEmail,
 } from '@/server/email/service'
 import { config } from '@/server/config'
+import { requireAuthEmailDelivery } from '@/server/auth/email-delivery'
 import { ensureUserBootstrap } from '@/server/teams/service'
+import { decryptSecret, encryptSecret } from '@/server/secrets/crypto'
 
 export const authMethods = getAuthMethods()
 const githubCredentials = getGitHubOAuthCredentials()
@@ -25,11 +31,6 @@ type ProviderIdentity = {
   email?: string | null
   username?: string | null
   image?: string | null
-}
-
-type PendingProviderIdentity = ProviderIdentity & {
-  expiresAt: number
-  timeout: ReturnType<typeof setTimeout>
 }
 
 type OAuthTokens = {
@@ -51,7 +52,6 @@ type GitHubEmail = {
   verified: boolean
 }
 
-const pendingProviderIdentities = new Map<string, PendingProviderIdentity>()
 const pendingProviderIdentityTtlMs = 5 * 60 * 1000
 
 export const auth = betterAuth({
@@ -63,9 +63,15 @@ export const auth = betterAuth({
     cookiePrefix: 'devpush',
   },
   database: drizzleAdapter(db, {
-    provider: 'pg',
+    provider: 'sqlite',
     schema,
   }),
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 60,
+    },
+  },
   user: {
     additionalFields: {
       defaultTeamId: {
@@ -102,14 +108,14 @@ export const auth = betterAuth({
     account: {
       create: {
         before: async (createdAccount) => {
-          const identity = pendingProviderIdentities.get(
+          const identity = await readPendingProviderIdentity(
             getProviderIdentityKey(
               createdAccount.providerId,
               createdAccount.accountId,
             ),
           )
 
-          if (!identity || identity.expiresAt <= Date.now()) {
+          if (!identity) {
             return
           }
 
@@ -123,7 +129,7 @@ export const auth = betterAuth({
           }
         },
         after: async (createdAccount) => {
-          clearPendingProviderIdentity(
+          await clearPendingProviderIdentity(
             getProviderIdentityKey(
               createdAccount.providerId,
               createdAccount.accountId,
@@ -135,18 +141,7 @@ export const auth = betterAuth({
     session: {
       create: {
         before: async (createdSession) => {
-          const rows = await db
-            .select({ email: schema.user.email, status: schema.user.status })
-            .from(schema.user)
-            .where(eq(schema.user.id, createdSession.userId))
-            .limit(1)
-          const currentUser = rows.at(0)
-
-          if (!currentUser || currentUser.status !== 'active') {
-            throw new Error('This account cannot sign in.')
-          }
-
-          await assertEmailCanAuthenticate(currentUser.email)
+          await assertUserCanCreateSession(createdSession.userId)
         },
       },
     },
@@ -223,6 +218,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    requireAuthEmailDelivery(),
     ...(authMethods.email
       ? [
           emailOTP({
@@ -249,7 +245,7 @@ function getProviderIdentityKey(providerId: string, accountId: string) {
   return `${providerId}:${accountId}`
 }
 
-function rememberProviderIdentity({
+async function rememberProviderIdentity({
   accountId,
   providerId,
   identity,
@@ -259,31 +255,66 @@ function rememberProviderIdentity({
   identity: ProviderIdentity
 }) {
   const key = getProviderIdentityKey(providerId, accountId)
-  const existing = pendingProviderIdentities.get(key)
+  const identifier = pendingProviderIdentityIdentifier(key)
 
-  if (existing) {
-    clearTimeout(existing.timeout)
-  }
-
-  const timeout = setTimeout(() => {
-    pendingProviderIdentities.delete(key)
-  }, pendingProviderIdentityTtlMs)
-
-  pendingProviderIdentities.set(key, {
-    ...identity,
-    expiresAt: Date.now() + pendingProviderIdentityTtlMs,
-    timeout,
+  await replacePendingIdentity(db, {
+    identifier,
+    value: encryptSecret(JSON.stringify(identity)),
+    expiresAt: new Date(Date.now() + pendingProviderIdentityTtlMs),
   })
 }
 
-function clearPendingProviderIdentity(key: string) {
-  const existing = pendingProviderIdentities.get(key)
+async function readPendingProviderIdentity(key: string) {
+  const identifier = pendingProviderIdentityIdentifier(key)
+  const rows = await db
+    .select({ value: schema.verification.value })
+    .from(schema.verification)
+    .where(
+      and(
+        eq(schema.verification.identifier, identifier),
+        gt(schema.verification.expiresAt, new Date()),
+      ),
+    )
+    .limit(1)
+  const value = rows[0]?.value
 
-  if (existing) {
-    clearTimeout(existing.timeout)
+  if (!value) {
+    return null
   }
 
-  pendingProviderIdentities.delete(key)
+  try {
+    const identity = JSON.parse(decryptSecret(value)) as unknown
+    return isProviderIdentity(identity) ? identity : null
+  } catch {
+    await clearPendingProviderIdentity(key)
+    return null
+  }
+}
+
+async function clearPendingProviderIdentity(key: string) {
+  await db
+    .delete(schema.verification)
+    .where(
+      eq(
+        schema.verification.identifier,
+        pendingProviderIdentityIdentifier(key),
+      ),
+    )
+}
+
+function pendingProviderIdentityIdentifier(key: string) {
+  return `devpush:provider-identity:${key}`
+}
+
+function isProviderIdentity(value: unknown): value is ProviderIdentity {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  return ['name', 'email', 'username', 'image'].every((field) => {
+    const item = (value as Record<string, unknown>)[field]
+    return item === undefined || item === null || typeof item === 'string'
+  })
 }
 
 async function getGitHubUserInfo(token: OAuthTokens) {
@@ -291,13 +322,15 @@ async function getGitHubUserInfo(token: OAuthTokens) {
     return null
   }
 
-  const userResponse = await fetch('https://api.github.com/user', {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token.accessToken}`,
-      'User-Agent': 'devpush',
-    },
-  })
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${token.accessToken}`,
+    'User-Agent': 'devpush',
+  }
+  const [userResponse, emailsResponse] = await Promise.all([
+    fetch('https://api.github.com/user', { headers }),
+    fetch('https://api.github.com/user/emails', { headers }),
+  ])
 
   if (!userResponse.ok) {
     return null
@@ -306,14 +339,6 @@ async function getGitHubUserInfo(token: OAuthTokens) {
   const profile = (await userResponse.json()) as GitHubProfile
   let email = profile.email
   let emailVerified = false
-
-  const emailsResponse = await fetch('https://api.github.com/user/emails', {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token.accessToken}`,
-      'User-Agent': 'devpush',
-    },
-  })
 
   if (emailsResponse.ok) {
     const emails = (await emailsResponse.json()) as Array<GitHubEmail>
@@ -328,7 +353,7 @@ async function getGitHubUserInfo(token: OAuthTokens) {
 
   const accountId = String(profile.id)
 
-  rememberProviderIdentity({
+  await rememberProviderIdentity({
     accountId,
     providerId: 'github',
     identity: {
@@ -368,7 +393,7 @@ async function getGoogleUserInfo(token: OAuthTokens) {
 
   await assertEmailCanAuthenticate(email)
 
-  rememberProviderIdentity({
+  await rememberProviderIdentity({
     accountId,
     providerId: 'google',
     identity: {

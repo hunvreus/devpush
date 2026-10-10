@@ -1,8 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { config } from '@/server/config'
-import { cleanupExpiredTeamInvites } from '@/server/teams/service'
-import { runQueuedUserCleanupJobs } from '@/server/users/service'
+import { runMaintenance } from '@/server/maintenance'
 
 export const Route = createFileRoute('/api/cron/maintenance')({
   server: {
@@ -21,14 +20,7 @@ export const Route = createFileRoute('/api/cron/maintenance')({
           return Response.json({ error: 'Unauthorized.' }, { status: 401 })
         }
 
-        const [invites, users] = await Promise.all([
-          cleanupExpiredTeamInvites(),
-          runQueuedUserCleanupJobs(),
-        ])
-        return Response.json({
-          expiredInvites: invites.expiredCount,
-          userCleanupJobs: users,
-        })
+        return Response.json(await runMaintenance())
       },
     },
   },

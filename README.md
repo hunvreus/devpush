@@ -19,13 +19,15 @@ proof remains an explicit release gate in [`TODO.md`](./TODO.md).
 > incompatible with pre-1.0 installations. Start 1.0 with an empty database;
 > there is no supported in-place upgrade from development builds.
 
-- `app/`: TanStack Start control plane and PostgreSQL data model.
+- `app/`: TanStack Start control plane and SQLite data model.
 - `agent/`: Go agent for server monitoring, Compose deployments, and backups.
 - `docs/`: protocol, feature, and development notes.
-- `deploy/`: local and production Compose files.
+- `deploy/`: production Compose configuration.
 
 Current deploy support is intentionally focused: manual deploys and GitHub push
-webhooks create queued deployments. The agent polls for jobs, clones the GitHub
+webhooks create queued deployments. Cloudflare sends workspace updates through
+hibernating WebSockets; Node uses an in-memory WebSocket broadcaster. Blocked
+connections use adaptive HTTP polling. The agent polls for jobs, clones the GitHub
 repo with a short-lived installation token, runs Docker Compose on the target
 server, incrementally reports deploy logs/events, and posts final status back.
 When routes are configured, the agent starts managed Traefik, connects routed
@@ -45,12 +47,6 @@ Install app dependencies:
 pnpm install
 ```
 
-Start local Postgres:
-
-```bash
-docker compose -f deploy/compose.yml up -d
-```
-
 Create the app environment file:
 
 ```bash
@@ -68,11 +64,15 @@ Set these values in `app/.env`:
 ```env
 BETTER_AUTH_SECRET=replace-with-a-long-random-secret
 DEVPUSH_BASE_URL=http://localhost:7429
+# Trust reverse-proxy client IP headers. Keep false for direct exposure.
+DEVPUSH_TRUST_PROXY=false
 # Optional auth-only override; defaults to DEVPUSH_BASE_URL.
 BETTER_AUTH_URL=
 # Optional. When blank, the earliest-created user is the installation admin.
 DEVPUSH_ADMIN_EMAIL=
-DATABASE_URL=postgres://devpush:devpush@localhost:7543/devpush
+DEVPUSH_DATABASE_PATH=.data/devpush.sqlite
+DEVPUSH_LOG_DATABASE_PATH=.data/logs.sqlite
+DEVPUSH_MONITORING_RETENTION_DAYS=7
 
 EMAIL_FROM="devpush <onboarding@resend.dev>"
 RESEND_API_KEY=re_...
@@ -167,7 +167,7 @@ pnpm dev:stop
 pnpm dev:restart
 ```
 
-`pnpm dev:start` starts local Postgres, requires the `devpush-test` Lima VM by
+`pnpm dev:start` requires the `devpush-test` Lima VM by
 default, syncs the database, and starts the control plane in the background.
 Use `DEVPUSH_LIMA_INSTANCE=name` for another VM, or `DEVPUSH_REQUIRE_LIMA=0`
 when you only need the web app. Logs are written to `.tmp/devpush-dev.log`.
@@ -198,12 +198,19 @@ exchanges it for a dedicated agent credential. If needed, rotate that credential
 on the host with `sudo devpush-agent credential rotate`; this does not reinstall
 the agent.
 
+Agent updates drain active jobs before restarting. Empty servers can switch
+control planes with destination enrollment and rollback; see
+[agent maintenance](./docs/development/local-setup.md#agent-maintenance).
+
 ## Production control plane
 
 The control plane supports two deployment targets:
 
-- Cloudflare Workers with Hyperdrive for PostgreSQL and R2 for object storage.
-- A self-hosted Node.js container using the production Docker Compose setup.
+- Cloudflare Workers with D1 or remote libSQL/Turso for main state and bulk logs, and R2 for objects.
+- A self-hosted Node.js container using local SQLite files or two remote libSQL/Turso databases.
+
+For optional remote database URLs and credentials, see
+[remote libSQL setup](./docs/development/local-setup.md#remote-libsql--turso).
 
 The Cloudflare path, including resource provisioning, migrations, agent-binary
 publication, validation, and deployment, is documented in
@@ -218,13 +225,16 @@ URLs, routes, and resource bindings without asking users to edit tracked files.
 
 For Cloudflare, `pnpm deploy:cloudflare` validates the generated configuration,
 applies database migrations, builds and publishes both Linux agent binaries,
-and deploys the Worker. PostgreSQL must already exist and be reachable; it can
-come from any compatible provider and does not require Supabase.
+and deploys the Worker. The setup wizard offers D1 or remote libSQL/Turso and configures both stores.
 
 ### Self-hosted control plane
 
 The production Compose file builds the TanStack Start app and embeds the
 Linux agent binary used by the server installer:
+
+Copy the example, fill every blank secret in `deploy/.env.production` with an
+independently generated value, then start Compose. `pnpm configure` does this
+automatically for the self-hosted setup path.
 
 ```bash
 cp deploy/.env.production.example deploy/.env.production
@@ -254,6 +264,7 @@ not.
 pnpm --dir app dev
 pnpm --dir app build
 pnpm audit:dependencies
+pnpm --dir app smoke:worker d1
 pnpm --dir app typecheck
 pnpm --dir app lint
 pnpm --dir app db:generate
@@ -275,11 +286,10 @@ pnpm deploy:cloudflare
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 ```
 
-`pnpm smoke:deploy` uses the local Postgres database to seed a disposable
+`pnpm smoke:deploy` uses the local SQLite databases to seed a disposable
 user/team/server/project, register the server agent, queue a deployment, claim
 it through the agent job protocol, complete it, verify persisted logs, and clean
-up the seeded rows. It requires `deploy/compose.yml` Postgres to be running and
-the committed migrations to be applied with `pnpm --dir app db:migrate`.
+up the seeded rows. It requires the committed migrations to be applied with `pnpm --dir app db:migrate`.
 
 `pnpm smoke:agent` runs the agent's opt-in Docker smoke tests. It creates
 temporary Git repositories with Compose files, runs the real agent deployment
@@ -335,6 +345,7 @@ For remote server enrollment, run `pnpm agent:build:linux` and set
 
 - [Architecture](./ARCHITECTURE.md)
 - [Local setup](./docs/development/local-setup.md)
+- [Hetzner test server](./docs/development/local-setup.md#hetzner-test-server)
 - [Cloudflare deployment](./docs/development/cloudflare-deployment.md)
 - [TODO](./TODO.md)
 - [Docs index](./docs/index.md)

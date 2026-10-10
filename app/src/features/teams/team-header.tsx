@@ -1,53 +1,54 @@
+import { LogoMark } from '@/components/logo-mark'
+import { invalidateResourceQueries } from '@/lib/resource-cache'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { HelpDialog } from './help-dialog'
+import { NewTeamDialogLauncher } from './new-team-dialog'
+import { SignOutMenuItem } from '@/features/auth/sign-out-menu-item'
+import { afterMutation } from '@/lib/action-feedback'
 import {
   Link,
   useParams,
+  useHydrated,
   useRouter,
   useRouterState,
 } from '@tanstack/react-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { deploymentContextQueryOptions } from '@/lib/project-context-query'
 import { useTheme } from 'next-themes'
 import {
   BellIcon,
   CheckIcon,
   ChevronsUpDownIcon,
-  CircleQuestionMarkIcon,
   CircleCheckIcon,
   CircleXIcon,
   Clock3Icon,
-  ExternalLinkIcon,
   LoaderIcon,
   MoonIcon,
   SunIcon,
   SettingsIcon,
-  TriangleAlertIcon,
   XIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { getCachedTeamContexts } from '@/lib/team-context-query'
 
-import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertTitle,
-} from '@/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ResourceAvatar } from '@/components/resource-avatar'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Field, FieldError, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog'
+import { Skeleton } from '@/components/ui/skeleton'
+import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog-launcher'
 import { getServerAvailabilityNotice } from '@/features/servers/server-availability'
-import { authClient } from '@/lib/auth/client'
+import { ServerAvailabilityAlert } from '@/features/servers/server-availability-alert'
 import { getErrorMessage } from '@/lib/error-message'
+import { displayNameFromSlug } from '@/lib/display-name'
 import { cn } from '@/lib/utils'
 import {
   DropdownMenu,
@@ -58,53 +59,29 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { AuthUserContext } from '@/server/auth/context'
-import type { ProjectContext } from '@/server/projects/service'
+import type { ProjectContext } from '@/server/projects/types'
 import type {
   ProjectSummary,
   ServerSummary,
   TeamSummary,
-} from '@/server/teams/service'
+} from '@/server/teams/types'
+import { acceptUserTeamInviteAction } from '@/server/teams/functions'
 import {
-  acceptUserTeamInviteAction,
-  createTeamAction,
-} from '@/server/teams/functions'
+  isProjectTabActive,
+  isTeamTabActive,
+  projectTabs,
+  teamTabs,
+} from './navigation'
 
-const teamTabs = [
-  { label: 'Overview', to: '/$teamSlug' },
-  { label: 'Projects', to: '/$teamSlug/projects' },
-  { label: 'Servers', to: '/$teamSlug/servers' },
-  { label: 'Settings', to: '/$teamSlug/settings' },
-] as const
-
-const backupsEnabled = import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED === 'true'
-
-const projectTabs = [
-  {
-    label: 'Overview',
-    to: '/$teamSlug/projects/$projectName',
-  },
-  {
-    label: 'Deployments',
-    to: '/$teamSlug/projects/$projectName/deployments',
-  },
-  {
-    label: 'Logs',
-    to: '/$teamSlug/projects/$projectName/logs',
-  },
-  {
-    label: 'Backups',
-    to: '/$teamSlug/projects/$projectName/backups',
-  },
-  {
-    label: 'Settings',
-    to: '/$teamSlug/projects/$projectName/settings',
-  },
-].filter((tab) => backupsEnabled || tab.label !== 'Backups')
+type ProjectNavigationSummary = Pick<
+  ProjectSummary,
+  'avatarUrl' | 'color' | 'id' | 'name'
+>
 
 type TeamHeaderProps = {
   currentProject?: boolean
-  currentProjectContext?: ProjectSummary
-  currentProjects?: Array<ProjectSummary>
+  currentProjectContext?: ProjectNavigationSummary
+  currentProjects?: Array<ProjectNavigationSummary>
   currentDeployment?: {
     id: string
     status: ProjectContext['deployments'][number]['status']
@@ -123,6 +100,7 @@ function TeamHeader({
   userContext,
   currentTeam,
 }: TeamHeaderProps) {
+  const queryClient = useQueryClient()
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
@@ -131,12 +109,54 @@ function TeamHeader({
     typeof params.teamSlug === 'string'
       ? params.teamSlug
       : (currentTeam?.slug ?? userContext?.defaultTeam.slug ?? '')
-  const activeTeam = currentTeam ?? userContext?.defaultTeam
+  const hydrated = useHydrated()
+  // A client loader can populate the cache before hydration finishes. Keep the
+  // first client header identical to SSR, then reveal cached navigation.
+  const cachedTeamContexts = hydrated
+    ? getCachedTeamContexts(queryClient, teamSlug)
+    : []
+  const cachedTeamContext = cachedTeamContexts.at(0)
+  const activeUserContext = userContext ?? cachedTeamContext?.userContext
+  const activeTeam =
+    currentTeam ?? cachedTeamContext?.team ?? activeUserContext?.defaultTeam
+  const routeProjectName =
+    typeof params.projectName === 'string' ? params.projectName : undefined
+  const routeDeploymentId =
+    typeof params.deploymentId === 'string' ? params.deploymentId : undefined
+  // Observe the detail route's query so both the current status and menu rows
+  // receive the same workspace notifications, without a second request.
+  const { data: deploymentContext } = useQuery({
+    ...deploymentContextQueryOptions(
+      {
+        teamSlug,
+        projectName: routeProjectName ?? '',
+        deploymentId: routeDeploymentId ?? '',
+      },
+      queryClient,
+    ),
+    enabled: false,
+  })
+  const activeDeployment =
+    currentDeployment ??
+    (hydrated ? deploymentContext?.deployment : undefined) ??
+    (routeDeploymentId
+      ? { id: routeDeploymentId, status: undefined }
+      : undefined)
+  const activeDeployments =
+    hydrated && deploymentContext
+      ? deploymentContext.latestDeployments
+      : currentDeployments
+  const cachedProject = routeProjectName
+    ? cachedTeamContexts
+        .flatMap((context) => context.projects)
+        .find((project) => project.name === routeProjectName)
+    : undefined
+  const activeProject = currentProjectContext ?? cachedProject
+  const activeProjects =
+    currentProjects.length > 0
+      ? currentProjects
+      : cachedTeamContexts.flatMap((context) => context.projects)
   const tabs = currentProject ? projectTabs : teamTabs
-
-  if (!activeTeam || !userContext) {
-    return null
-  }
 
   return (
     <header className="sticky top-0 z-20 flex flex-col gap-y-2 border-b bg-background px-8">
@@ -153,25 +173,57 @@ function TeamHeader({
             </Link>
           </Button>
           <span className="text-xl text-muted-foreground/25">/</span>
-          <TeamSwitcher currentTeam={activeTeam} teams={userContext.teams} />
+          {activeTeam && activeUserContext ? (
+            <TeamSwitcher
+              currentTeam={activeTeam}
+              teams={activeUserContext.teams}
+            />
+          ) : (
+            <PendingResourceSwitcher
+              label={displayNameFromSlug(teamSlug)}
+              name={teamSlug}
+              ariaLabel="Team loading"
+              teamSlug={teamSlug}
+            />
+          )}
           {currentProject ? (
             <>
               <span className="text-xl text-muted-foreground/25">/</span>
-              {currentProjectContext ? (
+              {activeProject ? (
                 <ProjectSwitcher
                   teamSlug={teamSlug}
-                  project={currentProjectContext}
-                  projects={currentProjects}
+                  project={activeProject}
+                  projects={activeProjects}
                 />
-              ) : null}
+              ) : (
+                <PendingResourceSwitcher
+                  label={
+                    typeof params.projectName === 'string'
+                      ? params.projectName
+                      : 'Project'
+                  }
+                  name={
+                    typeof params.projectName === 'string'
+                      ? params.projectName
+                      : 'Project'
+                  }
+                  ariaLabel="Project loading"
+                  teamSlug={teamSlug}
+                  projectName={
+                    typeof params.projectName === 'string'
+                      ? params.projectName
+                      : 'project'
+                  }
+                />
+              )}
             </>
           ) : null}
-          {currentDeployment ? (
+          {activeDeployment ? (
             <>
               <span className="text-xl text-muted-foreground/25">/</span>
               <DeploymentSwitcher
-                deployment={currentDeployment}
-                deployments={currentDeployments}
+                deployment={activeDeployment}
+                deployments={activeDeployments}
                 projectName={
                   typeof params.projectName === 'string'
                     ? params.projectName
@@ -184,22 +236,15 @@ function TeamHeader({
         </nav>
 
         <nav className="flex items-center gap-x-2" aria-label="User menu">
-          {userContext.user.isInstallationAdmin ? (
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="hidden sm:inline-flex"
-            >
-              <Link to="/admin">
-                <SettingsIcon data-icon="inline-start" />
-                Admin
-              </Link>
-            </Button>
-          ) : null}
-          <HelpMenu />
-          <NotificationsMenu invites={userContext.invites} />
-          <UserMenu userContext={userContext} />
+          <HelpDialog />
+          {activeUserContext ? (
+            <>
+              <NotificationsMenu invites={activeUserContext.invites} />
+              <UserMenu userContext={activeUserContext} />
+            </>
+          ) : (
+            <PendingUserNavigation />
+          )}
         </nav>
       </div>
 
@@ -238,6 +283,7 @@ function TeamHeader({
                   <Link
                     to={tab.to}
                     params={tabParams}
+                    activeOptions={{ exact: tab.label === 'Overview' }}
                     aria-selected={active}
                     role="tab"
                   >
@@ -260,14 +306,18 @@ export function TeamPage({
   currentTeam,
   currentProject,
   currentProjects = [],
+  projectNavigation = false,
+  pending = false,
   servers = [],
 }: {
   children: ReactNode
   contentClassName?: string
   userContext?: AuthUserContext
   currentTeam?: TeamSummary
-  currentProject?: ProjectSummary
-  currentProjects?: Array<ProjectSummary>
+  currentProject?: ProjectNavigationSummary
+  currentProjects?: Array<ProjectNavigationSummary>
+  projectNavigation?: boolean
+  pending?: boolean
   servers?: Array<ServerSummary>
 }) {
   const serverNotice = getServerAvailabilityNotice(servers)
@@ -275,7 +325,7 @@ export function TeamPage({
   return (
     <main className="min-h-screen bg-background text-foreground">
       <TeamHeader
-        currentProject={Boolean(currentProject)}
+        currentProject={projectNavigation || Boolean(currentProject)}
         currentProjectContext={currentProject}
         currentProjects={currentProjects}
         userContext={userContext}
@@ -283,30 +333,92 @@ export function TeamPage({
       />
       <div
         className={cn('mx-auto w-full max-w-screen-xl p-8', contentClassName)}
+        aria-busy={pending || undefined}
       >
         {serverNotice && currentTeam && !currentProject ? (
-          <Alert>
-            <TriangleAlertIcon />
-            <AlertTitle className="truncate">{serverNotice.title}</AlertTitle>
-            <AlertDescription>{serverNotice.description}</AlertDescription>
-            <AlertAction>
-              <Button asChild variant="outline">
-                <Link
-                  to="/$teamSlug/servers/$serverId"
-                  params={{
-                    teamSlug: currentTeam.slug,
-                    serverId: serverNotice.targetServerId,
-                  }}
-                >
-                  View
-                </Link>
-              </Button>
-            </AlertAction>
-          </Alert>
+          <ServerAvailabilityAlert notice={serverNotice} team={currentTeam} />
         ) : null}
         {children}
       </div>
     </main>
+  )
+}
+
+function PendingResourceSwitcher({
+  ariaLabel,
+  label,
+  name,
+  projectName,
+  teamSlug,
+}: {
+  ariaLabel: string
+  label: string
+  name: string
+  projectName?: string
+  teamSlug: string
+}) {
+  const content = (
+    <>
+      <ResourceAvatar data-icon="inline-start" name={name} size="xs" />
+      <span>{label}</span>
+    </>
+  )
+
+  return (
+    <div className="flex items-center" aria-label={ariaLabel}>
+      <Button asChild variant="ghost" size="sm" className="gap-1.5 px-1.5">
+        {projectName ? (
+          <Link
+            to="/$teamSlug/projects/$projectName"
+            params={{ teamSlug, projectName }}
+          >
+            {content}
+          </Link>
+        ) : (
+          <Link to="/$teamSlug" params={{ teamSlug }}>
+            {content}
+          </Link>
+        )}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="pointer-events-none text-muted-foreground"
+        aria-hidden="true"
+        tabIndex={-1}
+      >
+        <ChevronsUpDownIcon />
+      </Button>
+    </div>
+  )
+}
+
+function PendingUserNavigation() {
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="pointer-events-none"
+        aria-label="Notifications loading"
+        tabIndex={-1}
+      >
+        <BellIcon />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="rounded-full border-0"
+        aria-label="User menu loading"
+        aria-busy="true"
+        disabled
+      >
+        <Skeleton className="size-6 shrink-0 rounded-full" />
+      </Button>
+    </>
   )
 }
 
@@ -318,6 +430,7 @@ function TeamSwitcher({
   teams: Array<TeamSummary>
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   return (
     <div className="flex items-center">
@@ -379,11 +492,22 @@ function TeamSwitcher({
           <DropdownMenuSeparator />
           <NewTeamDialogLauncher
             onCreated={async (teamSlug) => {
-              await router.invalidate()
-              await router.navigate({
-                to: '/$teamSlug',
-                params: { teamSlug },
-              })
+              await afterMutation(
+                () => invalidateResourceQueries(queryClient),
+                'The action completed, but refreshing the data failed. Please reload.',
+              )
+              await afterMutation(
+                () => router.invalidate(),
+                'The action completed, but refreshing the page failed. Please reload.',
+              )
+              await afterMutation(
+                () =>
+                  router.navigate({
+                    to: '/$teamSlug',
+                    params: { teamSlug },
+                  }),
+                'The action completed, but opening the next page failed. Please reload.',
+              )
             }}
           >
             {(open) => (
@@ -404,96 +528,14 @@ function TeamSwitcher({
   )
 }
 
-function NewTeamDialogLauncher({
-  children,
-  onCreated,
-}: {
-  children: (open: () => void) => ReactNode
-  onCreated: (teamSlug: string) => Promise<void>
-}) {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [nameError, setNameError] = useState<string | null>(null)
-  const [isCreating, setIsCreating] = useState(false)
-
-  async function createTeam() {
-    setNameError(null)
-    setIsCreating(true)
-
-    try {
-      const team = await createTeamAction({ data: { name } })
-      setName('')
-      setOpen(false)
-      toast.success('Team created.')
-      await onCreated(team.slug)
-    } catch (error) {
-      setNameError(getErrorMessage(error, 'Unable to create team.'))
-    } finally {
-      setIsCreating(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {children(() => setOpen(true))}
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create team</DialogTitle>
-          <DialogDescription>
-            Create a team to group projects, servers, and settings.
-          </DialogDescription>
-        </DialogHeader>
-        <Field data-invalid={Boolean(nameError)}>
-          <FieldLabel htmlFor="new-team-name">Name</FieldLabel>
-          <Input
-            aria-invalid={Boolean(nameError)}
-            id="new-team-name"
-            autoFocus
-            value={name}
-            onChange={(event) => {
-              setName(event.target.value)
-              setNameError(null)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && name.trim() && !isCreating) {
-                event.preventDefault()
-                void createTeam()
-              }
-            }}
-          />
-          <FieldError>{nameError}</FieldError>
-        </Field>
-        <DialogFooter>
-          <Button
-            variant="ghost"
-            disabled={isCreating}
-            onClick={() => setOpen(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            disabled={!name.trim() || isCreating}
-            onClick={() => void createTeam()}
-          >
-            {isCreating ? (
-              <LoaderIcon data-icon="inline-start" className="animate-spin" />
-            ) : null}
-            Create team
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 function ProjectSwitcher({
   teamSlug,
   project,
   projects,
 }: {
   teamSlug: string
-  project: ProjectSummary
-  projects: Array<ProjectSummary>
+  project: ProjectNavigationSummary
+  projects: Array<ProjectNavigationSummary>
 }) {
   const params = useParams({ strict: false })
   const projectName =
@@ -595,7 +637,7 @@ function DeploymentSwitcher({
 }: {
   deployment: {
     id: string
-    status: ProjectContext['deployments'][number]['status']
+    status?: ProjectContext['deployments'][number]['status']
   }
   deployments: ProjectContext['deployments']
   projectName: string
@@ -607,6 +649,7 @@ function DeploymentSwitcher({
         <Link
           to="/$teamSlug/projects/$projectName/deployments/$deploymentId"
           params={{ teamSlug, projectName, deploymentId: deployment.id }}
+          aria-label={`Deployment ${shortId(deployment.id)}: ${deployment.status ?? 'loading'}`}
         >
           <DeploymentStatusIcon
             data-icon="inline-start"
@@ -624,6 +667,7 @@ function DeploymentSwitcher({
             size="icon-sm"
             className="text-muted-foreground"
             aria-label="Switch deployment"
+            disabled={deployment.status === undefined}
           >
             <ChevronsUpDownIcon />
           </Button>
@@ -652,6 +696,7 @@ function DeploymentSwitcher({
                     projectName,
                     deploymentId: deploymentOption.id,
                   }}
+                  aria-label={`Deployment ${shortId(deploymentOption.id)}: ${deploymentOption.status}`}
                 >
                   <DeploymentStatusIcon status={deploymentOption.status} />
                   <span className="font-mono text-[13px]">
@@ -676,70 +721,13 @@ function DeploymentSwitcher({
   )
 }
 
-function LogoMark() {
-  return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      xmlns="http://www.w3.org/2000/svg"
-      className="size-4"
-      aria-hidden="true"
-    >
-      <path d="m16 6 6 6-6 6" />
-      <path d="M7 3 2 21M4.5 12H22" />
-    </svg>
-  )
-}
-
-function HelpMenu() {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="hidden sm:inline-flex"
-          aria-label="Help"
-        >
-          <CircleQuestionMarkIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto">
-        <DropdownMenuItem asChild className="whitespace-nowrap">
-          <a href="https://devpu.sh" target="_blank" rel="noreferrer">
-            About
-            <ExternalLinkIcon className="ml-auto size-3 text-muted-foreground" />
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="whitespace-nowrap">
-          <a href="https://devpu.sh/docs" target="_blank" rel="noreferrer">
-            Documentation
-            <ExternalLinkIcon className="ml-auto size-3 text-muted-foreground" />
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="whitespace-nowrap">
-          <a href="https://devpu.sh/chat" target="_blank" rel="noreferrer">
-            Chat
-            <ExternalLinkIcon className="ml-auto size-3 text-muted-foreground" />
-          </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 function NotificationsMenu({
   invites,
 }: {
   invites: AuthUserContext['invites']
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [selectedInvite, setSelectedInvite] = useState<
     AuthUserContext['invites'][number] | null
   >(null)
@@ -760,8 +748,18 @@ function NotificationsMenu({
       })
       toast.success('Invitation accepted.')
       setSelectedInvite(null)
-      await router.invalidate()
-      await router.navigate({ to: '/$teamSlug', params: { teamSlug } })
+      await afterMutation(
+        () => invalidateResourceQueries(queryClient),
+        'The action completed, but refreshing the data failed. Please reload.',
+      )
+      await afterMutation(
+        () => router.invalidate(),
+        'The action completed, but refreshing the page failed. Please reload.',
+      )
+      await afterMutation(
+        () => router.navigate({ to: '/$teamSlug', params: { teamSlug } }),
+        'The action completed, but opening the next page failed. Please reload.',
+      )
     } catch (error) {
       toast.error(getErrorMessage(error, 'Unable to accept invitation.'))
     } finally {
@@ -897,16 +895,10 @@ function NotificationsMenu({
 }
 
 function UserMenu({ userContext }: { userContext: AuthUserContext }) {
-  const router = useRouter()
   const { resolvedTheme, setTheme } = useTheme()
   const { user, defaultTeam } = userContext
   const label = user.name || user.email
   const initial = label.trim().charAt(0).toLocaleUpperCase() || '?'
-  const imageUrl = `https://unavatar.io/${encodeURIComponent(
-    user.email,
-  )}?fallback=${encodeURIComponent(
-    `https://avatar.vercel.sh/${encodeURIComponent(user.email)}?size=120`,
-  )}`
 
   return (
     <DropdownMenu>
@@ -918,7 +910,9 @@ function UserMenu({ userContext }: { userContext: AuthUserContext }) {
           aria-label="User menu"
         >
           <Avatar className="size-6">
-            <AvatarImage src={imageUrl} alt={user.email} />
+            {user.image ? (
+              <AvatarImage src={user.image} alt={user.email} />
+            ) : null}
             <AvatarFallback>{initial}</AvatarFallback>
           </Avatar>
         </Button>
@@ -939,6 +933,17 @@ function UserMenu({ userContext }: { userContext: AuthUserContext }) {
             Default team
           </Link>
         </DropdownMenuItem>
+        {user.isInstallationAdmin ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link to="/admin">
+                <SettingsIcon />
+                Admin
+              </Link>
+            </DropdownMenuItem>
+          </>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="whitespace-nowrap"
@@ -950,16 +955,7 @@ function UserMenu({ userContext }: { userContext: AuthUserContext }) {
           <SunIcon className="ml-auto hidden text-muted-foreground dark:block" />
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          className="whitespace-nowrap"
-          onClick={async () => {
-            await authClient.signOut()
-            await router.navigate({ to: '/auth/login' })
-          }}
-        >
-          Sign out
-        </DropdownMenuItem>
+        <SignOutMenuItem />
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -970,8 +966,9 @@ function DeploymentStatusIcon({
   status,
 }: {
   'data-icon'?: 'inline-start' | 'inline-end'
-  status: ProjectContext['deployments'][number]['status']
+  status?: ProjectContext['deployments'][number]['status']
 }) {
+  if (status === undefined) return <Skeleton className="size-4 shrink-0" />
   if (status === 'succeeded') {
     return (
       <CircleCheckIcon
@@ -1025,42 +1022,4 @@ function formatShortDate(value: string) {
     month: 'short',
     day: 'numeric',
   }).format(new Date(value))
-}
-
-function isProjectTabActive(pathname: string, label: string) {
-  if (label === 'Overview') {
-    return (
-      !pathname.includes('/deployments') &&
-      !pathname.includes('/logs') &&
-      !pathname.includes('/backups') &&
-      !pathname.includes('/settings')
-    )
-  }
-
-  if (label === 'Logs') {
-    return pathname.includes('/logs')
-  }
-
-  if (label === 'Backups') {
-    return pathname.includes('/backups')
-  }
-
-  return pathname.includes(label.toLowerCase())
-}
-
-function isTeamTabActive(pathname: string, label: string) {
-  if (label === 'Overview') {
-    return (
-      !pathname.includes('/projects') &&
-      !pathname.includes('/servers') &&
-      !pathname.includes('/settings') &&
-      !pathname.includes('/new-project')
-    )
-  }
-
-  if (label === 'Projects') {
-    return pathname.includes('/projects') || pathname.includes('/new-project')
-  }
-
-  return pathname.includes(label.toLowerCase())
 }

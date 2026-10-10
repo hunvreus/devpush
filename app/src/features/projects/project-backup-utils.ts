@@ -1,8 +1,9 @@
+import { isValidCron } from '@/server/backups/cron'
 import type {
   ProjectBackupArtifact,
   ProjectBackupConfig,
   ProjectBackupRun,
-} from '@/server/projects/service'
+} from '@/server/projects/types'
 
 export type BackupFilters = {
   environment?: string
@@ -75,42 +76,40 @@ export function formatBackupArtifacts(
   if (artifacts.length === 0) {
     return 'No artifacts'
   }
-  const local = artifacts.filter(
-    (artifact) => artifact.storage === 'local',
-  ).length
-  const remote = artifacts.length - local
-  const size = artifacts.reduce(
-    (total, artifact) => total + artifact.sizeBytes,
-    0,
-  )
-  return `${local} local, ${remote} remote · ${formatBytes(size)}`
-}
-
-export function formatArtifactLabel(artifact: ProjectBackupArtifact) {
-  return `${artifact.type} ${inferArtifactName(artifact)}`
+  const files = artifacts.filter((artifact) => artifact.type !== 'manifest')
+  const volumes = new Set(
+    files
+      .filter((a) => a.type === 'volume')
+      .map((a) => a.objectKey.split('/').at(-1)),
+  ).size
+  const dumps = new Set(
+    files
+      .filter((a) => a.type === 'database')
+      .map((a) => a.objectKey.split('/').at(-1)),
+  ).size
+  const targets =
+    [
+      volumes ? `${volumes} volume${volumes === 1 ? '' : 's'}` : '',
+      dumps ? `${dumps} dump${dumps === 1 ? '' : 's'}` : '',
+    ]
+      .filter(Boolean)
+      .join(', ') || 'No backup files'
+  const locations = [
+    files.some((a) => a.storage === 'local') ? 'Server' : '',
+    files.some((a) => a.storage === 'remote') ? 'Remote' : '',
+  ]
+    .filter(Boolean)
+    .join(' + ')
+  return locations ? `${targets} · ${locations}` : targets
 }
 
 export function inferArtifactName(artifact: ProjectBackupArtifact) {
   const fileName = artifact.objectKey.split('/').at(-1) ?? artifact.objectKey
   return fileName
     .replace(/^\d+-/, '')
-    .replace(/\.sql\.gz$/, '')
+    .replace(/\.(sql|archive)\.gz$/, '')
     .replace(/\.tar\.gz$/, '')
     .replace(/\.json$/, '')
-}
-
-export function getDefaultRestoreCommand(service: string) {
-  const normalized = service.toLowerCase()
-  if (normalized.includes('postgres')) {
-    return 'psql -U "$POSTGRES_USER"'
-  }
-  if (normalized.includes('mysql')) {
-    return 'mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD"'
-  }
-  if (normalized.includes('mariadb')) {
-    return 'mariadb -u "$MARIADB_USER" -p"$MARIADB_PASSWORD"'
-  }
-  return ''
 }
 
 export function formatBytes(value: number) {
@@ -164,14 +163,33 @@ export function isValidRetention(retention: ProjectBackupConfig['retention']) {
 }
 
 export function isCronSchedule(value: string) {
-  return /^(\S+\s+){4}\S+$/.test(value.trim())
+  return isValidCron(value)
 }
 
-export function isUrl(value: string) {
-  try {
-    new URL(value)
-    return true
-  } catch {
-    return false
-  }
+export const backupDetailSections = [
+  { id: 'general', label: 'General' },
+  { id: 'destination', label: 'Remote backups' },
+  { id: 'retention', label: 'Retention' },
+  { id: 'targets', label: 'Backup targets' },
+  { id: 'danger', label: 'Danger' },
+]
+
+export function getComposeArtifactName(
+  artifact: ProjectBackupArtifact,
+  projectId: string,
+  environmentId: string,
+) {
+  const name = inferArtifactName(artifact)
+  const prefix = `dp_${projectId
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 10)
+    .padEnd(10, '0')}_${environmentId
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 10)
+    .padEnd(10, '0')}_`
+  return artifact.type === 'volume' && name.startsWith(prefix)
+    ? name.slice(prefix.length)
+    : name
 }

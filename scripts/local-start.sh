@@ -27,15 +27,6 @@ if [ "$REQUIRE_LIMA" = "1" ]; then
   fi
 fi
 
-if docker compose version >/dev/null 2>&1; then
-  docker compose -f "$ROOT_DIR/deploy/compose.yml" up -d
-elif command -v docker-compose >/dev/null 2>&1; then
-  docker-compose -f "$ROOT_DIR/deploy/compose.yml" up -d
-else
-  echo "Docker Compose is required for local Postgres." >&2
-  exit 1
-fi
-
 pnpm --dir "$ROOT_DIR/app" db:migrate
 
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then

@@ -1,39 +1,40 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
+import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
 import { DeploymentDetail } from '@/features/deployments/deployment-detail'
-import { ProjectRoutePending } from '@/features/projects/project-route-pending'
-import { getDeployment } from '@/server/projects/functions'
+import { ProjectSectionPending } from '@/features/projects/project-route-pending'
+import { deploymentContextQueryOptions } from '@/lib/project-context-query'
 
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/deployments/$deploymentId',
 )({
-  loader: async ({ params }) => {
-    const context = await getDeployment({
-      data: {
-        teamSlug: params.teamSlug,
-        projectName: params.projectName,
-        deploymentId: params.deploymentId,
-      },
-    })
-
-    if (!context) {
-      throw redirect({ to: '/auth/login' })
-    }
-
-    return context
-  },
-  pendingMs: 0,
-  pendingMinMs: 300,
+  loader: ({ context, params }) =>
+    context.queryClient.fetchQuery(
+      deploymentContextQueryOptions(
+        {
+          teamSlug: params.teamSlug,
+          projectName: params.projectName,
+          deploymentId: params.deploymentId,
+        },
+        context.queryClient,
+      ),
+    ),
+  pendingMs: 150,
+  pendingMinMs: 200,
   pendingComponent: DeploymentPending,
   component: DeploymentRoute,
 })
 
 function DeploymentPending() {
-  return <ProjectRoutePending section="deployment" />
+  return <ProjectSectionPending section="deployment" />
 }
 
 function DeploymentRoute() {
-  const context = Route.useLoaderData()
+  const params = Route.useParams()
+  const queryClient = useQueryClient()
+  const { data: context } = useSuspenseQuery(
+    deploymentContextQueryOptions(params, queryClient),
+  )
 
   return <DeploymentDetail context={context} />
 }

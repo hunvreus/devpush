@@ -42,3 +42,21 @@ describe('project settings helpers', () => {
     expect(isEnvFilePaste('not an env file')).toBe(false)
   })
 })
+
+test('invalid env lines cannot silently disappear during import', () => {
+  expect(() => parseEnvFile('GOOD=value\ninvalid line\nOTHER=value')).toThrow(
+    'Line 2',
+  )
+})
+test('quoted env values preserve spaces and support multiline secrets', () => {
+  expect(
+    parseEnvFile(
+      'export TOKEN=" spaced " # note\nCERT="first\nsecond"\nPLAIN=value # comment',
+    ),
+  ).toEqual([
+    { key: 'TOKEN', value: ' spaced ' },
+    { key: 'CERT', value: 'first\nsecond' },
+    { key: 'PLAIN', value: 'value' },
+  ])
+  expect(() => parseEnvFile('TOKEN="unclosed')).toThrow('Line 1')
+})

@@ -1,5 +1,6 @@
+import { required } from '@/test/required'
 import { and, eq, inArray } from 'drizzle-orm'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
 import {
@@ -15,10 +16,11 @@ import {
   acceptTeamInvite,
   acceptUserTeamInvite,
   cleanupExpiredTeamInvites,
+  createTeam,
   createTeamInvite,
+  createTeamInvites,
   deleteTeam,
-  listTeamInvites,
-  listUserPendingTeamInvites,
+  ensureUserBootstrap,
   removeTeamMember,
   resendTeamInvite,
   revokeTeamInvite,
@@ -26,6 +28,10 @@ import {
   updateTeamGeneral,
   updateTeamMemberRole,
 } from './service'
+import { listTeamInvites, listUserPendingTeamInvites } from './queries'
+
+const emailMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+vi.mock('@/server/email/service', () => ({ sendTeamInviteEmail: emailMock }))
 
 const touchedInviteIds: Array<string> = []
 const touchedAvatarPaths: Array<string> = []
@@ -43,6 +49,84 @@ afterAll(async () => {
 })
 
 describe('team settings integration', () => {
+  test('concurrent bootstrap creates one team and keeps its default when another team is created', async () => {
+    const userId = makeId('user')
+    touchedUserIds.push(userId)
+    await db.insert(user).values(makeUser(userId, `${userId}@example.com`))
+    const results = await Promise.all([
+      ensureUserBootstrap(userId),
+      ensureUserBootstrap(userId),
+    ])
+    touchedTeamIds.push(...new Set(results))
+    expect(new Set(results).size).toBe(1)
+    const memberships = await db
+      .select()
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, userId))
+    expect(memberships).toHaveLength(1)
+    expect(required(memberships[0]).role).toBe('owner')
+    const added = await createTeam({ userId, name: 'Another owned team' })
+    touchedTeamIds.push(added.id)
+    expect(await ensureUserBootstrap(userId)).toBe(results[0])
+  })
+
+  test('only one request can accept a pending invitation', async () => {
+    const { ownerId, teamSlug, teamId } = await createTeamWithMembers()
+    const invitedUserId = makeId('user')
+    touchedUserIds.push(invitedUserId)
+    await db
+      .insert(user)
+      .values(makeUser(invitedUserId, `${invitedUserId}@example.com`))
+    const token = await inviteAndGetToken({
+      ownerId,
+      teamSlug,
+      email: `${invitedUserId}@example.com`,
+    })
+    const results = await Promise.allSettled([
+      acceptTeamInvite({ userId: invitedUserId, token }),
+      acceptTeamInvite({ userId: invitedUserId, token }),
+    ])
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1)
+    expect(
+      await db
+        .select()
+        .from(teamMembers)
+        .where(
+          and(
+            eq(teamMembers.teamId, teamId),
+            eq(teamMembers.userId, invitedUserId),
+          ),
+        ),
+    ).toHaveLength(1)
+  })
+
+  test('allows only one of two owners to demote themselves concurrently', async () => {
+    const { ownerId, otherOwnerId, teamId, teamSlug } =
+      await createTeamWithMembers()
+    const results = await Promise.allSettled(
+      [ownerId, otherOwnerId].map((userId) =>
+        updateTeamMemberRole({
+          userId,
+          teamSlug,
+          memberUserId: userId,
+          role: 'admin',
+        }),
+      ),
+    )
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1)
+    const remaining = await db
+      .select()
+      .from(teamMembers)
+      .where(eq(teamMembers.teamId, teamId))
+    expect(remaining.filter((member) => member.role === 'owner')).toHaveLength(
+      1,
+    )
+  })
+
   test('allows admins to update general settings and invite members', async () => {
     const { adminId, teamId, teamSlug } = await createTeamWithMembers()
     const nextSlug = `${teamSlug}-updated`
@@ -830,7 +914,7 @@ describe('team settings integration', () => {
         slug: teamSlug,
         avatarDataUrl: `data:image/svg+xml;base64,${Buffer.from('<svg />').toString('base64')}`,
       }),
-    ).rejects.toThrow('Upload a PNG, JPEG, GIF, or WebP image.')
+    ).rejects.toThrow('Upload a PNG, JPEG, or WebP image.')
 
     await expect(
       updateTeamGeneral({
@@ -992,7 +1076,10 @@ async function expectAvatarMissing(avatarPath: string) {
 }
 
 function makeAvatarDataUrl() {
-  return `data:image/png;base64,${Buffer.from('avatar').toString('base64')}`
+  const signature = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ])
+  return `data:image/png;base64,${signature.toString('base64')}`
 }
 
 function makeUser(
@@ -1020,3 +1107,52 @@ function makeSlug(id: string) {
 function makeUsername(id: string) {
   return id.replaceAll('_', '-').toLowerCase().slice(0, 50)
 }
+
+test('bulk invitations report individual failures and continue with later addresses', async () => {
+  const { ownerId, teamSlug, teamId } = await createTeamWithMembers()
+  const owner = required(
+    (await db.select().from(user).where(eq(user.id, ownerId)))[0],
+  )
+  const result = await createTeamInvites({
+    userId: ownerId,
+    teamSlug,
+    role: 'member',
+    emails: ['first@example.com', owner.email, 'last@example.com'],
+  })
+  const rows = await db
+    .select()
+    .from(teamInvites)
+    .where(eq(teamInvites.teamId, teamId))
+  touchedInviteIds.push(...rows.map((row) => row.id))
+  expect(result.emailCount).toBe(2)
+  expect(result.emailSentCount).toBe(2)
+  expect(result.failedEmails).toEqual([
+    {
+      email: owner.email,
+      message: `${owner.email} is already a member of this team.`,
+    },
+  ])
+  expect(rows.map((row) => row.email).sort()).toEqual([
+    'first@example.com',
+    'last@example.com',
+  ])
+})
+test('bulk email delivery failures still report persisted invitations separately', async () => {
+  const { ownerId, teamSlug, teamId } = await createTeamWithMembers()
+  emailMock.mockRejectedValueOnce(new Error('mail unavailable'))
+  const result = await createTeamInvites({
+    userId: ownerId,
+    teamSlug,
+    role: 'member',
+    emails: ['first@example.com', 'last@example.com'],
+  })
+  const rows = await db
+    .select()
+    .from(teamInvites)
+    .where(eq(teamInvites.teamId, teamId))
+  touchedInviteIds.push(...rows.map((row) => row.id))
+  expect(result.emailCount).toBe(2)
+  expect(result.emailSentCount).toBe(1)
+  expect(result.failedEmails).toEqual([])
+  expect(rows).toHaveLength(2)
+})

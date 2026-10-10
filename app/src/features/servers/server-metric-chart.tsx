@@ -1,5 +1,6 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { useEffect, useState } from 'react'
+import { Skeleton } from '@/components/ui/skeleton'
 import { LoaderIcon } from 'lucide-react'
 
 import {
@@ -101,13 +102,7 @@ export function ServerMetricChart({
         </p>
       </div>
       {valueCount > 1 && !isMounted ? (
-        <div
-          role="status"
-          className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground"
-        >
-          <LoaderIcon className="size-4 shrink-0 animate-spin" />
-          <span>Loading data…</span>
-        </div>
+        <MetricChartLoading />
       ) : valueCount > 1 ? (
         <ChartContainer config={config} className="h-40 w-full aspect-auto">
           <AreaChart
@@ -151,7 +146,7 @@ export function ServerMetricChart({
                       />
                       <div className="flex min-w-36 flex-1 items-center justify-between gap-4">
                         <span className="text-muted-foreground">
-                          {config[String(name)].label}
+                          {config[String(name)]?.label ?? name}
                         </span>
                         <span className="font-mono font-medium tabular-nums">
                           {formatValue(Number(value))}
@@ -184,5 +179,41 @@ export function ServerMetricChart({
         </div>
       )}
     </section>
+  )
+}
+
+export function ServerMetricChartPending({
+  label,
+  latestValue,
+}: {
+  label: string
+  latestValue?: string
+}) {
+  return (
+    <section className="space-y-4 rounded-lg border p-4" aria-busy="true">
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
+        {latestValue === undefined ? (
+          <Skeleton className="h-5 w-20" />
+        ) : (
+          <p className="font-mono text-sm font-medium tabular-nums">
+            {latestValue}
+          </p>
+        )}
+      </div>
+      <MetricChartLoading />
+    </section>
+  )
+}
+
+function MetricChartLoading() {
+  return (
+    <div
+      role="status"
+      className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground"
+    >
+      <LoaderIcon className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />
+      <span>Loading data…</span>
+    </div>
   )
 }

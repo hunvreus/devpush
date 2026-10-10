@@ -11,22 +11,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_DB: devpush
-          POSTGRES_PASSWORD: devpush
-          POSTGRES_USER: devpush
-        ports:
-          - 7543:5432
-        options: >-
-          --health-cmd "pg_isready -U devpush -d devpush"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
-      DATABASE_URL: postgres://devpush:devpush@localhost:7543/devpush
       DEVPUSH_BASE_URL: http://localhost:7429
       DEVPUSH_SECRET_ENCRYPTION_KEY: ci-secret-encryption-key
     steps:
@@ -47,9 +32,33 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm --dir app build:cloudflare
       - run: pnpm --dir app db:migrate
       - run: pnpm test:integration
+      - run: pnpm --dir app test:integration:libsql
       - run: pnpm agent:test
       - run: go vet ./agent/...
       - run: pnpm audit:dependencies
+
+  worker:
+    runs-on: ubuntu-latest
+    services:
+      libsql-main:
+        image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+        ports:
+          - 7561:8080
+      libsql-logs:
+        image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67
+        ports:
+          - 7562:8080
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir app smoke:worker d1
+      - run: pnpm --dir app smoke:worker libsql

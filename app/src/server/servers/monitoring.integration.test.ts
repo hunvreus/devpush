@@ -1,3 +1,9 @@
+import { createClient } from '@libsql/client'
+import { migrateLibsql } from '@/server/db/migrate-libsql'
+import { openLibsql } from '@/server/db/libsql-connection'
+import * as metricDbSchema from '@/server/db/schema'
+import { fileURLToPath } from 'node:url'
+import { recordAgentMetricSamples, metricRowId } from './metric-history'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
@@ -15,6 +21,7 @@ import {
   listServerMonitoringSummaries,
   recordServerHeartbeat,
   recordServerMetrics,
+  pruneServerMonitoring,
 } from '@/server/servers/monitoring'
 
 const touchedHeartbeatIds: Array<string> = []
@@ -32,6 +39,167 @@ afterAll(async () => {
 })
 
 describe('server monitoring integration', () => {
+  test('stores idempotent metric batches through libSQL', async () => {
+    const client = createClient({ url: ':memory:' })
+    try {
+      await migrateLibsql(
+        client,
+        fileURLToPath(new URL('../db/migrations-sqlite/', import.meta.url)),
+      )
+      const store = openLibsql(client, metricDbSchema).db
+      await store
+        .insert(teams)
+        .values({ id: 'metric-team', slug: 'metric-team', name: 'Metric team' })
+      await store
+        .insert(servers)
+        .values({
+          id: 'metric-server',
+          teamId: 'metric-team',
+          name: 'Metric server',
+          handle: 'metric-server',
+        })
+      const now = new Date()
+      const samples = Array.from({ length: 240 }, (_, index) => ({
+        id: index.toString(16).padStart(32, '0'),
+        observedAt: now.toISOString(),
+        metrics: { cpuPercent: 1 },
+      }))
+      expect(
+        await recordAgentMetricSamples('metric-server', samples, now, store),
+      ).toBe(samples.at(-1)?.id)
+      await recordAgentMetricSamples('metric-server', samples, now, store)
+      expect(await store.select().from(serverMetrics)).toHaveLength(240)
+    } finally {
+      client.close()
+    }
+  })
+
+  test('replays original timestamps idempotently and repairs holes', async () => {
+    const { serverId } = await createFixture()
+    const now = new Date()
+    const samples = Array.from({ length: 240 }, (_, index) => ({
+      id: index.toString(16).padStart(32, '0'),
+      observedAt: new Date(
+        now.getTime() - (240 - index) * 30_000,
+      ).toISOString(),
+      metrics: { cpuPercent: index % 100, memoryUsedBytes: 1024 },
+    }))
+    touchedMetricIds.push(
+      ...samples.map((sample) => metricRowId(serverId, sample.id)),
+    )
+    expect(await recordAgentMetricSamples(serverId, samples, now)).toBe(
+      samples.at(-1)?.id,
+    )
+    await recordAgentMetricSamples(serverId, samples, now)
+    let rows = await db
+      .select()
+      .from(serverMetrics)
+      .where(eq(serverMetrics.serverId, serverId))
+    expect(rows).toHaveLength(240)
+    expect(
+      rows
+        .find((row) => row.id === metricRowId(serverId, samples[0]!.id))
+        ?.observedAt.toISOString(),
+    ).toBe(samples[0]!.observedAt)
+    await db
+      .delete(serverMetrics)
+      .where(eq(serverMetrics.id, metricRowId(serverId, samples[10]!.id)))
+    await recordAgentMetricSamples(serverId, samples, now)
+    rows = await db
+      .select()
+      .from(serverMetrics)
+      .where(eq(serverMetrics.serverId, serverId))
+    expect(rows).toHaveLength(240)
+    expect(metricRowId('different-server', samples[0]!.id)).not.toBe(
+      metricRowId(serverId, samples[0]!.id),
+    )
+    expect(await recordAgentMetricSamples(serverId, [], now)).toBeUndefined()
+    await expect(
+      recordAgentMetricSamples('nonexistent-server', samples, now),
+    ).rejects.toThrow()
+    // Expired backlog is acknowledged without recreating purged records.
+    expect(
+      await recordAgentMetricSamples(
+        serverId,
+        [
+          {
+            ...samples[0]!,
+            id: 'f'.repeat(32),
+            observedAt: '1900-01-01T00:00:00.000Z',
+          },
+        ],
+        now,
+      ),
+    ).toBe('f'.repeat(32))
+    expect(
+      await db
+        .select()
+        .from(serverMetrics)
+        .where(eq(serverMetrics.id, metricRowId(serverId, 'f'.repeat(32)))),
+    ).toHaveLength(0)
+  })
+
+  test('prunes expired samples across batches while preserving the retention boundary', async () => {
+    const { serverId } = await createFixture()
+    const old = new Date('1900-01-01T00:00:00Z')
+    const boundary = new Date('1900-01-03T00:00:00Z')
+    const fresh = new Date('1900-01-09T00:00:00Z')
+    const heartbeatRows = Array.from({ length: 1005 }, () => ({
+      id: crypto.randomUUID(),
+      serverId,
+      observedAt: old,
+    }))
+    const keptHeartbeats = [boundary, fresh].map((observedAt) => ({
+      id: crypto.randomUUID(),
+      serverId,
+      observedAt,
+    }))
+    const metricRows = [old, boundary, fresh].map((observedAt) => ({
+      id: crypto.randomUUID(),
+      serverId,
+      observedAt,
+      cpuPercent: 10,
+    }))
+    touchedHeartbeatIds.push(
+      ...heartbeatRows.map((row) => row.id),
+      ...keptHeartbeats.map((row) => row.id),
+    )
+    touchedMetricIds.push(...metricRows.map((row) => row.id))
+    for (let start = 0; start < heartbeatRows.length; start += 100) {
+      await db
+        .insert(serverHeartbeats)
+        .values(heartbeatRows.slice(start, start + 100))
+    }
+    await db.insert(serverHeartbeats).values(keptHeartbeats)
+    await db.insert(serverMetrics).values(metricRows)
+    const result = await pruneServerMonitoring(new Date('1900-01-10T00:00:00Z'))
+    expect(result).toEqual({ heartbeats: 1005, metrics: 1 })
+    expect(
+      (
+        await db
+          .select()
+          .from(serverHeartbeats)
+          .where(eq(serverHeartbeats.serverId, serverId))
+      )
+        .map((row) => row.id)
+        .sort(),
+    ).toEqual(keptHeartbeats.map((row) => row.id).sort())
+    expect(
+      (
+        await db
+          .select()
+          .from(serverMetrics)
+          .where(eq(serverMetrics.serverId, serverId))
+      )
+        .map((row) => row.id)
+        .sort(),
+    ).toEqual(
+      metricRows
+        .slice(1)
+        .map((row) => row.id)
+        .sort(),
+    )
+  })
   test('records heartbeat history and returns availability summaries', async () => {
     const { serverId } = await createFixture()
     const now = new Date('2026-06-28T10:00:00.000Z')

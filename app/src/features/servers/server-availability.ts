@@ -1,12 +1,14 @@
-import type { ServerSummary } from '@/server/teams/service'
+import type { ServerSummary } from '@/server/teams/types'
 
-export function getServerAvailabilityNotice(
-  servers: Array<Pick<ServerSummary, 'id' | 'name' | 'status'>>,
-): {
+export type ServerAvailabilityNotice = {
   title: string
   description: string
   targetServerId: string
-} | null {
+}
+
+export function getServerAvailabilityNotice(
+  servers: Array<Pick<ServerSummary, 'id' | 'name' | 'status'>>,
+): ServerAvailabilityNotice | null {
   const disconnected = servers.filter(
     (server) => server.status === 'disconnected',
   )

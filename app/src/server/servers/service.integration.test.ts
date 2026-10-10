@@ -1,3 +1,5 @@
+import { switchServerControlPlane } from './switch'
+import { required } from '@/test/required'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
@@ -51,6 +53,65 @@ afterAll(async () => {
 })
 
 describe('server service integration', () => {
+  test('switching pauses an empty server, rejects work, and supports guarded rollback', async () => {
+    const { teamId, teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'switch-test',
+    })
+    touchedServerIds.push(server.id)
+    const registration = await registerAgent({
+      token: required(server.installCommand.match(/dps_[\w-]+/)?.[0]),
+      publicAddress: null,
+    })
+    const token = required(registration.credential)
+    const input = { serverId: server.id, token, action: 'prepare' as const }
+    const paused = await switchServerControlPlane(input)
+    expect(paused.ticket).toBeTruthy()
+    await expect(
+      requireAgentServer({ serverId: server.id, token }),
+    ).rejects.toThrow('disabled')
+    await expect(
+      switchServerControlPlane({
+        ...input,
+        action: 'rollback',
+        ticket: 'invalid',
+      }),
+    ).rejects.toThrow('Invalid rollback ticket')
+    await switchServerControlPlane({
+      ...input,
+      action: 'rollback',
+      ticket: paused.ticket,
+    })
+    await expect(
+      switchServerControlPlane({
+        ...input,
+        action: 'rollback',
+        ticket: paused.ticket,
+      }),
+    ).rejects.toThrow('Source state changed')
+    expect(
+      (await requireAgentServer({ serverId: server.id, token })).status,
+    ).toBe('connected')
+    const projectId = `switch-project-${crypto.randomUUID()}`
+    touchedProjectIds.push(projectId)
+    await db
+      .insert(projects)
+      .values({
+        id: projectId,
+        teamId,
+        defaultServerId: server.id,
+        slug: projectId,
+        name: 'Switch guard',
+        githubRepo: 'example/test',
+      })
+    await expect(switchServerControlPlane(input)).rejects.toThrow('no projects')
+    expect(
+      (await requireAgentServer({ serverId: server.id, token })).status,
+    ).toBe('connected')
+  })
+
   test('creates a server using its machine-safe name', async () => {
     const { teamSlug, userId } = await createFixture()
 
@@ -174,7 +235,7 @@ describe('server service integration', () => {
       .from(serverAvailabilityWindows)
       .where(eq(serverAvailabilityWindows.serverId, server.id))
     expect(disabledWindows).toHaveLength(1)
-    expect(disabledWindows[0].endedAt).toBeInstanceOf(Date)
+    expect(required(disabledWindows[0]).endedAt).toBeInstanceOf(Date)
     await expect(
       createServerInstallCommand({
         userId,
@@ -216,7 +277,7 @@ describe('server service integration', () => {
       .from(servers)
       .where(eq(servers.id, server.id))
 
-    expect(after.tokenHash).toBe(before.tokenHash)
+    expect(required(after).tokenHash).toBe(required(before).tokenHash)
   })
 
   test('enables a disabled server as pending', async () => {

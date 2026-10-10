@@ -3,7 +3,13 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
 import { auth } from '@/lib/auth'
-import { getAuthSession } from '@/server/auth/session.server'
+import { requireAuthSession } from '@/server/auth/session.server'
+import {
+  accountSettingsSchema,
+  accountEmailSchema,
+  accountValidationErrors,
+  accountServiceErrors,
+} from '@/lib/account-settings-schema'
 import {
   assertActiveUser,
   disconnectAuthAccount,
@@ -12,55 +18,27 @@ import {
   updateUserGeneral,
 } from '@/server/users/service'
 
-const avatarSchema = z
-  .string()
-  .max(3_000_000)
-  .regex(/^data:image\/(?:png|jpeg|gif|webp);base64,/)
-  .nullable()
-  .optional()
-
 export const updateUserGeneralAction = createServerFn({ method: 'POST' })
-  .validator((data: unknown) =>
-    z
-      .object({
-        name: z.string().trim().min(1).max(256),
-        username: z
-          .string()
-          .trim()
-          .min(1)
-          .max(50)
-          .regex(
-            /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/,
-            'Username must start and end with a letter or number and only use letters, numbers, dots, underscores, or hyphens.',
-          ),
-        avatarDataUrl: avatarSchema,
-        deleteAvatar: z.boolean().optional(),
-      })
-      .parse(data),
-  )
+  .validator((data: z.input<typeof accountSettingsSchema>) => data)
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Unauthorized')
+    const session = await requireAuthSession()
+    const parsed = accountSettingsSchema.safeParse(data)
+    if (!parsed.success)
+      return { fieldErrors: accountValidationErrors(parsed.error.issues) }
+    try {
+      await updateUserGeneral({ userId: session.user.id, ...parsed.data })
+      return { fieldErrors: null }
+    } catch (error) {
+      const fieldErrors = accountServiceErrors(error)
+      if (fieldErrors) return { fieldErrors }
+      throw error
     }
-
-    return updateUserGeneral({
-      userId: session.user.id,
-      ...data,
-    })
   })
 
 export const requestEmailChangeAction = createServerFn({ method: 'POST' })
-  .validator((data: unknown) =>
-    z.object({ newEmail: z.string().trim().email().max(320) }).parse(data),
-  )
+  .validator((data: unknown) => accountEmailSchema.parse(data))
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Unauthorized')
-    }
+    const session = await requireAuthSession()
 
     const request = getRequest()
 
@@ -85,11 +63,7 @@ export const disconnectAuthAccountAction = createServerFn({ method: 'POST' })
       .parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Unauthorized')
-    }
+    const session = await requireAuthSession()
 
     return disconnectAuthAccount({
       userId: session.user.id,
@@ -102,11 +76,7 @@ export const leaveTeamAction = createServerFn({ method: 'POST' })
     z.object({ teamId: z.string().min(1) }).parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Unauthorized')
-    }
+    const session = await requireAuthSession()
 
     return leaveTeam({
       userId: session.user.id,
@@ -119,11 +89,7 @@ export const deleteUserAccountAction = createServerFn({ method: 'POST' })
     z.object({ confirmationName: z.string().trim().min(1) }).parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Unauthorized')
-    }
+    const session = await requireAuthSession()
 
     return deleteUserAccount({
       userId: session.user.id,

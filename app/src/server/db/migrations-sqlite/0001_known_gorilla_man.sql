@@ -1,0 +1,1 @@
+DROP TABLE `runtime_logs`;

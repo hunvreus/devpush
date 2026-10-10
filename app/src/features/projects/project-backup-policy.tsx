@@ -1,12 +1,9 @@
-import {
-  CheckIcon,
-  ChevronsUpDownIcon,
-  LoaderIcon,
-  LockIcon,
-  MoreHorizontalIcon,
-} from 'lucide-react'
+import type { FormErrors } from '@/lib/form-errors'
+import { backupConfigSchema } from '@/lib/backup-policy-schema'
+import { afterMutation } from '@/lib/action-feedback'
+import { LoaderIcon, LockIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -21,13 +18,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
-import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -37,12 +27,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Empty,
   EmptyDescription,
@@ -65,11 +49,6 @@ import {
   InputGroupInput,
 } from '@/components/ui/input-group'
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -78,14 +57,13 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { EnvironmentDot } from './environment-dot'
-import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/error-message'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
 import { saveProjectBackupConfigs } from '@/server/projects/functions'
 import type {
   ProjectBackupConfig,
   ProjectContext,
-} from '@/server/projects/service'
+} from '@/server/projects/types'
 import {
   backupCronPresets as cronPresets,
   getDefaultBackupPrefix,
@@ -94,25 +72,20 @@ import {
 } from './project-backup-utils'
 
 export type BackupPolicyDraft = {
-  accessKeyId: string
-  bucket: string
-  clearSecretAccessKey: boolean
   cron: string
   databaseDumps: ProjectBackupConfig['databaseDumps']
   enabled: boolean
-  endpoint: string
   environmentId: string
   localRetentionCount: string
   localRetentionDays: string
   localRetentionMaxStorageGb: string
   name: string
+  storageId: string
   prefix: string
-  region: string
   remoteRetentionEnabled: boolean
   remoteRetentionCount: string
   remoteRetentionDays: string
   remoteRetentionMaxStorageGb: string
-  secretAccessKey: string
   volumeMode: 'none' | 'allNamed' | 'selected'
   volumeNames: Array<string>
 }
@@ -121,42 +94,18 @@ export type BackupPolicyErrorSection =
   | 'general'
   | 'destination'
   | 'retention'
-  | 'volumes'
-  | 'databases'
+  | 'targets'
   | 'danger'
 
 export type BackupPolicyErrorField =
   | 'name'
   | 'environment'
   | 'schedule'
-  | 'bucket'
-  | 'endpoint'
-  | 'accessKeyId'
-  | 'secretAccessKey'
+  | 'storageId'
   | 'retention'
   | 'volumes'
   | 'databases'
   | 'danger'
-
-const databaseDumpPresets = [
-  {
-    label: 'Postgres',
-    service: 'postgres',
-    command: 'pg_dumpall -U "$POSTGRES_USER" | gzip',
-  },
-  {
-    label: 'MySQL',
-    service: 'mysql',
-    command:
-      'mysqldump --all-databases -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" | gzip',
-  },
-  {
-    label: 'MariaDB',
-    service: 'mariadb',
-    command:
-      'mariadb-dump --all-databases -u "$MARIADB_USER" -p"$MARIADB_PASSWORD" | gzip',
-  },
-]
 
 export function ComposeRequiredEmpty() {
   return (
@@ -168,115 +117,6 @@ export function ComposeRequiredEmpty() {
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
-  )
-}
-
-export function VolumeMultiSelect({
-  disabled,
-  options,
-  onVolumeNamesChange,
-  volumeNames,
-}: {
-  disabled: boolean
-  options: Array<string>
-  onVolumeNamesChange: (value: Array<string>) => void
-  volumeNames: Array<string>
-}) {
-  const [open, setOpen] = useState(false)
-  const hasOptions = options.length > 0
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="min-h-9 justify-between font-normal"
-          disabled={disabled || !hasOptions}
-        >
-          <span className="min-w-0 truncate">
-            {volumeNames.length > 0
-              ? volumeNames.join(', ')
-              : hasOptions
-                ? 'Select volumes'
-                : 'No named volumes detected'}
-          </span>
-          <ChevronsUpDownIcon
-            data-icon="inline-end"
-            className="size-4 shrink-0 opacity-50"
-          />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-(--radix-popover-trigger-width) p-0"
-        align="start"
-      >
-        <Command shouldFilter={false}>
-          <CommandList>
-            <CommandEmpty>No named volumes detected.</CommandEmpty>
-            {hasOptions ? (
-              <CommandGroup heading="Volumes">
-                {options.map((volumeName) => {
-                  const selected = volumeNames.includes(volumeName)
-
-                  return (
-                    <CommandItem
-                      key={volumeName}
-                      value={volumeName}
-                      onSelect={() => {
-                        onVolumeNamesChange(
-                          selected
-                            ? volumeNames.filter((item) => item !== volumeName)
-                            : [...volumeNames, volumeName],
-                        )
-                      }}
-                    >
-                      <CheckIcon
-                        className={cn(
-                          'size-4',
-                          selected ? 'opacity-100' : 'opacity-0',
-                        )}
-                      />
-                      <span className="truncate font-mono text-[13px]">
-                        {volumeName}
-                      </span>
-                    </CommandItem>
-                  )
-                })}
-              </CommandGroup>
-            ) : null}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-export function DatabaseDumpPresetMenu({
-  onSelect,
-}: {
-  onSelect: (preset: ProjectBackupConfig['databaseDumps'][number]) => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" aria-label="Presets">
-          <MoreHorizontalIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        {databaseDumpPresets.map((preset) => (
-          <DropdownMenuItem
-            key={preset.label}
-            onSelect={() => onSelect(preset)}
-          >
-            {preset.label}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 
@@ -316,11 +156,10 @@ export function BackupPolicyDialog({
   const defaultVolumeMode =
     (context.composeMetadata?.volumes.length ?? 0) > 0 ? 'allNamed' : 'none'
 
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
+  function changeOpen(next: boolean) {
+    if (isSaving) return
+    setOpen(next)
+    if (!next) return
     const nextId = crypto.randomUUID()
     const nextEnvironmentId = firstEnvironmentId
     const environment = context.environments.find(
@@ -333,21 +172,28 @@ export function BackupPolicyDialog({
     setCron('0 2 * * *')
     setSchedulePresetValue(getSchedulePresetValue('0 2 * * *'))
     setFieldError(null)
-  }, [context.environments, firstEnvironmentId, open])
+  }
 
   async function save() {
+    if (isSaving) return
     const trimmedName = name.trim()
     const trimmedCron = cron.trim()
 
-    if (!trimmedName) {
+    const parsedName = backupConfigSchema.shape.name.safeParse(trimmedName)
+    if (!parsedName.success) {
       setFieldError({
         field: 'name',
-        message: 'Backup policy name is required.',
+        message:
+          parsedName.error.issues[0]?.message ?? 'Enter a backup policy name.',
       })
       return
     }
 
-    if (!environmentId) {
+    if (
+      !context.environments.some(
+        (environment) => environment.id === environmentId,
+      )
+    ) {
       setFieldError({ field: 'environment', message: 'Select an environment.' })
       return
     }
@@ -369,7 +215,6 @@ export function BackupPolicyDialog({
       enabled: true,
       schedule: { cron: trimmedCron },
       destination: {
-        bucket: 'devpush-backups',
         prefix: getDefaultBackupPrefix(context.project.id, environmentId, id),
       },
       retention: {
@@ -399,14 +244,18 @@ export function BackupPolicyDialog({
           backupConfigs: nextConfigs,
         },
       })
-      setProjectContextQueryData(queryClient, nextContext)
+      await setProjectContextQueryData(queryClient, nextContext, 'backups')
       onSaved(nextContext.backupConfigs)
       toast.success('Backup policy created.')
       setOpen(false)
-      void router.navigate({
-        to: '/$teamSlug/projects/$projectName/backups/$backupId',
-        params: { teamSlug, projectName, backupId: nextConfig.id },
-      })
+      await afterMutation(
+        () =>
+          router.navigate({
+            to: '/$teamSlug/projects/$projectName/backups/$backupId',
+            params: { teamSlug, projectName, backupId: nextConfig.id },
+          }),
+        'The action completed, but opening the next page failed. Please reload.',
+      )
     } catch (error) {
       setFieldError({
         field: 'form',
@@ -418,8 +267,10 @@ export function BackupPolicyDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DialogTrigger asChild disabled={isSaving}>
+        {children}
+      </DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Create backup policy</DialogTitle>
@@ -429,136 +280,170 @@ export function BackupPolicyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <FieldGroup>
-          <Field data-invalid={fieldError?.field === 'name' ? true : undefined}>
-            <FieldLabel htmlFor={`backup-name-${id}`}>Name</FieldLabel>
-            <Input
-              aria-invalid={fieldError?.field === 'name'}
-              id={`backup-name-${id}`}
-              value={name}
-              placeholder="Production backup"
-              onChange={(event) => {
-                setName(event.target.value)
-                if (fieldError?.field === 'name') {
-                  setFieldError(null)
-                }
-              }}
-            />
-            {fieldError?.field === 'name' ? (
-              <FieldError>{fieldError.message}</FieldError>
-            ) : null}
-          </Field>
-
-          <Field
-            data-invalid={
-              fieldError?.field === 'environment' ? true : undefined
-            }
-          >
-            <FieldLabel>Environment</FieldLabel>
-            <Select
-              value={environmentId}
-              onValueChange={(value) => {
-                setEnvironmentId(value)
-                if (fieldError?.field === 'environment') {
-                  setFieldError(null)
-                }
-              }}
-            >
-              <SelectTrigger
-                aria-invalid={fieldError?.field === 'environment'}
-                className="w-full"
+        <form
+          id="backup-policy-create-form"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault()
+            void save()
+          }}
+        >
+          <fieldset disabled={isSaving}>
+            <FieldGroup>
+              <Field
+                data-invalid={fieldError?.field === 'name' ? true : undefined}
               >
-                <SelectValue placeholder="Select environment" />
-              </SelectTrigger>
-              <SelectContent>
-                {context.environments.map((environment) => (
-                  <SelectItem key={environment.id} value={environment.id}>
-                    <span className="inline-flex items-center gap-2">
-                      <EnvironmentDot color={environment.color} />
-                      {environment.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {fieldError?.field === 'environment' ? (
-              <FieldError>{fieldError.message}</FieldError>
-            ) : null}
-          </Field>
-
-          <Field
-            data-invalid={fieldError?.field === 'schedule' ? true : undefined}
-          >
-            <FieldLabel>Schedule</FieldLabel>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Select
-                value={schedulePresetValue}
-                onValueChange={(value) => {
-                  setSchedulePresetValue(value)
-                  if (fieldError?.field === 'schedule') {
-                    setFieldError(null)
+                <FieldLabel htmlFor={`backup-name-${id}`}>
+                  Name (required)
+                </FieldLabel>
+                <Input
+                  aria-invalid={fieldError?.field === 'name'}
+                  aria-describedby={
+                    fieldError?.field === 'name'
+                      ? `backup-name-error-${id}`
+                      : undefined
                   }
-                  if (value !== 'custom') {
-                    setCron(value)
-                  }
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Preset" />
-                </SelectTrigger>
-                <SelectContent>
-                  {cronPresets.map((preset) => (
-                    <SelectItem key={preset.value} value={preset.value}>
-                      {preset.label}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="custom">Custom (cron schedule)</SelectItem>
-                </SelectContent>
-              </Select>
-              <InputGroup
-                className={
-                  isCustomSchedule
-                    ? undefined
-                    : 'bg-accent/50 text-muted-foreground'
-                }
-              >
-                <InputGroupInput
-                  aria-invalid={fieldError?.field === 'schedule'}
-                  value={cron}
-                  placeholder="0 2 * * *"
-                  readOnly={!isCustomSchedule}
+                  id={`backup-name-${id}`}
+                  required
+                  maxLength={100}
+                  value={name}
+                  placeholder="Production backup"
                   onChange={(event) => {
-                    setCron(event.target.value)
-                    if (fieldError?.field === 'schedule') {
+                    setName(event.target.value)
+                    if (fieldError?.field === 'name') {
                       setFieldError(null)
                     }
                   }}
                 />
-                {isCustomSchedule ? null : (
-                  <InputGroupAddon align="inline-end">
-                    <LockIcon />
-                  </InputGroupAddon>
-                )}
-              </InputGroup>
-            </div>
-            <FieldDescription>Backup schedules use UTC.</FieldDescription>
-            {fieldError?.field === 'schedule' ? (
-              <FieldError>{fieldError.message}</FieldError>
-            ) : null}
-          </Field>
+                {fieldError?.field === 'name' ? (
+                  <FieldError id={`backup-name-error-${id}`}>
+                    {fieldError.message}
+                  </FieldError>
+                ) : null}
+              </Field>
 
-          {fieldError?.field === 'form' ? (
-            <FieldError>{fieldError.message}</FieldError>
-          ) : null}
-        </FieldGroup>
+              <Field
+                data-invalid={
+                  fieldError?.field === 'environment' ? true : undefined
+                }
+              >
+                <FieldLabel>Environment (required)</FieldLabel>
+                <Select
+                  value={environmentId}
+                  onValueChange={(value) => {
+                    setEnvironmentId(value)
+                    if (fieldError?.field === 'environment') {
+                      setFieldError(null)
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label="Backup environment"
+                    aria-invalid={fieldError?.field === 'environment'}
+                    className="w-full"
+                  >
+                    <SelectValue placeholder="Select environment" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {context.environments.map((environment) => (
+                      <SelectItem key={environment.id} value={environment.id}>
+                        <span className="inline-flex items-center gap-2">
+                          <EnvironmentDot color={environment.color} />
+                          {environment.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fieldError?.field === 'environment' ? (
+                  <FieldError>{fieldError.message}</FieldError>
+                ) : null}
+              </Field>
 
+              <Field
+                data-invalid={
+                  fieldError?.field === 'schedule' ? true : undefined
+                }
+              >
+                <FieldLabel>Schedule (required)</FieldLabel>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Select
+                    value={schedulePresetValue}
+                    onValueChange={(value) => {
+                      setSchedulePresetValue(value)
+                      if (fieldError?.field === 'schedule') {
+                        setFieldError(null)
+                      }
+                      if (value !== 'custom') {
+                        setCron(value)
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Preset" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cronPresets.map((preset) => (
+                        <SelectItem key={preset.value} value={preset.value}>
+                          {preset.label}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="custom">
+                        Custom (cron schedule)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <InputGroup
+                    className={
+                      isCustomSchedule
+                        ? undefined
+                        : 'bg-accent/50 text-muted-foreground'
+                    }
+                  >
+                    <InputGroupInput
+                      aria-label="Backup schedule"
+                      required
+                      aria-invalid={fieldError?.field === 'schedule'}
+                      value={cron}
+                      placeholder="0 2 * * *"
+                      readOnly={!isCustomSchedule}
+                      onChange={(event) => {
+                        setCron(event.target.value)
+                        if (fieldError?.field === 'schedule') {
+                          setFieldError(null)
+                        }
+                      }}
+                    />
+                    {isCustomSchedule ? null : (
+                      <InputGroupAddon align="inline-end">
+                        <LockIcon />
+                      </InputGroupAddon>
+                    )}
+                  </InputGroup>
+                </div>
+                <FieldDescription>Backup schedules use UTC.</FieldDescription>
+                {fieldError?.field === 'schedule' ? (
+                  <FieldError>{fieldError.message}</FieldError>
+                ) : null}
+              </Field>
+
+              {fieldError?.field === 'form' ? (
+                <FieldError>{fieldError.message}</FieldError>
+              ) : null}
+            </FieldGroup>
+          </fieldset>
+        </form>
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="ghost" disabled={isSaving}>
               Cancel
             </Button>
           </DialogClose>
-          <Button type="button" onClick={save} disabled={isSaving}>
+          <Button
+            type="submit"
+            form="backup-policy-create-form"
+            disabled={isSaving}
+          >
             {isSaving ? (
               <LoaderIcon data-icon="inline-start" className="animate-spin" />
             ) : null}
@@ -572,6 +457,8 @@ export function BackupPolicyDialog({
 
 export function RetentionFieldGroup({
   count,
+  errors = {},
+  errorPrefix = 'retention',
   days,
   description,
   enabled = true,
@@ -583,6 +470,8 @@ export function RetentionFieldGroup({
   onMaxStorageGbChange,
   title,
 }: {
+  errors?: FormErrors
+  errorPrefix?: string
   count: string
   days: string
   description: string
@@ -612,7 +501,15 @@ export function RetentionFieldGroup({
         <Field data-invalid={fieldError ? true : undefined}>
           <FieldLabel>Number of backups to keep</FieldLabel>
           <Input
-            aria-invalid={fieldError}
+            aria-invalid={fieldError || Boolean(errors[`${errorPrefix}.count`])}
+            aria-label={`${title} count`}
+            data-validation-field={`${errorPrefix}.count`}
+            aria-describedby={
+              errors[`${errorPrefix}.count`]
+                ? `${errorPrefix}.count-error`
+                : undefined
+            }
+            max={10000}
             disabled={!enabled}
             type="number"
             min={0}
@@ -620,11 +517,22 @@ export function RetentionFieldGroup({
             value={count}
             onChange={(event) => onCountChange(event.target.value)}
           />
+          <FieldError id={`${errorPrefix}.count-error`}>
+            {errors[`${errorPrefix}.count`]}
+          </FieldError>
         </Field>
         <Field data-invalid={fieldError ? true : undefined}>
           <FieldLabel>Days to keep backups</FieldLabel>
           <Input
-            aria-invalid={fieldError}
+            aria-invalid={fieldError || Boolean(errors[`${errorPrefix}.days`])}
+            aria-label={`${title} days`}
+            data-validation-field={`${errorPrefix}.days`}
+            aria-describedby={
+              errors[`${errorPrefix}.days`]
+                ? `${errorPrefix}.days-error`
+                : undefined
+            }
+            max={3650}
             disabled={!enabled}
             type="number"
             min={0}
@@ -632,11 +540,24 @@ export function RetentionFieldGroup({
             value={days}
             onChange={(event) => onDaysChange(event.target.value)}
           />
+          <FieldError id={`${errorPrefix}.days-error`}>
+            {errors[`${errorPrefix}.days`]}
+          </FieldError>
         </Field>
         <Field data-invalid={fieldError ? true : undefined}>
           <FieldLabel>Maximum storage (GB)</FieldLabel>
           <Input
-            aria-invalid={fieldError}
+            aria-invalid={
+              fieldError || Boolean(errors[`${errorPrefix}.maxStorageGb`])
+            }
+            aria-label={`${title} maxStorageGb`}
+            data-validation-field={`${errorPrefix}.maxStorageGb`}
+            aria-describedby={
+              errors[`${errorPrefix}.maxStorageGb`]
+                ? `${errorPrefix}.maxStorageGb-error`
+                : undefined
+            }
+            max={100000}
             disabled={!enabled}
             type="number"
             min={0}
@@ -644,6 +565,9 @@ export function RetentionFieldGroup({
             value={maxStorageGb}
             onChange={(event) => onMaxStorageGbChange(event.target.value)}
           />
+          <FieldError id={`${errorPrefix}.maxStorageGb-error`}>
+            {errors[`${errorPrefix}.maxStorageGb`]}
+          </FieldError>
         </Field>
       </FieldGroup>
     </FieldSet>
@@ -678,16 +602,21 @@ export function BackupPolicySection({
 }
 
 export function BackupPolicySaveActions({
+  canManage = true,
   hasChanges,
+  form,
   isSaving,
   onCancel,
   onSave,
 }: {
+  canManage?: boolean
+  form?: string
   hasChanges: boolean
   isSaving: boolean
   onCancel: () => void
   onSave: () => Promise<void>
 }) {
+  if (!canManage) return null
   return (
     <>
       <Button
@@ -699,9 +628,10 @@ export function BackupPolicySaveActions({
         Cancel
       </Button>
       <Button
-        type="button"
+        type={form ? 'submit' : 'button'}
+        form={form}
         disabled={!hasChanges || isSaving}
-        onClick={() => void onSave()}
+        onClick={form ? undefined : () => void onSave()}
       >
         {isSaving ? (
           <LoaderIcon data-icon="inline-start" className="animate-spin" />

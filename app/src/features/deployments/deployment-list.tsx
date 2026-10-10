@@ -1,4 +1,4 @@
-import { Link, useParams, useRouter } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import {
   CircleCheckIcon,
   CircleXIcon,
@@ -11,9 +11,9 @@ import {
   SparkleIcon,
   XIcon,
 } from 'lucide-react'
-import { useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -27,39 +27,21 @@ import {
 } from '@/components/ui/tooltip'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
 import { DeploymentActions } from '@/features/deployments/deployment-actions'
-import type { DeploymentSummary } from '@/server/projects/service'
+import type { DeploymentSummary } from '@/server/projects/types'
 
 export function DeploymentList({
   deployments,
   displayProject = false,
   limit,
+  teamSlug,
 }: {
   deployments: Array<DeploymentSummary>
   displayProject?: boolean
   limit?: number
+  teamSlug: string
 }) {
-  const params = useParams({ strict: false })
-  const router = useRouter()
-  const teamSlug =
-    typeof params.teamSlug === 'string' ? params.teamSlug : 'ronan-berder'
   const rows = limit ? deployments.slice(0, limit) : deployments
   const deploymentAliases = getDeploymentAliases(deployments)
-  const shouldRefresh = deployments.some(
-    (deployment) =>
-      deployment.status === 'queued' || deployment.status === 'running',
-  )
-
-  useEffect(() => {
-    if (!shouldRefresh) {
-      return
-    }
-
-    const interval = window.setInterval(() => {
-      void router.invalidate()
-    }, 2000)
-
-    return () => window.clearInterval(interval)
-  }, [router, shouldRefresh])
 
   return (
     <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
@@ -71,6 +53,64 @@ export function DeploymentList({
           alias={deploymentAliases.get(deployment.id)}
           teamSlug={teamSlug}
         />
+      ))}
+    </ul>
+  )
+}
+
+export function DeploymentListPending({
+  displayProject = false,
+  label = 'Deployments loading',
+  rows = 1,
+}: {
+  displayProject?: boolean
+  label?: string
+  rows?: number
+}) {
+  return (
+    <ul
+      className="overflow-hidden rounded-xl border bg-card text-card-foreground"
+      aria-label={label}
+      aria-busy="true"
+    >
+      {Array.from({ length: rows }, (_, index) => (
+        <li
+          className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0"
+          key={index}
+        >
+          <Skeleton className="size-4 shrink-0 rounded-full" />
+          <Skeleton className="h-4 w-14 shrink-0" />
+          {displayProject ? (
+            <span className="flex min-w-0 items-center gap-2">
+              <Skeleton className="size-5 shrink-0 rounded-md" />
+              <Skeleton className="h-4 w-32" />
+            </span>
+          ) : null}
+          <span className="flex shrink-0 items-center gap-2">
+            <Skeleton className="size-2 rounded-full" />
+            <Skeleton className="h-4 w-20" />
+          </span>
+          <Skeleton className="h-4 w-12 shrink-0" />
+          <span className="flex min-w-0 items-center gap-2">
+            <Skeleton className="size-4 shrink-0" />
+            <Skeleton className="h-4 w-12" />
+          </span>
+          <span className="flex min-w-0 max-w-1/2 flex-1 items-center gap-2">
+            <Skeleton className="size-5 shrink-0" />
+            <Skeleton className="h-4 min-w-16 flex-1" />
+          </span>
+          <Skeleton className="h-5 w-16 shrink-0" />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto"
+            disabled
+            aria-label="Deployment actions"
+          >
+            <MoreHorizontalIcon />
+          </Button>
+          {displayProject ? null : <Skeleton className="size-7 shrink-0" />}
+        </li>
       ))}
     </ul>
   )
@@ -181,17 +221,17 @@ function DeploymentRow({
               href={`https://github.com/${deployment.githubRepo}/commit/${deployment.gitSha}`}
               target="_blank"
               rel="noreferrer"
-              className="flex min-w-0 max-w-1/2 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
+              className="flex min-w-0 max-w-1/2 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground [&>svg]:shrink-0 [&>svg]:opacity-50"
             >
-              <GitCommitHorizontalIcon />
+              <GitCommitHorizontalIcon className="size-5 shrink-0" />
               <span className="truncate">
                 {deployment.commitMessage ??
                   getDeploymentFallbackMessage(deployment)}
               </span>
             </a>
           ) : (
-            <span className="flex min-w-0 max-w-1/2 items-center gap-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
-              <GitCommitHorizontalIcon />
+            <span className="flex min-w-0 max-w-1/2 items-center gap-2 text-muted-foreground [&>svg]:shrink-0 [&>svg]:opacity-50">
+              <GitCommitHorizontalIcon className="size-5 shrink-0" />
               <span className="truncate">
                 {deployment.commitMessage ??
                   getDeploymentFallbackMessage(deployment)}

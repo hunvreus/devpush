@@ -1,15 +1,24 @@
-import { randomUUID } from 'node:crypto'
+import {
+  failStaleAgentJob,
+  finishBackup,
+  finishBackupCleanup,
+} from './backup-state'
+import { claimBackupCandidate, claimCleanup, claimDeployment } from './claims'
+import { failRunningDeployments, finishDeployment } from './deployment-state'
+import { isAbsolute, relative } from 'node:path/posix'
 
-import { and, asc, eq, inArray, lt, lte, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, lt, lte } from 'drizzle-orm'
 
 import { db } from '@/server/db'
+import { notifyServer } from '@/server/realtime/service'
+import {
+  appendDeploymentLogs,
+  nextDeploymentLogSeq,
+} from '@/server/logs/deployments'
 import {
   agentJobs,
-  backupArtifacts,
   backupRuns,
-  aliases,
   deployments,
-  deploymentLogs,
   environments,
   projects,
 } from '@/server/db/schema'
@@ -68,7 +77,7 @@ export async function claimNextAgentJob({
 }): Promise<AgentJob | null> {
   const server = await requireAgentServer({ serverId, token })
   await Promise.all([
-    failStaleRunningDeploymentsForServer(serverId),
+    failStaleRunningDeployments(serverId),
     failStaleRunningAgentJobsForServer(serverId),
   ])
 
@@ -132,10 +141,13 @@ async function claimNextBackupJob({
   serverId: string
   types: Array<'backup' | 'restore' | 'backup_cleanup'>
 }): Promise<AgentBackupJob | AgentBackupCleanupJob | AgentRestoreJob | null> {
-  const now = new Date()
-  const claimed = await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ job: agentJobs })
+  let claimed: typeof agentJobs.$inferSelect | null = null
+  // A lost compare-and-set means another request consumed this candidate.
+  // Read the next one immediately instead of delaying it until another poll.
+  while (!claimed) {
+    const now = new Date()
+    const [candidate] = await db
+      .select()
       .from(agentJobs)
       .where(
         and(
@@ -145,56 +157,16 @@ async function claimNextBackupJob({
           lte(agentJobs.availableAt, now),
         ),
       )
-      .orderBy(asc(agentJobs.createdAt))
+      .orderBy(asc(agentJobs.createdAt), asc(agentJobs.id))
       .limit(1)
-    const row = rows.at(0)
-
-    if (!row) {
-      return null
-    }
-
-    const claimedRows = await tx
-      .update(agentJobs)
-      .set({
-        status: 'running',
-        attempt: row.job.attempt + 1,
-        claimedAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(agentJobs.id, row.job.id), eq(agentJobs.status, 'queued')))
-      .returning({ id: agentJobs.id })
-
-    if (!claimedRows.at(0)) {
-      return null
-    }
-
-    if (row.job.type === 'backup') {
-      const payload = parseBackupPayload(row.job.payload)
-
-      if (!payload) {
-        return row.job
-      }
-
-      await tx
-        .update(backupRuns)
-        .set({
-          status: 'running',
-          startedAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(backupRuns.id, payload.backupRunId),
-            eq(backupRuns.status, 'queued'),
-          ),
-        )
-    }
-
-    return row.job
-  })
-
-  if (!claimed) {
-    return null
+    if (!candidate) return null
+    const payload =
+      candidate.type === 'backup' ? parseBackupPayload(candidate.payload) : null
+    claimed = await claimBackupCandidate(db, {
+      job: candidate,
+      backupRunId: payload?.backupRunId ?? null,
+      now,
+    })
   }
 
   if (claimed.type === 'backup') {
@@ -305,64 +277,18 @@ export async function claimNextDeploymentJob({
 }): Promise<AgentDeployJob | null> {
   if (!skipAgentAuth) {
     await requireAgentServer({ serverId, token })
-    await failStaleRunningDeploymentsForServer(serverId)
+    await failStaleRunningDeployments(serverId)
   }
 
-  const claimed = await db
-    .transaction(async (tx) => {
-      const rows = await tx
-        .select({
-          deployment: deployments,
-          environment: environments,
-          project: projects,
-        })
-        .from(deployments)
-        .innerJoin(environments, eq(environments.id, deployments.environmentId))
-        .innerJoin(projects, eq(projects.id, environments.projectId))
-        .where(
-          and(
-            eq(deployments.serverId, serverId),
-            eq(deployments.status, 'queued'),
-            runtimeHasNoRunningDeployment(),
-          ),
-        )
-        .orderBy(asc(deployments.createdAt))
-        .limit(1)
-      const row = rows.at(0)
-
-      if (!row) {
-        return null
-      }
-
-      const claimedRows = await tx
-        .update(deployments)
-        .set({
-          status: 'running',
-          phase: 'agent_connected',
-          startedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(deployments.id, row.deployment.id),
-            eq(deployments.status, 'queued'),
-            runtimeHasNoRunningDeployment(),
-          ),
-        )
-        .returning({ id: deployments.id })
-
-      if (!claimedRows.at(0)) {
-        return null
-      }
-
-      return row
-    })
-    .catch((error: unknown) => {
-      if (isUniqueViolation(error)) {
-        return null
-      }
-
-      throw error
-    })
+  const deployment = await claimDeployment(db, serverId, new Date())
+  if (!deployment) return null
+  const [identity] = await db
+    .select({ environment: environments, project: projects })
+    .from(environments)
+    .innerJoin(projects, eq(projects.id, environments.projectId))
+    .where(eq(environments.id, deployment.environmentId))
+    .limit(1)
+  const claimed = identity ? { deployment, ...identity } : null
 
   if (!claimed) {
     return null
@@ -427,7 +353,7 @@ export async function claimNextDeploymentJob({
   return {
     type: 'deploy',
     id: claimed.deployment.id,
-    logStartSeq: await getNextLogSeq(claimed.deployment.id),
+    logStartSeq: await nextDeploymentLogSeq(claimed.deployment.id),
     repo: {
       fullName: claimed.deployment.repoFullName,
       branch: claimed.deployment.gitBranch,
@@ -522,58 +448,12 @@ export function buildAgentDeploymentEnvVars({
   return next
 }
 
-function isUniqueViolation(error: unknown) {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === '23505'
-  )
-}
-
 async function claimNextCleanupJob({
   serverId,
 }: {
   serverId: string
 }): Promise<AgentCleanupJob | null> {
-  const now = new Date()
-  const claimed = await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ job: agentJobs })
-      .from(agentJobs)
-      .where(
-        and(
-          eq(agentJobs.serverId, serverId),
-          inArray(agentJobs.type, ['deprovision', 'purge']),
-          eq(agentJobs.status, 'queued'),
-          lte(agentJobs.availableAt, now),
-        ),
-      )
-      .orderBy(asc(agentJobs.createdAt))
-      .limit(1)
-    const row = rows.at(0)
-
-    if (!row) {
-      return null
-    }
-
-    const claimedRows = await tx
-      .update(agentJobs)
-      .set({
-        status: 'running',
-        attempt: row.job.attempt + 1,
-        claimedAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(agentJobs.id, row.job.id), eq(agentJobs.status, 'queued')))
-      .returning({ id: agentJobs.id })
-
-    if (!claimedRows.at(0)) {
-      return null
-    }
-
-    return row.job
-  })
+  const claimed = await claimCleanup(db, serverId, new Date())
 
   if (!claimed) {
     return null
@@ -605,14 +485,14 @@ async function claimNextCleanupJob({
   }
 }
 
-export async function failStaleRunningDeploymentsForServer(serverId: string) {
+export async function failStaleRunningDeployments(serverId?: string) {
   const cutoff = new Date(Date.now() - 3 * 60 * 60 * 1000)
   const staleRows = await db
-    .select({ id: deployments.id })
+    .select({ id: deployments.id, serverId: deployments.serverId })
     .from(deployments)
     .where(
       and(
-        eq(deployments.serverId, serverId),
+        serverId ? eq(deployments.serverId, serverId) : undefined,
         eq(deployments.status, 'running'),
         lt(deployments.startedAt, cutoff),
       ),
@@ -623,55 +503,24 @@ export async function failStaleRunningDeploymentsForServer(serverId: string) {
     return []
   }
 
-  const nextSeqRows = await db
-    .select({
-      deploymentId: deploymentLogs.deploymentId,
-      value: sql<number>`coalesce(max(${deploymentLogs.seq}), 0) + 1`,
-    })
-    .from(deploymentLogs)
-    .where(inArray(deploymentLogs.deploymentId, staleIds))
-    .groupBy(deploymentLogs.deploymentId)
-  const nextSeqByDeployment = new Map(
-    nextSeqRows.map((row) => [row.deploymentId, Number(row.value)]),
-  )
-  const message = 'Deployment timed out after the agent stopped reporting.'
-
-  return db.transaction(async (tx) => {
-    const failedRows = await tx
-      .update(deployments)
-      .set({
-        status: 'failed',
-        phase: 'timed_out',
-        errorMessage: message,
-        finishedAt: new Date(),
-      })
-      .where(
-        and(
-          inArray(deployments.id, staleIds),
-          eq(deployments.status, 'running'),
-        ),
-      )
-      .returning({ id: deployments.id })
-    const failedIds = failedRows.map((row) => row.id)
-
-    if (failedIds.length === 0) {
-      return []
-    }
-
-    await tx.insert(deploymentLogs).values(
-      failedIds.map((deploymentId) => ({
-        deploymentId,
-        stream: 'deploy',
-        seq: nextSeqByDeployment.get(deploymentId) ?? 1,
-        content: message,
-      })),
-    )
-
-    return failedIds
+  const failed = await failRunningDeployments(db, {
+    ids: staleIds,
+    message: 'Deployment timed out after the agent stopped reporting.',
+    phase: 'timed_out',
+    startedBefore: cutoff,
+    now: new Date(),
   })
+  const failedIds = new Set(failed)
+  const affectedServers = new Set(
+    staleRows.filter((row) => failedIds.has(row.id)).map((row) => row.serverId),
+  )
+  await Promise.all(
+    [...affectedServers].map((id) => notifyServer(id, 'deployments')),
+  )
+  return failed
 }
 
-export async function failStaleRunningAgentJobsForServer(serverId: string) {
+async function failStaleRunningAgentJobsForServer(serverId: string) {
   const now = new Date()
   const runningRows = await db
     .select({ job: agentJobs })
@@ -694,47 +543,33 @@ export async function failStaleRunningAgentJobsForServer(serverId: string) {
     return []
   }
 
-  const jobIds = stale.map(({ job }) => job.id)
-  const backupRunIds = stale.flatMap(({ job }) => {
-    if (job.type !== 'backup') return []
-    const payload = parseBackupPayload(job.payload)
-    return payload ? [payload.backupRunId] : []
-  })
-  const message = 'Agent job timed out before completion was reported.'
-
-  return db.transaction(async (tx) => {
-    const failed = await tx
-      .update(agentJobs)
-      .set({
-        status: 'failed',
-        errorMessage: message,
-        finishedAt: now,
-        updatedAt: now,
+  const failed: Array<{ id: string }> = []
+  for (const { job } of stale) {
+    const backup =
+      job.type === 'backup' ? parseBackupPayload(job.payload) : null
+    const cleanup =
+      job.type === 'backup_cleanup'
+        ? parseBackupCleanupPayload(job.payload)
+        : null
+    if (
+      await failStaleAgentJob(db, {
+        job,
+        now,
+        timeoutMs:
+          job.type === 'backup' ||
+          job.type === 'backup_cleanup' ||
+          job.type === 'restore'
+            ? 25 * 60 * 60 * 1000
+            : 3 * 60 * 60 * 1000,
+        message: 'Agent job timed out before completion was reported.',
+        backupRunId: backup?.backupRunId ?? null,
+        cleanupRunIds: cleanup?.backupRunIds ?? [],
       })
-      .where(
-        and(inArray(agentJobs.id, jobIds), eq(agentJobs.status, 'running')),
-      )
-      .returning({ id: agentJobs.id })
-
-    if (backupRunIds.length > 0) {
-      await tx
-        .update(backupRuns)
-        .set({
-          status: 'failed',
-          errorMessage: message,
-          finishedAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            inArray(backupRuns.id, backupRunIds),
-            eq(backupRuns.status, 'running'),
-          ),
-        )
-    }
-
-    return failed
-  })
+    )
+      failed.push({ id: job.id })
+  }
+  if (failed.length > 0) await notifyServer(serverId, 'deployments')
+  return failed
 }
 
 export async function getDeploymentJobStatus({
@@ -798,83 +633,48 @@ export async function completeDeploymentJob({
     throw new AgentRequestError(404, 'Deployment not found for this server.')
   }
 
-  if (row.deployment.status === 'canceled') {
-    return { ok: true, ignored: true }
-  }
-
-  if (row.deployment.status !== 'running') {
+  const terminal = ['canceled', 'failed', 'succeeded'].includes(
+    row.deployment.status,
+  )
+  if (!terminal && row.deployment.status !== 'running') {
     throw new AgentRequestError(409, 'Deployment is not running.')
   }
+
+  // Commit captured output before changing main state. Stable sequences make a
+  // retry safe after either store succeeds but the response is lost.
+  await appendDeploymentLogs(
+    {
+      projectId: row.projectId,
+      environmentId: row.deployment.environmentId,
+      deploymentId: row.deployment.id,
+      serverId,
+      branch: row.deployment.gitBranch,
+    },
+    completion.logStartSeq,
+    completion.logs,
+  )
+  if (terminal) return { ok: true, ignored: true }
 
   const now = new Date()
   const latestEvent = completion.events.at(-1)
   const latestMessage = getLatestProgressMessage(completion)
 
-  await db.transaction(async (tx) => {
-    const completedRows = await tx
-      .update(deployments)
-      .set({
-        status: completion.status,
-        phase:
-          completion.status === 'canceled'
-            ? 'canceled'
-            : (latestEvent?.phase ?? 'completed'),
-        gitSha: completion.gitSha ?? row.deployment.gitSha,
-        errorMessage:
-          completion.status === 'failed'
-            ? latestMessage
-            : completion.status === 'canceled'
-              ? latestMessage
-              : row.deployment.errorMessage,
-        finishedAt: now,
-      })
-      .where(
-        and(
-          eq(deployments.id, completion.deploymentId),
-          eq(deployments.status, 'running'),
-        ),
-      )
-      .returning({ id: deployments.id })
-
-    if (!completedRows.at(0)) {
-      return
-    }
-
-    await appendDeploymentProgress(
-      tx,
-      {
-        deploymentId: completion.deploymentId,
-        logStartSeq:
-          completion.logStartSeq ??
-          (await getNextLogSeq(completion.deploymentId)),
-        logs: completion.logs,
-        events: completion.events,
-      },
-      { updatePhase: false },
-    )
-
-    if (completion.status === 'succeeded') {
-      await tx
-        .update(aliases)
-        .set({
-          previousDeploymentId: sql`${aliases.deploymentId}`,
-          deploymentId: completion.deploymentId,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(aliases.projectId, row.projectId),
-            eq(aliases.environmentId, row.deployment.environmentId),
-            or(
-              eq(aliases.type, 'environment'),
-              and(
-                eq(aliases.type, 'branch'),
-                eq(aliases.branch, row.deployment.gitBranch),
-              ),
-            ),
-          ),
-        )
-    }
+  await finishDeployment(db, {
+    deployment: row.deployment,
+    projectId: row.projectId,
+    status: completion.status,
+    phase:
+      completion.status === 'canceled'
+        ? 'canceled'
+        : (latestEvent?.phase ?? 'completed'),
+    // The queued revision is canonical; display abbreviations from older agents
+    // must never replace a fetchable full commit ID.
+    gitSha: row.deployment.gitSha,
+    errorMessage:
+      completion.status === 'failed' || completion.status === 'canceled'
+        ? latestMessage
+        : row.deployment.errorMessage,
+    now,
   })
 
   return { ok: true }
@@ -967,6 +767,28 @@ export async function completeBackupJob({
     return { ok: true, ignored: true }
   }
 
+  const payload = parseBackupPayload(row.job.payload)
+  if (!payload || payload.backupRunId !== completion.backupRunId) {
+    throw new AgentRequestError(
+      409,
+      'Backup completion does not match the claimed job.',
+    )
+  }
+
+  for (const artifact of completion.artifacts ?? []) {
+    if (
+      (artifact.storage === 'local' &&
+        !pathIsWithin(payload.localBasePath, artifact.objectKey)) ||
+      (artifact.storage === 'remote' &&
+        !remoteKeyIsWithin(payload.artifactPrefix, artifact.objectKey))
+    ) {
+      throw new AgentRequestError(
+        409,
+        'Backup artifact is outside the claimed backup location.',
+      )
+    }
+  }
+
   const now = new Date()
   const errorMessage =
     completion.status === 'failed'
@@ -975,61 +797,23 @@ export async function completeBackupJob({
         ? (completion.message ?? 'Backup canceled.')
         : null
 
-  await db.transaction(async (tx) => {
-    if (completion.status === 'succeeded' && completion.artifacts?.length) {
-      await tx
-        .insert(backupArtifacts)
-        .values(
-          completion.artifacts.map((artifact) => ({
-            id: randomUUID(),
-            backupRunId: completion.backupRunId,
-            type: artifact.type,
-            storage: artifact.storage,
-            objectKey: artifact.objectKey,
-            checksumSha256: artifact.checksumSha256,
-            sizeBytes: artifact.sizeBytes,
-            createdAt: now,
-          })),
-        )
-        .onConflictDoNothing({
-          target: [backupArtifacts.backupRunId, backupArtifacts.objectKey],
-        })
-    }
-
-    await tx
-      .update(backupRuns)
-      .set({
-        status: completion.status,
-        manifest: completion.manifest ?? row.backupRun.manifest,
-        errorMessage,
-        startedAt: row.backupRun.startedAt ?? now,
-        finishedAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(backupRuns.id, completion.backupRunId),
-          eq(backupRuns.status, 'running'),
-        ),
-      )
-
-    await tx
-      .update(agentJobs)
-      .set({
-        status: completion.status,
-        errorMessage,
-        finishedAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(agentJobs.id, completion.jobId),
-          eq(agentJobs.status, 'running'),
-        ),
-      )
+  const changed = await finishBackup(db, {
+    serverId,
+    completion,
+    errorMessage,
+    now,
+    manifest: completion.manifest ?? row.backupRun.manifest,
   })
 
-  if (completion.status === 'succeeded') {
+  if (
+    changed &&
+    (completion.status === 'succeeded' ||
+      (completion.status === 'failed' &&
+        typeof completion.manifest === 'object' &&
+        completion.manifest !== null &&
+        'localRecoveryAvailable' in completion.manifest &&
+        completion.manifest.localRecoveryAvailable === true))
+  ) {
     await queueBackupRetentionCleanupJobs({
       projectId: row.backupRun.projectId,
       environmentId: row.backupRun.environmentId,
@@ -1038,6 +822,22 @@ export async function completeBackupJob({
   }
 
   return { ok: true }
+}
+
+function pathIsWithin(root: string, candidate: string) {
+  if (!isAbsolute(root) || !isAbsolute(candidate)) return false
+  const path = relative(root, candidate)
+  return path !== '' && path !== '..' && !path.startsWith('../')
+}
+
+function remoteKeyIsWithin(prefix: string, candidate: string) {
+  const normalizedPrefix = prefix.replace(/^\/+|\/+$/g, '')
+  const normalizedCandidate = candidate.replace(/^\/+/, '')
+  return (
+    normalizedPrefix !== '' &&
+    normalizedCandidate.startsWith(`${normalizedPrefix}/`) &&
+    !normalizedCandidate.split('/').includes('..')
+  )
 }
 
 export async function completeBackupCleanupJob({
@@ -1075,14 +875,23 @@ export async function completeBackupCleanupJob({
     return { ok: true, ignored: true }
   }
 
-  const backupRunIds = Array.from(
+  const payload = parseBackupCleanupPayload(row.job.payload)
+  if (!payload) {
+    throw new AgentRequestError(409, 'Backup cleanup job payload is invalid.')
+  }
+  const reportedBackupRunIds = Array.from(
     new Set(completion.backupRunIds.map((id) => id.trim()).filter(Boolean)),
-  )
+  ).sort()
+  const backupRunIds = Array.from(new Set(payload.backupRunIds)).sort()
 
-  if (backupRunIds.length === 0) {
+  if (
+    backupRunIds.length === 0 ||
+    reportedBackupRunIds.length !== backupRunIds.length ||
+    reportedBackupRunIds.some((id, index) => id !== backupRunIds[index])
+  ) {
     throw new AgentRequestError(
       409,
-      'Backup cleanup completion must include backup runs.',
+      'Backup cleanup completion does not match the claimed job.',
     )
   }
 
@@ -1094,37 +903,14 @@ export async function completeBackupCleanupJob({
         ? (completion.message ?? 'Backup cleanup canceled.')
         : null
 
-  await db.transaction(async (tx) => {
-    const backupRunPatch = {
-      cleanupErrorMessage: errorMessage,
-      updatedAt: now,
-      ...(completion.status === 'succeeded' ? { cleanupFinishedAt: now } : {}),
-    }
-
-    await tx
-      .update(backupRuns)
-      .set(backupRunPatch)
-      .where(
-        and(
-          inArray(backupRuns.id, backupRunIds),
-          eq(backupRuns.serverId, serverId),
-        ),
-      )
-
-    await tx
-      .update(agentJobs)
-      .set({
-        status: completion.status,
-        errorMessage,
-        finishedAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(agentJobs.id, completion.jobId),
-          eq(agentJobs.status, 'running'),
-        ),
-      )
+  await finishBackupCleanup(db, {
+    serverId,
+    completion,
+    errorMessage,
+    now,
+    backupRunIds,
+    localObjectKeys: payload.localObjectKeys,
+    remoteObjectKeys: payload.remoteObjectKeys,
   })
 
   return { ok: true }
@@ -1197,10 +983,9 @@ export async function recordDeploymentProgress({
   await requireAgentServer({ serverId, token })
 
   const rows = await db
-    .select({
-      deployment: deployments,
-    })
+    .select({ deployment: deployments, projectId: environments.projectId })
     .from(deployments)
+    .innerJoin(environments, eq(environments.id, deployments.environmentId))
     .where(
       and(
         eq(deployments.id, progress.deploymentId),
@@ -1214,23 +999,43 @@ export async function recordDeploymentProgress({
     throw new AgentRequestError(404, 'Deployment not found for this server.')
   }
 
-  if (row.deployment.status === 'canceled') {
-    return { ok: true, ignored: true }
-  }
-
-  if (row.deployment.status !== 'running') {
+  const terminal = ['canceled', 'failed', 'succeeded'].includes(
+    row.deployment.status,
+  )
+  if (!terminal && row.deployment.status !== 'running') {
     throw new AgentRequestError(409, 'Deployment is not running.')
   }
 
-  await db.transaction(async (tx) => {
-    await appendDeploymentProgress(tx, progress, { requireRunning: true })
-  })
+  await appendDeploymentLogs(
+    {
+      projectId: row.projectId,
+      environmentId: row.deployment.environmentId,
+      deploymentId: row.deployment.id,
+      serverId,
+      branch: row.deployment.gitBranch,
+    },
+    progress.logStartSeq,
+    progress.logs,
+  )
+  if (terminal) return { ok: true, ignored: true }
+  const latestEvent = progress.events.at(-1)
+  if (latestEvent) {
+    await db
+      .update(deployments)
+      .set({ phase: latestEvent.phase })
+      .where(
+        and(
+          eq(deployments.id, progress.deploymentId),
+          eq(deployments.status, 'running'),
+        ),
+      )
+  }
 
   return { ok: true }
 }
 
 async function failCleanupJob(jobId: string, message: string) {
-  await db
+  const changed = await db
     .update(agentJobs)
     .set({
       status: 'failed',
@@ -1239,121 +1044,25 @@ async function failCleanupJob(jobId: string, message: string) {
       updatedAt: new Date(),
     })
     .where(eq(agentJobs.id, jobId))
-}
-
-function runtimeHasNoRunningDeployment() {
-  return sql`not exists (
-    select 1
-    from deployments as running_deployments
-    where running_deployments.runtime_id = ${deployments.runtimeId}
-      and running_deployments.status = 'running'
-  )`
-}
-
-async function appendDeploymentProgress(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  progress: AgentJobProgress,
-  options: {
-    requireRunning?: boolean
-    updatePhase?: boolean
-  } = {},
-) {
-  if (options.requireRunning) {
-    const runningRows = await tx
-      .select({ id: deployments.id })
-      .from(deployments)
-      .where(
-        and(
-          eq(deployments.id, progress.deploymentId),
-          eq(deployments.status, 'running'),
-        ),
-      )
-      .limit(1)
-
-    if (!runningRows.at(0)) {
-      return
-    }
-  }
-
-  if (options.updatePhase !== false && progress.events.length > 0) {
-    const latestEvent = progress.events.at(-1)
-
-    if (latestEvent) {
-      await tx
-        .update(deployments)
-        .set({ phase: latestEvent.phase })
-        .where(
-          options.requireRunning
-            ? and(
-                eq(deployments.id, progress.deploymentId),
-                eq(deployments.status, 'running'),
-              )
-            : eq(deployments.id, progress.deploymentId),
-        )
-    }
-  }
-
-  if (progress.logs.length > 0) {
-    await tx
-      .insert(deploymentLogs)
-      .values(
-        progress.logs.map((line, index) => ({
-          deploymentId: progress.deploymentId,
-          stream: 'deploy',
-          seq: progress.logStartSeq + index,
-          content: line,
-        })),
-      )
-      .onConflictDoNothing({
-        target: [
-          deploymentLogs.deploymentId,
-          deploymentLogs.stream,
-          deploymentLogs.seq,
-        ],
-      })
-  }
+    .returning({ serverId: agentJobs.serverId })
+  if (changed[0]) await notifyServer(changed[0].serverId, 'deployments')
 }
 
 async function failClaimedDeployment(deploymentId: string, message: string) {
-  const nextSeq = await getNextLogSeq(deploymentId)
-
-  await db.transaction(async (tx) => {
-    const failedRows = await tx
-      .update(deployments)
-      .set({
-        status: 'failed',
-        phase: 'failed',
-        errorMessage: message,
-        finishedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(deployments.id, deploymentId),
-          eq(deployments.status, 'running'),
-        ),
-      )
-      .returning({ id: deployments.id })
-
-    if (failedRows.at(0)) {
-      await tx.insert(deploymentLogs).values({
-        deploymentId,
-        stream: 'deploy',
-        seq: nextSeq,
-        content: message,
-      })
-    }
+  const changed = await failRunningDeployments(db, {
+    ids: [deploymentId],
+    message,
+    phase: 'failed',
+    now: new Date(),
   })
-}
-
-async function getNextLogSeq(deploymentId: string) {
-  const nextSeqRows = await db
-    .select({
-      value: sql<number>`coalesce(max(${deploymentLogs.seq}), 0) + 1`,
-    })
-    .from(deploymentLogs)
-    .where(eq(deploymentLogs.deploymentId, deploymentId))
-
-  return Number(nextSeqRows.at(0)?.value ?? 1)
+  if (changed.length === 0) return
+  const [deployment] = await db
+    .select({ serverId: deployments.serverId })
+    .from(deployments)
+    .where(eq(deployments.id, deploymentId))
+    .limit(1)
+  if (deployment?.serverId)
+    await notifyServer(deployment.serverId, 'deployments')
 }
 
 function getLatestProgressMessage(progress: AgentJobCompletion) {

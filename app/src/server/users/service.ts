@@ -1,30 +1,22 @@
-import { and, asc, desc, eq, inArray, lte, or, sql } from 'drizzle-orm'
+import { leaveMembership } from '@/server/teams/membership'
+import { and, asc, desc, eq, lte, sql } from 'drizzle-orm'
 import { decodeJwt } from 'jose'
 
 import { authMethods } from '@/lib/auth'
 import { getGitHubOAuthCredentials } from '@/lib/auth/config'
 import type { TeamRole } from '@/lib/team-role'
-import { enqueueTeamDeprovisionJobs } from '@/server/agents/cleanup'
+import { deleteUserState, cleanupDeletedUserState } from './deletion-state'
+import type { UserCleanupJobPayload } from './deletion-state'
 import { db } from '@/server/db'
 import {
   account,
-  agentJobs,
-  aliases,
-  backupRuns,
-  deployments,
-  domains,
-  environments,
-  projects,
-  servers,
-  session,
-  teamInvites,
   teamMembers,
   teams,
   user,
   userCleanupJobs,
 } from '@/server/db/schema'
 import { getResourceColor } from '@/server/resources/color'
-import { assertOtherOwner, lockTeamMembers } from '@/server/teams/service'
+import { assertOtherOwner } from '@/server/teams/service'
 import { removePublicFile, resolveAvatarUpdate } from '@/server/uploads/avatar'
 
 export type AuthAccountSummary = {
@@ -73,14 +65,6 @@ type GitHubEmail = {
   email: string
   primary: boolean
   verified: boolean
-}
-
-type UserCleanupJobPayload = {
-  schemaVersion: 1
-  userId: string
-  email: string
-  avatarPath: string | null
-  soleMemberOwnedTeamIds: Array<string>
 }
 
 export async function updateUserGeneral({
@@ -160,10 +144,11 @@ export async function updateUserGeneral({
   }
 }
 
-async function listAuthAccounts(
+export async function listAuthAccounts(
   userId: string,
+  { validateUser = true }: { validateUser?: boolean } = {},
 ): Promise<Array<AuthAccountSummary>> {
-  const rows = await listAuthAccountRows(userId)
+  const rows = await listAuthAccountRows(userId, { validateUser })
 
   return rows.map(mapAuthAccountSummary)
 }
@@ -205,8 +190,11 @@ export async function backfillAuthAccountIdentities({
 
 async function listAuthAccountRows(
   userId: string,
+  { validateUser = true }: { validateUser?: boolean } = {},
 ): Promise<Array<AuthAccountRow>> {
-  await assertActiveUser(userId)
+  if (validateUser) {
+    await assertActiveUser(userId)
+  }
 
   const rows = await db
     .select({
@@ -445,43 +433,25 @@ export async function leaveTeam({
   userId: string
   teamId: string
 }) {
-  await db.transaction(async (tx) => {
-    const userRows = await tx
-      .select({ defaultTeamId: user.defaultTeamId, status: user.status })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1)
-    const currentUser = userRows.at(0)
-
-    if (!currentUser || currentUser.status !== 'active') {
-      throw new Error('User not found.')
-    }
-
-    if (currentUser.defaultTeamId === teamId) {
-      throw new Error('You cannot leave your default team.')
-    }
-
-    await lockTeamMembers(tx, teamId)
-
-    const membershipRows = await tx
-      .select()
-      .from(teamMembers)
-      .where(
-        and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)),
-      )
-      .limit(1)
-    const membership = membershipRows.at(0)
-
-    if (!membership) {
-      throw new Error('Team membership not found.')
-    }
-
-    if (membership.role === 'owner') {
-      await assertOtherOwner(tx, teamId, userId)
-    }
-
-    await tx.delete(teamMembers).where(eq(teamMembers.id, membership.id))
-  })
+  const [currentUser] = await db
+    .select({ defaultTeamId: user.defaultTeamId, status: user.status })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1)
+  if (!currentUser || currentUser.status !== 'active')
+    throw new Error('User not found.')
+  if (currentUser.defaultTeamId === teamId)
+    throw new Error('You cannot leave your default team.')
+  const [membership] = await db
+    .select()
+    .from(teamMembers)
+    .where(and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)))
+    .limit(1)
+  if (!membership) throw new Error('Team membership not found.')
+  if (membership.role === 'owner') await assertOtherOwner(db, teamId, userId)
+  if (!(await leaveMembership(db, { userId, teamId }))) {
+    throw new Error('Team membership changed. Try again.')
+  }
 
   return listUserTeams(userId)
 }
@@ -493,93 +463,73 @@ export async function deleteUserAccount({
   userId: string
   confirmationName?: string
 }) {
-  await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ email: user.email, image: user.image, status: user.status })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1)
-    const currentUser = rows.at(0)
+  const rows = await db
+    .select({ email: user.email, image: user.image, status: user.status })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1)
+  const currentUser = rows.at(0)
 
-    if (!currentUser || currentUser.status !== 'active') {
-      throw new Error('User not found.')
+  if (!currentUser || currentUser.status !== 'active') {
+    throw new Error('User not found.')
+  }
+
+  if (confirmationName !== currentUser.email) {
+    throw new Error('Type the account email to confirm deletion.')
+  }
+
+  const soleMemberOwnedTeams = await db
+    .select({ id: teams.id })
+    .from(teams)
+    .innerJoin(teamMembers, eq(teamMembers.teamId, teams.id))
+    .where(eq(teams.status, 'active'))
+    .groupBy(teams.id)
+    .having(
+      sql`count(${teamMembers.id}) = 1 and max(case when ${teamMembers.userId} = ${userId} and ${teamMembers.role} = 'owner' then 1 else 0 end) = 1`,
+    )
+  const soleMemberOwnedTeamIds = soleMemberOwnedTeams.map((team) => team.id)
+  const soleMemberOwnedTeamIdSet = new Set(soleMemberOwnedTeamIds)
+
+  const remainingOwnerRows = await db
+    .select({ teamId: teamMembers.teamId, teamName: teams.name })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+    .where(
+      and(
+        eq(teamMembers.userId, userId),
+        eq(teamMembers.role, 'owner'),
+        eq(teams.status, 'active'),
+      ),
+    )
+
+  for (const membership of remainingOwnerRows) {
+    if (soleMemberOwnedTeamIdSet.has(membership.teamId)) {
+      continue
     }
-
-    if (confirmationName !== currentUser.email) {
-      throw new Error('Type the account email to confirm deletion.')
-    }
-
-    const soleMemberOwnedTeams = await tx
-      .select({ id: teams.id })
-      .from(teams)
-      .innerJoin(teamMembers, eq(teamMembers.teamId, teams.id))
-      .where(eq(teams.status, 'active'))
-      .groupBy(teams.id)
-      .having(
-        sql`count(${teamMembers.id}) = 1 and bool_or(${teamMembers.userId} = ${userId} and ${teamMembers.role} = 'owner')`,
-      )
-    const soleMemberOwnedTeamIds = soleMemberOwnedTeams.map((team) => team.id)
-    const soleMemberOwnedTeamIdSet = new Set(soleMemberOwnedTeamIds)
-
-    const remainingOwnerRows = await tx
-      .select({ teamId: teamMembers.teamId, teamName: teams.name })
-      .from(teamMembers)
-      .innerJoin(teams, eq(teams.id, teamMembers.teamId))
-      .where(
-        and(
-          eq(teamMembers.userId, userId),
-          eq(teamMembers.role, 'owner'),
-          eq(teams.status, 'active'),
-        ),
-      )
-
-    for (const membership of remainingOwnerRows) {
-      if (soleMemberOwnedTeamIdSet.has(membership.teamId)) {
-        continue
+    try {
+      await assertOtherOwner(db, membership.teamId, userId)
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'There must be at least one owner.'
+      ) {
+        throw new Error(
+          `Transfer ownership of "${membership.teamName}" before deleting your account.`,
+        )
       }
 
-      await lockTeamMembers(tx, membership.teamId)
-      try {
-        await assertOtherOwner(tx, membership.teamId, userId)
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          error.message === 'There must be at least one owner.'
-        ) {
-          throw new Error(
-            `Transfer ownership of "${membership.teamName}" before deleting your account.`,
-          )
-        }
-
-        throw error
-      }
+      throw error
     }
+  }
 
-    const now = new Date()
-
-    await tx.delete(session).where(eq(session.userId, userId))
-    await tx.delete(account).where(eq(account.userId, userId))
-    await tx
-      .update(user)
-      .set({ defaultTeamId: null, status: 'deleted', updatedAt: now })
-      .where(eq(user.id, userId))
-
-    await tx.insert(userCleanupJobs).values({
-      id: crypto.randomUUID(),
+  if (
+    !(await deleteUserState(db, {
       userId,
-      status: 'queued',
-      payload: {
-        schemaVersion: 1,
-        userId,
-        email: currentUser.email,
-        avatarPath: currentUser.image,
-        soleMemberOwnedTeamIds,
-      } satisfies UserCleanupJobPayload,
-      availableAt: now,
-      createdAt: now,
-      updatedAt: now,
-    })
-  })
+      email: currentUser.email,
+      now: new Date(),
+    }))
+  )
+    throw new Error('Account or team ownership changed. Try again.')
 }
 
 export async function runQueuedUserCleanupJobs({
@@ -689,152 +639,7 @@ async function cleanupDeletedUserResources({
   payload: UserCleanupJobPayload
   now: Date
 }) {
-  await db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ status: user.status })
-      .from(user)
-      .where(eq(user.id, payload.userId))
-      .limit(1)
-    const currentUser = rows.at(0)
-
-    if (!currentUser || currentUser.status !== 'deleted') {
-      throw new Error('Deleted user not found.')
-    }
-
-    if (payload.soleMemberOwnedTeamIds.length > 0) {
-      const activeTeamRows = await tx
-        .select({ id: teams.id })
-        .from(teams)
-        .where(
-          and(
-            inArray(teams.id, payload.soleMemberOwnedTeamIds),
-            eq(teams.status, 'active'),
-          ),
-        )
-      const activeTeamIds = activeTeamRows.map((team) => team.id)
-
-      if (activeTeamIds.length > 0) {
-        const serverRows = await tx
-          .select({ id: servers.id })
-          .from(servers)
-          .where(inArray(servers.teamId, activeTeamIds))
-        const serverIds = serverRows.map((server) => server.id)
-
-        if (serverIds.length > 0) {
-          await tx
-            .update(agentJobs)
-            .set({
-              status: 'canceled',
-              errorMessage: 'Canceled because the owning user was deleted.',
-              finishedAt: now,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                inArray(agentJobs.serverId, serverIds),
-                inArray(agentJobs.type, [
-                  'deploy',
-                  'backup',
-                  'restore',
-                  'backup_cleanup',
-                ]),
-                inArray(agentJobs.status, ['queued', 'running']),
-              ),
-            )
-          await tx
-            .update(backupRuns)
-            .set({
-              status: 'canceled',
-              errorMessage: 'Canceled because the owning user was deleted.',
-              finishedAt: now,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                inArray(backupRuns.serverId, serverIds),
-                inArray(backupRuns.status, ['queued', 'running']),
-              ),
-            )
-        }
-
-        for (const teamId of activeTeamIds) {
-          await lockTeamMembers(tx, teamId)
-          await enqueueTeamDeprovisionJobs(tx, {
-            teamId,
-            reason: 'Team deleted because the owning user was deleted.',
-          })
-        }
-
-        const projectRows = await tx
-          .select({ id: projects.id })
-          .from(projects)
-          .where(inArray(projects.teamId, activeTeamIds))
-        const projectIds = projectRows.map((project) => project.id)
-
-        if (projectIds.length > 0) {
-          const environmentRows = await tx
-            .select({ id: environments.id })
-            .from(environments)
-            .where(inArray(environments.projectId, projectIds))
-          const environmentIds = environmentRows.map(
-            (environment) => environment.id,
-          )
-
-          if (environmentIds.length > 0) {
-            await tx
-              .update(environments)
-              .set({ status: 'deleted', isProduction: false, updatedAt: now })
-              .where(inArray(environments.id, environmentIds))
-
-            await tx
-              .update(deployments)
-              .set({
-                status: 'canceled',
-                phase: 'canceled',
-                errorMessage: 'Canceled because the owning user was deleted.',
-                finishedAt: now,
-              })
-              .where(
-                and(
-                  inArray(deployments.environmentId, environmentIds),
-                  inArray(deployments.status, ['queued', 'running']),
-                ),
-              )
-          }
-
-          await tx.delete(aliases).where(inArray(aliases.projectId, projectIds))
-          await tx.delete(domains).where(inArray(domains.projectId, projectIds))
-          await tx
-            .update(projects)
-            .set({ status: 'deleted', updatedAt: now })
-            .where(inArray(projects.id, projectIds))
-        }
-
-        await tx
-          .update(servers)
-          .set({ status: 'deleted', updatedAt: now })
-          .where(inArray(servers.teamId, activeTeamIds))
-        await tx
-          .update(user)
-          .set({ defaultTeamId: null, updatedAt: now })
-          .where(inArray(user.defaultTeamId, activeTeamIds))
-        await tx
-          .update(teams)
-          .set({ status: 'deleted', updatedAt: now })
-          .where(inArray(teams.id, activeTeamIds))
-      }
-    }
-
-    await tx
-      .delete(teamInvites)
-      .where(
-        or(
-          eq(teamInvites.inviterId, payload.userId),
-          sql`lower(${teamInvites.email}) = ${payload.email.toLowerCase()}`,
-        ),
-      )
-    await tx.delete(teamMembers).where(eq(teamMembers.userId, payload.userId))
-  })
+  await cleanupDeletedUserState(db, { payload, now })
 
   return payload.avatarPath ? [payload.avatarPath] : []
 }
@@ -879,7 +684,7 @@ function validateUsername(value: string) {
 
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/.test(normalizedUsername)) {
     throw new Error(
-      'Username must start and end with a letter or number and only use letters, numbers, dots, underscores, or hyphens.',
+      'Username must start and end with a letter or number and only use letters, numbers, dots, underscores hyphens.',
     )
   }
 

@@ -1,3 +1,5 @@
+import { saveBackupStorage } from '@/server/backups/storage'
+import { required } from '@/test/required'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
@@ -6,6 +8,8 @@ import { currentAgentCapabilities } from '@/server/agents/compatibility'
 import {
   agentJobs,
   aliases,
+  backupArtifacts,
+  backupConfigs,
   backupRuns,
   deployments,
   domains,
@@ -21,17 +25,33 @@ import {
   createDeploymentsForGitHubPush,
   createRedeployDeployment,
   createRollbackDeployment,
-  deleteProject,
-  getDeploymentContext,
+} from './deployments'
+import {
+  getDeploymentSectionContext,
+  getDeploymentLogsContext,
   getProjectContext,
-  updateProjectEnvironmentServers,
-  updateProjectSettings,
+  getProjectSectionContext,
+} from './context'
+import {
+  updateProjectEnvVars,
   updateProjectEnvironments,
-} from './service'
+  updateProjectEnvironmentServers,
+} from './environments'
+import {
+  createBackupRestoreJob,
+  createManualBackupRun,
+  updateProjectBackupConfigs,
+} from './backups'
+import {
+  deleteProject,
+  updateProjectDomains,
+  updateProjectSettings,
+} from './settings'
 import {
   decryptDeploymentEnvVars,
   parseDeploymentConfig,
 } from './deployment-config'
+import { encryptProjectEnvVars } from './project-env-vars'
 import { createComposeRuntimeConfig } from './runtime-config'
 
 const touchedJobIds: Array<string> = []
@@ -55,6 +75,426 @@ afterAll(async () => {
 })
 
 describe('project settings integration', () => {
+  test('definition-only saves preserve persisted server assignments', async () => {
+    const fixture = await createProjectFixture()
+    const input = {
+      userId: fixture.ownerId,
+      teamSlug: fixture.teamSlug,
+      projectName: fixture.projectName,
+    }
+    const context = await getProjectContext(input)
+    const definitions = context.environments.map(
+      ({
+        serverId: _serverId,
+        effectiveServerId: _effectiveServerId,
+        ...environment
+      }) => ({ ...environment, branch: 'release/*' }),
+    )
+    const updated = await updateProjectEnvironments({
+      ...input,
+      projectEnvironments: definitions,
+    })
+    expect(updated.environments[0]?.serverId).toBe(fixture.serverId)
+    expect(updated.environments[0]?.branch).toBe('release/*')
+  })
+
+  test('variable scopes preserve shared overrides and reject unknown environments without changing stored values', async () => {
+    const fixture = await createProjectFixture()
+    const input = {
+      userId: fixture.ownerId,
+      teamSlug: fixture.teamSlug,
+      projectName: fixture.projectName,
+    }
+    const envVars = [
+      { key: 'TOKEN', value: 'shared', environment: '' },
+      { key: 'TOKEN', value: 'scoped', environment: fixture.environmentId },
+    ]
+    const saved = await updateProjectEnvVars({ ...input, envVars })
+    expect(saved.envVars).toEqual(envVars)
+    await expect(
+      updateProjectEnvVars({
+        ...input,
+        envVars: [
+          { key: 'TOKEN', value: 'replacement', environment: 'missing' },
+        ],
+      }),
+    ).rejects.toThrow('Select a valid environment')
+    await expect(
+      updateProjectEnvVars({ ...input, envVars: [envVars[0]!, envVars[0]!] }),
+    ).rejects.toThrow('unique per environment')
+    const context = await getProjectContext({ ...input, scope: 'settings' })
+    expect(context.envVars).toEqual(envVars)
+  })
+
+  test('policies can reuse workspace storage and reject other workspaces without replacing saved policies', async () => {
+    const fixture = await createProjectFixture()
+    const otherTeamId = makeId('other-team')
+    touchedTeamIds.push(otherTeamId)
+    const other = { ownerId: fixture.ownerId, teamSlug: makeSlug(otherTeamId) }
+    await db.insert(teams).values({
+      id: otherTeamId,
+      name: 'Other workspace',
+      slug: other.teamSlug,
+    })
+    await db.insert(teamMembers).values({
+      id: makeId('member'),
+      teamId: otherTeamId,
+      userId: fixture.ownerId,
+      role: 'owner',
+    })
+    const input = {
+      name: 'Shared',
+      bucket: 'shared-bucket',
+      region: 'auto',
+      endpoint: '',
+      accessKeyId: 'key',
+      secretAccessKey: 'secret',
+    }
+    const localStorage = (
+      await saveBackupStorage({
+        userId: fixture.adminId,
+        teamSlug: fixture.teamSlug,
+        input,
+      })
+    )[0]!
+    const foreignStorage = (
+      await saveBackupStorage({
+        userId: other.ownerId,
+        teamSlug: other.teamSlug,
+        input,
+      })
+    )[0]!
+    const policy = {
+      id: makeId('backup-policy'),
+      name: 'Nightly',
+      environmentId: fixture.environmentId,
+      enabled: true,
+      schedule: { cron: '0 2 * * *' },
+      destination: { storageId: localStorage.id },
+      retention: {
+        local: { count: 7, days: 0, maxStorageGb: 0 },
+        remote: { enabled: true, count: 7, days: 0, maxStorageGb: 0 },
+      },
+      volumes: { mode: 'none' as const, names: [] },
+      databaseDumps: [],
+    }
+    const route = {
+      userId: fixture.adminId,
+      teamSlug: fixture.teamSlug,
+      projectName: fixture.projectName,
+    }
+    const saved = await updateProjectBackupConfigs({
+      ...route,
+      backupConfigs: [policy],
+    })
+    expect(saved.backupConfigs[0]?.destination).toEqual({
+      storageId: localStorage.id,
+    })
+    expect(JSON.stringify(saved)).not.toContain('secretAccessKey')
+    await expect(
+      updateProjectBackupConfigs({
+        ...route,
+        backupConfigs: [
+          { ...policy, destination: { storageId: foreignStorage.id } },
+        ],
+      }),
+    ).rejects.toThrow('in this workspace')
+    await expect(
+      updateProjectBackupConfigs({
+        ...route,
+        userId: fixture.memberId,
+        backupConfigs: [policy],
+      }),
+    ).rejects.toThrow('Only team owners and admins')
+    await expect(
+      createManualBackupRun({
+        ...route,
+        userId: fixture.memberId,
+        backupConfigId: policy.id,
+      }),
+    ).rejects.toThrow('Only team owners and admins')
+    const preserved = (
+      await db
+        .select()
+        .from(backupConfigs)
+        .where(eq(backupConfigs.id, policy.id))
+    )[0]!
+    expect(preserved.destination).toEqual({ storageId: localStorage.id })
+  })
+
+  test('replaces large backup policy sets atomically and keeps the old set after a later insert fails', async () => {
+    const { ownerId, teamSlug, projectName, projectId, environmentId } =
+      await createProjectFixture()
+    const configs = Array.from({ length: 20 }, (_, index) => ({
+      id: makeId('backup-config'),
+      name: `Policy ${index}`,
+      environmentId,
+      enabled: true,
+      schedule: { cron: '0 0 * * *' },
+      destination: { prefix: 'project-backups' },
+      retention: {
+        local: { count: 7, days: 0, maxStorageGb: 0 },
+        remote: { enabled: false, count: 7, days: 0, maxStorageGb: 0 },
+      },
+      volumes: { mode: 'allNamed' as const, names: [] },
+      databaseDumps: [],
+    }))
+    const input = { userId: ownerId, teamSlug, projectName }
+    await updateProjectBackupConfigs({ ...input, backupConfigs: configs })
+    expect(
+      await db
+        .select()
+        .from(backupConfigs)
+        .where(eq(backupConfigs.projectId, projectId)),
+    ).toHaveLength(20)
+    const replacement = configs
+      .slice(0, 7)
+      .map((config) => ({ ...config, id: makeId('replacement') }))
+    replacement.push(required(replacement[0]))
+    await expect(
+      updateProjectBackupConfigs({ ...input, backupConfigs: replacement }),
+    ).rejects.toThrow()
+    const stored = await db
+      .select()
+      .from(backupConfigs)
+      .where(eq(backupConfigs.projectId, projectId))
+    expect(stored.map((config) => config.id).sort()).toEqual(
+      configs.map((config) => config.id).sort(),
+    )
+    await updateProjectBackupConfigs({ ...input, backupConfigs: [] })
+    expect(
+      await db
+        .select()
+        .from(backupConfigs)
+        .where(eq(backupConfigs.projectId, projectId)),
+    ).toEqual([])
+  })
+
+  test('custom domains reject environments from another project', async () => {
+    const target = await createProjectFixture()
+    const foreignProjectId = makeId('project')
+    const foreignEnvironmentId = makeId('environment')
+    touchedProjectIds.push(foreignProjectId)
+    touchedEnvironmentIds.push(foreignEnvironmentId)
+    await db.insert(projects).values({
+      id: foreignProjectId,
+      githubRepo: 'example/foreign-project',
+      name: makeSlug(foreignProjectId),
+      slug: makeSlug(foreignProjectId),
+      teamId: target.teamId,
+    })
+    await db.insert(environments).values({
+      id: foreignEnvironmentId,
+      branch: 'main',
+      isProduction: true,
+      name: 'Production',
+      projectId: foreignProjectId,
+      runtimeId: makeId('runtime'),
+      serverId: target.serverId,
+      slug: 'production',
+    })
+
+    await expect(
+      updateProjectDomains({
+        userId: target.ownerId,
+        teamSlug: target.teamSlug,
+        projectName: target.projectName,
+        domains: [
+          {
+            host: `${makeSlug(makeId('domain'))}.example.com`,
+            environmentId: foreignEnvironmentId,
+            basePath: null,
+            https: true,
+          },
+        ],
+      }),
+    ).rejects.toThrow('Select a valid environment for every domain.')
+  })
+
+  test('project and deployment contexts reject users from another tenant', async () => {
+    const target = await createProjectFixture()
+    const outsiderId = makeId('user')
+    const outsiderTeamId = makeId('team')
+    touchedUserIds.push(outsiderId)
+    touchedTeamIds.push(outsiderTeamId)
+    await db.insert(user).values(makeUser(outsiderId))
+    await db.insert(teams).values({
+      id: outsiderTeamId,
+      name: 'Outside integration team',
+      slug: makeSlug(outsiderTeamId),
+    })
+    await db.insert(teamMembers).values({
+      id: makeId('member'),
+      role: 'owner',
+      teamId: outsiderTeamId,
+      userId: outsiderId,
+    })
+
+    await expect(
+      getProjectContext({
+        userId: outsiderId,
+        teamSlug: target.teamSlug,
+        projectName: target.projectName,
+        scope: 'shell',
+      }),
+    ).rejects.toThrow('Project not found.')
+
+    for (const scope of [
+      'overview',
+      'deployments',
+      'settings',
+      'backups',
+    ] as const) {
+      await expect(
+        getProjectSectionContext({
+          userId: outsiderId,
+          teamSlug: target.teamSlug,
+          projectName: target.projectName,
+          scope,
+        }),
+      ).rejects.toThrow('Project not found.')
+    }
+
+    await expect(
+      getDeploymentSectionContext({
+        userId: outsiderId,
+        teamSlug: target.teamSlug,
+        projectName: target.projectName,
+        deploymentId: target.runningDeploymentId,
+      }),
+    ).rejects.toThrow('Project not found.')
+    await expect(
+      getDeploymentLogsContext({
+        userId: outsiderId,
+        teamSlug: target.teamSlug,
+        projectName: target.projectName,
+        deploymentId: target.runningDeploymentId,
+      }),
+    ).rejects.toThrow('Deployment not found.')
+  })
+
+  test('section contexts preserve the full-context data contract', async () => {
+    const { ownerId, projectName, teamSlug } = await createProjectFixture()
+    const full = await getProjectContext({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+      scope: 'full',
+    })
+
+    const [overview, deploymentsSection, settings, backups] = await Promise.all(
+      [
+        getProjectSectionContext({
+          userId: ownerId,
+          teamSlug,
+          projectName,
+          scope: 'overview',
+        }),
+        getProjectSectionContext({
+          userId: ownerId,
+          teamSlug,
+          projectName,
+          scope: 'deployments',
+        }),
+        getProjectSectionContext({
+          userId: ownerId,
+          teamSlug,
+          projectName,
+          scope: 'settings',
+        }),
+        getProjectSectionContext({
+          userId: ownerId,
+          teamSlug,
+          projectName,
+          scope: 'backups',
+        }),
+      ],
+    )
+
+    expect(overview.scope).toBe('overview')
+    expect(deploymentsSection.scope).toBe('deployments')
+    expect(settings.scope).toBe('settings')
+    expect(backups.scope).toBe('backups')
+    if (
+      overview.scope !== 'overview' ||
+      deploymentsSection.scope !== 'deployments' ||
+      settings.scope !== 'settings' ||
+      backups.scope !== 'backups'
+    ) {
+      throw new Error('Project section context returned the wrong scope.')
+    }
+
+    expect(overview.projectId).toBe(full.project.id)
+    expect(overview.deployments).toEqual(full.deployments)
+    expect(overview.runtime).toEqual(full.environment.runtime)
+    expect(deploymentsSection.deployments).toEqual(full.deployments)
+    expect(settings).toMatchObject({
+      projectId: full.project.id,
+      composeMetadata: full.composeMetadata,
+      domains: full.domains,
+      envVars: full.envVars,
+    })
+    expect(backups).toMatchObject({
+      projectId: full.project.id,
+      backupConfigs: full.backupConfigs,
+      backupRuns: full.backupRuns,
+      composeMetadata: full.composeMetadata,
+    })
+  })
+
+  test('backup section maps stored artifacts onto their run', async () => {
+    const {
+      environmentId,
+      ownerId,
+      projectId,
+      projectName,
+      serverId,
+      teamSlug,
+    } = await createProjectFixture()
+    const backupRunId = makeId('backup-run')
+    const artifactId = makeId('backup-artifact')
+    touchedBackupRunIds.push(backupRunId)
+
+    await db.insert(backupRuns).values({
+      id: backupRunId,
+      projectId,
+      environmentId,
+      serverId,
+      runtimeId: 'runtime-production',
+      status: 'succeeded',
+    })
+    await db.insert(backupArtifacts).values({
+      id: artifactId,
+      backupRunId,
+      type: 'manifest',
+      storage: 'remote',
+      objectKey: 'backups/test/manifest.json',
+      checksumSha256: 'a'.repeat(64),
+      sizeBytes: 42,
+    })
+
+    const section = await getProjectSectionContext({
+      userId: ownerId,
+      teamSlug,
+      projectName,
+      scope: 'backups',
+    })
+
+    if (section.scope !== 'backups') {
+      throw new Error('Project section context returned the wrong scope.')
+    }
+
+    expect(
+      section.backupRuns.find((run) => run.id === backupRunId)?.artifacts,
+    ).toEqual([
+      expect.objectContaining({
+        id: artifactId,
+        objectKey: 'backups/test/manifest.json',
+        sizeBytes: 42,
+      }),
+    ])
+  })
+
   test('project default servers are inherited and environments can override them', async () => {
     const {
       environmentId,
@@ -112,6 +552,70 @@ describe('project settings integration', () => {
       effectiveServerId: overrideServerId,
     })
     expect(overriddenContext.environment.serverId).toBe(overrideServerId)
+  })
+
+  test('competing environment updates reconcile the same slug to one persisted ID', async () => {
+    const fixture = await createProjectFixture()
+    const production = {
+      id: fixture.environmentId,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      color: 'blue',
+      position: 0,
+      status: 'active' as const,
+      effectiveServerId: fixture.serverId,
+      serverId: fixture.serverId,
+    }
+    const stagingIds = [makeId('environment'), makeId('environment')]
+    touchedEnvironmentIds.push(...stagingIds)
+    const results = await Promise.all(
+      stagingIds.map((id) =>
+        updateProjectEnvironments({
+          userId: fixture.ownerId,
+          teamSlug: fixture.teamSlug,
+          projectName: fixture.projectName,
+          projectEnvironments: [
+            production,
+            {
+              ...production,
+              id,
+              name: 'Staging',
+              slug: 'staging',
+              branch: 'staging-*',
+              position: 1,
+            },
+          ],
+        }),
+      ),
+    )
+    const rows = await db
+      .select()
+      .from(environments)
+      .where(eq(environments.projectId, fixture.projectId))
+    const staging = rows.filter((e) => e.slug === 'staging')
+    expect(staging).toHaveLength(1)
+    expect(required(rows.filter((e) => e.slug === 'production')[0]).id).toBe(
+      fixture.environmentId,
+    )
+    for (const result of results) {
+      const aliasRows = await db
+        .select()
+        .from(aliases)
+        .where(eq(aliases.environmentId, required(staging[0]).id))
+      for (const alias of aliasRows)
+        if (!touchedHostnameIds.includes(alias.id))
+          touchedHostnameIds.push(alias.id)
+      expect(aliasRows.filter((a) => a.type === 'environment')).toHaveLength(1)
+      expect(result.environments.some((e) => e.slug === 'staging')).toBe(true)
+    }
+    const allAliases = await db
+      .select()
+      .from(aliases)
+      .where(eq(aliases.projectId, fixture.projectId))
+    for (const alias of allAliases)
+      if (!touchedHostnameIds.includes(alias.id))
+        touchedHostnameIds.push(alias.id)
   })
 
   test('project environments are returned in persisted priority order', async () => {
@@ -265,6 +769,63 @@ describe('project settings integration', () => {
     ).toBe(true)
   })
 
+  test('concurrent project renames cannot take the same name', async () => {
+    const { ownerId, projectName, teamId, teamSlug } =
+      await createProjectFixture()
+    const secondId = makeId('project')
+    const secondName = makeSlug(secondId)
+    const secondEnvironmentId = makeId('environment')
+    touchedProjectIds.push(secondId)
+    touchedEnvironmentIds.push(secondEnvironmentId)
+    await db.insert(projects).values({
+      id: secondId,
+      name: secondName,
+      slug: secondName,
+      teamId,
+      githubRepo: 'example/project',
+      runtimeConfig: createComposeRuntimeConfig({
+        path: 'compose.current.yml',
+      }),
+    })
+    await db.insert(environments).values({
+      id: secondEnvironmentId,
+      projectId: secondId,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      isProduction: true,
+      runtimeId: makeId('runtime'),
+    })
+    const desiredName = `renamed-${crypto.randomUUID()}`
+    const results = await Promise.allSettled(
+      [projectName, secondName].map((currentProjectName) =>
+        updateProjectSettings({
+          userId: ownerId,
+          teamSlug,
+          currentProjectName,
+          projectName: desiredName,
+          repoFullName: 'example/project',
+          installationId: null,
+          runtimeConfig: createComposeRuntimeConfig({
+            path: 'compose.current.yml',
+          }),
+        }),
+      ),
+    )
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1)
+    const renamed = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.slug, desiredName))
+    expect(renamed).toHaveLength(1)
+    const failed = results.find((result) => result.status === 'rejected')
+    expect(failed?.status === 'rejected' ? failed.reason.message : '').toBe(
+      'Project names must be unique within a team.',
+    )
+  })
+
   test('project machine names must be unique within a team', async () => {
     const { ownerId, projectName, teamId, teamSlug } =
       await createProjectFixture()
@@ -295,6 +856,262 @@ describe('project settings integration', () => {
         }),
       }),
     ).rejects.toThrow('Project names must be unique within a team.')
+  })
+
+  test('only owners and admins can change host lifecycle commands', async () => {
+    const { adminId, memberId, projectName, teamSlug } =
+      await createProjectFixture()
+
+    const memberRuntimeConfigs = [
+      createComposeRuntimeConfig({
+        path: 'compose.current.yml',
+        readinessPath: '/current-health',
+        releaseCommand: 'current-release',
+        deployCommand: './scripts/deploy',
+      }),
+      createComposeRuntimeConfig({
+        path: 'compose.current.yml',
+        readinessPath: '/current-health',
+        releaseCommand: 'current-release',
+        rollbackCommand: './scripts/rollback',
+      }),
+    ]
+
+    for (const runtimeConfig of memberRuntimeConfigs) {
+      await expect(
+        updateProjectSettings({
+          userId: memberId,
+          teamSlug,
+          currentProjectName: projectName,
+          projectName,
+          repoFullName: 'example/project',
+          installationId: null,
+          runtimeConfig,
+        }),
+      ).rejects.toThrow(
+        'Only team owners and admins can change host lifecycle commands.',
+      )
+    }
+
+    await expect(
+      updateProjectSettings({
+        userId: adminId,
+        teamSlug,
+        currentProjectName: projectName,
+        projectName,
+        repoFullName: 'example/project',
+        installationId: null,
+        runtimeConfig: createComposeRuntimeConfig({
+          path: 'compose.current.yml',
+          readinessPath: '/current-health',
+          releaseCommand: 'current-release',
+          releaseService: 'worker',
+          deployCommand: './scripts/deploy',
+          rollbackCommand: './scripts/rollback',
+        }),
+      }),
+    ).resolves.toMatchObject({
+      project: {
+        runtimeConfig: {
+          deployCommand: './scripts/deploy',
+          releaseService: 'worker',
+          rollbackCommand: './scripts/rollback',
+        },
+      },
+    })
+  })
+
+  test('members cannot repoint configured host lifecycle commands', async () => {
+    const { adminId, memberId, projectName, teamSlug } =
+      await createProjectFixture()
+    const hostRuntimeConfig = createComposeRuntimeConfig({
+      path: 'compose.current.yml',
+      readinessPath: '/current-health',
+      releaseCommand: 'current-release',
+      deployCommand: './scripts/deploy',
+    })
+
+    await updateProjectSettings({
+      userId: adminId,
+      teamSlug,
+      currentProjectName: projectName,
+      projectName,
+      repoFullName: 'example/project',
+      installationId: null,
+      runtimeConfig: hostRuntimeConfig,
+    })
+
+    await expect(
+      updateProjectSettings({
+        userId: memberId,
+        teamSlug,
+        currentProjectName: projectName,
+        projectName,
+        repoFullName: 'example/project',
+        installationId: null,
+        runtimeConfig: {
+          ...hostRuntimeConfig,
+          path: 'compose.member.yml',
+        },
+      }),
+    ).rejects.toThrow(
+      'Only team owners and admins can change the source of host lifecycle commands.',
+    )
+  })
+
+  test('project settings updates return settings-scoped data', async () => {
+    const { environmentId, ownerId, projectId, projectName, teamSlug } =
+      await createProjectFixture()
+    const domainId = makeId('domain')
+    touchedDomainIds.push(domainId)
+    await db.insert(domains).values({
+      id: domainId,
+      environmentId,
+      hostname: `${makeSlug(domainId)}.example.com`,
+      projectId,
+    })
+
+    const result = await updateProjectSettings({
+      userId: ownerId,
+      teamSlug,
+      currentProjectName: projectName,
+      projectName,
+      repoFullName: 'example/project',
+      installationId: null,
+      runtimeConfig: createComposeRuntimeConfig({
+        path: 'compose.current.yml',
+        readinessPath: '/current-health',
+        releaseCommand: 'current-release',
+      }),
+    })
+
+    expect(result.domains).toEqual([
+      expect.objectContaining({ id: domainId, environmentId }),
+    ])
+  })
+
+  test('members can change container-scoped pre-deploy commands', async () => {
+    const { memberId, projectName, teamSlug } = await createProjectFixture()
+
+    await expect(
+      updateProjectSettings({
+        userId: memberId,
+        teamSlug,
+        currentProjectName: projectName,
+        projectName,
+        repoFullName: 'example/project',
+        installationId: null,
+        runtimeConfig: createComposeRuntimeConfig({
+          path: 'compose.current.yml',
+          readinessPath: '/current-health',
+          releaseCommand: 'changed-release',
+          releaseService: 'worker',
+        }),
+      }),
+    ).resolves.toMatchObject({
+      project: {
+        runtimeConfig: {
+          releaseCommand: 'changed-release',
+          releaseService: 'worker',
+        },
+      },
+    })
+  })
+
+  test('members cannot configure backups or restore data', async () => {
+    const { memberId, projectName, teamSlug } = await createProjectFixture()
+
+    await expect(
+      updateProjectBackupConfigs({
+        backupConfigs: [],
+        projectName,
+        teamSlug,
+        userId: memberId,
+      }),
+    ).rejects.toThrow(
+      'Only team owners and admins can configure backups or restore data.',
+    )
+
+    await expect(
+      createBackupRestoreJob({
+        artifacts: [],
+        backupRunId: 'backup-run',
+        projectName,
+        teamSlug,
+        userId: memberId,
+      }),
+    ).rejects.toThrow(
+      'Only team owners and admins can configure backups or restore data.',
+    )
+  })
+
+  test('members read scoped restore status without job payloads or credentials', async () => {
+    const fixture = await createProjectFixture()
+    const otherProjectId = makeId('other-project')
+    touchedProjectIds.push(otherProjectId)
+    const project = (
+      await db.select().from(projects).where(eq(projects.id, fixture.projectId))
+    )[0]!
+    await db
+      .insert(projects)
+      .values({ ...project, id: otherProjectId, slug: 'other-project' })
+    const jobIds = [
+      makeId('restore'),
+      makeId('other-restore'),
+      makeId('backup'),
+    ]
+    touchedJobIds.push(...jobIds)
+    await db.insert(agentJobs).values(
+      jobIds.map((id, index) => ({
+        id,
+        type: index === 2 ? ('backup' as const) : ('restore' as const),
+        status: 'abandoned' as const,
+        serverId: fixture.serverId,
+        projectId: index === 1 ? otherProjectId : fixture.projectId,
+        payload: {
+          backupRunId: 'run',
+          environmentId: fixture.environmentId,
+          destination: { secretAccessKey: 'never-public' },
+        },
+        errorMessage: 'Restore interrupted.',
+      })),
+    )
+    const context = await getProjectContext({
+      userId: fixture.memberId,
+      teamSlug: fixture.teamSlug,
+      projectName: fixture.projectName,
+      scope: 'backups',
+    })
+    expect(context.backupRestores).toHaveLength(1)
+    expect(context.backupRestores[0]).toMatchObject({
+      id: jobIds[0],
+      status: 'failed',
+      errorMessage: 'Restore interrupted.',
+    })
+    expect(JSON.stringify(context.backupRestores)).not.toContain('never-public')
+    expect(context.backupRestores[0]).not.toHaveProperty('payload')
+  })
+
+  test('members can update ordinary settings without changing lifecycle commands', async () => {
+    const { memberId, projectName, teamSlug } = await createProjectFixture()
+
+    await expect(
+      updateProjectSettings({
+        userId: memberId,
+        teamSlug,
+        currentProjectName: projectName,
+        projectName,
+        repoFullName: 'example/project',
+        installationId: null,
+        runtimeConfig: createComposeRuntimeConfig({
+          path: 'compose.current.yml',
+          readinessPath: '/updated-health',
+          releaseCommand: 'current-release',
+        }),
+      }),
+    ).resolves.toMatchObject({
+      project: { runtimeConfig: { readinessPath: '/updated-health' } },
+    })
   })
 
   test('only owners and admins can delete projects', async () => {
@@ -620,7 +1437,7 @@ describe('project settings integration', () => {
     expect(hostnameRows.at(0)?.hostname).toMatch(
       new RegExp(`^${rollback.deploymentId.slice(0, 7)}-`),
     )
-    const context = await getDeploymentContext({
+    const context = await getDeploymentSectionContext({
       deploymentId: rollback.deploymentId,
       projectName,
       teamSlug,
@@ -862,7 +1679,7 @@ describe('project settings integration', () => {
             stripPrefix: false,
           },
         ],
-        envVars: [
+        envVarsEncrypted: encryptProjectEnvVars([
           { key: 'SHARED', value: 'all-envs', environment: '' },
           {
             key: 'DATABASE_URL',
@@ -874,7 +1691,7 @@ describe('project settings integration', () => {
             value: 'environment-id-value',
             environment: environmentId,
           },
-        ],
+        ]),
       })
       .where(eq(projects.id, projectId))
 

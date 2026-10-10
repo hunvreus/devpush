@@ -73,8 +73,18 @@ export async function getAgentBinary(
 
 export async function getAgentBinaryStatus(): Promise<AgentBinaryStatus> {
   try {
-    if (config.DEVPUSH_AGENT_BINARY_DIR || isObjectStorageConfigured()) {
-      await Promise.all(requiredDirectoryPlatforms.map(getAgentBinary))
+    if (isObjectStorageConfigured()) {
+      const store = getObjectStore()
+      const available = await Promise.all(
+        requiredDirectoryPlatforms.map((platform) =>
+          store.exists(`agents/${binaryFilename(platform)}`),
+        ),
+      )
+      if (available.some((value) => !value)) {
+        throw new Error('One or more agent binaries are missing.')
+      }
+    } else if (config.DEVPUSH_AGENT_BINARY_DIR) {
+      await Promise.all(requiredDirectoryPlatforms.map(assertLocalBinary))
     } else {
       await getAgentBinary()
     }
@@ -92,6 +102,16 @@ export async function getAgentBinaryStatus(): Promise<AgentBinaryStatus> {
           : 'Unable to read configured agent binary.',
     }
   }
+}
+
+async function assertLocalBinary(platform: Required<AgentBinaryPlatform>) {
+  const path = getAgentBinaryPath(platform)
+  if (!path) throw new AgentBinaryNotConfiguredError()
+  const file = await stat(path)
+  if (!file.isFile()) {
+    throw new Error('Configured agent binary path is not a file.')
+  }
+  await access(path, constants.R_OK)
 }
 
 export async function getAgentBinaryChecksum(

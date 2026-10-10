@@ -1,9 +1,4 @@
-import { render } from '@react-email/render'
-import { Resend } from 'resend'
-
 import { config } from '@/server/config'
-import { OtpEmailTemplate } from '@/server/email/otp-template'
-import { TeamInviteEmailTemplate } from '@/server/email/team-invite-template'
 
 type EmailPayload = {
   html: string
@@ -21,6 +16,7 @@ async function sendEmail({ html, subject, text, to }: EmailPayload) {
     throw new Error('RESEND_API_KEY is not configured.')
   }
 
+  const { Resend } = await import('resend')
   const resend = new Resend(config.RESEND_API_KEY)
 
   const result = await resend.emails.send({
@@ -126,6 +122,10 @@ This email was intended for ${email}. If you think this is a mistake, you can sa
 }
 
 export async function buildOtpEmailMessage(email: string, otp: string) {
+  const [{ render }, { OtpEmailTemplate }] = await Promise.all([
+    import('@react-email/render'),
+    import('@/server/email/otp-template'),
+  ])
   const subject = `Your temporary code is ${otp}`
   const html = await render(
     OtpEmailTemplate({ otp, preview: subject, to: email }),
@@ -188,6 +188,10 @@ export async function buildTeamInviteEmailMessage({
   inviteUrl: string
   teamName: string
 }) {
+  const [{ render }, { TeamInviteEmailTemplate }] = await Promise.all([
+    import('@react-email/render'),
+    import('@/server/email/team-invite-template'),
+  ])
   const subject = `Join ${teamName} on devpush`
   const html = await render(
     TeamInviteEmailTemplate({

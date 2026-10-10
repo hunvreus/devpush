@@ -22,7 +22,8 @@ export async function readRequestText(request: Request, maxBytes: number) {
   }
 
   const reader = request.body.getReader()
-  const chunks: Array<Uint8Array> = []
+  const decoder = new TextDecoder()
+  const chunks: Array<string> = []
   let totalBytes = 0
 
   try {
@@ -38,19 +39,13 @@ export async function readRequestText(request: Request, maxBytes: number) {
         throw new RequestBodyTooLargeError(maxBytes)
       }
 
-      chunks.push(value)
+      chunks.push(decoder.decode(value, { stream: true }))
     }
+
+    chunks.push(decoder.decode())
   } finally {
     reader.releaseLock()
   }
 
-  const body = new Uint8Array(totalBytes)
-  let offset = 0
-
-  for (const chunk of chunks) {
-    body.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-
-  return new TextDecoder().decode(body)
+  return chunks.join('')
 }

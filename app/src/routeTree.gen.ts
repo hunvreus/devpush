@@ -22,16 +22,19 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as InvitesTokenRouteImport } from './routes/invites.$token'
 import { Route as TeamSlugProjectsProjectNameRouteImport } from './routes/$teamSlug.projects.$projectName'
+import { Route as TeamSlugServersIndexRouteImport } from './routes/$teamSlug.servers.index'
 import { Route as TeamSlugServersServerIdRouteImport } from './routes/$teamSlug.servers.$serverId'
 import { Route as ApiAgentsHeartbeatRouteImport } from './routes/api/agents/heartbeat'
 import { Route as ApiAgentsRegisterRouteImport } from './routes/api/agents/register'
 import { Route as ApiAgentsRuntimeLogsRouteImport } from './routes/api/agents/runtime-logs'
+import { Route as ApiAgentsSwitchRouteImport } from './routes/api/agents/switch'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronBackupsRouteImport } from './routes/api/cron/backups'
 import { Route as ApiCronMaintenanceRouteImport } from './routes/api/cron/maintenance'
 import { Route as ApiGithubInstallRouteImport } from './routes/api/github/install'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
 import { Route as ApiInstallAgentRouteImport } from './routes/api/install/agent'
+import { Route as ApiWorkspacesUpdatesRouteImport } from './routes/api/workspaces/updates'
 import { Route as UploadsAvatarsFileNameRouteImport } from './routes/uploads/avatars/$fileName'
 import { Route as TeamSlugProjectsProjectNameBackupsRouteImport } from './routes/$teamSlug.projects.$projectName.backups'
 import { Route as TeamSlugProjectsProjectNameDeploymentsRouteImport } from './routes/$teamSlug.projects.$projectName.deployments'
@@ -115,6 +118,11 @@ const TeamSlugProjectsProjectNameRoute =
     path: '/$projectName',
     getParentRoute: () => TeamSlugProjectsRoute,
   } as any)
+const TeamSlugServersIndexRoute = TeamSlugServersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TeamSlugServersRoute,
+} as any)
 const TeamSlugServersServerIdRoute = TeamSlugServersServerIdRouteImport.update({
   id: '/$serverId',
   path: '/$serverId',
@@ -133,6 +141,11 @@ const ApiAgentsRegisterRoute = ApiAgentsRegisterRouteImport.update({
 const ApiAgentsRuntimeLogsRoute = ApiAgentsRuntimeLogsRouteImport.update({
   id: '/api/agents/runtime-logs',
   path: '/api/agents/runtime-logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentsSwitchRoute = ApiAgentsSwitchRouteImport.update({
+  id: '/api/agents/switch',
+  path: '/api/agents/switch',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -163,6 +176,11 @@ const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
 const ApiInstallAgentRoute = ApiInstallAgentRouteImport.update({
   id: '/api/install/agent',
   path: '/api/install/agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWorkspacesUpdatesRoute = ApiWorkspacesUpdatesRouteImport.update({
+  id: '/api/workspaces/updates',
+  path: '/api/workspaces/updates',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UploadsAvatarsFileNameRoute = UploadsAvatarsFileNameRouteImport.update({
@@ -272,13 +290,16 @@ export interface FileRoutesByFullPath {
   '/api/agents/heartbeat': typeof ApiAgentsHeartbeatRoute
   '/api/agents/register': typeof ApiAgentsRegisterRoute
   '/api/agents/runtime-logs': typeof ApiAgentsRuntimeLogsRoute
+  '/api/agents/switch': typeof ApiAgentsSwitchRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
+  '/$teamSlug/servers/': typeof TeamSlugServersIndexRoute
   '/$teamSlug/projects/$projectName/backups': typeof TeamSlugProjectsProjectNameBackupsRouteWithChildren
   '/$teamSlug/projects/$projectName/deployments': typeof TeamSlugProjectsProjectNameDeploymentsRouteWithChildren
   '/$teamSlug/projects/$projectName/logs': typeof TeamSlugProjectsProjectNameLogsRoute
@@ -301,7 +322,6 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/$teamSlug/new-project': typeof TeamSlugNewProjectRoute
   '/$teamSlug/projects': typeof TeamSlugProjectsRouteWithChildren
-  '/$teamSlug/servers': typeof TeamSlugServersRouteWithChildren
   '/$teamSlug/settings': typeof TeamSlugSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/auth/login': typeof AuthLoginRoute
@@ -312,13 +332,16 @@ export interface FileRoutesByTo {
   '/api/agents/heartbeat': typeof ApiAgentsHeartbeatRoute
   '/api/agents/register': typeof ApiAgentsRegisterRoute
   '/api/agents/runtime-logs': typeof ApiAgentsRuntimeLogsRoute
+  '/api/agents/switch': typeof ApiAgentsSwitchRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
+  '/$teamSlug/servers': typeof TeamSlugServersIndexRoute
   '/$teamSlug/projects/$projectName/backups': typeof TeamSlugProjectsProjectNameBackupsRouteWithChildren
   '/$teamSlug/projects/$projectName/deployments': typeof TeamSlugProjectsProjectNameDeploymentsRouteWithChildren
   '/$teamSlug/projects/$projectName/logs': typeof TeamSlugProjectsProjectNameLogsRoute
@@ -354,13 +377,16 @@ export interface FileRoutesById {
   '/api/agents/heartbeat': typeof ApiAgentsHeartbeatRoute
   '/api/agents/register': typeof ApiAgentsRegisterRoute
   '/api/agents/runtime-logs': typeof ApiAgentsRuntimeLogsRoute
+  '/api/agents/switch': typeof ApiAgentsSwitchRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
+  '/$teamSlug/servers/': typeof TeamSlugServersIndexRoute
   '/$teamSlug/projects/$projectName/backups': typeof TeamSlugProjectsProjectNameBackupsRouteWithChildren
   '/$teamSlug/projects/$projectName/deployments': typeof TeamSlugProjectsProjectNameDeploymentsRouteWithChildren
   '/$teamSlug/projects/$projectName/logs': typeof TeamSlugProjectsProjectNameLogsRoute
@@ -397,13 +423,16 @@ export interface FileRouteTypes {
     | '/api/agents/heartbeat'
     | '/api/agents/register'
     | '/api/agents/runtime-logs'
+    | '/api/agents/switch'
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
+    | '/$teamSlug/servers/'
     | '/$teamSlug/projects/$projectName/backups'
     | '/$teamSlug/projects/$projectName/deployments'
     | '/$teamSlug/projects/$projectName/logs'
@@ -426,7 +455,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/$teamSlug/new-project'
     | '/$teamSlug/projects'
-    | '/$teamSlug/servers'
     | '/$teamSlug/settings'
     | '/api/health'
     | '/auth/login'
@@ -437,13 +465,16 @@ export interface FileRouteTypes {
     | '/api/agents/heartbeat'
     | '/api/agents/register'
     | '/api/agents/runtime-logs'
+    | '/api/agents/switch'
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
+    | '/$teamSlug/servers'
     | '/$teamSlug/projects/$projectName/backups'
     | '/$teamSlug/projects/$projectName/deployments'
     | '/$teamSlug/projects/$projectName/logs'
@@ -478,13 +509,16 @@ export interface FileRouteTypes {
     | '/api/agents/heartbeat'
     | '/api/agents/register'
     | '/api/agents/runtime-logs'
+    | '/api/agents/switch'
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
+    | '/$teamSlug/servers/'
     | '/$teamSlug/projects/$projectName/backups'
     | '/$teamSlug/projects/$projectName/deployments'
     | '/$teamSlug/projects/$projectName/logs'
@@ -513,12 +547,14 @@ export interface RootRouteChildren {
   ApiAgentsHeartbeatRoute: typeof ApiAgentsHeartbeatRoute
   ApiAgentsRegisterRoute: typeof ApiAgentsRegisterRoute
   ApiAgentsRuntimeLogsRoute: typeof ApiAgentsRuntimeLogsRoute
+  ApiAgentsSwitchRoute: typeof ApiAgentsSwitchRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronBackupsRoute: typeof ApiCronBackupsRoute
   ApiCronMaintenanceRoute: typeof ApiCronMaintenanceRoute
   ApiGithubInstallRoute: typeof ApiGithubInstallRouteWithChildren
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
   ApiInstallAgentRoute: typeof ApiInstallAgentRouteWithChildren
+  ApiWorkspacesUpdatesRoute: typeof ApiWorkspacesUpdatesRoute
   UploadsAvatarsFileNameRoute: typeof UploadsAvatarsFileNameRoute
   ApiAgentsCredentialsRotateRoute: typeof ApiAgentsCredentialsRotateRoute
   ApiAgentsJobsCompleteRoute: typeof ApiAgentsJobsCompleteRoute
@@ -620,6 +656,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamSlugProjectsProjectNameRouteImport
       parentRoute: typeof TeamSlugProjectsRoute
     }
+    '/$teamSlug/servers/': {
+      id: '/$teamSlug/servers/'
+      path: '/'
+      fullPath: '/$teamSlug/servers/'
+      preLoaderRoute: typeof TeamSlugServersIndexRouteImport
+      parentRoute: typeof TeamSlugServersRoute
+    }
     '/$teamSlug/servers/$serverId': {
       id: '/$teamSlug/servers/$serverId'
       path: '/$serverId'
@@ -646,6 +689,13 @@ declare module '@tanstack/react-router' {
       path: '/api/agents/runtime-logs'
       fullPath: '/api/agents/runtime-logs'
       preLoaderRoute: typeof ApiAgentsRuntimeLogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agents/switch': {
+      id: '/api/agents/switch'
+      path: '/api/agents/switch'
+      fullPath: '/api/agents/switch'
+      preLoaderRoute: typeof ApiAgentsSwitchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -688,6 +738,13 @@ declare module '@tanstack/react-router' {
       path: '/api/install/agent'
       fullPath: '/api/install/agent'
       preLoaderRoute: typeof ApiInstallAgentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workspaces/updates': {
+      id: '/api/workspaces/updates'
+      path: '/api/workspaces/updates'
+      fullPath: '/api/workspaces/updates'
+      preLoaderRoute: typeof ApiWorkspacesUpdatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/uploads/avatars/$fileName': {
@@ -872,10 +929,12 @@ const TeamSlugProjectsRouteWithChildren =
 
 interface TeamSlugServersRouteChildren {
   TeamSlugServersServerIdRoute: typeof TeamSlugServersServerIdRoute
+  TeamSlugServersIndexRoute: typeof TeamSlugServersIndexRoute
 }
 
 const TeamSlugServersRouteChildren: TeamSlugServersRouteChildren = {
   TeamSlugServersServerIdRoute: TeamSlugServersServerIdRoute,
+  TeamSlugServersIndexRoute: TeamSlugServersIndexRoute,
 }
 
 const TeamSlugServersRouteWithChildren = TeamSlugServersRoute._addFileChildren(
@@ -940,12 +999,14 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentsHeartbeatRoute: ApiAgentsHeartbeatRoute,
   ApiAgentsRegisterRoute: ApiAgentsRegisterRoute,
   ApiAgentsRuntimeLogsRoute: ApiAgentsRuntimeLogsRoute,
+  ApiAgentsSwitchRoute: ApiAgentsSwitchRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronBackupsRoute: ApiCronBackupsRoute,
   ApiCronMaintenanceRoute: ApiCronMaintenanceRoute,
   ApiGithubInstallRoute: ApiGithubInstallRouteWithChildren,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
   ApiInstallAgentRoute: ApiInstallAgentRouteWithChildren,
+  ApiWorkspacesUpdatesRoute: ApiWorkspacesUpdatesRoute,
   UploadsAvatarsFileNameRoute: UploadsAvatarsFileNameRoute,
   ApiAgentsCredentialsRotateRoute: ApiAgentsCredentialsRotateRoute,
   ApiAgentsJobsCompleteRoute: ApiAgentsJobsCompleteRoute,

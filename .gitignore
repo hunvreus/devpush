@@ -7,6 +7,7 @@
 app/wrangler.jsonc
 app/wrangler.pending.jsonc
 app/.cloudflare-secrets.json
+# Keep obsolete local credentials private after removing their runtime use.
 app/.cloudflare-database.env
 .version.json
 .claude/
@@ -35,3 +36,4 @@ coverage/
 bin/
 agent/devpush-agent
 *.test
+.data/

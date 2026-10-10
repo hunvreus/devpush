@@ -9,3 +9,11 @@ export async function getAuthSession() {
     headers: request.headers,
   })
 }
+
+export async function requireAuthSession(message = 'Unauthorized') {
+  const session = await getAuthSession()
+
+  if (!session) throw new Error(message)
+
+  return session
+}

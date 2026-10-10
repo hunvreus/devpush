@@ -1,3 +1,4 @@
+import { required } from '@/test/required'
 import { eq, inArray } from 'drizzle-orm'
 import { SignJWT } from 'jose'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
@@ -1090,8 +1091,8 @@ async function createUserWithTeams({
     .where(eq(user.id, userId))
 
   return {
-    activeTeamId: activeTeamIds[0],
-    deletedTeamId: deletedTeamIds[0],
+    activeTeamId: required(activeTeamIds[0]),
+    deletedTeamId: required(deletedTeamIds[0]),
     userId,
   }
 }

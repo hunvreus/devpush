@@ -1,4 +1,5 @@
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
+import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
 import {
   RouteErrorState,
   RouteNotFoundState,
@@ -15,7 +16,11 @@ export function getRouter() {
     },
     scrollRestoration: true,
     defaultPreload: 'intent',
+    defaultPendingMs: 150,
+    defaultPendingMinMs: 200,
     defaultPreloadStaleTime: 0,
+    // Query freshness owns data reuse; route loaders must observe invalidation.
+    defaultStaleTime: 0,
     defaultErrorComponent: RouteErrorState,
     defaultNotFoundComponent: () => (
       <RouteNotFoundState
@@ -23,6 +28,12 @@ export function getRouter() {
         description="The page you requested does not exist, or you do not have access."
       />
     ),
+  })
+
+  setupRouterSsrQueryIntegration({
+    queryClient,
+    router,
+    wrapQueryClient: false,
   })
 
   return router

@@ -1,32 +1,23 @@
 # Cloudflare deployment
 
-The devpush control plane can run as a Cloudflare Worker. PostgreSQL remains the
-system of record and the Go agent still runs on each deployment server.
-Self-hosting remains supported through the production Docker Compose setup.
+The control plane runs on Workers with separate main and log databases, using
+D1 or remote libSQL/Turso. Go agents still run on deployment servers. Node uses
+local SQLite files or remote libSQL with the same atomic mutation contracts.
 
-## Runtime mapping
+| Concern | Cloudflare | Self-hosted |
+| --- | --- | --- |
+| App | Workers | Node.js container |
+| Main state | `DEVPUSH_DATABASE` D1 binding or libSQL URL | SQLite file or libSQL URL |
+| Bulk logs | `DEVPUSH_LOG_DATABASE` D1 binding or libSQL URL | Separate SQLite file or libSQL URL |
+| Objects | R2 | Filesystem or S3-compatible storage |
+| Maintenance | Cron Trigger | Authenticated maintenance endpoints |
 
-| Concern                    | Cloudflare                             | Self-hosted                         |
-| -------------------------- | -------------------------------------- | ----------------------------------- |
-| TanStack Start app         | Workers                                | Node.js container                   |
-| Database                   | External PostgreSQL through Hyperdrive | Direct PostgreSQL connection        |
-| Avatars and agent binaries | R2 binding                             | Filesystem or S3-compatible storage |
-| Scheduling                 | Cron Trigger                           | Authenticated maintenance endpoints |
-
-Hyperdrive does not replace PostgreSQL. It reuses and pools connections from
-Workers and avoids paying a new database connection setup cost for every isolate
-or request. It is useful because direct database connections are a poor match
-for an elastic serverless runtime; it adds little value to the long-lived Node.js
-self-hosted process, which already owns a normal connection pool.
-
-The Worker creates a `pg` client inside each fetch or scheduled invocation and
-closes it afterward. Hyperdrive owns the reusable connection pool near the
-database. The self-hosted process continues to use its module-level `pg.Pool`.
-
-The Cron Trigger runs control-plane work only. Every minute it queues due backup
-jobs when backups are enabled. At the top of each hour it removes expired team
-invites and advances queued user-deletion cleanup. Agents still perform the
-actual server and backup work.
+D1 mutations use atomic statements and batches, not callback transactions or
+connection pools. Every minute the scheduler queues due backups when enabled.
+Hourly maintenance expires invites, advances account cleanup, and prunes
+monitoring and log history in bounded batches. Monitoring retention defaults
+to seven days (`DEVPUSH_MONITORING_RETENTION_DAYS`); runtime logs retain 24 hours.
+Agents perform the actual deployments and backups outside database transactions.
 
 ## Configure Cloudflare
 
@@ -39,8 +30,8 @@ pnpm configure
 Choose **Cloudflare Workers**. The wizard reads the authenticated Cloudflare
 account and its `workers.dev` subdomain from Wrangler and Cloudflare, then
 constructs the selected Worker's public URL or configures a custom domain. It
-collects the PostgreSQL origin URL, creates or connects R2 and Hyperdrive,
-disables Hyperdrive query caching, records the installation-admin email, and
+offers D1 or remote libSQL for storage. It creates or connects R2 and, when D1
+is selected, two distinct D1 databases. It records the installation-admin email and
 optionally creates the GitHub App. Before any
 Cloudflare resources are created, it displays a confirmation prompt. It does
 not deploy the Worker.
@@ -56,30 +47,15 @@ same Cloudflare account and must not have a conflicting CNAME. Re-run
 `pnpm configure` before changing the public origin so dependent configuration
 can be updated together.
 
-devpush currently requires PostgreSQL; D1/SQLite is not a drop-in deployment
-option. The application schema, migrations, locking, and server services use
-PostgreSQL semantics. The database can be supplied by Neon, Supabase, RDS,
-another managed PostgreSQL service, or a reachable self-managed server.
-Supabase is not required. Setup creates Hyperdrive against the supplied
-connection URL, but it does not create the PostgreSQL database itself.
-
-Wrangler requires the PostgreSQL connection string as a command argument when
-creating Hyperdrive. Run setup only on a trusted workstation: another process
-running as the same local user may be able to inspect that argument while the
-command is active.
-
 The generated deployment files are intentionally ignored by Git:
 
 - `app/wrangler.jsonc`: Worker name, public configuration, custom routing, and
   resource binding IDs.
 - `app/.cloudflare-secrets.json`: secrets uploaded atomically with deployment.
-- `app/.cloudflare-database.env`: the origin PostgreSQL URL used only by
-  migration tooling.
 
 The repository tracks `app/wrangler.template.jsonc`, which contains only shared
-Worker defaults and no installation-specific IDs or domains. Re-run
-`pnpm configure` to change the Worker, database, R2 bucket, Hyperdrive
-configuration, public URL, or GitHub App. Existing resources can be selected
+Worker defaults, distinct local-only D1 placeholder IDs, and no installation-specific domains. Production validation rejects the placeholder IDs. Re-run
+`pnpm configure` to change the Worker, databases, R2 bucket, public URL, or GitHub App. Existing resources can be selected
 without recreating them.
 If resource creation is interrupted, the wizard keeps
 `app/wrangler.pending.jsonc`; the next run offers to resume and skips
@@ -124,7 +100,7 @@ pnpm deploy:cloudflare
 ```
 
 The deployment command first validates the generated configuration. It then
-applies reviewed SQL migrations directly to the PostgreSQL origin, builds and
+applies reviewed SQL migrations to the selected main and log databases (D1 or libSQL), builds and
 publishes the Linux amd64 and arm64 agents to R2, builds the Worker with
 `app/wrangler.jsonc`, and deploys it with `app/.cloudflare-secrets.json` in the
 same Wrangler operation. Migrations run before the new Worker because the new
@@ -136,7 +112,7 @@ repository to an automatic deployment pipeline. For later manual updates, pull
 the desired revision, run `pnpm install --frozen-lockfile`, and rerun
 `pnpm deploy:cloudflare`. A first-class GitHub Actions deployment workflow is
 still pending because installation-specific Wrangler bindings, application
-secrets, the migration database URL, and Cloudflare credentials must be
+secrets and Cloudflare credentials must be
 provisioned securely in CI rather than committed to the repository.
 
 The Worker reads agent binaries through its `DEVPUSH_OBJECTS` binding. The
@@ -151,3 +127,47 @@ server enrollment, avatar upload, agent download, and a real deployment.
 Use Wrangler deployment history and rollback for Worker rollback. Database
 migrations remain forward operational changes and need their own reviewed
 rollback plan.
+
+## Remote libSQL / Turso
+
+Choose **Turso / remote libSQL** in the wizard and supply two existing database
+URLs and their optional tokens. Setup writes `DEVPUSH_DATABASE_URL`,
+`DEVPUSH_LOG_DATABASE_URL`, `DEVPUSH_DATABASE_AUTH_TOKEN`, and
+`DEVPUSH_LOG_DATABASE_AUTH_TOKEN` to `app/.cloudflare-secrets.json`, and omits
+D1 bindings. It does not create databases at the remote provider.
+
+Both URLs select libSQL at runtime, even if D1 bindings are also present.
+Without URLs, Workers require both D1 bindings. Incomplete remote settings fail
+validation instead of falling back. No extra database-driver setting is needed.
+
+`pnpm --dir app db:migrate:cloudflare` reads the same Wrangler variables and
+secrets as deployment and applies both libSQL migration sets. `--local` is
+rejected in remote mode, so a local migration command cannot modify a hosted
+database. Changing storage settings does not transfer existing data. Configure
+provider backups for both remote databases.
+
+For isolated configurations, `DEVPUSH_WRANGLER_CONFIG` and
+`DEVPUSH_CLOUDFLARE_SECRETS_FILE` override the paths used by preflight and
+migration commands. Deployment and dry-run commands also honor the secrets-file
+override; its default is `app/.cloudflare-secrets.json`.
+
+## Local D1 migrations
+
+With a generated Wrangler configuration, apply migrations to local D1 only:
+
+```bash
+pnpm --dir app db:migrate:cloudflare --local
+```
+
+The command applies the main and log migration directories separately. The
+normal deployment command uses remote D1; `--persist-to` is available only with
+`--local`. Keep both bindings pointed at different databases.
+
+## Workspace notifications
+
+The Worker exports `WorkspaceUpdates`. Generated Wrangler configuration binds
+`DEVPUSH_WORKSPACE_UPDATES` and applies the `workspace-updates-v1` SQLite Durable
+Object migration. Existing deployment configurations must include the binding and
+migration from `app/wrangler.template.jsonc` before deployment. Without the
+binding, the UI uses HTTP polling. No additional secret is needed. Enterprise
+proxies that reject WebSocket upgrades also fall back to HTTP polling.

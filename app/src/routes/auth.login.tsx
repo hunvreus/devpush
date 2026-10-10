@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { LoginForm } from '@/features/auth/login-form'
+import { LoginForm, LoginPending } from '@/features/auth/login-form'
 import { getLoginContext } from '@/server/auth/context'
 import { getSafeRedirectPath } from '@/server/http/internal-redirect'
 
@@ -25,6 +25,9 @@ export const Route = createFileRoute('/auth/login')({
 
     return { authMethods }
   },
+  pendingMs: 150,
+  pendingMinMs: 200,
+  pendingComponent: LoginPending,
   component: LoginRoute,
 })
 

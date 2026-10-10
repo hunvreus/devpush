@@ -1,3 +1,5 @@
+import { LogKeywordFilter } from './log-keyword-filter'
+import { navigateFilters, refreshView } from '@/lib/action-feedback'
 import {
   Link,
   useParams,
@@ -10,10 +12,10 @@ import {
   Clock3Icon,
   LoaderIcon,
   RefreshCwIcon,
-  SearchIcon,
   XIcon,
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,12 +26,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from '@/components/ui/input-group'
-import { ResourceAvatar } from '@/components/resource-avatar'
+import { ProjectHeading } from './project-heading'
 import {
   Select,
   SelectContent,
@@ -44,12 +41,14 @@ import {
 } from '@/components/ui/tooltip'
 import { LogScrollArea } from '@/features/logs/log-scroll-area'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
-import type { ProjectLogsContext } from '@/server/projects/service'
+import type { ProjectLogsContext } from '@/server/projects/types'
+import { invalidateProjectLogs } from '@/lib/project-context-query'
 
 export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
   const { deployments, filters, hasAnyLogs, logs, project } = context
   const params = useParams({ strict: false })
   const router = useRouter()
+  const queryClient = useQueryClient()
   const isFiltering = useRouterState({
     select: (state) => state.status === 'pending',
   })
@@ -57,9 +56,17 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
     typeof params.teamSlug === 'string' ? params.teamSlug : context.team.slug
   const projectName =
     typeof params.projectName === 'string' ? params.projectName : project.name
-  const refresh = () => {
-    void router.invalidate()
-  }
+  const refresh = useCallback(() => {
+    void refreshView(
+      () =>
+        invalidateProjectLogs(queryClient, {
+          teamSlug,
+          projectName,
+          ...filters,
+        }),
+      'projects-project-logs-refresh',
+    )
+  }, [filters, projectName, queryClient, teamSlug])
   const updateFilters = useCallback(
     (next: {
       branch?: string | null
@@ -68,34 +75,36 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
       environmentId?: string | null
       keyword?: string | null
     }) => {
-      void router.navigate({
-        to: '/$teamSlug/projects/$projectName/logs',
-        params: { teamSlug, projectName },
-        search: {
-          branch:
-            next.branch === undefined
-              ? (filters.branch ?? undefined)
-              : next.branch || undefined,
-          date:
-            next.date === undefined
-              ? (filters.date ?? undefined)
-              : next.date || undefined,
-          deploymentId:
-            next.deploymentId === undefined
-              ? (filters.deploymentId ?? undefined)
-              : next.deploymentId || undefined,
-          environmentId:
-            next.environmentId === undefined
-              ? (filters.environmentId ?? undefined)
-              : next.environmentId || undefined,
-          keyword:
-            next.keyword === undefined
-              ? (filters.keyword ?? undefined)
-              : next.keyword || undefined,
-        },
-      })
+      void navigateFilters(() =>
+        router.navigate({
+          to: '/$teamSlug/projects/$projectName/logs',
+          params: { teamSlug, projectName },
+          search: (current) => ({
+            branch:
+              next.branch === undefined
+                ? (current.branch ?? undefined)
+                : next.branch || undefined,
+            date:
+              next.date === undefined
+                ? (current.date ?? undefined)
+                : next.date || undefined,
+            deploymentId:
+              next.deploymentId === undefined
+                ? (current.deploymentId ?? undefined)
+                : next.deploymentId || undefined,
+            environmentId:
+              next.environmentId === undefined
+                ? (current.environmentId ?? undefined)
+                : next.environmentId || undefined,
+            keyword:
+              next.keyword === undefined
+                ? (current.keyword ?? undefined)
+                : next.keyword || undefined,
+          }),
+        }),
+      )
     },
-    [filters, projectName, router, teamSlug],
+    [projectName, router, teamSlug],
   )
   const selectedDeployment = deployments.find(
     (deployment) => deployment.id === filters.deploymentId,
@@ -134,65 +143,38 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
     filters.environmentId ||
     filters.keyword,
   )
-  const shouldRefresh = deployments.some(
-    (deployment) =>
-      deployment.status === 'queued' || deployment.status === 'running',
-  )
   const logFollowKey =
     logs.at(-1) == null
       ? 'empty'
       : `${logs.at(-1)?.source}:${logs.at(-1)?.deploymentId ?? logs.at(-1)?.runtimeId}:${logs.at(-1)?.stream}:${logs.at(-1)?.seq}`
 
-  useEffect(() => {
-    if (!shouldRefresh) {
-      return
-    }
-
-    const interval = window.setInterval(() => {
-      void router.invalidate()
-    }, 2000)
-
-    return () => window.clearInterval(interval)
-  }, [router, shouldRefresh])
-
   return (
     <>
-      <header className="flex items-center justify-between gap-4">
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link
-            to="/$teamSlug/projects/$projectName"
-            params={{ teamSlug, projectName }}
-            className="shrink-0"
-          >
-            <ResourceAvatar
-              name={project.name}
-              src={project.avatarUrl ?? undefined}
-              color={project.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span className="truncate">Logs</span>
-        </h1>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="Refresh"
-              onClick={refresh}
-            >
-              <RefreshCwIcon />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Refresh</TooltipContent>
-        </Tooltip>
-      </header>
+      <ProjectHeading
+        teamSlug={teamSlug}
+        project={project}
+        crumbs={[<span className="truncate">Logs</span>]}
+        actions={
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Refresh"
+                onClick={refresh}
+              >
+                <RefreshCwIcon />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
+        }
+      />
 
       <section className="space-y-8">
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <KeywordFilter
+            <LogKeywordFilter
               value={filters.keyword ?? ''}
               onChange={(keyword) => updateFilters({ keyword })}
             />
@@ -442,46 +424,6 @@ function StatusFilterIcon({
       className="size-4 shrink-0 animate-spin text-muted-foreground"
       data-preserve-color
     />
-  )
-}
-
-function KeywordFilter({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (value: string | null) => void
-}) {
-  const [draft, setDraft] = useState(value)
-
-  useEffect(() => {
-    setDraft(value)
-  }, [value])
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      const next = draft.trim()
-
-      if (next !== value) {
-        onChange(next || null)
-      }
-    }, 300)
-
-    return () => window.clearTimeout(timeout)
-  }, [draft, onChange, value])
-
-  return (
-    <InputGroup className="w-48">
-      <InputGroupAddon>
-        <SearchIcon />
-      </InputGroupAddon>
-      <InputGroupInput
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder="Find in logs"
-        type="text"
-        value={draft}
-      />
-    </InputGroup>
   )
 }
 

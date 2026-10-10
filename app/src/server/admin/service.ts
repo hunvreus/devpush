@@ -1,20 +1,24 @@
-import { desc, eq } from 'drizzle-orm'
-import { z } from 'zod'
+import { desc, eq, sql } from 'drizzle-orm'
+import {
+  allowlistRuleSchema,
+  allowlistImportSchema,
+  parseAllowlistEmails,
+} from '@/lib/allowlist-schema'
 
 import { db } from '@/server/db'
 import { allowlist, session, user } from '@/server/db/schema'
-import { isValidAllowlistPattern, normalizeEmail } from '@/server/auth/access'
 import { getInstallationInfo } from '@/server/admin/installation'
 import { deleteUserAccount } from '@/server/users/service'
-import { requireInstallationAdminById } from '@/server/admin/access'
+import {
+  requireInstallationAdmin,
+  requireInstallationAdminById,
+} from '@/server/admin/access'
 
 export type AdminOverview = Awaited<ReturnType<typeof getAdminOverview>>
 export type AllowlistRuleType = 'email' | 'domain' | 'pattern'
 
-const emailSchema = z.string().trim().email().max(320)
-
-export async function getAdminOverview(actorUserId: string) {
-  await requireInstallationAdminById(actorUserId)
+export async function getAdminOverview(actor: { id: string; email: string }) {
+  await requireInstallationAdmin(actor)
   const [users, allowlistEntries, installation] = await Promise.all([
     db
       .select({
@@ -39,7 +43,7 @@ export async function getAdminOverview(actorUserId: string) {
       })
       .from(allowlist)
       .orderBy(desc(allowlist.createdAt)),
-    getInstallationInfo(),
+    getInstallationInfo({ includeLatest: false }),
   ])
 
   return {
@@ -73,7 +77,7 @@ export async function addAllowlistRule({
   value: string
 }) {
   await requireInstallationAdminById(actorUserId)
-  const normalizedValue = normalizeAllowlistValue(type, value)
+  const normalizedValue = allowlistRuleSchema.parse({ type, value }).value
 
   await db
     .insert(allowlist)
@@ -93,37 +97,16 @@ export async function importAllowlistEmails({
   emails: string
 }) {
   await requireInstallationAdminById(actorUserId)
-  const values = Array.from(
-    new Set(
-      emails
-        .split(/[\s,]+/)
-        .map((value) => normalizeEmail(value))
-        .filter((value): value is string => Boolean(value)),
-    ),
-  )
-
-  if (values.length === 0) {
-    throw new Error('Enter at least one email address.')
-  }
-
-  const invalidEmail = values.find(
-    (value) => !emailSchema.safeParse(value).success,
-  )
-
-  if (invalidEmail) {
-    throw new Error(`Invalid email address: ${invalidEmail}.`)
-  }
-
-  await db
-    .insert(allowlist)
-    .values(
-      values.map((value) => ({
-        id: crypto.randomUUID(),
-        type: 'email' as const,
-        value,
-      })),
-    )
-    .onConflictDoNothing()
+  const parsed = allowlistImportSchema.parse({ emails })
+  const entries = parseAllowlistEmails(parsed.emails).map((value) => ({
+    id: crypto.randomUUID(),
+    value,
+  }))
+  // One bound JSON value keeps large imports within every SQLite driver's limit.
+  await db.run(sql`insert into ${allowlist} (id, type, value)
+    select json_extract(value, '$.id'), 'email', json_extract(value, '$.value')
+    from json_each(${JSON.stringify(entries)}) where true
+    on conflict do nothing`)
 }
 
 export async function deleteAllowlistRule({
@@ -149,13 +132,13 @@ export async function banUser({
     throw new Error('You cannot ban yourself.')
   }
 
-  await db.transaction(async (tx) => {
-    await tx.delete(session).where(eq(session.userId, targetUserId))
-    await tx
+  await db.batch([
+    db.delete(session).where(eq(session.userId, targetUserId)),
+    db
       .update(user)
       .set({ status: 'banned', defaultTeamId: null, updatedAt: new Date() })
-      .where(eq(user.id, targetUserId))
-  })
+      .where(eq(user.id, targetUserId)),
+  ])
 }
 
 export async function unbanUser({
@@ -189,32 +172,4 @@ export async function deleteAdminUser({
   }
 
   await deleteUserAccount({ userId: targetUserId })
-}
-
-function normalizeAllowlistValue(type: AllowlistRuleType, value: string) {
-  const trimmedValue = value.trim()
-
-  if (!trimmedValue) {
-    throw new Error('Value is required.')
-  }
-
-  if (type === 'email') {
-    const result = emailSchema.safeParse(trimmedValue)
-
-    if (!result.success) {
-      throw new Error('Enter a valid email address.')
-    }
-
-    return result.data.toLowerCase()
-  }
-
-  if (type === 'domain') {
-    return trimmedValue.toLowerCase().replace(/^@/, '')
-  }
-
-  if (!isValidAllowlistPattern(trimmedValue)) {
-    throw new Error('Enter a valid regular expression.')
-  }
-
-  return trimmedValue
 }

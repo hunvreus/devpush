@@ -18,7 +18,6 @@ import {
 import { createGitHubApp } from "../app/scripts/github-app.mjs";
 import {
   cloudflareConfigPath,
-  cloudflareDatabasePath,
   cloudflareSecretsPath,
   cloudflareTemplatePath,
   createCloudflareConfig,
@@ -27,7 +26,6 @@ import {
   readEnv,
   readJsonConfig,
   upsertEnv,
-  validatePostgresUrl,
   validateUrl,
   writeFileAtomic,
 } from "./setup-config.mjs";
@@ -72,11 +70,16 @@ async function setupLocal() {
   );
   const authUrl = existing.BETTER_AUTH_URL || baseUrl;
   const adminEmail = await askAdminEmail(existing.DEVPUSH_ADMIN_EMAIL);
+  const database = await askDatabase(existing);
   const values = {
+    ...database,
     BETTER_AUTH_SECRET: existing.BETTER_AUTH_SECRET || secret(),
-    DATABASE_URL:
-      existing.DATABASE_URL ||
-      "postgres://devpush:devpush@localhost:7543/devpush",
+    DEVPUSH_DATABASE_PATH:
+      existing.DEVPUSH_DATABASE_PATH || ".data/devpush.sqlite",
+    DEVPUSH_LOG_DATABASE_PATH:
+      existing.DEVPUSH_LOG_DATABASE_PATH || ".data/logs.sqlite",
+    DEVPUSH_MONITORING_RETENTION_DAYS:
+      existing.DEVPUSH_MONITORING_RETENTION_DAYS || "7",
     DEVPUSH_BASE_URL: baseUrl,
     DEVPUSH_ADMIN_EMAIL: adminEmail,
     DEVPUSH_SECRET_ENCRYPTION_KEY:
@@ -96,7 +99,7 @@ async function setupLocal() {
       `Configuration: ${relative(envPath)}`,
       "",
       "1. Start devpush: pnpm dev:start",
-      `2. Open ${baseUrl}`,
+      `3. Open ${baseUrl}`,
       "3. Create a project and install the GitHub App when prompted.",
     ]
       .filter(Boolean)
@@ -114,24 +117,21 @@ async function setupDocker() {
   );
   const authUrl = existing.BETTER_AUTH_URL || baseUrl;
   const adminEmail = await askAdminEmail(existing.DEVPUSH_ADMIN_EMAIL);
-  const postgresPassword = await ask(
-    password({
-      message: "PostgreSQL password",
-      mask: "•",
-      validate: (value) =>
-        value || existing.POSTGRES_PASSWORD
-          ? undefined
-          : "A password is required.",
-    }),
-  );
+  const database = await askDatabase(existing);
   const values = {
+    ...database,
     BETTER_AUTH_SECRET: existing.BETTER_AUTH_SECRET || secret(),
     DEVPUSH_BASE_URL: baseUrl,
     DEVPUSH_ADMIN_EMAIL: adminEmail,
     DEVPUSH_CRON_SECRET: existing.DEVPUSH_CRON_SECRET || secret(),
     DEVPUSH_SECRET_ENCRYPTION_KEY:
       existing.DEVPUSH_SECRET_ENCRYPTION_KEY || secret(),
-    POSTGRES_PASSWORD: postgresPassword || existing.POSTGRES_PASSWORD,
+    DEVPUSH_DATABASE_PATH:
+      existing.DEVPUSH_DATABASE_PATH || "/app/storage/devpush.sqlite",
+    DEVPUSH_LOG_DATABASE_PATH:
+      existing.DEVPUSH_LOG_DATABASE_PATH || "/app/storage/logs.sqlite",
+    DEVPUSH_MONITORING_RETENTION_DAYS:
+      existing.DEVPUSH_MONITORING_RETENTION_DAYS || "7",
   };
   const github = await setupGitHub(
     baseUrl,
@@ -147,7 +147,7 @@ async function setupDocker() {
       `Configuration: ${relative(envPath)}`,
       "",
       "1. Start devpush: docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build",
-      `2. Open ${baseUrl}`,
+      `3. Open ${baseUrl}`,
       "3. Create a project and install the GitHub App when prompted.",
     ].join("\n"),
     "Next steps",
@@ -168,9 +168,15 @@ async function setupCloudflare() {
   const existingSecrets = readJson(secretsPath);
   const existingConfig = readCloudflareConfig(generatedPath);
   const pendingConfig = readCloudflareConfig(pendingPath);
-  const existingDatabase = readEnv(resolve(root, cloudflareDatabasePath));
+  const database = await askDatabase(
+    { ...existingConfig?.vars, ...existingSecrets },
+    "Cloudflare D1",
+  );
+  const remoteDatabase = Boolean(database.DEVPUSH_DATABASE_URL);
   const configuredResources = Boolean(
-    existingConfig?.bucketName && existingConfig?.hyperdriveId,
+    existingConfig?.bucketName &&
+    (remoteDatabase ||
+      (existingConfig?.databaseId && existingConfig?.logDatabaseId)),
   );
   const workerName = await ask(
     text({
@@ -200,29 +206,6 @@ async function setupCloudflare() {
       existingSecrets.DEVPUSH_ADMIN_EMAIL,
   );
   const email = await setupResend(existingSecrets);
-  note(
-    [
-      "Cloudflare does not create the application database.",
-      "Provide an existing TLS PostgreSQL database from any reachable provider (for example Neon, Supabase, RDS, or a self-managed server).",
-      "Setup creates Hyperdrive in front of that database; Supabase is not required.",
-    ].join("\n"),
-    "PostgreSQL",
-  );
-  const databaseInput = await ask(
-    password({
-      message: existingDatabase.DATABASE_URL
-        ? "Production PostgreSQL connection URL (leave blank to keep it)"
-        : "Production PostgreSQL connection URL",
-      mask: "•",
-      validate: (value) =>
-        value
-          ? validatePostgresUrl(value)
-          : existingDatabase.DATABASE_URL
-            ? undefined
-            : "A PostgreSQL URL is required.",
-    }),
-  );
-  const databaseUrl = databaseInput || existingDatabase.DATABASE_URL;
   const resourceMode = await ask(
     select({
       message: "Use existing Cloudflare storage resources or create them?",
@@ -245,7 +228,9 @@ async function setupCloudflare() {
           : [
               {
                 value: "create",
-                label: "Create R2 and Hyperdrive resources",
+                label: remoteDatabase
+                  ? "Create R2 bucket"
+                  : "Create R2 and two D1 databases",
               },
             ]),
         { value: "existing", label: "Use existing resources" },
@@ -253,30 +238,30 @@ async function setupCloudflare() {
     }),
   );
   let bucketName;
-  let hyperdriveId;
-  let hyperdriveName;
-
-  if (resourceMode === "configured") {
-    bucketName = existingConfig.bucketName;
-    hyperdriveId = existingConfig.hyperdriveId;
-  } else if (resourceMode === "existing") {
-    hyperdriveId = await ask(
-      text({ message: "Hyperdrive configuration ID", validate: required }),
-    );
+  const databases = remoteDatabase
+    ? []
+    : [
+        {
+          binding: "DEVPUSH_DATABASE",
+          idKey: "databaseId",
+          nameKey: "databaseName",
+          label: "Main database",
+          defaultName: workerName,
+        },
+        {
+          binding: "DEVPUSH_LOG_DATABASE",
+          idKey: "logDatabaseId",
+          nameKey: "logDatabaseName",
+          label: "Log database",
+          defaultName: `${workerName}-logs`,
+        },
+      ];
+  if (resourceMode === "configured") bucketName = existingConfig.bucketName;
+  else if (resourceMode === "existing")
     bucketName = await ask(
       text({ message: "R2 bucket name", validate: required }),
     );
-  } else {
-    hyperdriveId = resourceMode === "resume" ? pendingConfig.hyperdriveId : "";
-    if (!hyperdriveId) {
-      hyperdriveName = await ask(
-        text({
-          message: "New Hyperdrive configuration name",
-          initialValue: workerName,
-          validate: required,
-        }),
-      );
-    }
+  else
     bucketName =
       resourceMode === "resume" && pendingConfig.bucketName
         ? pendingConfig.bucketName
@@ -287,18 +272,41 @@ async function setupCloudflare() {
               validate: required,
             }),
           );
+  for (const database of databases) {
+    const current =
+      resourceMode === "configured"
+        ? existingConfig
+        : resourceMode === "resume"
+          ? pendingConfig
+          : null;
+    database.id = current?.[database.idKey] || "";
+    database.name = current?.[database.nameKey] || database.defaultName;
+    if (resourceMode === "existing") {
+      database.id = await ask(
+        text({ message: `${database.label} D1 ID`, validate: required }),
+      );
+      database.name = await ask(
+        text({
+          message: `${database.label} name`,
+          initialValue: database.name,
+          validate: required,
+        }),
+      );
+    } else if (!database.id)
+      database.name = await ask(
+        text({
+          message: `New ${database.label.toLowerCase()} name`,
+          initialValue: database.name,
+          validate: required,
+        }),
+      );
   }
-
   if (
-    (resourceMode === "configured" ||
-      (resourceMode === "resume" && pendingConfig.hyperdriveId)) &&
-    existingDatabase.DATABASE_URL &&
-    databaseUrl !== existingDatabase.DATABASE_URL
-  ) {
-    throw new Error(
-      "The database URL changed, but the configured Hyperdrive still points to the previous database. Re-run `pnpm configure` and create or select the matching Hyperdrive configuration.",
-    );
-  }
+    !remoteDatabase &&
+    (databases[0].name === databases[1].name ||
+      (databases[0].id && databases[0].id === databases[1].id))
+  )
+    throw new Error("Main data and logs must use different D1 databases.");
 
   const proceed = await ask(
     confirm({
@@ -322,6 +330,9 @@ async function setupCloudflare() {
         pendingPath,
         createCloudflareConfig({
           accountId: account.id,
+          databaseName: databases[0]?.name,
+          remoteDatabase,
+          logDatabaseName: databases[1]?.name,
           template,
           workerName,
         }),
@@ -342,20 +353,18 @@ async function setupCloudflare() {
           "wrangler.pending.jsonc",
         ]);
       }
-      if (resourceMode === "create" || !pendingConfig.hyperdriveId) {
-        await runWrangler([
-          "hyperdrive",
-          "create",
-          hyperdriveName,
-          "--connection-string",
-          databaseUrl,
-          "--caching-disabled",
-          "--binding",
-          "DEVPUSH_DATABASE",
-          "--update-config",
-          "--config",
-          "wrangler.pending.jsonc",
-        ]);
+      for (const database of databases) {
+        if (!database.id)
+          await runWrangler([
+            "d1",
+            "create",
+            database.name,
+            "--binding",
+            database.binding,
+            "--update-config",
+            "--config",
+            "wrangler.pending.jsonc",
+          ]);
       }
     } catch (error) {
       throw new Error(
@@ -363,16 +372,23 @@ async function setupCloudflare() {
       );
     }
     const created = readCloudflareConfig(pendingPath);
-    if (!created?.bucketName || !created.hyperdriveId) {
+    if (
+      !created?.bucketName ||
+      (!remoteDatabase && (!created.databaseId || !created.logDatabaseId))
+    ) {
       throw new Error(
-        "Wrangler created resources but did not write both bindings to app/wrangler.pending.jsonc.",
+        "Wrangler created resources but did not write all required bindings to app/wrangler.pending.jsonc.",
       );
     }
     bucketName = created.bucketName;
-    hyperdriveId = created.hyperdriveId;
+    for (const database of databases) {
+      database.id = created[database.idKey];
+      database.name = created[database.nameKey];
+    }
   } else {
     await runWrangler(["r2", "bucket", "info", bucketName]);
-    await runWrangler(["hyperdrive", "get", hyperdriveId]);
+    for (const database of databases)
+      await runWrangler(["d1", "info", database.id]);
   }
 
   const github = await setupGitHub(
@@ -387,6 +403,7 @@ async function setupCloudflare() {
   );
   const secrets = {
     ...existingSecrets,
+    ...database,
     BETTER_AUTH_SECRET: existingSecrets.BETTER_AUTH_SECRET || secret(),
     DEVPUSH_SECRET_ENCRYPTION_KEY:
       existingSecrets.DEVPUSH_SECRET_ENCRYPTION_KEY || secret(),
@@ -407,7 +424,11 @@ async function setupCloudflare() {
       accountId: account.id,
       bucketName,
       customDomain: origin.customDomain,
-      hyperdriveId,
+      databaseId: databases[0]?.id,
+      databaseName: databases[0]?.name,
+      remoteDatabase,
+      logDatabaseId: databases[1]?.id,
+      logDatabaseName: databases[1]?.name,
       template,
       vars: {
         DEVPUSH_BASE_URL: baseUrl,
@@ -420,16 +441,14 @@ async function setupCloudflare() {
     0o644,
   );
   rmSync(pendingPath, { force: true });
-  upsertEnv(resolve(root, cloudflareDatabasePath), {
-    DATABASE_URL: databaseUrl,
-  });
 
   note(
     [
-      "1. Deploy devpush: pnpm deploy:cloudflare",
-      `2. Open ${baseUrl}`,
-      "3. Sign in and create a project.",
-      "4. Install the GitHub App when prompted by devpush.",
+      "1. Apply both database migrations: pnpm --dir app db:migrate:cloudflare",
+      "2. Deploy devpush: pnpm deploy:cloudflare",
+      `3. Open ${baseUrl}`,
+      "4. Sign in and create a project.",
+      "5. Install the GitHub App when prompted by devpush.",
       "",
       "Optional preflight: pnpm validate:cloudflare",
       "Future updates: pull the new code and rerun pnpm deploy:cloudflare.",
@@ -670,6 +689,76 @@ function runCaptured(command, args, { sensitive = false } = {}) {
       }
     });
   });
+}
+
+async function askDatabase(existing, localLabel = "Local SQLite files") {
+  const mode = await ask(
+    select({
+      message: "Where should devpush store its databases?",
+      initialValue: existing.DEVPUSH_DATABASE_URL ? "remote" : "local",
+      options: [
+        { value: "local", label: localLabel },
+        { value: "remote", label: "Turso / remote libSQL" },
+      ],
+    }),
+  );
+  const values = {};
+  for (const store of [
+    {
+      label: "Main",
+      url: "DEVPUSH_DATABASE_URL",
+      token: "DEVPUSH_DATABASE_AUTH_TOKEN",
+    },
+    {
+      label: "Logs",
+      url: "DEVPUSH_LOG_DATABASE_URL",
+      token: "DEVPUSH_LOG_DATABASE_AUTH_TOKEN",
+    },
+  ]) {
+    if (mode === "local") {
+      values[store.url] = "";
+      values[store.token] = "";
+      continue;
+    }
+    values[store.url] = await ask(
+      text({
+        message: `${store.label} database URL`,
+        initialValue: existing[store.url] || "",
+        validate: (value) => {
+          try {
+            const url = new URL(value);
+            if (
+              ["libsql:", "https:", "http:"].includes(url.protocol) &&
+              url.hostname &&
+              !url.username &&
+              !url.password &&
+              !url.hash
+            ) {
+              const main =
+                values.DEVPUSH_DATABASE_URL &&
+                new URL(values.DEVPUSH_DATABASE_URL);
+              const identity = (target) =>
+                `${target.hostname}:${target.port || (target.protocol === "http:" ? "80" : "443")}${target.pathname.replace(/\/$/, "")}`;
+              if (main && identity(url) === identity(main))
+                return "Use a separate database for logs.";
+              return;
+            }
+          } catch {}
+          return "Use a libsql://, https:// or http:// URL without embedded credentials.";
+        },
+      }),
+    );
+    values[store.token] =
+      (await ask(
+        password({
+          message: `${store.label} database token (blank keeps an existing token, otherwise optional)`,
+          mask: "•",
+        }),
+      )) ||
+      existing[store.token] ||
+      "";
+  }
+  return values;
 }
 
 async function askBaseUrl(initialValue) {

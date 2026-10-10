@@ -1,165 +1,319 @@
-import { getRouteApi, useParams } from '@tanstack/react-router'
-
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { SectionNavigation } from '@/components/section-navigation'
+  getRouteApi,
+  Link,
+  useParams,
+  useHydrated,
+} from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
+
+import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
+import { TeamHeading } from '@/features/teams/team-heading'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { BanIcon, CopyIcon, Trash2Icon } from 'lucide-react'
+import { ServerMetricChartPending } from './server-metric-chart'
+import { copyText } from '@/lib/action-feedback'
+import {
+  InputGroup,
+  InputGroupInput,
+  InputGroupAddon,
+  InputGroupButton,
+} from '@/components/ui/input-group'
+import {
+  Field,
+  FieldGroup,
+  FieldLabel,
+  FieldDescription,
+} from '@/components/ui/field'
+import { ServerAvatar } from './server-avatar'
+import {
+  ServerDetail,
+  ServerInstallCallout,
+  formatPercent,
+  formatByteRatio,
+  formatNetworkSummary,
+} from './server-detail'
+import { formatServerStatus, formatAge } from './team-servers'
+import { canManageTeamSettings } from '@/lib/team-role'
+import type { ServerSummary } from '@/server/teams/types'
+import type { getTeamServerContext } from '@/server/auth/context'
 import { Skeleton } from '@/components/ui/skeleton'
+import { getCachedTeamContexts } from '@/lib/team-context-query'
+import { displayNameFromSlug } from '@/lib/display-name'
 
 const teamRoute = getRouteApi('/$teamSlug')
 
 export function ServerDetailPending() {
   const params = useParams({ strict: false })
-  const context = teamRoute.useLoaderData()
+  const queryClient = useQueryClient()
+  const hydrated = useHydrated()
+  const routeContext = teamRoute.useLoaderData()
+  const context = hydrated ? routeContext : undefined
   const serverId = typeof params.serverId === 'string' ? params.serverId : ''
-  const server = context.servers.find((item) => item.id === serverId)
+  const teamSlug =
+    typeof params.teamSlug === 'string' ? params.teamSlug : 'team'
+  const cachedContexts = hydrated
+    ? getCachedTeamContexts(queryClient, teamSlug)
+    : []
+  const server =
+    context?.servers.find((item) => item.id === serverId) ??
+    cachedContexts
+      .flatMap((item) => item.servers)
+      .find((item) => item.id === serverId)
+  const team = context?.team ?? cachedContexts.at(0)?.team
+  const cachedDetail = queryClient.getQueryData<
+    NonNullable<Awaited<ReturnType<typeof getTeamServerContext>>>
+  >(['server-context', teamSlug, serverId])
+  const detail = hydrated ? cachedDetail : undefined
+  const canManage = Boolean(team && canManageTeamSettings(team.role))
+  const metrics = server?.monitoring.latestMetrics
+  const teamName = team?.name ?? displayNameFromSlug(teamSlug)
+
+  if (detail) return <ServerDetail server={detail.server} team={detail.team} />
 
   return (
-    <div className="space-y-8" aria-label="Loading server">
-      <section>
-        <h1 className="flex min-w-0 items-center gap-x-3 text-2xl font-medium">
-          <a href={`/${context.team.slug}`}>
-            <ResourceAvatar
-              name={context.team.name}
-              src={context.team.image ?? undefined}
-              color={context.team.color}
-              size="md"
-            />
-          </a>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span>Servers</span>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span className="truncate">{server?.name ?? serverId}</span>
-        </h1>
-      </section>
-      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-        <div className="space-y-8">
-          <ServerGeneralPending />
-          <ServerHostPending />
-          <Card>
-            <CardHeader className="space-y-2 border-b">
-              <CardTitle>Metrics</CardTitle>
-              <CardDescription>
-                Up to 24 hours of host resource history. Missing samples remain
-                visible as gaps.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              {Array.from({ length: 4 }, (_, index) => (
-                <div key={index} className="h-[230px] rounded-lg border p-4">
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">
-                      {
-                        [
-                          'CPU usage',
-                          'Memory usage',
-                          'Disk usage',
-                          'Network traffic',
-                        ][index]
-                      }
-                    </span>
-                    <Skeleton className="h-4 w-20" />
-                  </div>
-                  <Skeleton className="mt-6 h-36 w-full" />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="space-y-2 border-b">
-              <CardTitle>Danger</CardTitle>
-              <CardDescription>
-                Administrative actions that affect this server.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Skeleton className="h-8 w-36" />
-              <Skeleton className="h-8 w-32" />
-            </CardContent>
-          </Card>
-        </div>
-        <SectionNavigation
-          className="hidden lg:flex"
-          items={[
-            { href: '#general', label: 'General' },
-            { href: '#host', label: 'Host' },
-            { href: '#metrics', label: 'Metrics' },
-            { href: '#danger', label: 'Danger', destructive: true },
-          ]}
+    <div className="space-y-8" aria-label="Loading server" aria-busy="true">
+      <TeamHeading
+        team={
+          team ?? {
+            name: teamName,
+            slug: teamSlug,
+          }
+        }
+        crumb={
+          <>
+            <Link
+              className="hover:underline"
+              to="/$teamSlug/servers"
+              params={{ teamSlug }}
+            >
+              Servers
+            </Link>
+            <span className="text-muted-foreground/25 font-normal">/</span>
+            <span className="truncate">
+              {server?.name ?? <Skeleton className="h-6 w-32" />}
+            </span>
+          </>
+        }
+      />
+      <SettingsLayout
+        navigation={[
+          { href: '#general', label: 'General' },
+          { href: '#host', label: 'Host' },
+          { href: '#metrics', label: 'Metrics' },
+          ...(canManage || !team
+            ? [{ href: '#danger' as const, label: 'Danger', destructive: true }]
+            : []),
+        ]}
+      >
+        {server && canManage && server.status !== 'connected' ? (
+          <ServerInstallCallout server={server} teamSlug={teamSlug} />
+        ) : null}
+        <ServerGeneralPending
+          server={server}
+          serverId={serverId}
+          canManage={canManage}
+          permissionsPending={!team}
         />
-      </div>
+        <ServerHostPending server={server} />
+        <SettingsSection
+          id="metrics"
+          title="Metrics"
+          description="Up to 24 hours of host resource history. Missing samples remain visible as gaps."
+          contentClassName="space-y-4"
+        >
+          {/* Shell summaries omit monitoring; null is unresolved here, not empty. */}
+          <div className="grid gap-4 md:grid-cols-2">
+            {[
+              {
+                label: 'CPU usage',
+                latestValue: metrics
+                  ? formatPercent(metrics.cpuPercent)
+                  : undefined,
+              },
+              {
+                label: 'Memory usage',
+                latestValue: metrics
+                  ? formatByteRatio(
+                      metrics.memoryUsedBytes,
+                      metrics.memoryTotalBytes,
+                    )
+                  : undefined,
+              },
+              {
+                label: 'Disk usage',
+                latestValue: metrics
+                  ? formatByteRatio(
+                      metrics.diskUsedBytes,
+                      metrics.diskTotalBytes,
+                    )
+                  : undefined,
+              },
+              {
+                label: 'Network traffic',
+                latestValue: metrics
+                  ? formatNetworkSummary(
+                      metrics.networkReceiveBytesPerSecond,
+                      metrics.networkTransmitBytesPerSecond,
+                    )
+                  : undefined,
+              },
+            ].map((metric) => (
+              <ServerMetricChartPending key={metric.label} {...metric} />
+            ))}
+          </div>
+        </SettingsSection>
+        {canManage || !team ? (
+          <SettingsSection
+            id="danger"
+            title="Danger"
+            description="Administrative actions that affect this server."
+            contentClassName="flex flex-col items-start gap-2"
+          >
+            <Button
+              variant={
+                server?.status === 'disabled' ? 'default' : 'destructive'
+              }
+              disabled
+            >
+              {server?.status !== 'disabled' ? (
+                <BanIcon data-icon="inline-start" />
+              ) : null}
+              {server?.status === 'disabled'
+                ? 'Enable server'
+                : 'Disable server'}
+            </Button>
+            <Button variant="destructive" disabled>
+              <Trash2Icon data-icon="inline-start" />
+              Delete server
+            </Button>
+          </SettingsSection>
+        ) : null}
+      </SettingsLayout>
     </div>
   )
 }
 
-function ServerGeneralPending() {
+function ServerGeneralPending({
+  server,
+  serverId,
+  canManage,
+  permissionsPending,
+}: {
+  server?: ServerSummary
+  serverId: string
+  canManage: boolean
+  permissionsPending: boolean
+}) {
   return (
-    <Card>
-      <CardHeader className="space-y-2 border-b">
-        <CardTitle>General</CardTitle>
-        <CardDescription>Basic details for this server.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-2">
-          <span className="text-sm font-medium">Status</span>
-          <div className="flex items-center gap-2">
-            <Skeleton className="size-5 shrink-0 rounded-md" />
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-28" />
-          </div>
+    <SettingsSection
+      id="general"
+      title="General"
+      description="Basic details for this server."
+      contentClassName="space-y-6"
+      footer={
+        canManage || permissionsPending ? (
+          <>
+            <Button variant="ghost" disabled>
+              Cancel
+            </Button>
+            <Button disabled>Save</Button>
+          </>
+        ) : undefined
+      }
+    >
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Status</p>
+        <div className="flex items-center gap-2 text-sm">
+          {server ? (
+            <>
+              <ServerAvatar
+                name={server.name}
+                status={server.status}
+                size="sm"
+              />
+              <span>{formatServerStatus(server.status)}</span>
+              <span className="text-muted-foreground">
+                ·{' '}
+                {server.lastSeenAt
+                  ? formatAge(server.lastSeenAt)
+                  : 'Never contacted'}
+              </span>
+            </>
+          ) : (
+            <Skeleton className="h-5 w-36" />
+          )}
         </div>
-        <div className="space-y-2">
-          <span className="text-sm font-medium">Name</span>
-          <Skeleton className="h-8 w-full" />
-        </div>
-        <div className="space-y-2">
-          <span className="text-sm font-medium">Server ID</span>
-          <Skeleton className="h-8 w-full" />
-          <Skeleton className="h-4 w-64 max-w-full" />
-        </div>
-      </CardContent>
-      <CardFooter className="justify-end gap-2">
-        <Skeleton className="h-8 w-16" />
-        <Skeleton className="h-8 w-16" />
-      </CardFooter>
-    </Card>
+      </div>
+      <FieldGroup>
+        <Field>
+          <FieldLabel>Name (required)</FieldLabel>
+          {server ? (
+            <Input value={server.name} readOnly disabled />
+          ) : (
+            <Skeleton className="h-8 w-full" />
+          )}
+        </Field>
+        <Field>
+          <FieldLabel>Server ID</FieldLabel>
+          <InputGroup>
+            <InputGroupInput
+              className="font-mono text-[13px] text-muted-foreground"
+              value={serverId}
+              readOnly
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                size="icon-sm"
+                type="button"
+                aria-label="Copy server ID"
+                onClick={() => void copyText(serverId, 'Server ID')}
+              >
+                <CopyIcon />
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          <FieldDescription>
+            A unique identifier used by the API and agent.
+          </FieldDescription>
+        </Field>
+      </FieldGroup>
+    </SettingsSection>
   )
 }
 
-function ServerHostPending() {
+function ServerHostPending({ server }: { server?: ServerSummary }) {
   return (
-    <Card>
-      <CardHeader className="space-y-2 border-b">
-        <CardTitle>Host</CardTitle>
-        <CardDescription>
-          System information reported by the agent.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-x-8 gap-y-5 md:grid-cols-2">
-          {[
-            'Hostname',
-            'Operating system',
-            'CPU',
-            'Memory',
-            'Architecture',
-            'Host uptime',
-            'Kernel',
-            'Agent version',
-          ].map((label, index) => (
-            <div className="space-y-2" key={index}>
-              <span className="font-medium">{label}</span>
-              <Skeleton className={index % 3 === 0 ? 'h-4 w-40' : 'h-4 w-28'} />
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+    <SettingsSection
+      id="host"
+      title="Host"
+      description="System information reported by the agent."
+    >
+      <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
+        {[
+          'Hostname',
+          'Operating system',
+          'CPU',
+          'Memory',
+          'Architecture',
+          'Host uptime',
+          'Kernel',
+          'Agent version',
+        ].map((label, index) => (
+          <div className="space-y-1" key={index}>
+            <dt className="font-medium">{label}</dt>
+            {server && !server.lastSeenAt && label !== 'Agent version' ? (
+              <dd className="text-muted-foreground">Not reported</dd>
+            ) : label === 'Agent version' && server ? (
+              <dd className="text-muted-foreground">
+                {server.agentVersion ?? 'Not reported'}
+              </dd>
+            ) : (
+              <Skeleton className={index % 3 === 0 ? 'h-5 w-40' : 'h-5 w-28'} />
+            )}
+          </div>
+        ))}
+      </dl>
+    </SettingsSection>
   )
 }

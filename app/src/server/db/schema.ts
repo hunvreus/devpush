@@ -1,32 +1,45 @@
-import { sql } from 'drizzle-orm'
+import { getTableName, sql } from 'drizzle-orm'
 import {
-  boolean,
-  bigint,
-  doublePrecision,
+  check,
   index,
   integer,
-  jsonb,
-  pgEnum,
-  pgTable,
+  real,
+  sqliteTable,
   text,
-  timestamp,
   uniqueIndex,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
+import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 
-export const teamMemberRole = pgEnum('team_member_role', [
-  'owner',
-  'admin',
-  'member',
-])
+function enumColumn<const T extends readonly [string, ...string[]]>(values: T) {
+  return (name: string) => text(name, { enum: values })
+}
 
-export const teamInviteStatus = pgEnum('team_invite_status', [
+function enumChecks(table: Record<string, SQLiteColumn>) {
+  return Object.values(table).flatMap((column) =>
+    column.enumValues?.length
+      ? [
+          check(
+            `${getTableName(column.table)}_${column.name}_enum`,
+            sql`${column} in (${sql.join(
+              column.enumValues.map((value) => sql`${value}`),
+              sql`, `,
+            )})`.inlineParams(),
+          ),
+        ]
+      : [],
+  )
+}
+
+export const teamMemberRole = enumColumn(['owner', 'admin', 'member'])
+
+export const teamInviteStatus = enumColumn([
   'pending',
   'accepted',
   'revoked',
   'expired',
 ])
 
-export const serverStatus = pgEnum('server_status', [
+export const serverStatus = enumColumn([
   'pending',
   'connected',
   'disconnected',
@@ -34,13 +47,13 @@ export const serverStatus = pgEnum('server_status', [
   'deleted',
 ])
 
-export const githubInstallationStatus = pgEnum('github_installation_status', [
+export const githubInstallationStatus = enumColumn([
   'active',
   'deleted',
   'suspended',
 ])
 
-export const deploymentStatus = pgEnum('deployment_status', [
+export const deploymentStatus = enumColumn([
   'queued',
   'running',
   'succeeded',
@@ -48,44 +61,29 @@ export const deploymentStatus = pgEnum('deployment_status', [
   'canceled',
 ])
 
-export const deploymentTrigger = pgEnum('deployment_trigger', [
+export const deploymentTrigger = enumColumn([
   'user',
   'webhook',
   'api',
   'rollback',
 ])
 
-export const environmentStatus = pgEnum('environment_status', [
-  'active',
-  'deleted',
-])
+export const environmentStatus = enumColumn(['active', 'deleted'])
 
-export const aliasType = pgEnum('alias_type', [
-  'deployment',
-  'environment',
-  'branch',
-])
+export const aliasType = enumColumn(['deployment', 'environment', 'branch'])
 
-export const domainStatus = pgEnum('domain_status', [
+export const domainStatus = enumColumn([
   'pending',
   'active',
   'disabled',
   'failed',
 ])
 
-export const resourceStatus = pgEnum('resource_status', [
-  'active',
-  'deleted',
-  'banned',
-])
+export const resourceStatus = enumColumn(['active', 'deleted', 'banned'])
 
-export const allowlistType = pgEnum('allowlist_type', [
-  'email',
-  'domain',
-  'pattern',
-])
+export const allowlistType = enumColumn(['email', 'domain', 'pattern'])
 
-export const agentJobType = pgEnum('agent_job_type', [
+export const agentJobType = enumColumn([
   'deploy',
   'deprovision',
   'purge',
@@ -94,7 +92,7 @@ export const agentJobType = pgEnum('agent_job_type', [
   'backup_cleanup',
 ])
 
-export const agentJobStatus = pgEnum('agent_job_status', [
+export const agentJobStatus = enumColumn([
   'queued',
   'running',
   'succeeded',
@@ -103,16 +101,16 @@ export const agentJobStatus = pgEnum('agent_job_status', [
   'abandoned',
 ])
 
-export const userCleanupJobStatus = pgEnum('user_cleanup_job_status', [
+export const userCleanupJobStatus = enumColumn([
   'queued',
   'running',
   'succeeded',
   'failed',
 ])
 
-export const backupDestinationType = pgEnum('backup_destination_type', ['s3'])
+export const backupDestinationType = enumColumn(['s3'])
 
-export const backupStatus = pgEnum('backup_status', [
+export const backupStatus = enumColumn([
   'queued',
   'running',
   'succeeded',
@@ -120,18 +118,11 @@ export const backupStatus = pgEnum('backup_status', [
   'canceled',
 ])
 
-export const backupArtifactType = pgEnum('backup_artifact_type', [
-  'manifest',
-  'volume',
-  'database',
-])
+export const backupArtifactType = enumColumn(['manifest', 'volume', 'database'])
 
-export const backupArtifactStorage = pgEnum('backup_artifact_storage', [
-  'local',
-  'remote',
-])
+export const backupArtifactStorage = enumColumn(['local', 'remote'])
 
-export const teams = pgTable(
+export const teams = sqliteTable(
   'teams',
   {
     id: text('id').primaryKey(),
@@ -139,59 +130,62 @@ export const teams = pgTable(
     name: text('name').notNull(),
     status: resourceStatus('status').notNull().default('active'),
     avatarPath: text('avatar_path'),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
-  (table) => [uniqueIndex('teams_slug_idx').on(table.slug)],
+  (table) => [
+    ...enumChecks(table),
+    uniqueIndex('teams_slug_idx').on(table.slug),
+  ],
 )
 
-export const user = pgTable(
+export const user = sqliteTable(
   'user',
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     username: text('username').notNull(),
     email: text('email').notNull().unique(),
-    emailVerified: boolean('email_verified').notNull().default(false),
+    emailVerified: integer('email_verified', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     status: resourceStatus('status').notNull().default('active'),
     image: text('image'),
     defaultTeamId: text('default_team_id').references(() => teams.id, {
       onDelete: 'set null',
     }),
-    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`)
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('user_username_idx')
       .on(sql`lower(${table.username})`)
       .where(sql`status = 'active'`),
   ],
 )
 
-export const session = pgTable(
+export const session = sqliteTable(
   'session',
   {
     id: text('id').primaryKey(),
-    expiresAt: timestamp('expires_at', {
-      mode: 'date',
-      withTimezone: true,
-    }).notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
     token: text('token').notNull().unique(),
-    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`)
       .$onUpdate(() => new Date()),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
@@ -199,10 +193,13 @@ export const session = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
   },
-  (table) => [index('session_user_id_idx').on(table.userId)],
+  (table) => [
+    ...enumChecks(table),
+    index('session_user_id_idx').on(table.userId),
+  ],
 )
 
-export const account = pgTable(
+export const account = sqliteTable(
   'account',
   {
     id: text('id').primaryKey(),
@@ -214,13 +211,11 @@ export const account = pgTable(
     accessToken: text('access_token'),
     refreshToken: text('refresh_token'),
     idToken: text('id_token'),
-    accessTokenExpiresAt: timestamp('access_token_expires_at', {
-      mode: 'date',
-      withTimezone: true,
+    accessTokenExpiresAt: integer('access_token_expires_at', {
+      mode: 'timestamp_ms',
     }),
-    refreshTokenExpiresAt: timestamp('refresh_token_expires_at', {
-      mode: 'date',
-      withTimezone: true,
+    refreshTokenExpiresAt: integer('refresh_token_expires_at', {
+      mode: 'timestamp_ms',
     }),
     scope: text('scope'),
     password: text('password'),
@@ -228,53 +223,63 @@ export const account = pgTable(
     providerAccountEmail: text('provider_account_email'),
     providerAccountUsername: text('provider_account_username'),
     providerAccountImage: text('provider_account_image'),
-    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`)
       .$onUpdate(() => new Date()),
   },
-  (table) => [index('account_user_id_idx').on(table.userId)],
+  (table) => [
+    ...enumChecks(table),
+    index('account_user_id_idx').on(table.userId),
+  ],
 )
 
-export const verification = pgTable(
+export const verification = sqliteTable(
   'verification',
   {
     id: text('id').primaryKey(),
     identifier: text('identifier').notNull(),
     value: text('value').notNull(),
-    expiresAt: timestamp('expires_at', {
-      mode: 'date',
-      withTimezone: true,
-    }).notNull(),
-    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`)
       .$onUpdate(() => new Date()),
   },
-  (table) => [index('verification_identifier_idx').on(table.identifier)],
+  (table) => [
+    ...enumChecks(table),
+    index('verification_identifier_idx').on(table.identifier),
+  ],
 )
 
-export const allowlist = pgTable(
+export const rateLimits = sqliteTable('rate_limits', {
+  key: text('key').primaryKey(),
+  count: integer('count').notNull(),
+  resetAt: integer('reset_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export const allowlist = sqliteTable(
   'allowlist',
   {
     id: text('id').primaryKey(),
     type: allowlistType('type').notNull(),
     value: text('value').notNull(),
-    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`)
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    ...enumChecks(table),
     index('allowlist_type_idx').on(table.type),
     uniqueIndex('allowlist_type_value_idx').on(
       table.type,
@@ -283,7 +288,7 @@ export const allowlist = pgTable(
   ],
 )
 
-export const teamMembers = pgTable(
+export const teamMembers = sqliteTable(
   'team_members',
   {
     id: text('id').primaryKey(),
@@ -294,18 +299,19 @@ export const teamMembers = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     role: teamMemberRole('role').notNull().default('member'),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('team_members_team_user_idx').on(table.teamId, table.userId),
     index('team_members_user_idx').on(table.userId),
     index('team_members_team_idx').on(table.teamId),
   ],
 )
 
-export const teamInvites = pgTable(
+export const teamInvites = sqliteTable(
   'team_invites',
   {
     id: text('id').primaryKey(),
@@ -319,15 +325,16 @@ export const teamInvites = pgTable(
     }),
     tokenHash: text('token_hash').notNull(),
     status: teamInviteStatus('status').notNull().default('pending'),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('team_invites_token_hash_idx').on(table.tokenHash),
     uniqueIndex('team_invites_pending_email_idx')
       .on(table.teamId, sql`lower(${table.email})`)
@@ -337,30 +344,31 @@ export const teamInvites = pgTable(
   ],
 )
 
-export const githubInstallations = pgTable(
+export const githubInstallations = sqliteTable(
   'github_installations',
   {
-    installationId: bigint('installation_id', { mode: 'number' }).primaryKey(),
-    accountId: bigint('account_id', { mode: 'number' }),
+    installationId: integer('installation_id').primaryKey(),
+    accountId: integer('account_id'),
     accountLogin: text('account_login').notNull(),
     accountType: text('account_type').notNull(),
     repositorySelection: text('repository_selection').notNull(),
     status: githubInstallationStatus('status').notNull().default('active'),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('github_installations_account_id_idx').on(table.accountId),
     index('github_installations_account_idx').on(table.accountLogin),
     index('github_installations_status_idx').on(table.status),
   ],
 )
 
-export const servers = pgTable(
+export const servers = sqliteTable(
   'servers',
   {
     id: text('id').primaryKey(),
@@ -372,32 +380,35 @@ export const servers = pgTable(
     status: serverStatus('status').notNull().default('pending'),
     agentVersion: text('agent_version'),
     agentProtocolVersion: integer('agent_protocol_version'),
-    agentCapabilities: jsonb('agent_capabilities').$type<Array<string>>(),
+    agentCapabilities: text('agent_capabilities', { mode: 'json' }).$type<
+      Array<string>
+    >(),
     publicAddress: text('public_address'),
     hostname: text('hostname'),
     operatingSystem: text('operating_system'),
     kernelVersion: text('kernel_version'),
     architecture: text('architecture'),
     cpuCoreCount: integer('cpu_core_count'),
-    hostUptimeSeconds: bigint('host_uptime_seconds', { mode: 'number' }),
+    hostUptimeSeconds: integer('host_uptime_seconds'),
     enrollmentTokenHash: text('enrollment_token_hash'),
-    enrollmentTokenExpiresAt: timestamp('enrollment_token_expires_at', {
-      withTimezone: true,
+    enrollmentTokenExpiresAt: integer('enrollment_token_expires_at', {
+      mode: 'timestamp_ms',
     }),
     agentCredentialHash: text('agent_credential_hash'),
     pendingAgentCredentialHash: text('pending_agent_credential_hash'),
-    agentCredentialRotatedAt: timestamp('agent_credential_rotated_at', {
-      withTimezone: true,
+    agentCredentialRotatedAt: integer('agent_credential_rotated_at', {
+      mode: 'timestamp_ms',
     }),
-    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('servers_team_handle_idx')
       .on(table.teamId, table.handle)
       .where(sql`${table.status} <> 'deleted'`),
@@ -408,21 +419,22 @@ export const servers = pgTable(
   ],
 )
 
-export const serverHeartbeats = pgTable(
+export const serverHeartbeats = sqliteTable(
   'server_heartbeats',
   {
     id: text('id').primaryKey(),
     serverId: text('server_id')
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
-    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+    observedAt: integer('observed_at', { mode: 'timestamp_ms' }).notNull(),
     agentVersion: text('agent_version'),
     publicAddress: text('public_address'),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('server_heartbeats_server_observed_idx').on(
       table.serverId,
       table.observedAt,
@@ -431,20 +443,21 @@ export const serverHeartbeats = pgTable(
   ],
 )
 
-export const serverAvailabilityWindows = pgTable(
+export const serverAvailabilityWindows = sqliteTable(
   'server_availability_windows',
   {
     id: text('id').primaryKey(),
     serverId: text('server_id')
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
-    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
-    endedAt: timestamp('ended_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('server_availability_windows_server_started_idx').on(
       table.serverId,
       table.startedAt,
@@ -452,33 +465,30 @@ export const serverAvailabilityWindows = pgTable(
   ],
 )
 
-export const serverMetrics = pgTable(
+export const serverMetrics = sqliteTable(
   'server_metrics',
   {
     id: text('id').primaryKey(),
     serverId: text('server_id')
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
-    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
-    cpuPercent: doublePrecision('cpu_percent'),
-    load1: doublePrecision('load_1'),
-    memoryUsedBytes: bigint('memory_used_bytes', { mode: 'number' }),
-    memoryTotalBytes: bigint('memory_total_bytes', { mode: 'number' }),
-    diskUsedBytes: bigint('disk_used_bytes', { mode: 'number' }),
-    diskTotalBytes: bigint('disk_total_bytes', { mode: 'number' }),
-    networkReceiveBytesPerSecond: doublePrecision(
-      'network_receive_bytes_per_second',
-    ),
-    networkTransmitBytesPerSecond: doublePrecision(
-      'network_transmit_bytes_per_second',
-    ),
-    diskReadBytesPerSecond: doublePrecision('disk_read_bytes_per_second'),
-    diskWriteBytesPerSecond: doublePrecision('disk_write_bytes_per_second'),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    observedAt: integer('observed_at', { mode: 'timestamp_ms' }).notNull(),
+    cpuPercent: real('cpu_percent'),
+    load1: real('load_1'),
+    memoryUsedBytes: integer('memory_used_bytes'),
+    memoryTotalBytes: integer('memory_total_bytes'),
+    diskUsedBytes: integer('disk_used_bytes'),
+    diskTotalBytes: integer('disk_total_bytes'),
+    networkReceiveBytesPerSecond: real('network_receive_bytes_per_second'),
+    networkTransmitBytesPerSecond: real('network_transmit_bytes_per_second'),
+    diskReadBytesPerSecond: real('disk_read_bytes_per_second'),
+    diskWriteBytesPerSecond: real('disk_write_bytes_per_second'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('server_metrics_server_observed_idx').on(
       table.serverId,
       table.observedAt,
@@ -487,7 +497,7 @@ export const serverMetrics = pgTable(
   ],
 )
 
-export const projects = pgTable(
+export const projects = sqliteTable(
   'projects',
   {
     id: text('id').primaryKey(),
@@ -497,32 +507,35 @@ export const projects = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     status: resourceStatus('status').notNull().default('active'),
-    githubRepoId: bigint('github_repo_id', { mode: 'number' }),
+    githubRepoId: integer('github_repo_id'),
     githubRepo: text('github_repo').notNull(),
-    githubInstallationId: bigint('github_installation_id', {
-      mode: 'number',
-    }).references(() => githubInstallations.installationId, {
-      onDelete: 'restrict',
-    }),
+    githubInstallationId: integer('github_installation_id').references(
+      () => githubInstallations.installationId,
+      {
+        onDelete: 'restrict',
+      },
+    ),
     defaultServerId: text('default_server_id').references(() => servers.id, {
       onDelete: 'restrict',
     }),
     avatarPath: text('avatar_path'),
-    routes: jsonb('routes'),
-    envVars: jsonb('env_vars'),
-    runtimeConfig: jsonb('runtime_config')
+    routes: text('routes', { mode: 'json' }),
+    envVarsEncrypted: text('env_vars_encrypted'),
+    runtimeConfig: text('runtime_config', { mode: 'json' })
       .notNull()
       .default(
-        sql`'{"type":"compose","path":null,"releaseCommand":null,"releaseService":null,"readinessPath":null,"deployCommand":null,"rollbackCommand":null,"timeoutSeconds":1800}'::jsonb`,
+        sql`'{"type":"compose","path":null,"releaseCommand":null,"releaseService":null,"readinessPath":null,"deployCommand":null,"rollbackCommand":null,"timeoutSeconds":1800}'`,
       ),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    composeMetadata: text('compose_metadata', { mode: 'json' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('projects_team_slug_idx')
       .on(table.teamId, sql`lower(${table.slug})`)
       .where(sql`${table.status} <> 'deleted'`),
@@ -532,7 +545,7 @@ export const projects = pgTable(
   ],
 )
 
-export const environments = pgTable(
+export const environments = sqliteTable(
   'environments',
   {
     id: text('id').primaryKey(),
@@ -545,19 +558,22 @@ export const environments = pgTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     branch: text('branch').notNull(),
-    isProduction: boolean('is_production').notNull().default(false),
+    isProduction: integer('is_production', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     position: integer('position').notNull().default(0),
     color: text('color').notNull().default('blue'),
     status: environmentStatus('status').notNull().default('active'),
     runtimeId: text('runtime_id').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('environments_project_slug_idx').on(
       table.projectId,
       table.slug,
@@ -566,7 +582,7 @@ export const environments = pgTable(
   ],
 )
 
-export const agentJobs = pgTable(
+export const agentJobs = sqliteTable(
   'agent_jobs',
   {
     id: text('id').primaryKey(),
@@ -581,30 +597,31 @@ export const agentJobs = pgTable(
     projectId: text('project_id').references(() => projects.id, {
       onDelete: 'set null',
     }),
-    payload: jsonb('payload').notNull(),
+    payload: text('payload', { mode: 'json' }).notNull(),
     attempt: integer('attempt').notNull().default(0),
     maxAttempts: integer('max_attempts').notNull().default(5),
     errorMessage: text('error_message'),
-    claimedAt: timestamp('claimed_at', { withTimezone: true }),
-    availableAt: timestamp('available_at', { withTimezone: true })
+    claimedAt: integer('claimed_at', { mode: 'timestamp_ms' }),
+    availableAt: integer('available_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    finishedAt: timestamp('finished_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('agent_jobs_server_status_idx').on(table.serverId, table.status),
     index('agent_jobs_project_idx').on(table.projectId),
     index('agent_jobs_team_idx').on(table.teamId),
   ],
 )
 
-export const agentRuntimeObservations = pgTable(
+export const agentRuntimeObservations = sqliteTable(
   'agent_runtime_observations',
   {
     id: text('id').primaryKey(),
@@ -612,19 +629,20 @@ export const agentRuntimeObservations = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     runtimeId: text('runtime_id').notNull(),
-    services: jsonb('services'),
-    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
-    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
-    cleanupQueuedAt: timestamp('cleanup_queued_at', { withTimezone: true }),
-    purgeQueuedAt: timestamp('purge_queued_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    services: text('services', { mode: 'json' }),
+    firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    cleanupQueuedAt: integer('cleanup_queued_at', { mode: 'timestamp_ms' }),
+    purgeQueuedAt: integer('purge_queued_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('agent_runtime_observations_server_runtime_idx').on(
       table.serverId,
       table.runtimeId,
@@ -635,7 +653,7 @@ export const agentRuntimeObservations = pgTable(
   ],
 )
 
-export const userCleanupJobs = pgTable(
+export const userCleanupJobs = sqliteTable(
   'user_cleanup_jobs',
   {
     id: text('id').primaryKey(),
@@ -643,23 +661,24 @@ export const userCleanupJobs = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     status: userCleanupJobStatus('status').notNull().default('queued'),
-    payload: jsonb('payload').notNull(),
+    payload: text('payload', { mode: 'json' }).notNull(),
     attempt: integer('attempt').notNull().default(0),
     maxAttempts: integer('max_attempts').notNull().default(5),
     errorMessage: text('error_message'),
-    claimedAt: timestamp('claimed_at', { withTimezone: true }),
-    availableAt: timestamp('available_at', { withTimezone: true })
+    claimedAt: integer('claimed_at', { mode: 'timestamp_ms' }),
+    availableAt: integer('available_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    finishedAt: timestamp('finished_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('user_cleanup_jobs_status_available_idx').on(
       table.status,
       table.availableAt,
@@ -668,7 +687,30 @@ export const userCleanupJobs = pgTable(
   ],
 )
 
-export const backupConfigs = pgTable(
+export const backupStorage = sqliteTable(
+  'backup_storage',
+  {
+    id: text('id').primaryKey(),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    bucket: text('bucket').notNull(),
+    region: text('region').notNull(),
+    endpoint: text('endpoint'),
+    accessKeyId: text('access_key_id').notNull(),
+    secretAccessKeyCiphertext: text('secret_access_key_ciphertext').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+  },
+  (table) => [index('backup_storage_team_idx').on(table.teamId)],
+)
+
+export const backupConfigs = sqliteTable(
   'backup_configs',
   {
     id: text('id').primaryKey(),
@@ -679,31 +721,34 @@ export const backupConfigs = pgTable(
     environmentId: text('environment_id')
       .notNull()
       .references(() => environments.id, { onDelete: 'cascade' }),
-    enabled: boolean('enabled').notNull().default(true),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     destinationType: backupDestinationType('destination_type')
       .notNull()
       .default('s3'),
-    schedule: jsonb('schedule').notNull(),
-    destination: jsonb('destination').notNull(),
-    retention: jsonb('retention').notNull(),
-    volumes: jsonb('volumes')
+    schedule: text('schedule', { mode: 'json' }).notNull(),
+    destination: text('destination', { mode: 'json' }).notNull(),
+    retention: text('retention', { mode: 'json' }).notNull(),
+    volumes: text('volumes', { mode: 'json' })
       .notNull()
       .default({ mode: 'allNamed', names: [] }),
-    databaseDumps: jsonb('database_dumps').notNull().default([]),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    databaseDumps: text('database_dumps', { mode: 'json' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default([]),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('backup_configs_environment_idx').on(table.environmentId),
     index('backup_configs_project_idx').on(table.projectId),
   ],
 )
 
-export const deployments = pgTable(
+export const deployments = sqliteTable(
   'deployments',
   {
     id: text('id').primaryKey(),
@@ -717,25 +762,26 @@ export const deployments = pgTable(
     phase: text('phase'),
     trigger: deploymentTrigger('trigger').notNull().default('user'),
     githubDeliveryId: text('github_delivery_id'),
-    repoId: bigint('repo_id', { mode: 'number' }).notNull(),
+    repoId: integer('repo_id').notNull(),
     repoFullName: text('repo_full_name').notNull(),
     gitSha: text('git_sha').notNull(),
     gitBranch: text('git_branch').notNull(),
-    commitMeta: jsonb('commit_meta').notNull().default({}),
-    config: jsonb('config').notNull(),
+    commitMeta: text('commit_meta', { mode: 'json' }).notNull().default({}),
+    config: text('config', { mode: 'json' }).notNull(),
     envVars: text('env_vars').notNull(),
     runtimeId: text('runtime_id').notNull(),
     errorMessage: text('error_message'),
-    startedAt: timestamp('started_at', { withTimezone: true }),
-    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
     createdByUserId: text('created_by_user_id').references(() => user.id, {
       onDelete: 'set null',
     }),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('deployments_environment_idx').on(table.environmentId),
     index('deployments_server_idx').on(table.serverId),
     index('deployments_status_idx').on(table.status),
@@ -748,7 +794,7 @@ export const deployments = pgTable(
   ],
 )
 
-export const backupRuns = pgTable(
+export const backupRuns = sqliteTable(
   'backup_runs',
   {
     id: text('id').primaryKey(),
@@ -765,23 +811,26 @@ export const backupRuns = pgTable(
       onDelete: 'restrict',
     }),
     runtimeId: text('runtime_id').notNull(),
+    configId: text('config_id'),
     scheduleKey: text('schedule_key'),
     status: backupStatus('status').notNull().default('queued'),
-    manifest: jsonb('manifest'),
+    manifest: text('manifest', { mode: 'json' }),
+    destination: text('destination', { mode: 'json' }),
     errorMessage: text('error_message'),
-    startedAt: timestamp('started_at', { withTimezone: true }),
-    finishedAt: timestamp('finished_at', { withTimezone: true }),
-    cleanupQueuedAt: timestamp('cleanup_queued_at', { withTimezone: true }),
-    cleanupFinishedAt: timestamp('cleanup_finished_at', { withTimezone: true }),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+    cleanupQueuedAt: integer('cleanup_queued_at', { mode: 'timestamp_ms' }),
+    cleanupFinishedAt: integer('cleanup_finished_at', { mode: 'timestamp_ms' }),
     cleanupErrorMessage: text('cleanup_error_message'),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     index('backup_runs_environment_status_idx').on(
       table.environmentId,
       table.status,
@@ -798,7 +847,7 @@ export const backupRuns = pgTable(
   ],
 )
 
-export const backupArtifacts = pgTable(
+export const backupArtifacts = sqliteTable(
   'backup_artifacts',
   {
     id: text('id').primaryKey(),
@@ -809,12 +858,13 @@ export const backupArtifacts = pgTable(
     storage: backupArtifactStorage('storage').notNull(),
     objectKey: text('object_key').notNull(),
     checksumSha256: text('checksum_sha256').notNull(),
-    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    sizeBytes: integer('size_bytes').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('backup_artifacts_run_object_idx').on(
       table.backupRunId,
       table.objectKey,
@@ -823,8 +873,8 @@ export const backupArtifacts = pgTable(
   ],
 )
 
-export const deploymentLogs = pgTable(
-  'deployment_logs',
+export const deploymentEvents = sqliteTable(
+  'deployment_events',
   {
     deploymentId: text('deployment_id')
       .notNull()
@@ -832,12 +882,14 @@ export const deploymentLogs = pgTable(
     stream: text('stream').notNull(),
     seq: integer('seq').notNull(),
     content: text('content').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    searchContent: text('search_content').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
-    uniqueIndex('deployment_logs_seq_idx').on(
+    ...enumChecks(table),
+    uniqueIndex('deployment_events_seq_idx').on(
       table.deploymentId,
       table.stream,
       table.seq,
@@ -845,34 +897,7 @@ export const deploymentLogs = pgTable(
   ],
 )
 
-export const runtimeLogs = pgTable(
-  'runtime_logs',
-  {
-    id: text('id').primaryKey(),
-    serverId: text('server_id')
-      .notNull()
-      .references(() => servers.id, { onDelete: 'cascade' }),
-    runtimeId: text('runtime_id').notNull(),
-    service: text('service').notNull(),
-    observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
-    content: text('content').notNull(),
-    contentHash: text('content_hash').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('runtime_logs_content_idx').on(
-      table.serverId,
-      table.runtimeId,
-      table.contentHash,
-    ),
-    index('runtime_logs_runtime_idx').on(table.serverId, table.runtimeId),
-    index('runtime_logs_observed_idx').on(table.observedAt),
-  ],
-)
-
-export const aliases = pgTable(
+export const aliases = sqliteTable(
   'aliases',
   {
     id: text('id').primaryKey(),
@@ -892,15 +917,16 @@ export const aliases = pgTable(
     hostname: text('hostname').notNull(),
     type: aliasType('type').notNull(),
     branch: text('branch'),
-    https: boolean('https').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    https: integer('https', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('aliases_hostname_idx').on(table.hostname),
     index('aliases_project_idx').on(table.projectId),
     index('aliases_environment_idx').on(table.environmentId),
@@ -908,7 +934,7 @@ export const aliases = pgTable(
   ],
 )
 
-export const domains = pgTable(
+export const domains = sqliteTable(
   'domains',
   {
     id: text('id').primaryKey(),
@@ -920,18 +946,19 @@ export const domains = pgTable(
       .references(() => environments.id, { onDelete: 'cascade' }),
     hostname: text('hostname').notNull(),
     basePath: text('base_path'),
-    https: boolean('https').notNull().default(true),
+    https: integer('https', { mode: 'boolean' }).notNull().default(true),
     status: domainStatus('status').notNull().default('pending'),
     message: text('message'),
-    verifiedAt: timestamp('verified_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
+    verifiedAt: integer('verified_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .defaultNow(),
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
   },
   (table) => [
+    ...enumChecks(table),
     uniqueIndex('domains_hostname_idx').on(table.hostname),
     index('domains_project_idx').on(table.projectId),
     index('domains_environment_idx').on(table.environmentId),

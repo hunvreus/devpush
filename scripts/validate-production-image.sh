@@ -53,6 +53,13 @@ compose() {
   exit 1
 }
 
+# The tracked example deliberately contains blank secrets; use dummy probe values.
+if [[ "$env_file" == "deploy/.env.production.example" ]]; then
+  export BETTER_AUTH_SECRET=production-image-validation-auth-secret
+  export DEVPUSH_SECRET_ENCRYPTION_KEY=production-image-validation-encryption-secret
+  export DEVPUSH_CRON_SECRET=production-image-validation-cron-secret
+fi
+
 step "Checking production Compose config"
 compose --env-file "$env_file" -f deploy/compose.production.yml config >/dev/null
 
@@ -74,9 +81,11 @@ docker run --rm "$image" sh -lc '
   test -f /repo/app/.maintenance/migrate.mjs.map
   test -f /repo/app/.maintenance/sync-agent-binaries.mjs
   test -f /repo/app/.maintenance/sync-agent-binaries.mjs.map
-  test -f /repo/app/src/server/db/migrations/meta/_journal.json
+  test -f /repo/app/src/server/db/migrations-sqlite/meta/_journal.json
+  test -f /repo/app/src/server/db/migrations-logs/meta/_journal.json
+  test -f /repo/app/.maintenance/backup-sqlite.mjs
   test ! -e /repo/node_modules
-  test ! -e /repo/app/node_modules
+  test -L /repo/app/node_modules
   test ! -e /repo/app/scripts/migrate.ts
   ! command -v pnpm >/dev/null
   ! command -v tsx >/dev/null
@@ -86,32 +95,27 @@ docker run --rm "$image" sh -lc '
 '
 
 missing_database_output="$(docker run --rm "$image" node .maintenance/migrate.mjs 2>&1 || true)"
-if ! grep -q 'DATABASE_URL is required in production' <<<"$missing_database_output"; then
-  echo "Production migration runner did not reject a missing DATABASE_URL." >&2
+if ! grep -q 'DEVPUSH_DATABASE_PATH is required in production' <<<"$missing_database_output"; then
+  echo "Production migration runner did not reject a missing DEVPUSH_DATABASE_PATH." >&2
   exit 1
 fi
 
 step "Exercising production migrations and health check"
 probe_id="devpush-production-probe-${RANDOM:-0}-$$"
 probe_network="${probe_id}-net"
-probe_database="${probe_id}-db"
+probe_volume="${probe_id}-data"
 probe_store="${probe_id}-store"
 probe_app="${probe_id}-app"
 
 cleanup_probe() {
-  docker rm -f "$probe_app" "$probe_store" "$probe_database" >/dev/null 2>&1 || true
+  docker rm -f "$probe_app" "$probe_store" >/dev/null 2>&1 || true
+  docker volume rm "$probe_volume" >/dev/null 2>&1 || true
   docker network rm "$probe_network" >/dev/null 2>&1 || true
 }
 trap cleanup_probe EXIT INT TERM
 
 docker network create "$probe_network" >/dev/null
-docker run -d \
-  --name "$probe_database" \
-  --network "$probe_network" \
-  -e POSTGRES_DB=devpush \
-  -e POSTGRES_USER=devpush \
-  -e POSTGRES_PASSWORD=devpush \
-  postgres:17-alpine >/dev/null
+docker volume create "$probe_volume" >/dev/null
 
 docker run -d \
   --name "$probe_store" \
@@ -121,24 +125,11 @@ docker run -d \
   "$image" \
   node -e "const fs=require('node:fs');require('node:http').createServer((request,response)=>{let size=0;request.on('data',chunk=>{size+=chunk.length});request.on('end',()=>{const signed=request.headers.authorization?.startsWith('AWS4-HMAC-SHA256 ')?'signed':'unsigned';if(request.method==='PUT')fs.appendFileSync('/tmp/requests',request.method+' '+request.url+' '+size+' '+signed+'\\n');response.statusCode=200;response.end()})}).listen(9000,'0.0.0.0')" >/dev/null
 
-database_ready=false
-for _ in $(seq 1 30); do
-  if docker exec "$probe_database" pg_isready -U devpush -d devpush >/dev/null 2>&1; then
-    database_ready=true
-    break
-  fi
-  sleep 1
-done
-if [[ "$database_ready" != "true" ]]; then
-  docker logs "$probe_database" >&2
-  echo "Production validation database did not become ready." >&2
-  exit 1
-fi
-
-database_url="postgres://devpush:devpush@${probe_database}:5432/devpush"
 docker run --rm \
   --network "$probe_network" \
-  -e DATABASE_URL="$database_url" \
+  -v "$probe_volume:/app/storage" \
+  -e DEVPUSH_DATABASE_PATH=/app/storage/devpush.sqlite \
+  -e DEVPUSH_LOG_DATABASE_PATH=/app/storage/logs.sqlite \
   "$image" \
   node --enable-source-maps /repo/app/.maintenance/migrate.mjs
 
@@ -176,8 +167,11 @@ docker exec "$probe_store" sh -ec '
 docker run -d \
   --name "$probe_app" \
   --network "$probe_network" \
-  -e DATABASE_URL="$database_url" \
+  -v "$probe_volume:/app/storage" \
+  -e DEVPUSH_DATABASE_PATH=/app/storage/devpush.sqlite \
+  -e DEVPUSH_LOG_DATABASE_PATH=/app/storage/logs.sqlite \
   -e BETTER_AUTH_SECRET=production-image-validation-secret \
+  -e DEVPUSH_CRON_SECRET=production-image-validation-cron-secret \
   -e DEVPUSH_BASE_URL=http://localhost:3000 \
   "$image" >/dev/null
 
@@ -197,6 +191,34 @@ if [[ "$app_ready" != "true" ]]; then
   echo "Production image health check failed." >&2
   exit 1
 fi
+
+step "Checking login and scheduled maintenance"
+docker exec "$probe_app" curl --fail --silent http://127.0.0.1:3000/auth/login >/dev/null
+docker exec "$probe_app" curl --fail --silent --request POST \
+  --header 'Authorization: Bearer production-image-validation-cron-secret' \
+  http://127.0.0.1:3000/api/cron/maintenance >/dev/null
+
+step "Checking online backups and restored snapshots"
+docker run --rm \
+  -v "$probe_volume:/app/storage" \
+  -e DEVPUSH_DATABASE_PATH=/app/storage/devpush.sqlite \
+  -e DEVPUSH_LOG_DATABASE_PATH=/app/storage/logs.sqlite \
+  -e DEVPUSH_DB_BACKUP_DIR=/app/storage/backups \
+  "$image" node .maintenance/backup-sqlite.mjs
+docker run --rm -v "$probe_volume:/app/storage" "$image" node --input-type=module -e '
+  import { createRequire } from "node:module";
+  import { readdirSync } from "node:fs";
+  const require = createRequire("/repo/app/.output/server/index.mjs");
+  const Sqlite = require("better-sqlite3");
+  const files = readdirSync("/app/storage/backups");
+  if (files.length !== 2) throw new Error("Expected two snapshots");
+  for (const file of files) {
+    const db = new Sqlite("/app/storage/backups/" + file, { readonly: true });
+    if (db.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("Snapshot integrity failure");
+    if (!db.prepare("select count(*) as n from sqlite_master where type = ?").get("table").n) throw new Error("Missing migrated tables");
+    db.close();
+  }
+'
 
 cleanup_probe
 trap - EXIT INT TERM

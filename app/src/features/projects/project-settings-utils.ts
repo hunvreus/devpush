@@ -1,4 +1,16 @@
-import type { ProjectRoute } from '@/server/projects/service'
+import type { ProjectRoute } from '@/server/projects/types'
+import type { SectionNavigationItem } from '@/components/section-navigation'
+
+export const projectSettingsNavigationItems: Array<SectionNavigationItem> = [
+  { href: '#general', label: 'General' },
+  { href: '#build-and-deploy', label: 'Build & Deploy' },
+  { href: '#environments', label: 'Environments' },
+  { href: '#environment-variables', label: 'Environment variables' },
+  { href: '#servers', label: 'Servers' },
+  { href: '#routes', label: 'Routes' },
+  { href: '#domains', label: 'Domains' },
+  { href: '#danger', label: 'Danger', destructive: true },
+]
 
 export function getEffectiveProjectRoutes(
   routes: Array<ProjectRoute>,
@@ -21,31 +33,62 @@ export function getEffectiveProjectRoutes(
 }
 
 export function parseEnvFile(envFile: string) {
-  return envFile
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'))
-    .map((line) => {
-      const match = /^([^=]+)=(.*)$/.exec(line)
-      if (!match) {
-        return null
+  const lines = envFile.replace(/\r\n?/g, '\n').split('\n')
+  const rows: Array<{ key: string; value: string }> = []
+  for (let index = 0; index < lines.length; index++) {
+    const line = (lines[index] ?? '').trim()
+    if (!line || line.startsWith('#')) continue
+    const lineNumber = index + 1
+    const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(
+      line,
+    )
+    if (!match?.[1])
+      throw new Error(`Line ${lineNumber}: enter a valid KEY=value assignment.`)
+    let value = match[2] ?? ''
+    const quote = value[0]
+    if (quote === '"' || quote === "'" || quote === '`') {
+      let end = closingQuote(value, quote)
+      while (end < 0 && index + 1 < lines.length) {
+        value += '\n' + lines[++index]
+        end = closingQuote(value, quote)
       }
-      return {
-        key: match[1].trim(),
-        value: match[2].trim().replace(/^["']|["']$/g, ''),
-      }
-    })
-    .filter((item): item is { key: string; value: string } => Boolean(item))
+      if (end < 0)
+        throw new Error(`Line ${lineNumber}: close the quoted value.`)
+      const suffix = value.slice(end + 1).trim()
+      if (suffix && !suffix.startsWith('#'))
+        throw new Error(
+          `Line ${lineNumber}: unexpected text after the quoted value.`,
+        )
+      value = value.slice(1, end)
+      if (quote === '"')
+        value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r')
+    } else {
+      value = value.split('#')[0]?.trim() ?? ''
+    }
+    rows.push({ key: match[1], value })
+  }
+  return rows
+}
+
+function closingQuote(value: string, quote: string) {
+  for (let index = 1; index < value.length; index++) {
+    if (value[index] !== quote) continue
+    let slashes = 0
+    for (
+      let previous = index - 1;
+      previous >= 0 && value[previous] === '\\';
+      previous--
+    )
+      slashes++
+    if (slashes % 2 === 0) return index
+  }
+  return -1
 }
 
 export function isEnvFilePaste(value: string) {
-  const lines = value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'))
-
-  return (
-    lines.length > 0 &&
-    lines.every((line) => /^[A-Za-z_][A-Za-z0-9_]*=.*$/.test(line))
-  )
+  try {
+    return parseEnvFile(value).length > 0
+  } catch {
+    return false
+  }
 }

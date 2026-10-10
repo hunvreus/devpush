@@ -31,21 +31,6 @@ step() {
   printf '\n==> %s\n' "$1"
 }
 
-compose() {
-  if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
-    return
-  fi
-
-  if command -v docker-compose >/dev/null 2>&1; then
-    docker-compose "$@"
-    return
-  fi
-
-  echo "Docker Compose is required for local Postgres." >&2
-  exit 1
-}
-
 step "Checking TypeScript"
 pnpm --dir app typecheck
 
@@ -55,51 +40,12 @@ pnpm --dir app lint
 step "Running app tests"
 pnpm --dir app test
 
-step "Ensuring local Postgres"
-compose -f deploy/compose.yml up -d
-
-step "Resetting local schema"
-(cd app && node <<'EOF'
-const pg = require('pg')
-
-const url = process.env.DATABASE_URL || 'postgres://devpush:devpush@localhost:7543/devpush'
-const parsed = new URL(url)
-const isLocalHost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
-const isLocalPort = parsed.port === '7543'
-const isLocalDb = parsed.pathname === '/devpush'
-
-if (!isLocalHost || !isLocalPort || !isLocalDb) {
-  throw new Error(`Refusing to reset non-local database: ${url}`)
-}
-
-async function main() {
-  const client = new pg.Client({ connectionString: url })
-  await client.connect()
-  await client.query('drop schema if exists public cascade')
-  await client.query('create schema public')
-  await client.query('grant all on schema public to public')
-  await client.end()
-}
-
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
-EOF
-)
-
-for attempt in {1..15}; do
-  if pnpm --dir app db:migrate; then
-    break
-  fi
-
-  if [[ "$attempt" -eq 15 ]]; then
-    echo "Timed out waiting for local Postgres." >&2
-    exit 1
-  fi
-
-  sleep 2
-done
+step "Preparing isolated SQLite stores"
+validation_dir="$(mktemp -d "${TMPDIR:-/tmp}/devpush-validation.XXXXXX")"
+trap 'rm -rf "$validation_dir"' EXIT
+export DEVPUSH_DATABASE_PATH="$validation_dir/devpush.sqlite"
+export DEVPUSH_LOG_DATABASE_PATH="$validation_dir/logs.sqlite"
+pnpm --dir app db:migrate
 
 step "Running database integration tests"
 pnpm test:integration

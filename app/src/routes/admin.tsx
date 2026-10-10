@@ -1,9 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { AdminSettings } from '@/features/admin/admin-settings'
+import { AdminSettingsPending } from '@/features/settings/settings-route-pending'
 import { getAdminSettingsContext } from '@/server/admin/functions'
 
 export const Route = createFileRoute('/admin')({
+  ssr: false,
   loader: async () => {
     let context
 
@@ -22,6 +24,9 @@ export const Route = createFileRoute('/admin')({
 
     return context
   },
+  pendingMs: 150,
+  pendingMinMs: 200,
+  pendingComponent: AdminSettingsPending,
   component: AdminRoute,
 })
 

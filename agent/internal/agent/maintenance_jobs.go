@@ -20,6 +20,7 @@ import (
 func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobCompletion {
 	status := "succeeded"
 	message := ""
+	localBasePath := ""
 	manifest := map[string]any{
 		"schemaVersion": 1,
 		"backupRunId":   job.Backup.BackupRunID,
@@ -29,6 +30,9 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 	artifacts := []backupArtifact{}
 
 	fail := func(err error) backupJobCompletion {
+		if localBasePath != "" {
+			_ = os.RemoveAll(localBasePath)
+		}
 		status = "failed"
 		message = err.Error()
 		return backupJobCompletion{
@@ -57,9 +61,12 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 	if err := runner.ensureDockerAvailable(ctx); err != nil {
 		return fail(err)
 	}
-	if err := os.MkdirAll(job.Backup.LocalBasePath, 0o750); err != nil {
+	preparedPath, err := prepareBackupDirectory(job.Backup.LocalBasePath)
+	if err != nil {
 		return fail(fmt.Errorf("create backup directory: %w", err))
 	}
+	localBasePath = preparedPath
+	job.Backup.LocalBasePath = localBasePath
 
 	manifestPath := filepath.Join(job.Backup.LocalBasePath, "manifest.json")
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -80,7 +87,11 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 		if service == "" || strings.TrimSpace(dump.Command) == "" {
 			return fail(fmt.Errorf("database dump %d must include service and command", index+1))
 		}
-		path := filepath.Join(job.Backup.LocalBasePath, "databases", fmt.Sprintf("%02d-%s.sql.gz", index+1, service))
+		extension := "sql"
+		if dump.Format == "archive" {
+			extension = "archive"
+		}
+		path := filepath.Join(job.Backup.LocalBasePath, "databases", fmt.Sprintf("%02d-%s.%s.gz", index+1, service, extension))
 		if err := runner.writeDatabaseDump(ctx, job.Backup.RuntimeID, dump.Service, dump.Command, path); err != nil {
 			return fail(err)
 		}
@@ -107,10 +118,21 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 		artifacts = append(artifacts, artifact)
 	}
 
+	return runner.uploadCompletedBackup(ctx, job, manifest, artifacts)
+}
+
+func (runner *Runner) uploadCompletedBackup(ctx context.Context, job agentJob, manifest map[string]any, artifacts []backupArtifact) backupJobCompletion {
 	if job.Backup.Retention.Remote.Enabled {
 		remoteArtifacts, err := runner.uploadBackupArtifacts(ctx, job.Backup, artifacts)
 		if err != nil {
-			return fail(err)
+			// Upload failure must not destroy the complete local backup.
+			manifest["localRecoveryAvailable"] = true
+			return backupJobCompletion{
+				ServerID: runner.cfg.AgentID, Token: runner.currentCredential(),
+				Type: "backup", JobID: job.ID, BackupRunID: job.Backup.BackupRunID,
+				Status: "failed", Message: "Remote upload failed. " + err.Error(),
+				Manifest: manifest, Artifacts: artifacts,
+			}
 		}
 		artifacts = append(artifacts, remoteArtifacts...)
 	}
@@ -121,8 +143,8 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 		Type:        "backup",
 		JobID:       job.ID,
 		BackupRunID: job.Backup.BackupRunID,
-		Status:      status,
-		Message:     message,
+		Status:      "succeeded",
+		Message:     "",
 		Manifest:    manifest,
 		Artifacts:   artifacts,
 	}
@@ -147,13 +169,20 @@ func (runner *Runner) runBackupCleanupJob(ctx context.Context, job agentJob) bac
 	}
 
 	for _, key := range job.Cleanup.LocalObjectKeys {
-		path := strings.TrimSpace(key)
-		if path == "" {
+		if strings.TrimSpace(key) == "" {
 			continue
+		}
+		path, err := existingBackupArtifactPath(key)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fail(fmt.Errorf("resolve local backup artifact %s: %w", key, err))
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fail(fmt.Errorf("remove local backup artifact %s: %w", path, err))
 		}
+		pruneEmptyBackupDirectories(filepath.Dir(path))
 	}
 
 	if len(job.Cleanup.RemoteObjectKeys) > 0 {
@@ -242,10 +271,46 @@ func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) restoreJo
 		if err != nil {
 			return fail(err)
 		}
-		for _, artifact := range volumeArtifacts {
-			if err := runner.restoreVolumeArtifact(ctx, localPaths[artifact.ID], artifact.TargetVolume); err != nil {
+		recoveryDir, err := os.MkdirTemp("", "devpush-volume-recovery-*")
+		if err != nil {
+			_ = runner.startContainers(ctx, stoppedContainers)
+			return fail(err)
+		}
+		defer os.RemoveAll(recoveryDir)
+
+		prepared := make([]preparedVolumeRestore, 0, len(volumeArtifacts))
+		for index, artifact := range volumeArtifacts {
+			restore, prepareErr := runner.prepareVolumeRestore(
+				ctx,
+				job.Restore.RuntimeID,
+				localPaths[artifact.ID],
+				artifact.TargetVolume,
+				recoveryDir,
+				index,
+			)
+			if prepareErr != nil {
 				_ = runner.startContainers(ctx, stoppedContainers)
-				return fail(err)
+				return fail(prepareErr)
+			}
+			prepared = append(prepared, restore)
+		}
+
+		for index, restore := range prepared {
+			if err := runner.replaceVolumeContents(ctx, restore.volumeName, restore.artifactPath); err != nil {
+				recoveryErrors := []error{}
+				for recoveryIndex := index; recoveryIndex >= 0; recoveryIndex-- {
+					previous := prepared[recoveryIndex]
+					if recoveryErr := runner.replaceVolumeContents(ctx, previous.volumeName, previous.recoveryPath); recoveryErr != nil {
+						recoveryErrors = append(recoveryErrors, fmt.Errorf("recover volume %s: %w", previous.targetVolume, recoveryErr))
+					}
+				}
+				if startErr := runner.startContainers(ctx, stoppedContainers); startErr != nil {
+					recoveryErrors = append(recoveryErrors, fmt.Errorf("restart containers: %w", startErr))
+				}
+				if len(recoveryErrors) > 0 {
+					return fail(fmt.Errorf("restore volume %s: %w; recovery failed: %v", restore.targetVolume, err, errors.Join(recoveryErrors...)))
+				}
+				return fail(fmt.Errorf("restore volume %s: %w; previous contents were restored", restore.targetVolume, err))
 			}
 		}
 		if err := runner.startContainers(ctx, stoppedContainers); err != nil {
@@ -271,10 +336,11 @@ func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) restoreJo
 
 func (runner *Runner) restoreArtifactPath(ctx context.Context, destination backupDestination, artifact restoreArtifact, workdir string) (string, error) {
 	if artifact.Storage == "local" {
-		if strings.TrimSpace(artifact.ObjectKey) == "" {
-			return "", errors.New("local restore artifact path is required")
+		path, err := existingBackupArtifactPath(artifact.ObjectKey)
+		if err != nil {
+			return "", fmt.Errorf("resolve local restore artifact: %w", err)
 		}
-		return artifact.ObjectKey, nil
+		return path, nil
 	}
 
 	if artifact.Storage != "remote" {
@@ -317,18 +383,43 @@ func (runner *Runner) startContainers(ctx context.Context, containerIDs []string
 	return nil
 }
 
-func (runner *Runner) restoreVolumeArtifact(ctx context.Context, artifactPath string, targetVolume string) error {
+type preparedVolumeRestore struct {
+	artifactPath string
+	recoveryPath string
+	targetVolume string
+	volumeName   string
+}
+
+func (runner *Runner) prepareVolumeRestore(ctx context.Context, runtimeID string, artifactPath string, targetVolume string, recoveryDir string, index int) (preparedVolumeRestore, error) {
 	if strings.TrimSpace(targetVolume) == "" {
-		return errors.New("target volume is required")
+		return preparedVolumeRestore{}, errors.New("target volume is required")
+	}
+	volumeName, err := runner.resolveRestoreVolume(ctx, runtimeID, targetVolume)
+	if err != nil {
+		return preparedVolumeRestore{}, err
 	}
 	if _, err := os.Stat(artifactPath); err != nil {
-		return err
+		return preparedVolumeRestore{}, err
 	}
+	recoveryPath := filepath.Join(recoveryDir, fmt.Sprintf("volume-%d.tar.gz", index))
+	if err := runner.writeVolumeBackup(ctx, volumeName, recoveryPath); err != nil {
+		return preparedVolumeRestore{}, fmt.Errorf("create recovery backup for volume %s: %w", targetVolume, err)
+	}
+
+	return preparedVolumeRestore{
+		artifactPath: artifactPath,
+		recoveryPath: recoveryPath,
+		targetVolume: targetVolume,
+		volumeName:   volumeName,
+	}, nil
+}
+
+func (runner *Runner) replaceVolumeContents(ctx context.Context, volumeName string, artifactPath string) error {
 	args := []string{
 		"run",
 		"--rm",
 		"-v",
-		targetVolume + ":/volume_data",
+		volumeName + ":/volume_data",
 		"-v",
 		filepath.Dir(artifactPath) + ":/restore:ro",
 		"alpine",
@@ -338,7 +429,7 @@ func (runner *Runner) restoreVolumeArtifact(ctx context.Context, artifactPath st
 	}
 	output, err := runner.commandOutput(ctx, "", "docker", args...)
 	if err != nil {
-		return fmt.Errorf("restore volume %s: %w: %s", targetVolume, err, strings.TrimSpace(output))
+		return fmt.Errorf("replace volume contents: %w: %s", err, strings.TrimSpace(output))
 	}
 	return nil
 }
@@ -452,15 +543,19 @@ func (runner *Runner) writeDatabaseDump(ctx context.Context, runtimeID string, s
 		command,
 	)
 	cmd := exec.CommandContext(ctx, composeName, args...)
-	cmd.Stdout = file
+	gzipWriter := gzip.NewWriter(file)
+	cmd.Stdout = gzipWriter
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	cmd.Env = runner.commandEnv()
 	if err := cmd.Run(); err != nil {
+		_ = gzipWriter.Close()
 		return fmt.Errorf("database dump for service %s failed: %w: %s", service, err, strings.TrimSpace(stderr.String()))
 	}
-
-	return nil
+	if err := gzipWriter.Close(); err != nil {
+		return fmt.Errorf("compress database dump for service %s: %w", service, err)
+	}
+	return file.Close()
 }
 
 func (runner *Runner) backupVolumeNames(ctx context.Context, runtimeID string, selection backupVolumeSelection) ([]string, error) {
@@ -468,7 +563,15 @@ func (runner *Runner) backupVolumeNames(ctx context.Context, runtimeID string, s
 	case "none":
 		return []string{}, nil
 	case "selected":
-		return uniqueNonEmpty(selection.Names), nil
+		volumeNames := make([]string, 0, len(selection.Names))
+		for _, logicalName := range uniqueNonEmpty(selection.Names) {
+			volumeName, err := runner.resolveRuntimeVolume(ctx, runtimeID, logicalName)
+			if err != nil {
+				return nil, err
+			}
+			volumeNames = append(volumeNames, volumeName)
+		}
+		return uniqueNonEmpty(volumeNames), nil
 	case "", "allNamed":
 		output, err := runner.commandOutput(
 			ctx,
@@ -487,6 +590,44 @@ func (runner *Runner) backupVolumeNames(ctx context.Context, runtimeID string, s
 	default:
 		return nil, fmt.Errorf("unsupported backup volume mode %q", selection.Mode)
 	}
+}
+
+func (runner *Runner) resolveRuntimeVolume(ctx context.Context, runtimeID string, logicalName string) (string, error) {
+	output, err := runner.commandOutput(
+		ctx,
+		"",
+		"docker",
+		"volume",
+		"ls",
+		"-q",
+		"--filter",
+		"label=com.docker.compose.project="+runtimeID,
+		"--filter",
+		"label=com.docker.compose.volume="+logicalName,
+	)
+	if err != nil {
+		return "", fmt.Errorf("resolve backup volume %s: %w", logicalName, err)
+	}
+	volumeNames := uniqueNonEmpty(strings.Split(output, "\n"))
+	if len(volumeNames) != 1 {
+		return "", fmt.Errorf("backup volume %s does not belong to runtime %s", logicalName, runtimeID)
+	}
+	return volumeNames[0], nil
+}
+
+func (runner *Runner) resolveRestoreVolume(ctx context.Context, runtimeID string, target string) (string, error) {
+	// Archive names contain physical Docker volume names. Only accept an exact
+	// match among this runtime's labeled volumes before resolving logical names.
+	volumes, err := runner.backupVolumeNames(ctx, runtimeID, backupVolumeSelection{Mode: "allNamed"})
+	if err != nil {
+		return "", err
+	}
+	for _, volume := range volumes {
+		if volume == target {
+			return volume, nil
+		}
+	}
+	return runner.resolveRuntimeVolume(ctx, runtimeID, target)
 }
 
 func (runner *Runner) writeVolumeBackup(ctx context.Context, volumeName string, outputPath string) error {
@@ -535,6 +676,9 @@ func (runner *Runner) uploadBackupArtifacts(ctx context.Context, backup backupCo
 		}
 		remoteKey := pathJoinS3(backup.ArtifactPrefix, filepath.ToSlash(relative))
 		if err := runner.uploadRemoteBackupArtifact(ctx, backup.Destination, artifact.ObjectKey, remoteKey); err != nil {
+			for _, uploaded := range remoteArtifacts {
+				_ = runner.deleteRemoteBackupArtifact(ctx, backup.Destination, uploaded.ObjectKey)
+			}
 			return nil, err
 		}
 		remoteArtifacts = append(remoteArtifacts, backupArtifact{
@@ -611,6 +755,16 @@ func writeRcloneS3Config(destination backupDestination) (string, error) {
 	}
 	if strings.TrimSpace(destination.AccessKeyID) == "" || strings.TrimSpace(destination.SecretAccessKey) == "" {
 		return "", errors.New("remote backup S3 credentials are required")
+	}
+	for name, value := range map[string]string{
+		"access key ID":     destination.AccessKeyID,
+		"secret access key": destination.SecretAccessKey,
+		"region":            destination.Region,
+		"endpoint":          destination.Endpoint,
+	} {
+		if err := validateRcloneConfigValue(name, value); err != nil {
+			return "", err
+		}
 	}
 
 	file, err := os.CreateTemp("", "devpush-rclone-*.conf")

@@ -1,3 +1,6 @@
+import { navigateFilters } from '@/lib/action-feedback'
+import { canManageTeamSettings } from '@/lib/team-role'
+import { BackupPolicyDeleteDialog } from './backup-policy-delete-dialog'
 import { Link, useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -5,17 +8,24 @@ import {
   CircleCheckIcon,
   ClockIcon,
   CircleXIcon,
-  PencilIcon,
   LoaderIcon,
-  LockIcon,
   MoreHorizontalIcon,
   PlusIcon,
+  PlayIcon,
+  PauseIcon,
   TrashIcon,
+  TriangleAlertIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,22 +40,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from '@/components/ui/input-group'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { SectionNavigation } from '@/components/section-navigation'
+import { ProjectHeading } from './project-heading'
 import {
   Select,
   SelectContent,
@@ -53,7 +48,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
 import { getErrorMessage } from '@/lib/error-message'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
@@ -67,48 +61,19 @@ import type {
   ProjectBackupArtifact,
   ProjectBackupRun,
   ProjectContext,
-} from '@/server/projects/service'
+} from '@/server/projects/types'
 
 import {
-  backupCronPresets as cronPresets,
   filterBackupRuns,
   formatBackupArtifacts,
   formatBackupDate as formatDate,
   formatBackupSchedule as formatSchedule,
   formatBackupStatus as formatStatus,
-  getDatabaseServiceOptions,
-  getDefaultBackupPrefix,
-  getSchedulePresetValue,
   inferArtifactName,
-  isCronSchedule,
-  isUrl,
-  isValidRetention,
 } from './project-backup-utils'
 import type { BackupFilters } from './project-backup-utils'
 import { BackupRunRestoreActions } from './backup-restore-actions'
-import {
-  BackupPolicyDialog,
-  BackupPolicySaveActions,
-  BackupPolicySection,
-  ComposeRequiredEmpty,
-  DatabaseDumpPresetMenu,
-  RetentionFieldGroup,
-  VolumeMultiSelect,
-} from './project-backup-policy'
-import type {
-  BackupPolicyDraft,
-  BackupPolicyErrorField,
-  BackupPolicyErrorSection,
-} from './project-backup-policy'
-
-const backupDetailSections = [
-  { id: 'general', label: 'General' },
-  { id: 'destination', label: 'Remote backups' },
-  { id: 'retention', label: 'Retention' },
-  { id: 'volumes', label: 'Volumes' },
-  { id: 'databases', label: 'Databases' },
-  { id: 'danger', label: 'Danger' },
-]
+import { BackupPolicyDialog } from './project-backup-policy'
 
 export function ProjectBackups({
   context,
@@ -120,6 +85,7 @@ export function ProjectBackups({
   const params = useParams({ strict: false })
   const router = useRouter()
   const queryClient = useQueryClient()
+  const canManage = canManageTeamSettings(context.team.role)
   const [backupConfigs, setBackupConfigs] = useState(context.backupConfigs)
   const [backupRuns, setBackupRuns] = useState(context.backupRuns)
   const [savingPolicyId, setSavingPolicyId] = useState<string | null>(null)
@@ -127,6 +93,13 @@ export function ProjectBackups({
   const [restoringArtifactId, setRestoringArtifactId] = useState<string | null>(
     null,
   )
+  const [deleteTarget, setDeleteTarget] = useState<ProjectBackupConfig | null>(
+    null,
+  )
+  const actionBusy =
+    savingPolicyId !== null ||
+    runningBackupId !== null ||
+    restoringArtifactId !== null
   const runs = filterBackupRuns(backupRuns, filters)
   const teamSlug =
     typeof params.teamSlug === 'string' ? params.teamSlug : context.team.slug
@@ -144,17 +117,19 @@ export function ProjectBackups({
   }, [context.backupRuns])
 
   function setFilter(key: keyof BackupFilters, value: string) {
-    void router.navigate({
-      to: '/$teamSlug/projects/$projectName/backups',
-      params: {
-        teamSlug,
-        projectName,
-      },
-      search: (current) => ({
-        ...current,
-        [key]: value === 'all' ? undefined : value,
+    void navigateFilters(() =>
+      router.navigate({
+        to: '/$teamSlug/projects/$projectName/backups',
+        params: {
+          teamSlug,
+          projectName,
+        },
+        search: (current) => ({
+          ...current,
+          [key]: value === 'all' ? undefined : value,
+        }),
       }),
-    })
+    )
   }
 
   async function updateBackupConfigs(
@@ -174,12 +149,10 @@ export function ProjectBackups({
           backupConfigs: nextConfigs,
         },
       })
-      setProjectContextQueryData(queryClient, nextContext)
+      await setProjectContextQueryData(queryClient, nextContext, 'backups')
       setBackupConfigs(nextContext.backupConfigs)
       setBackupRuns(nextContext.backupRuns)
       toast.success(message)
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to save backup policies.'))
     } finally {
       if (policyId) {
         setSavingPolicyId(null)
@@ -191,14 +164,24 @@ export function ProjectBackups({
     backup: ProjectBackupConfig,
     enabled: boolean,
   ) {
+    if (actionBusy) return
     const nextConfigs = backupConfigs.map((item) =>
       item.id === backup.id ? { ...item, enabled } : item,
     )
-    await updateBackupConfigs(
-      nextConfigs,
-      enabled ? 'Backup policy enabled.' : 'Backup policy disabled.',
-      backup.id,
-    )
+    try {
+      await updateBackupConfigs(
+        nextConfigs,
+        enabled ? 'Backup policy resumed.' : 'Backup policy paused.',
+        backup.id,
+      )
+    } catch (cause) {
+      toast.error(
+        getErrorMessage(
+          cause,
+          'Unable to save backup policy. Please try again.',
+        ),
+      )
+    }
   }
 
   async function deletePolicy(backup: ProjectBackupConfig) {
@@ -207,6 +190,7 @@ export function ProjectBackups({
   }
 
   async function runBackup(backup: ProjectBackupConfig) {
+    if (actionBusy) return
     setRunningBackupId(backup.id)
 
     try {
@@ -217,7 +201,7 @@ export function ProjectBackups({
           backupConfigId: backup.id,
         },
       })
-      setProjectContextQueryData(queryClient, nextContext)
+      await setProjectContextQueryData(queryClient, nextContext, 'backups')
       setBackupConfigs(nextContext.backupConfigs)
       setBackupRuns(nextContext.backupRuns)
       toast.success('Backup queued.')
@@ -230,13 +214,11 @@ export function ProjectBackups({
 
   async function restoreArtifact({
     artifact,
-    restoreCommand,
     run,
     targetService,
     targetVolume,
   }: {
     artifact: ProjectBackupArtifact
-    restoreCommand?: string
     run: ProjectBackupRun
     targetService?: string
     targetVolume?: string
@@ -263,17 +245,14 @@ export function ProjectBackups({
                     artifactId: artifact.id,
                     type: 'database',
                     targetService: targetService ?? '',
-                    restoreCommand: restoreCommand ?? '',
                   },
                 ],
         },
       })
-      setProjectContextQueryData(queryClient, nextContext)
+      await setProjectContextQueryData(queryClient, nextContext, 'backups')
       setBackupConfigs(nextContext.backupConfigs)
       setBackupRuns(nextContext.backupRuns)
       toast.success('Restore queued.')
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to queue restore.'))
     } finally {
       setRestoringArtifactId(null)
     }
@@ -281,24 +260,11 @@ export function ProjectBackups({
 
   return (
     <>
-      <header>
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link
-            to="/$teamSlug/projects/$projectName"
-            params={{ teamSlug, projectName }}
-            className="shrink-0"
-          >
-            <ResourceAvatar
-              name={context.project.name}
-              src={context.project.avatarUrl ?? undefined}
-              color={context.project.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span className="truncate">Backups</span>
-        </h1>
-      </header>
+      <ProjectHeading
+        teamSlug={teamSlug}
+        project={context.project}
+        crumbs={[<span className="truncate">Backups</span>]}
+      />
 
       {backupConfigs.length === 0 ? (
         <Empty className="min-h-60 border bg-card text-card-foreground">
@@ -308,26 +274,8 @@ export function ProjectBackups({
               Create a backup policy for a specific environment.
             </EmptyDescription>
           </EmptyHeader>
-          <EmptyContent>
-            <BackupPolicyDialog
-              context={context}
-              teamSlug={teamSlug}
-              projectName={projectName}
-              backupConfigs={backupConfigs}
-              onSaved={setBackupConfigs}
-            >
-              <Button disabled={context.environments.length === 0}>
-                <PlusIcon data-icon="inline-start" />
-                Create policy
-              </Button>
-            </BackupPolicyDialog>
-          </EmptyContent>
-        </Empty>
-      ) : (
-        <>
-          <section className="space-y-4">
-            <header className="flex h-8 items-center justify-between gap-x-4">
-              <h2 className="text-base font-medium">Backup policies</h2>
+          {canManage ? (
+            <EmptyContent>
               <BackupPolicyDialog
                 context={context}
                 teamSlug={teamSlug}
@@ -335,11 +283,35 @@ export function ProjectBackups({
                 backupConfigs={backupConfigs}
                 onSaved={setBackupConfigs}
               >
-                <Button>
+                <Button
+                  disabled={context.environments.length === 0 || actionBusy}
+                >
                   <PlusIcon data-icon="inline-start" />
                   Create policy
                 </Button>
               </BackupPolicyDialog>
+            </EmptyContent>
+          ) : null}
+        </Empty>
+      ) : (
+        <>
+          <section className="space-y-4">
+            <header className="flex h-8 items-center justify-between gap-x-4">
+              <h2 className="text-base font-medium">Policies</h2>
+              {canManage ? (
+                <BackupPolicyDialog
+                  context={context}
+                  teamSlug={teamSlug}
+                  projectName={projectName}
+                  backupConfigs={backupConfigs}
+                  onSaved={setBackupConfigs}
+                >
+                  <Button>
+                    <PlusIcon data-icon="inline-start" />
+                    Create policy
+                  </Button>
+                </BackupPolicyDialog>
+              ) : null}
             </header>
             <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
               {backupConfigs.map((backup) => {
@@ -347,53 +319,64 @@ export function ProjectBackups({
                   (item) => item.id === backup.environmentId,
                 )
                 const latestRun =
-                  backupRuns.find(
-                    (run) => run.environmentId === backup.environmentId,
-                  ) ?? null
-
-                const isSaving = savingPolicyId === backup.id
+                  backupRuns.find((run) => run.configId === backup.id) ?? null
 
                 return (
                   <li
                     key={backup.id}
-                    className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50"
+                    className="border-b text-sm last:border-b-0"
                   >
-                    <BackupStatusIcon
-                      enabled={backup.enabled}
-                      status={latestRun?.status ?? null}
-                    />
-                    <Link
-                      to="/$teamSlug/projects/$projectName/backups/$backupId"
-                      params={{ teamSlug, projectName, backupId: backup.id }}
-                      className="min-w-0 max-w-80 truncate font-medium hover:underline"
-                    >
-                      {backup.name}
-                    </Link>
-                    <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
-                      <ClockIcon />
-                      <span>{formatSchedule(backup.schedule)}</span>
-                    </span>
-                    {environment ? (
-                      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground">
-                        <EnvironmentDot color={environment.color} />
-                        <span>{environment.name}</span>
-                      </span>
-                    ) : (
-                      <span className="shrink-0 whitespace-nowrap text-muted-foreground">
-                        Unknown environment
-                      </span>
-                    )}
-                    <div className="ml-auto flex shrink-0 items-center">
-                      <BackupPolicyActions
-                        disabled={isSaving}
+                    <div className="flex h-11 items-center gap-4 px-4 hover:bg-muted/50">
+                      <BackupStatusIcon
                         enabled={backup.enabled}
-                        onDelete={() => void deletePolicy(backup)}
-                        onRun={() => void runBackup(backup)}
-                        onToggle={() =>
-                          void setPolicyEnabled(backup, !backup.enabled)
-                        }
+                        status={latestRun?.status ?? null}
                       />
+                      <Link
+                        to="/$teamSlug/projects/$projectName/backups/$backupId"
+                        params={{ teamSlug, projectName, backupId: backup.id }}
+                        className="min-w-0 max-w-80 truncate font-medium hover:underline"
+                      >
+                        {backup.name}
+                      </Link>
+                      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
+                        <ClockIcon />
+                        <span>{formatSchedule(backup.schedule)}</span>
+                      </span>
+                      {environment ? (
+                        <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground">
+                          <EnvironmentDot color={environment.color} />
+                          <span>{environment.name}</span>
+                        </span>
+                      ) : (
+                        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                          Unknown environment
+                        </span>
+                      )}
+                      {canManage ? (
+                        <div className="ml-auto flex shrink-0 items-center">
+                          <BackupPolicyActions
+                            disabled={actionBusy}
+                            enabled={backup.enabled}
+                            onDelete={() => setDeleteTarget(backup)}
+                            onRun={() => void runBackup(backup)}
+                            onToggle={() =>
+                              void setPolicyEnabled(backup, !backup.enabled)
+                            }
+                          />
+                        </div>
+                      ) : null}
                     </div>
+                    {latestRun?.status === 'failed' ? (
+                      <Alert variant="destructive" className="mx-4 mb-3 w-auto">
+                        <TriangleAlertIcon />
+                        <AlertDescription>
+                          {latestRun.localRecoveryAvailable
+                            ? 'Remote upload failed; local backup available. Check the storage connection and run this policy again.'
+                            : (latestRun.errorMessage ??
+                              'The latest backup failed. Run this policy again after resolving the error.')}
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
                   </li>
                 )
               })}
@@ -402,23 +385,7 @@ export function ProjectBackups({
 
           <section className="space-y-4">
             <header className="flex h-8 items-center justify-between gap-x-4">
-              <h2 className="text-base font-medium">Backup runs</h2>
-              <Button
-                disabled={
-                  backupConfigs.length === 0 || runningBackupId !== null
-                }
-                onClick={() => {
-                  void runBackup(backupConfigs[0])
-                }}
-              >
-                {runningBackupId ? (
-                  <LoaderIcon
-                    data-icon="inline-start"
-                    className="animate-spin"
-                  />
-                ) : null}
-                Run backup
-              </Button>
+              <h2 className="text-base font-medium">Runs</h2>
             </header>
 
             {backupRuns.length > 0 ? (
@@ -489,1168 +456,184 @@ export function ProjectBackups({
             ) : null}
 
             {runs.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
-                <div className="grid min-h-12 grid-cols-[1.1fr_1fr_1fr_1fr_1fr_2rem] items-center border-b px-4 py-2 text-sm font-medium">
+              <div className="overflow-x-auto rounded-xl border bg-card text-card-foreground">
+                <div className="grid min-h-12 min-w-256 grid-cols-[.8fr_1fr_1fr_1fr_1.4fr_1fr_6rem] gap-x-4 items-center border-b px-4 py-2 text-sm font-medium">
                   <span>Status</span>
                   <span>Environment</span>
                   <span>Server</span>
                   <span>Artifacts</span>
                   <span>Started</span>
+                  <span>Latest restore</span>
                   <span />
                 </div>
-                {runs.map((run) => (
-                  <div
-                    key={run.id}
-                    className="grid min-h-12 grid-cols-[1.1fr_1fr_1fr_1fr_1fr_2rem] items-center border-b px-4 py-2 text-sm last:border-b-0"
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <BackupStatusIcon status={run.status} />
-                      {formatStatus(run.status)}
-                    </span>
-                    <span className="inline-flex items-center gap-2">
-                      <EnvironmentDot color={run.environmentColor} />
-                      {run.environmentName}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {run.serverName ?? 'Unknown server'}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {formatBackupArtifacts(run.artifacts)}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {formatDate(run.startedAt ?? run.createdAt)}
-                    </span>
-                    <BackupRunRestoreActions
-                      artifacts={run.artifacts}
-                      composeServices={
-                        context.composeMetadata?.services ??
-                        context.routes.map((route) => route.service)
-                      }
-                      composeVolumes={context.composeMetadata?.volumes ?? []}
-                      disabled={restoringArtifactId !== null}
-                      restoringArtifactId={restoringArtifactId}
-                      run={run}
-                      onRestore={(input) => void restoreArtifact(input)}
-                    />
-                  </div>
-                ))}
+                {runs.map((run) => {
+                  const restore = context.backupRestores.find(
+                    (item) => item.backupRunId === run.id,
+                  )
+                  return (
+                    <div
+                      key={run.id}
+                      className="grid min-h-12 min-w-256 grid-cols-[.8fr_1fr_1fr_1fr_1.4fr_1fr_6rem] gap-x-4 items-center border-b px-4 py-2 text-sm last:border-b-0"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <BackupStatusIcon status={run.status} />
+                        {formatStatus(run.status)}
+                      </span>
+                      <span className="inline-flex items-center gap-2 text-muted-foreground">
+                        <EnvironmentDot color={run.environmentColor} />
+                        {run.environmentName}
+                      </span>
+                      <span className="truncate text-muted-foreground">
+                        {run.serverName ?? 'Unknown server'}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {formatBackupArtifacts(run.artifacts)}
+                      </span>
+                      <span className="whitespace-nowrap text-muted-foreground">
+                        {formatDate(run.startedAt ?? run.createdAt)}
+                      </span>
+                      {restore ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              role="status"
+                              tabIndex={0}
+                              aria-label={`Restore ${restore.status}`}
+                              className="inline-flex w-fit items-center gap-2 whitespace-nowrap"
+                            >
+                              <BackupStatusIcon status={restore.status} />
+                              {formatStatus(restore.status)}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {formatDate(
+                              restore.finishedAt ??
+                                restore.startedAt ??
+                                restore.createdAt,
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      {canManage ? (
+                        <BackupRunRestoreActions
+                          projectId={context.project.id}
+                          targetServerName={
+                            context.servers.find(
+                              (server) =>
+                                server.id ===
+                                context.environments.find(
+                                  (environment) =>
+                                    environment.id === run.environmentId,
+                                )?.effectiveServerId,
+                            )?.name ?? 'No server assigned'
+                          }
+                          artifacts={run.artifacts}
+                          composeServices={
+                            context.composeMetadata?.services ??
+                            context.routes.map((route) => route.service)
+                          }
+                          composeVolumes={
+                            context.composeMetadata?.volumes ?? []
+                          }
+                          disabled={
+                            actionBusy ||
+                            context.backupRestores.some(
+                              (restore) =>
+                                restore.environmentId === run.environmentId &&
+                                ['queued', 'running'].includes(restore.status),
+                            )
+                          }
+                          restoringArtifactId={restoringArtifactId}
+                          run={run}
+                          onRestore={restoreArtifact}
+                        />
+                      ) : (
+                        <span />
+                      )}
+                      {restore?.status === 'failed' ? (
+                        <BackupFailureAlert
+                          title="Restore failed"
+                          message={restore.errorMessage}
+                          className="col-span-full my-2"
+                        />
+                      ) : null}
+                      {run.status === 'failed' ? (
+                        <BackupFailureAlert
+                          className="col-span-full my-2"
+                          title={
+                            run.localRecoveryAvailable
+                              ? 'Remote upload failed'
+                              : 'Backup failed'
+                          }
+                          message={run.errorMessage}
+                          description={
+                            run.localRecoveryAvailable
+                              ? 'Local backup available for restoration. Check the storage connection and run this policy again.'
+                              : undefined
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <Empty className="min-h-60 border bg-card text-card-foreground">
                 <EmptyHeader>
                   <EmptyTitle>No backup runs yet.</EmptyTitle>
                   <EmptyDescription>
-                    Trigger a backup manually or wait for the next scheduled
-                    run.
+                    Use Run in a policy’s actions menu or wait for its next
+                    scheduled run.
                   </EmptyDescription>
                 </EmptyHeader>
-                <EmptyContent>
-                  <Button
-                    disabled={
-                      backupConfigs.length === 0 || runningBackupId !== null
-                    }
-                    onClick={() => {
-                      void runBackup(backupConfigs[0])
-                    }}
-                  >
-                    {runningBackupId ? (
-                      <LoaderIcon
-                        data-icon="inline-start"
-                        className="animate-spin"
-                      />
-                    ) : null}
-                    Run backup
-                  </Button>
-                </EmptyContent>
               </Empty>
             )}
           </section>
         </>
       )}
+      {deleteTarget ? (
+        <BackupPolicyDeleteDialog
+          name={deleteTarget.name}
+          open
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null)
+          }}
+          onDelete={() => deletePolicy(deleteTarget)}
+        />
+      ) : null}
     </>
   )
 }
 
-export function ProjectBackupDetails({
-  backupId,
-  context,
+function BackupFailureAlert({
+  title,
+  message,
+  description,
+  className,
 }: {
-  backupId: string
-  context: ProjectContext
+  title: string
+  message: string | null
+  description?: string
+  className?: string
 }) {
-  const params = useParams({ strict: false })
-  const router = useRouter()
-  const queryClient = useQueryClient()
-  const teamSlug =
-    typeof params.teamSlug === 'string' ? params.teamSlug : context.team.slug
-  const projectName =
-    typeof params.projectName === 'string'
-      ? params.projectName
-      : context.project.name
-  const [backupConfigs, setBackupConfigs] = useState(context.backupConfigs)
-  const backup = backupConfigs.find((item) => item.id === backupId)
-  const [name, setName] = useState(backup?.name ?? '')
-  const [environmentId, setEnvironmentId] = useState(
-    backup?.environmentId ?? context.environments.at(0)?.id ?? '',
-  )
-  const [enabled, setEnabled] = useState(backup?.enabled ?? true)
-  const [cron, setCron] = useState(backup?.schedule.cron ?? '0 2 * * *')
-  const [schedulePresetValue, setSchedulePresetValue] = useState(
-    getSchedulePresetValue(backup?.schedule.cron ?? '0 2 * * *'),
-  )
-  const [bucket, setBucket] = useState(backup?.destination.bucket ?? '')
-  const [region, setRegion] = useState(backup?.destination.region ?? '')
-  const [endpoint, setEndpoint] = useState(backup?.destination.endpoint ?? '')
-  const [prefix, setPrefix] = useState(backup?.destination.prefix ?? '')
-  const [accessKeyId, setAccessKeyId] = useState(
-    backup?.destination.accessKeyId ?? '',
-  )
-  const [secretAccessKey, setSecretAccessKey] = useState('')
-  const [clearSecretAccessKey, setClearSecretAccessKey] = useState(false)
-  const [isEditingSecretAccessKey, setIsEditingSecretAccessKey] = useState(
-    !backup?.destination.secretAccessKeyPreview,
-  )
-  const [localRetentionCount, setLocalRetentionCount] = useState(
-    String(backup?.retention.local.count ?? 7),
-  )
-  const [localRetentionDays, setLocalRetentionDays] = useState(
-    String(backup?.retention.local.days ?? 0),
-  )
-  const [localRetentionMaxStorageGb, setLocalRetentionMaxStorageGb] = useState(
-    String(backup?.retention.local.maxStorageGb ?? 0),
-  )
-  const [remoteRetentionEnabled, setRemoteRetentionEnabled] = useState(
-    backup?.retention.remote.enabled ?? false,
-  )
-  const [remoteRetentionCount, setRemoteRetentionCount] = useState(
-    String(backup?.retention.remote.count ?? 7),
-  )
-  const [remoteRetentionDays, setRemoteRetentionDays] = useState(
-    String(backup?.retention.remote.days ?? 0),
-  )
-  const [remoteRetentionMaxStorageGb, setRemoteRetentionMaxStorageGb] =
-    useState(String(backup?.retention.remote.maxStorageGb ?? 0))
-  const [volumeMode, setVolumeMode] = useState<
-    'none' | 'allNamed' | 'selected'
-  >(backup?.volumes.mode ?? 'allNamed')
-  const [volumeNames, setVolumeNames] = useState(backup?.volumes.names ?? [])
-  const [databaseDumps, setDatabaseDumps] = useState(
-    backup?.databaseDumps ?? [],
-  )
-  const [fieldError, setFieldError] = useState<{
-    field: BackupPolicyErrorField
-    message: string
-    section: BackupPolicyErrorSection
-  } | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-  const isCustomSchedule = schedulePresetValue === 'custom'
-  const missingComposeFile = context.project.runtimeConfig.path === null
-  const composeServices =
-    context.composeMetadata?.services ??
-    context.routes.map((route) => route.service)
-  const composeVolumes = context.composeMetadata?.volumes ?? []
-  const databaseServiceOptions = getDatabaseServiceOptions({
-    services: composeServices,
-    databaseDumps,
-  })
-  const volumeOptions = Array.from(
-    new Set([...composeVolumes, ...volumeNames]),
-  ).sort()
-  const hasNamedVolumes = volumeOptions.length > 0
-  const hasChanges = backup
-    ? JSON.stringify(getBackupDraft()) !== JSON.stringify(toBackupDraft(backup))
-    : false
-
-  useEffect(() => {
-    setBackupConfigs(context.backupConfigs)
-  }, [context.backupConfigs])
-
-  useEffect(() => {
-    if (!backup) {
-      return
-    }
-    setName(backup.name)
-    setEnvironmentId(backup.environmentId)
-    setEnabled(backup.enabled)
-    setCron(backup.schedule.cron)
-    setSchedulePresetValue(getSchedulePresetValue(backup.schedule.cron))
-    setBucket(backup.destination.bucket)
-    setRegion(backup.destination.region ?? '')
-    setEndpoint(backup.destination.endpoint ?? '')
-    setPrefix(backup.destination.prefix ?? '')
-    setAccessKeyId(backup.destination.accessKeyId ?? '')
-    setSecretAccessKey('')
-    setClearSecretAccessKey(false)
-    setIsEditingSecretAccessKey(!backup.destination.secretAccessKeyPreview)
-    setLocalRetentionCount(String(backup.retention.local.count))
-    setLocalRetentionDays(String(backup.retention.local.days))
-    setLocalRetentionMaxStorageGb(String(backup.retention.local.maxStorageGb))
-    setRemoteRetentionEnabled(backup.retention.remote.enabled)
-    setRemoteRetentionCount(String(backup.retention.remote.count))
-    setRemoteRetentionDays(String(backup.retention.remote.days))
-    setRemoteRetentionMaxStorageGb(String(backup.retention.remote.maxStorageGb))
-    setVolumeMode(backup.volumes.mode)
-    setVolumeNames(backup.volumes.names)
-    setDatabaseDumps(backup.databaseDumps)
-    setFieldError(null)
-  }, [backup])
-
-  useEffect(() => {
-    if (!hasNamedVolumes && volumeMode !== 'none') {
-      setVolumeMode('none')
-      setVolumeNames([])
-    }
-  }, [hasNamedVolumes, volumeMode])
-
-  if (!backup) {
-    return (
-      <Empty className="min-h-60 border bg-card text-card-foreground">
-        <EmptyHeader>
-          <EmptyTitle>Backup policy not found.</EmptyTitle>
-          <EmptyDescription>
-            This backup policy may have been deleted.
-          </EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
-          <Button asChild>
-            <Link
-              to="/$teamSlug/projects/$projectName/backups"
-              params={{ teamSlug, projectName }}
-            >
-              Back to backups
-            </Link>
-          </Button>
-        </EmptyContent>
-      </Empty>
-    )
-  }
-
-  const currentBackup = backup
-  const backupIdValue = currentBackup.id
-
-  function getBackupDraft(): BackupPolicyDraft {
-    return {
-      name,
-      environmentId,
-      enabled,
-      cron,
-      bucket,
-      region,
-      endpoint,
-      prefix,
-      accessKeyId,
-      secretAccessKey,
-      clearSecretAccessKey,
-      localRetentionCount,
-      localRetentionDays,
-      localRetentionMaxStorageGb,
-      remoteRetentionEnabled,
-      remoteRetentionCount,
-      remoteRetentionDays,
-      remoteRetentionMaxStorageGb,
-      volumeMode,
-      volumeNames,
-      databaseDumps,
-    }
-  }
-
-  function resetDraft() {
-    setName(currentBackup.name)
-    setEnvironmentId(currentBackup.environmentId)
-    setEnabled(currentBackup.enabled)
-    setCron(currentBackup.schedule.cron)
-    setSchedulePresetValue(getSchedulePresetValue(currentBackup.schedule.cron))
-    setBucket(currentBackup.destination.bucket)
-    setRegion(currentBackup.destination.region ?? '')
-    setEndpoint(currentBackup.destination.endpoint ?? '')
-    setPrefix(currentBackup.destination.prefix ?? '')
-    setAccessKeyId(currentBackup.destination.accessKeyId ?? '')
-    setSecretAccessKey('')
-    setClearSecretAccessKey(false)
-    setIsEditingSecretAccessKey(
-      !currentBackup.destination.secretAccessKeyPreview,
-    )
-    setLocalRetentionCount(String(currentBackup.retention.local.count))
-    setLocalRetentionDays(String(currentBackup.retention.local.days))
-    setLocalRetentionMaxStorageGb(
-      String(currentBackup.retention.local.maxStorageGb),
-    )
-    setRemoteRetentionEnabled(currentBackup.retention.remote.enabled)
-    setRemoteRetentionCount(String(currentBackup.retention.remote.count))
-    setRemoteRetentionDays(String(currentBackup.retention.remote.days))
-    setRemoteRetentionMaxStorageGb(
-      String(currentBackup.retention.remote.maxStorageGb),
-    )
-    setVolumeMode(currentBackup.volumes.mode)
-    setVolumeNames(currentBackup.volumes.names)
-    setDatabaseDumps(currentBackup.databaseDumps)
-    setFieldError(null)
-  }
-
-  async function save() {
-    const trimmedName = name.trim()
-    const trimmedCron = cron.trim()
-    const trimmedBucket = bucket.trim()
-    const trimmedEndpoint = endpoint.trim()
-    const trimmedAccessKeyId = accessKeyId.trim()
-    const trimmedSecretAccessKey = secretAccessKey.trim()
-    const selectedVolumeNames = volumeNames
-      .map((item) => item.trim())
-      .filter(Boolean)
-    const normalizedRetention = {
-      local: {
-        count: Number(localRetentionCount),
-        days: Number(localRetentionDays),
-        maxStorageGb: Number(localRetentionMaxStorageGb),
-      },
-      remote: {
-        enabled: remoteRetentionEnabled,
-        count: Number(remoteRetentionCount),
-        days: Number(remoteRetentionDays),
-        maxStorageGb: Number(remoteRetentionMaxStorageGb),
-      },
-    }
-    const normalizedDumps = databaseDumps.map((dump) => ({
-      service: dump.service.trim(),
-      command: dump.command.trim(),
-    }))
-
-    if (!trimmedName) {
-      setFieldError({
-        field: 'name',
-        message: 'Backup policy name is required.',
-        section: 'general',
-      })
-      return
-    }
-
-    if (!environmentId) {
-      setFieldError({
-        field: 'environment',
-        message: 'Select an environment.',
-        section: 'general',
-      })
-      return
-    }
-
-    if (!isCronSchedule(trimmedCron)) {
-      setFieldError({
-        field: 'schedule',
-        message: 'Use a five-field cron schedule, e.g. 0 2 * * *.',
-        section: 'general',
-      })
-      return
-    }
-
-    if (remoteRetentionEnabled && !trimmedBucket) {
-      setFieldError({
-        field: 'bucket',
-        message: 'Backup bucket is required.',
-        section: 'destination',
-      })
-      return
-    }
-
-    if (
-      remoteRetentionEnabled &&
-      trimmedAccessKeyId &&
-      !trimmedSecretAccessKey &&
-      (!currentBackup.destination.secretAccessKeyPreview ||
-        clearSecretAccessKey)
-    ) {
-      setFieldError({
-        field: 'secretAccessKey',
-        message: 'Remote backup secret access key is required.',
-        section: 'destination',
-      })
-      return
-    }
-
-    if (
-      remoteRetentionEnabled &&
-      !trimmedAccessKeyId &&
-      trimmedSecretAccessKey
-    ) {
-      setFieldError({
-        field: 'accessKeyId',
-        message: 'Remote backup access key ID is required.',
-        section: 'destination',
-      })
-      return
-    }
-
-    if (remoteRetentionEnabled && trimmedEndpoint && !isUrl(trimmedEndpoint)) {
-      setFieldError({
-        field: 'endpoint',
-        message: 'Endpoint must be a valid URL.',
-        section: 'destination',
-      })
-      return
-    }
-
-    if (!isValidRetention(normalizedRetention)) {
-      setFieldError({
-        field: 'retention',
-        message:
-          'Retention values must be non-negative numbers. Backup count and days must be whole numbers.',
-        section: 'retention',
-      })
-      return
-    }
-
-    if (volumeMode === 'selected' && volumeOptions.length === 0) {
-      setFieldError({
-        field: 'volumes',
-        message: 'No named Compose volumes were detected for this project.',
-        section: 'volumes',
-      })
-      return
-    }
-
-    if (volumeMode === 'selected' && selectedVolumeNames.length === 0) {
-      setFieldError({
-        field: 'volumes',
-        message: 'Select at least one named volume or choose no volumes.',
-        section: 'volumes',
-      })
-      return
-    }
-
-    const incompleteDump = normalizedDumps.find(
-      (dump) => !dump.service || !dump.command,
-    )
-    if (incompleteDump) {
-      setFieldError({
-        field: 'databases',
-        message: 'Database dumps must include service and command.',
-        section: 'databases',
-      })
-      return
-    }
-
-    setIsSaving(true)
-
-    const nextConfigs = backupConfigs.map((item) =>
-      item.id === backupIdValue
-        ? {
-            ...item,
-            name: trimmedName,
-            environmentId,
-            enabled,
-            schedule: { cron: trimmedCron },
-            destination: {
-              bucket: trimmedBucket,
-              region: region.trim() || undefined,
-              endpoint: trimmedEndpoint || undefined,
-              prefix: prefix.trim() || undefined,
-              accessKeyId: trimmedAccessKeyId || undefined,
-              secretAccessKey: trimmedSecretAccessKey || undefined,
-              clearSecretAccessKey,
-            },
-            retention: normalizedRetention,
-            volumes: {
-              mode: volumeMode,
-              names: volumeMode === 'selected' ? selectedVolumeNames : [],
-            },
-            databaseDumps: normalizedDumps,
-          }
-        : item,
-    )
-
-    try {
-      const nextContext = await saveProjectBackupConfigs({
-        data: {
-          teamSlug,
-          projectName,
-          backupConfigs: nextConfigs,
-        },
-      })
-      setProjectContextQueryData(queryClient, nextContext)
-      setBackupConfigs(nextContext.backupConfigs)
-      toast.success('Backup policy saved.')
-      setFieldError(null)
-    } catch (error) {
-      setFieldError({
-        field: 'name',
-        message: getErrorMessage(error, 'Unable to save backup policy.'),
-        section: 'general',
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  async function deletePolicy() {
-    setIsSaving(true)
-    const nextConfigs = backupConfigs.filter(
-      (item) => item.id !== backupIdValue,
-    )
-
-    try {
-      const nextContext = await saveProjectBackupConfigs({
-        data: {
-          teamSlug,
-          projectName,
-          backupConfigs: nextConfigs,
-        },
-      })
-      setProjectContextQueryData(queryClient, nextContext)
-      setBackupConfigs(nextContext.backupConfigs)
-      toast.success('Backup policy deleted.')
-      void router.navigate({
-        to: '/$teamSlug/projects/$projectName/backups',
-        params: { teamSlug, projectName },
-      })
-    } catch (error) {
-      setFieldError({
-        field: 'danger',
-        message: getErrorMessage(error, 'Unable to delete backup policy.'),
-        section: 'danger',
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link
-            to="/$teamSlug/projects/$projectName"
-            params={{ teamSlug, projectName }}
-            className="shrink-0"
-          >
-            <ResourceAvatar
-              name={context.project.name}
-              src={context.project.avatarUrl ?? undefined}
-              color={context.project.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <Link
-            to="/$teamSlug/projects/$projectName/backups"
-            params={{ teamSlug, projectName }}
-            className="truncate hover:underline"
-          >
-            Backups
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span className="truncate">{backup.name}</span>
-        </h1>
-      </header>
-
-      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-        <div className="space-y-8">
-          <BackupPolicySection
-            id="general"
-            title="General"
-            description="Name, environment, and schedule for this backup policy."
-            footer={
-              <BackupPolicySaveActions
-                hasChanges={hasChanges}
-                isSaving={isSaving}
-                onCancel={resetDraft}
-                onSave={save}
-              />
-            }
-          >
-            <FieldGroup>
-              <Field orientation="horizontal" className="justify-between">
-                <div className="space-y-1">
-                  <FieldLabel htmlFor={`backup-policy-enabled-${backup.id}`}>
-                    Status
-                  </FieldLabel>
-                  <FieldDescription>
-                    Enabled policies are eligible for scheduled backup jobs.
-                    Paused policies keep their configuration but do not enqueue
-                    backups.
-                  </FieldDescription>
-                </div>
-                <Switch
-                  id={`backup-policy-enabled-${backup.id}`}
-                  checked={enabled}
-                  onCheckedChange={setEnabled}
-                />
-              </Field>
-
-              <Field
-                data-invalid={fieldError?.field === 'name' ? true : undefined}
-              >
-                <FieldLabel htmlFor={`backup-policy-name-${backup.id}`}>
-                  Name
-                </FieldLabel>
-                <Input
-                  id={`backup-policy-name-${backup.id}`}
-                  aria-invalid={fieldError?.field === 'name'}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                />
-                {fieldError?.field === 'name' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </Field>
-
-              <Field
-                data-invalid={
-                  fieldError?.field === 'environment' ? true : undefined
-                }
-              >
-                <FieldLabel>Environment</FieldLabel>
-                <Select value={environmentId} onValueChange={setEnvironmentId}>
-                  <SelectTrigger
-                    className="w-full"
-                    aria-invalid={fieldError?.field === 'environment'}
-                  >
-                    <SelectValue placeholder="Select environment" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {context.environments.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        <span className="inline-flex items-center gap-2">
-                          <EnvironmentDot color={item.color} />
-                          {item.name}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {fieldError?.field === 'environment' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </Field>
-
-              <Field
-                data-invalid={
-                  fieldError?.field === 'schedule' ? true : undefined
-                }
-              >
-                <FieldLabel>Schedule</FieldLabel>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Select
-                    value={schedulePresetValue}
-                    onValueChange={(value) => {
-                      setSchedulePresetValue(value)
-                      if (value !== 'custom') {
-                        setCron(value)
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Preset" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {cronPresets.map((preset) => (
-                        <SelectItem key={preset.value} value={preset.value}>
-                          {preset.label}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="custom">
-                        Custom (cron schedule)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <InputGroup
-                    className={
-                      isCustomSchedule
-                        ? undefined
-                        : 'bg-accent/50 text-muted-foreground'
-                    }
-                  >
-                    <InputGroupInput
-                      aria-invalid={fieldError?.field === 'schedule'}
-                      value={cron}
-                      placeholder="0 2 * * *"
-                      readOnly={!isCustomSchedule}
-                      onChange={(event) => setCron(event.target.value)}
-                    />
-                    {isCustomSchedule ? null : (
-                      <InputGroupAddon align="inline-end">
-                        <LockIcon />
-                      </InputGroupAddon>
-                    )}
-                  </InputGroup>
-                </div>
-                <FieldDescription>Backup schedules use UTC.</FieldDescription>
-                {fieldError?.field === 'schedule' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </Field>
-            </FieldGroup>
-          </BackupPolicySection>
-
-          <BackupPolicySection
-            id="destination"
-            title="Remote backups"
-            description="Upload backup artifacts to remote object storage."
-            footer={
-              <BackupPolicySaveActions
-                hasChanges={hasChanges}
-                isSaving={isSaving}
-                onCancel={resetDraft}
-                onSave={save}
-              />
-            }
-          >
-            <FieldGroup>
-              <Field orientation="horizontal" className="justify-start">
-                <Switch
-                  id={`backup-remote-enabled-${backup.id}`}
-                  checked={remoteRetentionEnabled}
-                  onCheckedChange={setRemoteRetentionEnabled}
-                />
-                <FieldLabel htmlFor={`backup-remote-enabled-${backup.id}`}>
-                  Enable remote backups
-                </FieldLabel>
-              </Field>
-              <Field
-                data-invalid={fieldError?.field === 'bucket' ? true : undefined}
-              >
-                <FieldLabel htmlFor={`backup-bucket-${backup.id}`}>
-                  Bucket
-                </FieldLabel>
-                <Input
-                  id={`backup-bucket-${backup.id}`}
-                  aria-invalid={fieldError?.field === 'bucket'}
-                  disabled={!remoteRetentionEnabled}
-                  value={bucket}
-                  placeholder="devpush-backups"
-                  onChange={(event) => setBucket(event.target.value)}
-                />
-                {fieldError?.field === 'bucket' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </Field>
-              <Field
-                data-invalid={
-                  fieldError?.field === 'endpoint' ? true : undefined
-                }
-              >
-                <FieldLabel htmlFor={`backup-region-${backup.id}`}>
-                  Region
-                </FieldLabel>
-                <FieldDescription>
-                  Provider region, or auto for providers like R2 that do not
-                  require a traditional region.
-                </FieldDescription>
-                <Input
-                  id={`backup-region-${backup.id}`}
-                  disabled={!remoteRetentionEnabled}
-                  value={region}
-                  placeholder="auto"
-                  onChange={(event) => setRegion(event.target.value)}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={`backup-endpoint-${backup.id}`}>
-                  Endpoint
-                </FieldLabel>
-                <FieldDescription>
-                  Custom S3-compatible API endpoint. Leave empty for AWS S3.
-                </FieldDescription>
-                <Input
-                  id={`backup-endpoint-${backup.id}`}
-                  aria-invalid={fieldError?.field === 'endpoint'}
-                  disabled={!remoteRetentionEnabled}
-                  value={endpoint}
-                  placeholder="https://example.r2.cloudflarestorage.com"
-                  onChange={(event) => setEndpoint(event.target.value)}
-                />
-                {fieldError?.field === 'endpoint' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </Field>
-              <Field
-                data-invalid={
-                  fieldError?.field === 'accessKeyId' ? true : undefined
-                }
-              >
-                <FieldLabel htmlFor={`backup-prefix-${backup.id}`}>
-                  Object prefix
-                </FieldLabel>
-                <Input
-                  id={`backup-prefix-${backup.id}`}
-                  disabled={!remoteRetentionEnabled}
-                  value={prefix}
-                  placeholder={getDefaultBackupPrefix(
-                    context.project.id,
-                    environmentId,
-                    backup.id,
-                  )}
-                  onChange={(event) => setPrefix(event.target.value)}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={`backup-access-key-id-${backup.id}`}>
-                  Access key ID
-                </FieldLabel>
-                <Input
-                  id={`backup-access-key-id-${backup.id}`}
-                  aria-invalid={fieldError?.field === 'accessKeyId'}
-                  disabled={!remoteRetentionEnabled}
-                  value={accessKeyId}
-                  onChange={(event) => setAccessKeyId(event.target.value)}
-                />
-                {fieldError?.field === 'accessKeyId' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </Field>
-              <Field
-                data-invalid={
-                  fieldError?.field === 'secretAccessKey' ? true : undefined
-                }
-              >
-                <FieldLabel htmlFor={`backup-secret-access-key-${backup.id}`}>
-                  Secret access key
-                </FieldLabel>
-                {isEditingSecretAccessKey ||
-                !backup.destination.secretAccessKeyPreview ||
-                clearSecretAccessKey ? (
-                  <InputGroup>
-                    <InputGroupInput
-                      id={`backup-secret-access-key-${backup.id}`}
-                      aria-invalid={fieldError?.field === 'secretAccessKey'}
-                      disabled={!remoteRetentionEnabled}
-                      value={secretAccessKey}
-                      type="password"
-                      placeholder={
-                        backup.destination.secretAccessKeyPreview &&
-                        !clearSecretAccessKey
-                          ? 'Paste replacement value'
-                          : undefined
-                      }
-                      onChange={(event) => {
-                        setSecretAccessKey(event.target.value)
-                        setClearSecretAccessKey(false)
-                      }}
-                    />
-                    {backup.destination.secretAccessKeyPreview ? (
-                      <InputGroupAddon align="inline-end">
-                        <InputGroupButton
-                          onClick={() => {
-                            setAccessKeyId(
-                              currentBackup.destination.accessKeyId ?? '',
-                            )
-                            setSecretAccessKey('')
-                            setClearSecretAccessKey(false)
-                            setIsEditingSecretAccessKey(false)
-                          }}
-                        >
-                          Cancel
-                        </InputGroupButton>
-                        <InputGroupButton
-                          variant="destructive"
-                          onClick={() => {
-                            setAccessKeyId('')
-                            setSecretAccessKey('')
-                            setClearSecretAccessKey(true)
-                          }}
-                        >
-                          Clear
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    ) : null}
-                  </InputGroup>
-                ) : (
-                  <InputGroup>
-                    <InputGroupInput
-                      id={`backup-secret-access-key-${backup.id}`}
-                      disabled
-                      value={backup.destination.secretAccessKeyPreview}
-                    />
-                    <InputGroupAddon align="inline-end">
-                      <InputGroupButton
-                        onClick={() => setIsEditingSecretAccessKey(true)}
-                        disabled={!remoteRetentionEnabled}
-                      >
-                        <PencilIcon />
-                        Edit
-                      </InputGroupButton>
-                    </InputGroupAddon>
-                  </InputGroup>
-                )}
-                <FieldDescription>
-                  Stored encrypted. The saved secret cannot be viewed again;
-                  edit it to replace the value.
-                </FieldDescription>
-                {fieldError?.field === 'secretAccessKey' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </Field>
-            </FieldGroup>
-          </BackupPolicySection>
-
-          <BackupPolicySection
-            id="retention"
-            title="Retention"
-            description="Limits retained local and remote backup generations by count, age, and storage."
-            footer={
-              <BackupPolicySaveActions
-                hasChanges={hasChanges}
-                isSaving={isSaving}
-                onCancel={resetDraft}
-                onSave={save}
-              />
-            }
-          >
-            <div className="grid gap-6">
-              <RetentionFieldGroup
-                title="Local backups"
-                description="Applies to backup files kept on the server. A value of 0 disables that local limit."
-                count={localRetentionCount}
-                days={localRetentionDays}
-                maxStorageGb={localRetentionMaxStorageGb}
-                fieldError={fieldError?.field === 'retention'}
-                onCountChange={setLocalRetentionCount}
-                onDaysChange={setLocalRetentionDays}
-                onMaxStorageGbChange={setLocalRetentionMaxStorageGb}
-              />
-              <RetentionFieldGroup
-                title="Remote backups"
-                description="Applies to uploaded remote backup objects. A value of 0 disables that remote limit."
-                enabled={remoteRetentionEnabled}
-                count={remoteRetentionCount}
-                days={remoteRetentionDays}
-                maxStorageGb={remoteRetentionMaxStorageGb}
-                fieldError={fieldError?.field === 'retention'}
-                onCountChange={setRemoteRetentionCount}
-                onDaysChange={setRemoteRetentionDays}
-                onMaxStorageGbChange={setRemoteRetentionMaxStorageGb}
-              />
-              {fieldError?.field === 'retention' ? (
-                <FieldError>{fieldError.message}</FieldError>
-              ) : null}
-            </div>
-          </BackupPolicySection>
-
-          <BackupPolicySection
-            id="volumes"
-            title="Volume backups"
-            description="Archive named Compose volumes for this environment."
-            footer={
-              missingComposeFile ? undefined : (
-                <BackupPolicySaveActions
-                  hasChanges={hasChanges}
-                  isSaving={isSaving}
-                  onCancel={resetDraft}
-                  onSave={save}
-                />
-              )
-            }
-          >
-            {missingComposeFile ? (
-              <ComposeRequiredEmpty />
-            ) : (
-              <div className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-[220px_minmax(0,1fr)]">
-                  <Select
-                    value={volumeMode}
-                    onValueChange={(value) =>
-                      setVolumeMode(value as 'none' | 'allNamed' | 'selected')
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No volumes</SelectItem>
-                      <SelectItem value="allNamed" disabled={!hasNamedVolumes}>
-                        All named volumes
-                      </SelectItem>
-                      <SelectItem value="selected" disabled={!hasNamedVolumes}>
-                        Selected volumes
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <VolumeMultiSelect
-                    disabled={volumeMode !== 'selected'}
-                    options={volumeOptions}
-                    onVolumeNamesChange={setVolumeNames}
-                    volumeNames={volumeNames}
-                  />
-                </div>
-                {fieldError?.section === 'volumes' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </div>
-            )}
-          </BackupPolicySection>
-
-          <BackupPolicySection
-            id="databases"
-            title="Database dumps"
-            description="Run database dump commands before the archive is uploaded."
-            footer={
-              missingComposeFile ? undefined : (
-                <BackupPolicySaveActions
-                  hasChanges={hasChanges}
-                  isSaving={isSaving}
-                  onCancel={resetDraft}
-                  onSave={save}
-                />
-              )
-            }
-          >
-            {missingComposeFile ? (
-              <ComposeRequiredEmpty />
-            ) : (
-              <div className="space-y-4">
-                {databaseDumps.length > 0 ? (
-                  <div>
-                    <div className="grid grid-cols-[180px_minmax(0,1fr)_2rem_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
-                      <span>Service</span>
-                      <span>Command</span>
-                      <span />
-                      <span />
-                    </div>
-                    {databaseDumps.map((dump, index) => (
-                      <div
-                        key={index}
-                        className="grid min-h-12 grid-cols-[180px_minmax(0,1fr)_2rem_2rem] items-start gap-x-2 border-b py-2 text-sm"
-                      >
-                        <Input
-                          id={`backup-dump-service-${backup.id}-${index}`}
-                          value={dump.service}
-                          placeholder="postgres"
-                          onChange={(event) => {
-                            const nextDumps = [...databaseDumps]
-                            nextDumps[index] = {
-                              ...dump,
-                              service: event.target.value,
-                            }
-                            setDatabaseDumps(nextDumps)
-                          }}
-                        />
-                        <Input
-                          className="font-mono text-[13px]"
-                          id={`backup-dump-command-${backup.id}-${index}`}
-                          value={dump.command}
-                          placeholder="dump command | gzip"
-                          onChange={(event) => {
-                            const nextDumps = [...databaseDumps]
-                            nextDumps[index] = {
-                              ...dump,
-                              command: event.target.value,
-                            }
-                            setDatabaseDumps(nextDumps)
-                          }}
-                        />
-                        <DatabaseDumpPresetMenu
-                          onSelect={(preset) => {
-                            const nextDumps = [...databaseDumps]
-                            nextDumps[index] = {
-                              ...dump,
-                              command: preset.command,
-                            }
-                            setDatabaseDumps(nextDumps)
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="icon"
-                          aria-label="Remove database dump"
-                          onClick={() =>
-                            setDatabaseDumps(
-                              databaseDumps.filter(
-                                (_, dumpIndex) => dumpIndex !== index,
-                              ),
-                            )
-                          }
-                        >
-                          <TrashIcon />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Empty className="min-h-40 border-0">
-                    <EmptyHeader>
-                      <EmptyTitle>No database dumps.</EmptyTitle>
-                      <EmptyDescription>
-                        Volume archives may only be crash-consistent for live
-                        databases. Add dump commands for database services.
-                      </EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent className="flex-row justify-center">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() =>
-                          setDatabaseDumps([
-                            ...databaseDumps,
-                            {
-                              service: databaseServiceOptions[0] ?? '',
-                              command: '',
-                            },
-                          ])
-                        }
-                      >
-                        <PlusIcon data-icon="inline-start" />
-                        Add dump
-                      </Button>
-                    </EmptyContent>
-                  </Empty>
-                )}
-                {databaseDumps.length > 0 ? (
-                  <div className="mt-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        setDatabaseDumps([
-                          ...databaseDumps,
-                          {
-                            service: databaseServiceOptions[0] ?? '',
-                            command: '',
-                          },
-                        ])
-                      }
-                    >
-                      <PlusIcon data-icon="inline-start" />
-                      Add dump
-                    </Button>
-                  </div>
-                ) : null}
-                {fieldError?.section === 'databases' ? (
-                  <FieldError>{fieldError.message}</FieldError>
-                ) : null}
-              </div>
-            )}
-          </BackupPolicySection>
-
-          <BackupPolicySection
-            id="danger"
-            title="Danger"
-            description="Delete this backup policy. Existing backup runs are kept."
-          >
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={deletePolicy}
-              disabled={isSaving}
-            >
-              <TrashIcon data-icon="inline-start" />
-              Delete policy
-            </Button>
-            {fieldError?.section === 'danger' ? (
-              <FieldError>{fieldError.message}</FieldError>
-            ) : null}
-          </BackupPolicySection>
-        </div>
-        <aside className="hidden lg:block">
-          <SectionNavigation
-            className="sticky top-[122px]"
-            items={backupDetailSections.map((section) => ({
-              href: `#${section.id}`,
-              label: section.label,
-              destructive: section.id === 'danger',
-            }))}
-          />
-        </aside>
-      </div>
-    </div>
+    <Alert variant="destructive" className={className}>
+      <TriangleAlertIcon />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>
+        {description ? <p>{description}</p> : null}
+        {message ? (
+          <details>
+            <summary className="cursor-pointer">Error details</summary>
+            <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-xs">
+              {message}
+            </p>
+          </details>
+        ) : null}
+      </AlertDescription>
+    </Alert>
   )
 }
 
@@ -1681,14 +664,22 @@ function BackupPolicyActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuItem onSelect={onRun}>Run backup</DropdownMenuItem>
-        <DropdownMenuItem onSelect={onToggle}>
-          {enabled ? 'Pause policy' : 'Resume policy'}
+        <DropdownMenuItem disabled={disabled} onSelect={onRun}>
+          <PlayIcon />
+          Run
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={disabled} onSelect={onToggle}>
+          {enabled ? <PauseIcon /> : <PlayIcon />}
+          {enabled ? 'Pause' : 'Resume'}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+        <DropdownMenuItem
+          disabled={disabled}
+          variant="destructive"
+          onSelect={onDelete}
+        >
           <TrashIcon />
-          Delete policy
+          Delete
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1703,7 +694,7 @@ function BackupStatusIcon({
   status: ProjectBackupRun['status'] | null
 }) {
   if (!enabled) {
-    return <BanIcon className="size-4 shrink-0 text-muted-foreground" />
+    return <PauseIcon className="size-4 shrink-0 text-muted-foreground" />
   }
   if (status === 'succeeded') {
     return <CircleCheckIcon className="size-4 shrink-0 text-green-500" />
@@ -1717,30 +708,4 @@ function BackupStatusIcon({
     )
   }
   return <BanIcon className="size-4 shrink-0 text-muted-foreground" />
-}
-
-function toBackupDraft(backup: ProjectBackupConfig): BackupPolicyDraft {
-  return {
-    accessKeyId: backup.destination.accessKeyId ?? '',
-    name: backup.name,
-    environmentId: backup.environmentId,
-    enabled: backup.enabled,
-    cron: backup.schedule.cron,
-    bucket: backup.destination.bucket,
-    clearSecretAccessKey: false,
-    region: backup.destination.region ?? '',
-    endpoint: backup.destination.endpoint ?? '',
-    prefix: backup.destination.prefix ?? '',
-    localRetentionCount: String(backup.retention.local.count),
-    localRetentionDays: String(backup.retention.local.days),
-    localRetentionMaxStorageGb: String(backup.retention.local.maxStorageGb),
-    remoteRetentionEnabled: backup.retention.remote.enabled,
-    remoteRetentionCount: String(backup.retention.remote.count),
-    remoteRetentionDays: String(backup.retention.remote.days),
-    remoteRetentionMaxStorageGb: String(backup.retention.remote.maxStorageGb),
-    secretAccessKey: '',
-    volumeMode: backup.volumes.mode,
-    volumeNames: backup.volumes.names,
-    databaseDumps: backup.databaseDumps,
-  }
 }

@@ -1,3 +1,7 @@
+import { invalidateResourceQueries } from '@/lib/resource-cache'
+import { createProjectSchema } from '@/lib/project-creation-schema'
+import { afterMutation } from '@/lib/action-feedback'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from '@tanstack/react-router'
 import {
   ArrowLeftIcon,
@@ -11,7 +15,6 @@ import {
   SearchIcon,
   Trash2Icon,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -57,19 +60,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  RepositoryListPending,
+  RepositoryToolbarPending,
+} from '@/features/repositories/repository-list-pending'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { authClient } from '@/lib/auth/client'
 import { getErrorMessage } from '@/lib/error-message'
-import { useVisibleRefresh } from '@/lib/use-visible-refresh'
+import { repositorySelectionQueryOptions } from '@/lib/repository-selection-query'
+import { teamShellQueryOptions } from '@/lib/team-context-query'
 import {
   createProject,
-  getNewProjectContext,
   getRepositorySelectionRepositories,
 } from '@/server/projects/functions'
-import type { RepositorySelectionContext } from '@/server/projects/service'
-import type { ServerSummary, TeamSummary } from '@/server/teams/service'
+import type { RepositorySelectionContext } from '@/server/projects/types'
+import type { ServerSummary, TeamSummary } from '@/server/teams/types'
 
 type Repository = Extract<
   RepositorySelectionContext['github'],
@@ -83,6 +89,7 @@ type Installation = Extract<
 
 type NewProjectFieldErrors = Partial<
   Record<
+    | 'form'
     | 'composePath'
     | 'envVars'
     | 'projectName'
@@ -97,18 +104,18 @@ type NewProjectFieldErrors = Partial<
 export function NewProjectDialog({
   team,
   servers,
-  repositorySelection,
   onClose,
 }: {
   team: TeamSummary
   servers: Array<ServerSummary>
-  repositorySelection: RepositorySelectionContext
   onClose?: () => void
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(true)
+  const [creating, setCreating] = useState(false)
 
   function closeDialog() {
+    if (creating) return
     setOpen(false)
     if (onClose) {
       onClose()
@@ -131,26 +138,72 @@ export function NewProjectDialog({
       }}
     >
       <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
-        <NewProjectDialogContent
+        <NewProjectDialogData
           team={team}
           servers={servers}
-          repositorySelection={repositorySelection}
+          onPendingChange={setCreating}
         />
       </DialogContent>
     </Dialog>
   )
 }
 
+function NewProjectDialogData({
+  team,
+  servers,
+  onPendingChange,
+}: {
+  team: TeamSummary
+  servers: Array<ServerSummary>
+  onPendingChange: (pending: boolean) => void
+}) {
+  const { data, error, isPending } = useQuery(
+    repositorySelectionQueryOptions(team.slug),
+  )
+
+  if (isPending) {
+    return <NewProjectLoadingContent />
+  }
+
+  if (!data) {
+    return (
+      <NewProjectErrorContent
+        error={getErrorMessage(error, 'Unable to load repositories.')}
+      />
+    )
+  }
+
+  return (
+    <>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          Unable to refresh repositories. Displayed information may be out of
+          date.
+        </p>
+      ) : null}
+      <NewProjectDialogContent
+        team={team}
+        servers={servers}
+        onPendingChange={onPendingChange}
+        repositorySelection={data}
+      />
+    </>
+  )
+}
+
 function NewProjectDialogContent({
   team,
   servers,
+  onPendingChange,
   repositorySelection,
 }: {
   team: TeamSummary
   servers: Array<ServerSummary>
+  onPendingChange: (pending: boolean) => void
   repositorySelection: RepositorySelectionContext
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const github = repositorySelection.github
   const installations = github.connected ? github.installations : []
   const initialInstallationId = installations.at(0)?.id ?? null
@@ -178,28 +231,23 @@ function NewProjectDialogContent({
   const [envVars, setEnvVars] = useState<
     Array<{ id: string; key: string; value: string }>
   >([])
+  const [projectCreated, setProjectCreated] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<NewProjectFieldErrors>({})
   const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [isDebouncing, setIsDebouncing] = useState(false)
+  const searchQuery = query.trim().toLowerCase()
+  const [reposError, setReposError] = useState<string | null>(null)
+  const [reposAttempt, setReposAttempt] = useState(0)
   const [isLoadingRepos, setIsLoadingRepos] = useState(
     github.connected &&
       github.appConfigured &&
       installations.length > 0 &&
       !hasInitialRepositories,
   )
+  const [loadedInstallationId, setLoadedInstallationId] = useState<
+    number | null
+  >(hasInitialRepositories ? initialInstallationId : null)
   const [isCreating, setIsCreating] = useState(false)
   const skippedInitialRepositoryFetch = useRef(false)
-
-  useEffect(() => {
-    setIsDebouncing(true)
-    const timeout = window.setTimeout(() => {
-      setDebouncedQuery(query.trim().toLowerCase())
-      setIsDebouncing(false)
-    }, 500)
-
-    return () => window.clearTimeout(timeout)
-  }, [query])
 
   useEffect(() => {
     if (!github.connected || !github.appConfigured || !selectedInstallationId) {
@@ -220,6 +268,7 @@ function NewProjectDialogContent({
     let cancelled = false
 
     setRepositories([])
+    setReposError(null)
     setIsLoadingRepos(true)
 
     void getRepositorySelectionRepositories({
@@ -235,11 +284,17 @@ function NewProjectDialogContent({
       })
       .catch((error) => {
         if (!cancelled) {
-          toast.error(getErrorMessage(error, 'Unable to load repositories.'))
+          setReposError(
+            getErrorMessage(
+              error,
+              'Unable to load repositories. Please try again.',
+            ),
+          )
         }
       })
       .finally(() => {
         if (!cancelled) {
+          setLoadedInstallationId(selectedInstallationId)
           setIsLoadingRepos(false)
         }
       })
@@ -253,6 +308,7 @@ function NewProjectDialogContent({
     hasInitialRepositories,
     initialInstallationId,
     selectedInstallationId,
+    reposAttempt,
     team.slug,
   ])
 
@@ -268,33 +324,37 @@ function NewProjectDialogContent({
           new Date(first.updatedAt).getTime(),
       )
 
-    if (!debouncedQuery) {
+    if (!searchQuery) {
       return repos.slice(0, 5)
     }
 
     return repos
-      .filter((repo) => repo.fullName.toLowerCase().includes(debouncedQuery))
+      .filter((repo) => repo.fullName.toLowerCase().includes(searchQuery))
       .sort((first, second) => {
         const firstName = first.fullName.toLowerCase()
         const secondName = second.fullName.toLowerCase()
 
         return (
-          Number(!firstName.startsWith(debouncedQuery)) -
-            Number(!secondName.startsWith(debouncedQuery)) ||
+          Number(!firstName.startsWith(searchQuery)) -
+            Number(!secondName.startsWith(searchQuery)) ||
           firstName.length - secondName.length
         )
       })
       .slice(0, 5)
-  }, [debouncedQuery, repositories, selectedInstallationId])
+  }, [searchQuery, repositories, selectedInstallationId])
 
+  const [isConnecting, setIsConnecting] = useState(false)
   async function connectGitHub() {
-    const result = await authClient.signIn.social({
-      provider: 'github',
-      callbackURL: `/${team.slug}/new-project`,
-    })
-
-    if (result.error) {
-      toast.error(getErrorMessage(result.error, 'Unable to connect GitHub.'))
+    setIsConnecting(true)
+    try {
+      const result = await authClient.signIn.social({
+        provider: 'github',
+        callbackURL: `/${team.slug}/new-project`,
+      })
+      if (result.error) throw result.error
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Unable to connect GitHub.'))
+      setIsConnecting(false)
     }
   }
 
@@ -303,46 +363,89 @@ function NewProjectDialogContent({
   }
 
   async function submitProject() {
-    if (!selectedRepo) {
+    if (!selectedRepo || isCreating || projectCreated) {
       return
     }
 
     setFieldErrors({})
+    const parsed = createProjectSchema.safeParse({
+      teamSlug: team.slug,
+      projectName,
+      repoFullName: selectedRepo.fullName,
+      installationId: selectedRepo.installationId,
+      serverId: serverId ?? '',
+      composePath,
+      readinessPath,
+      releaseCommand,
+      releaseService,
+      envVars: envVars
+        .filter((envVar) => envVar.key.trim() || envVar.value)
+        .map((envVar) => ({
+          key: envVar.key,
+          value: envVar.value,
+          environment: 'production',
+        })),
+    })
+    if (!parsed.success) {
+      const errors: NewProjectFieldErrors = {}
+      for (const issue of parsed.error.issues) {
+        const key = issue.path[0]
+        const field =
+          key === 'projectName' ||
+          key === 'composePath' ||
+          key === 'readinessPath' ||
+          key === 'releaseCommand' ||
+          key === 'releaseService' ||
+          key === 'envVars' ||
+          key === 'serverId'
+            ? key
+            : 'form'
+        errors[field] ??=
+          field === 'envVars' && typeof issue.path[1] === 'number'
+            ? `Variable ${issue.path[1] + 1}: ${issue.message}`
+            : issue.message
+      }
+      setFieldErrors(errors)
+      const fields: Record<string, string> = {
+        projectName: 'new-project-name',
+        composePath: 'new-project-compose-path',
+        readinessPath: 'new-project-readiness-path',
+        releaseCommand: 'new-project-release-command',
+        releaseService: 'new-project-release-service',
+        serverId: 'new-project-server',
+      }
+      const first = Object.keys(errors)[0] ?? ''
+      if (first === 'envVars')
+        document
+          .querySelector<HTMLInputElement>(
+            '#new-project-form input[placeholder="KEY"]',
+          )
+          ?.focus()
+      else document.getElementById(fields[first] ?? 'new-project-form')?.focus()
+      return
+    }
     setIsCreating(true)
-
+    onPendingChange(true)
     try {
-      const project = await createProject({
-        data: {
-          teamSlug: team.slug,
-          projectName,
-          repoFullName: selectedRepo.fullName,
-          installationId: selectedRepo.installationId,
-          serverId: serverId ?? '',
-          composePath,
-          readinessPath,
-          releaseCommand,
-          releaseService,
-          envVars: envVars
-            .filter((envVar) => envVar.key.trim() || envVar.value)
-            .map((envVar) => ({
-              key: envVar.key,
-              value: envVar.value,
-              environment: 'production',
-            })),
-        },
-      })
-
-      await router.navigate({
-        to: '/$teamSlug/projects/$projectName',
-        params: {
-          teamSlug: team.slug,
-          projectName: project.name,
-        },
-      })
+      const project = await createProject({ data: parsed.data })
+      await invalidateResourceQueries(queryClient, team.slug)
+      setProjectCreated(true)
+      await afterMutation(
+        () =>
+          router.navigate({
+            to: '/$teamSlug/projects/$projectName',
+            params: {
+              teamSlug: team.slug,
+              projectName: project.name,
+            },
+          }),
+        'The action completed, but opening the next page failed. Please reload.',
+      )
     } catch (error) {
       setFieldErrors(getNewProjectFieldErrors(error))
     } finally {
       setIsCreating(false)
+      onPendingChange(false)
     }
   }
 
@@ -375,7 +478,13 @@ function NewProjectDialogContent({
             filteredRepos={filteredRepos}
             installUrl={getInstallGitHubAppUrl()}
             installations={installations}
-            isLoading={isDebouncing || isLoadingRepos}
+            isLoading={
+              isLoadingRepos ||
+              (selectedInstallationId !== null &&
+                loadedInstallationId !== selectedInstallationId)
+            }
+            error={reposError}
+            onRetry={() => setReposAttempt((attempt) => attempt + 1)}
             onInstallAccountChange={(installationId) => {
               setSelectedInstallationId(installationId)
               setSelectedRepo(null)
@@ -388,91 +497,103 @@ function NewProjectDialogContent({
           />
         ) : (
           <>
-            <div className="scrollbar -m-4 min-h-0 overflow-y-auto p-4">
-              <ConfigureStep
-                projectName={projectName}
-                repository={selectedRepo}
-                selectedServerId={serverId}
-                servers={servers}
-                composePath={composePath}
-                envVars={envVars}
-                fieldErrors={fieldErrors}
-                readinessPath={readinessPath}
-                releaseCommand={releaseCommand}
-                releaseService={releaseService}
-                onAddEnvVar={() =>
-                  setEnvVars((current) => [
-                    ...current,
-                    { id: crypto.randomUUID(), key: '', value: '' },
-                  ])
-                }
-                onComposePathChange={(value) => {
-                  setComposePath(value)
-                  setFieldErrors((current) => ({
-                    ...current,
-                    composePath: undefined,
-                  }))
-                }}
-                onEnvVarChange={(id, update) => {
-                  setFieldErrors((current) => ({
-                    ...current,
-                    envVars: undefined,
-                  }))
-                  setEnvVars((current) =>
-                    current.map((envVar) =>
-                      envVar.id === id ? { ...envVar, ...update } : envVar,
-                    ),
-                  )
-                }}
-                onProjectNameChange={(value) => {
-                  setProjectName(value)
-                  setFieldErrors((current) => ({
-                    ...current,
-                    projectName: undefined,
-                  }))
-                }}
-                onReadinessPathChange={(value) => {
-                  setReadinessPath(value)
-                  setFieldErrors((current) => ({
-                    ...current,
-                    readinessPath: undefined,
-                  }))
-                }}
-                onReleaseCommandChange={(value) => {
-                  setReleaseCommand(value)
-                  setFieldErrors((current) => ({
-                    ...current,
-                    releaseCommand: undefined,
-                  }))
-                }}
-                onReleaseServiceChange={(value) => {
-                  setReleaseService(value)
-                  setFieldErrors((current) => ({
-                    ...current,
-                    releaseService: undefined,
-                  }))
-                }}
-                onRemoveEnvVar={(id) =>
-                  setEnvVars((current) =>
-                    current.filter((envVar) => envVar.id !== id),
-                  )
-                }
-                onServerChange={setServerId}
-              />
-            </div>
+            <form
+              id="new-project-form"
+              noValidate
+              className="scrollbar -m-4 min-h-0 overflow-y-auto p-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void submitProject()
+              }}
+            >
+              <fieldset disabled={isCreating || projectCreated}>
+                <ConfigureStep
+                  projectName={projectName}
+                  repository={selectedRepo}
+                  selectedServerId={serverId}
+                  servers={servers}
+                  composePath={composePath}
+                  envVars={envVars}
+                  fieldErrors={fieldErrors}
+                  readinessPath={readinessPath}
+                  releaseCommand={releaseCommand}
+                  releaseService={releaseService}
+                  onAddEnvVar={() =>
+                    setEnvVars((current) => [
+                      ...current,
+                      { id: crypto.randomUUID(), key: '', value: '' },
+                    ])
+                  }
+                  onComposePathChange={(value) => {
+                    setComposePath(value)
+                    setFieldErrors((current) => ({
+                      ...current,
+                      composePath: undefined,
+                    }))
+                  }}
+                  onEnvVarChange={(id, update) => {
+                    setFieldErrors((current) => ({
+                      ...current,
+                      envVars: undefined,
+                    }))
+                    setEnvVars((current) =>
+                      current.map((envVar) =>
+                        envVar.id === id ? { ...envVar, ...update } : envVar,
+                      ),
+                    )
+                  }}
+                  onProjectNameChange={(value) => {
+                    setProjectName(value)
+                    setFieldErrors((current) => ({
+                      ...current,
+                      projectName: undefined,
+                    }))
+                  }}
+                  onReadinessPathChange={(value) => {
+                    setReadinessPath(value)
+                    setFieldErrors((current) => ({
+                      ...current,
+                      readinessPath: undefined,
+                    }))
+                  }}
+                  onReleaseCommandChange={(value) => {
+                    setReleaseCommand(value)
+                    setFieldErrors((current) => ({
+                      ...current,
+                      releaseCommand: undefined,
+                    }))
+                  }}
+                  onReleaseServiceChange={(value) => {
+                    setReleaseService(value)
+                    setFieldErrors((current) => ({
+                      ...current,
+                      releaseService: undefined,
+                    }))
+                  }}
+                  onRemoveEnvVar={(id) =>
+                    setEnvVars((current) =>
+                      current.filter((envVar) => envVar.id !== id),
+                    )
+                  }
+                  onServerChange={setServerId}
+                />
+                <FieldError role="alert">{fieldErrors.form}</FieldError>
+              </fieldset>
+            </form>
             <DialogFooter className="sm:justify-between">
               <Button
                 variant="ghost"
                 type="button"
+                disabled={isCreating || projectCreated}
                 onClick={() => setStep('repository')}
               >
                 <ArrowLeftIcon data-icon="inline-start" />
                 Back
               </Button>
               <Button
-                disabled={!selectedRepo || !projectName || isCreating}
-                type="button"
-                onClick={() => void submitProject()}
+                disabled={!selectedRepo || isCreating || projectCreated}
+                type="submit"
+                form="new-project-form"
               >
                 {isCreating ? (
                   <LoaderIcon
@@ -486,76 +607,58 @@ function NewProjectDialogContent({
           </>
         )
       ) : (
-        <ConnectGitHub onConnect={() => void connectGitHub()} />
+        <ConnectGitHub
+          busy={isConnecting}
+          onConnect={() => void connectGitHub()}
+        />
       )}
     </>
   )
 }
 
-export function NewProjectDialogLauncher({
-  children,
+export function NewProjectDialogOverlay({
+  onClose,
   teamSlug,
 }: {
-  children: (open: () => void) => ReactNode
+  onClose: () => void
   teamSlug: string
 }) {
-  const [open, setOpen] = useState(false)
-  const [context, setContext] = useState<Awaited<
-    ReturnType<typeof getNewProjectContext>
-  > | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  async function loadContext() {
-    try {
-      const nextContext = await getNewProjectContext({ data: { teamSlug } })
-      setContext(nextContext)
-      setError(
-        nextContext ? null : 'You need to sign in before creating a project.',
-      )
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Unable to load project form.',
-      )
-    }
-  }
-
-  useVisibleRefresh(loadContext, open)
-
-  function openDialog() {
-    setContext(null)
-    setError(null)
-    setOpen(true)
-
-    void loadContext()
-  }
-
-  function closeDialog() {
-    setOpen(false)
-  }
+  const [creating, setCreating] = useState(false)
+  const {
+    data: context,
+    error,
+    isPending,
+  } = useQuery(teamShellQueryOptions({ teamSlug }))
 
   return (
-    <>
-      {children(openDialog)}
-      {open ? (
-        <Dialog open onOpenChange={(nextOpen) => !nextOpen && closeDialog()}>
-          <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
-            {context ? (
-              <NewProjectDialogContent
-                team={context.team}
-                servers={context.servers}
-                repositorySelection={context.repositorySelection}
-              />
-            ) : error ? (
-              <NewProjectErrorContent error={error} />
-            ) : (
-              <NewProjectLoadingContent />
-            )}
-          </DialogContent>
-        </Dialog>
-      ) : null}
-    </>
+    <Dialog
+      open
+      onOpenChange={(nextOpen) => !nextOpen && !creating && onClose()}
+    >
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
+        {isPending ? (
+          <NewProjectLoadingContent />
+        ) : !context ? (
+          <NewProjectErrorContent
+            error={getErrorMessage(error, 'Unable to load project form.')}
+          />
+        ) : (
+          <>
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                Unable to refresh project details. Displayed information may be
+                out of date.
+              </p>
+            ) : null}
+            <NewProjectDialogData
+              team={context.team}
+              servers={context.servers}
+              onPendingChange={setCreating}
+            />
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -586,23 +689,16 @@ function NewProjectLoadingContent() {
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-4">
-        <RepositoryToolbarSkeleton />
-        <RepoListSkeleton />
+        <RepositoryToolbarPending />
+        <RepositoryListPending />
       </div>
     </>
   )
 }
 
-function RepositoryToolbarSkeleton() {
-  return (
-    <div className="flex gap-2">
-      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 dark:bg-input/40" />
-      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 dark:bg-input/40" />
-    </div>
-  )
-}
-
 function RepositoryStep({
+  onRetry,
+  error,
   appConfigured,
   filteredRepos,
   installUrl,
@@ -615,6 +711,8 @@ function RepositoryStep({
   selectedInstallation,
   selectedInstallationId,
 }: {
+  error: string | null
+  onRetry: () => void
   appConfigured: boolean
   filteredRepos: Array<Repository>
   installUrl: string
@@ -688,7 +786,16 @@ function RepositoryStep({
 
       <div>
         {isLoading ? (
-          <RepoListSkeleton />
+          <RepositoryListPending />
+        ) : error ? (
+          <div className="space-y-2">
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+            <Button type="button" variant="outline" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
         ) : filteredRepos.length > 0 ? (
           <ul
             className="overflow-hidden rounded-lg border"
@@ -878,16 +985,22 @@ function ConfigureStep({
       </div>
 
       <Field data-invalid={Boolean(fieldErrors.projectName)}>
-        <FieldLabel htmlFor="new-project-name">Project name</FieldLabel>
+        <FieldLabel htmlFor="new-project-name">
+          Project name (required)
+        </FieldLabel>
         <Input
           aria-invalid={Boolean(fieldErrors.projectName)}
           id="new-project-name"
+          aria-describedby="new-project-name-error"
+          maxLength={100}
           onChange={(event) => onProjectNameChange(event.target.value)}
           placeholder="e.g., my-project"
           required
           value={projectName}
         />
-        <FieldError>{fieldErrors.projectName}</FieldError>
+        <FieldError id="new-project-name-error">
+          {fieldErrors.projectName}
+        </FieldError>
       </Field>
 
       <Field data-invalid={Boolean(fieldErrors.serverId)}>
@@ -898,7 +1011,11 @@ function ConfigureStep({
             onServerChange(value === '__none__' ? null : value)
           }
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger
+            id="new-project-server"
+            aria-describedby="new-project-server-error"
+            className="w-full"
+          >
             <SelectValue placeholder="Select a server" />
           </SelectTrigger>
           <SelectContent>
@@ -913,7 +1030,9 @@ function ConfigureStep({
             ))}
           </SelectContent>
         </Select>
-        <FieldError>{fieldErrors.serverId}</FieldError>
+        <FieldError id="new-project-server-error">
+          {fieldErrors.serverId}
+        </FieldError>
       </Field>
 
       <div className="grid gap-5 border-t pt-5">
@@ -924,11 +1043,15 @@ function ConfigureStep({
           <Input
             aria-invalid={Boolean(fieldErrors.composePath)}
             id="new-project-compose-path"
+            maxLength={255}
+            aria-describedby="new-project-compose-path-error"
             value={composePath}
             placeholder="compose.yml"
             onChange={(event) => onComposePathChange(event.target.value)}
           />
-          <FieldError>{fieldErrors.composePath}</FieldError>
+          <FieldError id="new-project-compose-path-error">
+            {fieldErrors.composePath}
+          </FieldError>
         </Field>
         <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]">
           <Field data-invalid={Boolean(fieldErrors.releaseCommand)}>
@@ -939,6 +1062,8 @@ function ConfigureStep({
               aria-invalid={Boolean(fieldErrors.releaseCommand)}
               className="min-h-8 resize-none overflow-hidden py-1.5 font-mono"
               id="new-project-release-command"
+              maxLength={16384}
+              aria-describedby="new-project-release-command-error"
               rows={1}
               value={releaseCommand}
               onChange={(event) => onReleaseCommandChange(event.target.value)}
@@ -947,7 +1072,9 @@ function ConfigureStep({
               Runs once before services are updated. For example,{' '}
               <code>php artisan migrate --force</code>. Leave empty to skip.
             </FieldDescription>
-            <FieldError>{fieldErrors.releaseCommand}</FieldError>
+            <FieldError id="new-project-release-command-error">
+              {fieldErrors.releaseCommand}
+            </FieldError>
           </Field>
           <Field data-invalid={Boolean(fieldErrors.releaseService)}>
             <FieldLabel htmlFor="new-project-release-service">
@@ -956,6 +1083,7 @@ function ConfigureStep({
             <Input
               aria-invalid={Boolean(fieldErrors.releaseService)}
               id="new-project-release-service"
+              aria-describedby="new-project-release-service-error"
               value={releaseService}
               placeholder="Automatic"
               onChange={(event) => onReleaseServiceChange(event.target.value)}
@@ -963,7 +1091,9 @@ function ConfigureStep({
             <FieldDescription>
               Service to run the pre-deploy command.
             </FieldDescription>
-            <FieldError>{fieldErrors.releaseService}</FieldError>
+            <FieldError id="new-project-release-service-error">
+              {fieldErrors.releaseService}
+            </FieldError>
           </Field>
         </div>
         <Field data-invalid={Boolean(fieldErrors.readinessPath)}>
@@ -973,6 +1103,7 @@ function ConfigureStep({
           <Input
             aria-invalid={Boolean(fieldErrors.readinessPath)}
             id="new-project-readiness-path"
+            aria-describedby="new-project-readiness-path-error"
             value={readinessPath}
             placeholder="/"
             onChange={(event) => onReadinessPathChange(event.target.value)}
@@ -980,7 +1111,9 @@ function ConfigureStep({
           <FieldDescription>
             Path requested after deployment to confirm the service is ready.
           </FieldDescription>
-          <FieldError>{fieldErrors.readinessPath}</FieldError>
+          <FieldError id="new-project-readiness-path-error">
+            {fieldErrors.readinessPath}
+          </FieldError>
         </Field>
       </div>
 
@@ -1075,7 +1208,13 @@ function resizeTextarea(textarea: HTMLTextAreaElement | null) {
   textarea.style.height = `${textarea.scrollHeight}px`
 }
 
-function ConnectGitHub({ onConnect }: { onConnect: () => void }) {
+function ConnectGitHub({
+  onConnect,
+  busy,
+}: {
+  onConnect: () => void
+  busy: boolean
+}) {
   return (
     <Empty className="min-h-60 border">
       <EmptyHeader>
@@ -1085,7 +1224,7 @@ function ConnectGitHub({ onConnect }: { onConnect: () => void }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button onClick={onConnect} type="button">
+        <Button onClick={onConnect} disabled={busy} type="button">
           <GithubIcon data-icon="inline-start" />
           Connect account
         </Button>
@@ -1117,32 +1256,7 @@ function getNewProjectFieldErrors(error: unknown): NewProjectFieldErrors {
     return { serverId: message }
   }
 
-  return { projectName: message }
-}
-
-function RepoListSkeleton() {
-  return (
-    <ul
-      className="overflow-hidden rounded-lg border"
-      aria-label="Loading repositories"
-      aria-live="polite"
-    >
-      {Array.from({ length: 5 }).map((_, index) => (
-        <li
-          className="flex h-11 items-center justify-between gap-x-2 border-b px-4 text-sm last:border-b-0"
-          key={index}
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <Skeleton className="h-4 w-32 rounded bg-muted-foreground/20" />
-            <Skeleton className="h-4 w-24 rounded bg-muted-foreground/20" />
-          </span>
-          <Button disabled size="xs" type="button">
-            Select
-          </Button>
-        </li>
-      ))}
-    </ul>
-  )
+  return { form: message }
 }
 
 function formatUpdatedAt(value: string) {

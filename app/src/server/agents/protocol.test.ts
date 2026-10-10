@@ -5,12 +5,65 @@ import { z } from 'zod'
 import {
   AgentRequestError,
   agentJobProgressSchema,
+  completeAgentJobSchema,
   agentMetadataSchema,
   deploymentEventSchema,
   handleAgentRequest,
+  heartbeatSchema,
 } from './protocol'
 
 describe('agent protocol', () => {
+  test('validates bounded timestamped metric history batches', () => {
+    const sample = {
+      id: 'a'.repeat(32),
+      observedAt: '2026-10-09T00:00:00.000Z',
+      metrics: { cpuPercent: 12 },
+    }
+    const request = {
+      serverId: 'server',
+      token: 'token',
+      metricSamples: [sample],
+    }
+    expect(heartbeatSchema.safeParse(request).success).toBe(true)
+    for (const invalid of [
+      { ...sample, id: 'invalid' },
+      { ...sample, observedAt: 'invalid' },
+      { ...sample, metrics: {} },
+      { ...sample, metrics: { cpuPercent: 101 } },
+    ])
+      expect(
+        heartbeatSchema.safeParse({ ...request, metricSamples: [invalid] })
+          .success,
+      ).toBe(false)
+    expect(
+      heartbeatSchema.safeParse({
+        ...request,
+        metricSamples: Array(241).fill(sample),
+      }).success,
+    ).toBe(false)
+  })
+  test('requires a stable positive sequence in deployment completion requests', () => {
+    const completion = {
+      type: 'deploy',
+      serverId: 'server',
+      token: 'token',
+      deploymentId: 'deployment',
+      status: 'succeeded',
+      gitSha: null,
+      logs: ['tail'],
+      events: [],
+    }
+    expect(completeAgentJobSchema.safeParse(completion).success).toBe(false)
+    expect(
+      completeAgentJobSchema.safeParse({ ...completion, logStartSeq: 0 })
+        .success,
+    ).toBe(false)
+    expect(
+      completeAgentJobSchema.safeParse({ ...completion, logStartSeq: 1 })
+        .success,
+    ).toBe(true)
+  })
+
   test('treats agent versions as optional metadata', () => {
     expect(agentMetadataSchema.parse({})).toEqual({})
     expect(
@@ -37,6 +90,37 @@ describe('agent protocol', () => {
       deploymentEventSchema.safeParse({ phase: 'unknown', message: 'No.' })
         .success,
     ).toBe(false)
+  })
+
+  test('accepts per-alias readiness verification events', () => {
+    expect(
+      deploymentEventSchema.parse({
+        phase: 'readiness_check_succeeded',
+        message: 'Verified deployment.example.com/health.',
+      }).phase,
+    ).toBe('readiness_check_succeeded')
+    const progress = {
+      serverId: 'server-1',
+      token: 'token',
+      deploymentId: 'deployment-1',
+      logStartSeq: 1,
+      logs: ['Verified deployment.example.com/health.'],
+      events: [
+        {
+          phase: 'readiness_check_succeeded',
+          message: 'Verified deployment.example.com/health.',
+        },
+      ],
+    }
+    expect(agentJobProgressSchema.safeParse(progress).success).toBe(true)
+    expect(
+      completeAgentJobSchema.safeParse({
+        ...progress,
+        type: 'deploy',
+        status: 'succeeded',
+        gitSha: 'abc123',
+      }).success,
+    ).toBe(true)
   })
 
   test('bounds deployment log and event batches', async () => {

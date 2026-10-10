@@ -1,6 +1,9 @@
+import { recordAgentMetricSamples } from './metric-history'
+import type { AgentMetricSample } from './metric-history-schema'
+import { deleteServerState, changeServerEnabled } from './lifecycle'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { and, eq, gt, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, lt, ne, or, sql } from 'drizzle-orm'
 
 import { reconcileReportedRuntimes } from '@/server/agents/reconciliation'
 import type { ReportedRuntime } from '@/server/agents/reconciliation'
@@ -11,23 +14,18 @@ import { config, currentAgentVersion } from '@/server/config'
 import { db } from '@/server/db'
 import {
   agentJobs,
-  backupRuns,
   deployments,
   environments,
   projects,
   serverAvailabilityWindows,
-  serverHeartbeats,
-  serverMetrics,
   servers,
 } from '@/server/db/schema'
 import {
   listServerMetricSeries,
   listServerMonitoringSummaries,
   recordServerHeartbeat,
-  recordServerMetrics,
 } from '@/server/servers/monitoring'
 import type {
-  ServerMetricsInput,
   ServerMetricsSample,
   ServerMonitoringSummary,
 } from '@/server/servers/monitoring'
@@ -85,6 +83,7 @@ const serverMachineNameError =
   'Server names can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen.'
 
 export type AgentRegistration = {
+  metricsAcceptedThrough?: string
   serverId: string
   status: 'connected'
   credential?: string
@@ -112,6 +111,16 @@ export async function requireTeamServer({
   serverId: string
 }): Promise<ServerDetail> {
   const team = await requireTeam(userId, teamSlug)
+  return requireServerForTeam({ teamId: team.id, serverId })
+}
+
+export async function requireServerForTeam({
+  teamId,
+  serverId,
+}: {
+  teamId: string
+  serverId: string
+}): Promise<ServerDetail> {
   const rows = await db
     .select({
       id: servers.id,
@@ -135,7 +144,7 @@ export async function requireTeamServer({
     .where(
       and(
         eq(servers.id, serverId),
-        eq(servers.teamId, team.id),
+        eq(servers.teamId, teamId),
         ne(servers.status, 'deleted'),
       ),
     )
@@ -150,21 +159,23 @@ export async function requireTeamServer({
   const metricWindowStart = new Date(
     Math.max(server.createdAt.getTime(), now.getTime() - 24 * 60 * 60 * 1000),
   )
-  const monitoring = await listServerMonitoringSummaries(
-    [
-      {
-        id: server.id,
-        createdAt: server.createdAt,
-        status: server.status,
-      },
-    ],
-    now,
-  )
-  const metricSeries = await listServerMetricSeries({
-    serverId: server.id,
-    now,
-    startAt: metricWindowStart,
-  })
+  const [monitoring, metricSeries] = await Promise.all([
+    listServerMonitoringSummaries(
+      [
+        {
+          id: server.id,
+          createdAt: server.createdAt,
+          status: server.status,
+        },
+      ],
+      now,
+    ),
+    listServerMetricSeries({
+      serverId: server.id,
+      now,
+      startAt: metricWindowStart,
+    }),
+  ])
 
   return {
     ...server,
@@ -286,26 +297,17 @@ export async function disableTeamServer({
   }
 
   const now = new Date()
-  await db.transaction(async (tx) => {
-    await tx
-      .update(servers)
-      .set({
-        status: 'disabled',
-        enrollmentTokenHash: null,
-        enrollmentTokenExpiresAt: null,
-        updatedAt: now,
-      })
-      .where(eq(servers.id, serverId))
-    await tx
-      .update(serverAvailabilityWindows)
-      .set({ endedAt: now })
-      .where(
-        and(
-          eq(serverAvailabilityWindows.serverId, serverId),
-          isNull(serverAvailabilityWindows.endedAt),
-        ),
-      )
-  })
+  if (
+    !(await changeServerEnabled(db, {
+      userId,
+      teamId: team.id,
+      serverId,
+      enabled: false,
+      now,
+    }))
+  ) {
+    throw new Error('Server state or permissions changed. Try again.')
+  }
 }
 
 export async function enableTeamServer({
@@ -340,20 +342,17 @@ export async function enableTeamServer({
   }
 
   const now = new Date()
-  await db.transaction(async (tx) => {
-    await tx
-      .update(servers)
-      .set({
-        status: 'pending',
-        updatedAt: now,
-      })
-      .where(eq(servers.id, serverId))
-    await tx.insert(serverAvailabilityWindows).values({
-      id: randomUUID(),
+  if (
+    !(await changeServerEnabled(db, {
+      userId,
+      teamId: team.id,
       serverId,
-      startedAt: now,
-    })
-  })
+      enabled: true,
+      now,
+    }))
+  ) {
+    throw new Error('Server state or permissions changed. Try again.')
+  }
 }
 
 export async function createPendingServer({
@@ -390,8 +389,8 @@ export async function createPendingServer({
   const enrollmentTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000)
 
   const now = new Date()
-  await db.transaction(async (tx) => {
-    await tx.insert(servers).values({
+  await db.batch([
+    db.insert(servers).values({
       id: serverId,
       teamId: team.id,
       name: nextName,
@@ -401,13 +400,13 @@ export async function createPendingServer({
       enrollmentTokenExpiresAt,
       createdAt: now,
       updatedAt: now,
-    })
-    await tx.insert(serverAvailabilityWindows).values({
+    }),
+    db.insert(serverAvailabilityWindows).values({
       id: randomUUID(),
       serverId,
       startedAt: now,
-    })
-  })
+    }),
+  ])
 
   return {
     id: serverId,
@@ -556,7 +555,7 @@ export async function recordAgentHeartbeat({
   runtimeIds,
   runtimes,
   system,
-  metrics,
+  metricSamples,
 }: {
   serverId: string
   token: string
@@ -567,7 +566,7 @@ export async function recordAgentHeartbeat({
   runtimeIds?: Array<string>
   runtimes?: Array<ReportedRuntime>
   system?: HostDetailsInput
-  metrics?: ServerMetricsInput
+  metricSamples?: Array<AgentMetricSample>
 }): Promise<AgentRegistration> {
   const auth = await requireAgentCredential(token)
   const server = auth.server
@@ -619,13 +618,6 @@ export async function recordAgentHeartbeat({
       agentVersion: agentVersion ?? null,
       publicAddress,
     })
-    if (metrics) {
-      await recordServerMetrics({
-        serverId: server.id,
-        observedAt: now,
-        metrics,
-      })
-    }
   }
 
   const observedRuntimeIds =
@@ -638,7 +630,13 @@ export async function recordAgentHeartbeat({
     })
   }
 
+  const metricsAcceptedThrough =
+    server.status === 'deleted'
+      ? undefined
+      : await recordAgentMetricSamples(server.id, metricSamples ?? [], now)
+
   return {
+    metricsAcceptedThrough,
     serverId: server.id,
     status: 'connected',
     runtimeLogTargets:
@@ -788,97 +786,14 @@ export async function deleteTeamServer({
 
   const now = new Date()
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(agentJobs)
-      .set({
-        status: 'canceled',
-        errorMessage: 'Canceled because the server was deleted.',
-        finishedAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(agentJobs.serverId, server.id),
-          inArray(agentJobs.type, ['backup', 'restore', 'backup_cleanup']),
-          inArray(agentJobs.status, ['queued', 'running']),
-        ),
-      )
-    await tx
-      .update(backupRuns)
-      .set({
-        status: 'canceled',
-        errorMessage: 'Canceled because the server was deleted.',
-        finishedAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(backupRuns.serverId, server.id),
-          inArray(backupRuns.status, ['queued', 'running']),
-        ),
-      )
-
-    if (cancelOngoingDeployments) {
-      await tx
-        .update(deployments)
-        .set({
-          status: 'canceled',
-          phase: 'canceled',
-          errorMessage: 'Canceled because the server was deleted.',
-          finishedAt: now,
-        })
-        .where(
-          and(
-            eq(deployments.serverId, server.id),
-            inArray(deployments.status, ['queued', 'running']),
-          ),
-        )
-
-      await tx
-        .update(agentJobs)
-        .set({
-          status: 'canceled',
-          errorMessage: 'Canceled because the server was deleted.',
-          finishedAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(agentJobs.serverId, server.id),
-            eq(agentJobs.type, 'deploy'),
-            inArray(agentJobs.status, ['queued', 'running']),
-          ),
-        )
-    }
-
-    await tx.delete(serverMetrics).where(eq(serverMetrics.serverId, server.id))
-    await tx
-      .delete(serverHeartbeats)
-      .where(eq(serverHeartbeats.serverId, server.id))
-    await tx
-      .update(serverAvailabilityWindows)
-      .set({ endedAt: now })
-      .where(
-        and(
-          eq(serverAvailabilityWindows.serverId, server.id),
-          isNull(serverAvailabilityWindows.endedAt),
-        ),
-      )
-    await tx
-      .update(servers)
-      .set({
-        status: 'deleted',
-        ...(cancelOngoingDeployments
-          ? {
-              enrollmentTokenHash: null,
-              enrollmentTokenExpiresAt: null,
-            }
-          : {}),
-        updatedAt: now,
-      })
-      .where(eq(servers.id, server.id))
+  const changed = await deleteServerState(db, {
+    userId,
+    teamId: team.id,
+    serverId: server.id,
+    cancelOngoingDeployments,
+    now,
   })
+  if (!changed) throw new Error('Server not found or access changed.')
 }
 
 export async function requireAgentServer({
@@ -1016,8 +931,8 @@ async function recoverStaleDeletedServerCleanupJobs(
     ...(cleanupJobId ? [ne(agentJobs.id, cleanupJobId)] : []),
   )
 
-  await db.transaction(async (tx) => {
-    await tx
+  await db.batch([
+    db
       .update(agentJobs)
       .set({
         status: 'abandoned',
@@ -1030,8 +945,8 @@ async function recoverStaleDeletedServerCleanupJobs(
           staleJobFilter,
           sql`${agentJobs.attempt} >= ${agentJobs.maxAttempts}`,
         ),
-      )
-    await tx
+      ),
+    db
       .update(agentJobs)
       .set({
         status: 'queued',
@@ -1046,8 +961,8 @@ async function recoverStaleDeletedServerCleanupJobs(
           staleJobFilter,
           sql`${agentJobs.attempt} < ${agentJobs.maxAttempts}`,
         ),
-      )
-  })
+      ),
+  ])
 }
 
 async function hasPermittedDeletedServerWork(serverId: string) {

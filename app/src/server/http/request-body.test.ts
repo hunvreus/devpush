@@ -45,4 +45,25 @@ describe('readRequestText', () => {
       RequestBodyTooLargeError,
     )
   })
+
+  test('preserves multibyte characters split across stream chunks', async () => {
+    const bytes = new TextEncoder().encode('a€b')
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, 2))
+        controller.enqueue(bytes.slice(2, 3))
+        controller.enqueue(bytes.slice(3))
+        controller.close()
+      },
+    })
+    const request = new Request('https://devpush.test/api/test', {
+      method: 'POST',
+      body,
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' })
+
+    await expect(readRequestText(request, bytes.byteLength)).resolves.toBe(
+      'a€b',
+    )
+  })
 })

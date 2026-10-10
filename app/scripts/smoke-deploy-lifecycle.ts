@@ -5,18 +5,20 @@ import { eq } from 'drizzle-orm'
 import {
   claimNextDeploymentJob,
   completeDeploymentJob,
+  failStaleRunningDeployments,
   recordDeploymentProgress,
 } from '@/server/agents/jobs'
 import {
   currentAgentCapabilities,
   currentAgentProtocolVersion,
 } from '@/server/agents/compatibility'
-import { db } from '@/server/db'
+import { readProjectDeploymentLogs } from '@/server/projects/deployment-logs'
+import { db, logsDb } from '@/server/db'
+import { deploymentLogs, runtimeLogs } from '@/server/db/log-schema'
 import {
   aliases,
   environments,
   deployments,
-  deploymentLogs,
   githubInstallations,
   projects,
   servers,
@@ -27,12 +29,12 @@ import {
 import {
   createDeploymentsForGitHubPush,
   createManualDeployment,
-  getProjectContext,
-} from '@/server/projects/service'
+} from '@/server/projects/deployments'
 import {
   buildRuntimeId,
   encryptDeploymentEnvVars,
 } from '@/server/projects/deployment-config'
+import { encryptProjectEnvVars } from '@/server/projects/project-env-vars'
 import { createComposeRuntimeConfig } from '@/server/projects/runtime-config'
 import {
   createPendingServer,
@@ -120,7 +122,9 @@ async function main() {
         releaseCommand: 'echo release',
       }),
       routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
-      envVars: [{ key: 'SMOKE_VALUE', value: 'ok', environment: '' }],
+      envVarsEncrypted: encryptProjectEnvVars([
+        { key: 'SMOKE_VALUE', value: 'ok', environment: '' },
+      ]),
     })
     await db.insert(environments).values({
       id: environmentId,
@@ -248,7 +252,7 @@ async function main() {
     if (
       accessTokenRequests.length !== 1 ||
       accessTokenRequests[0]?.installationId !== installationId ||
-      accessTokenRequests[0]?.repositoryId !== 123456789
+      accessTokenRequests[0].repositoryId !== 123456789
     ) {
       throw new Error(
         'Expected GitHub token request to be scoped to the repository.',
@@ -295,10 +299,10 @@ async function main() {
       .where(eq(deployments.id, deployment.deploymentId))
       .limit(1)
     const deploymentRow = deploymentRows.at(0)
-    const logRows = await db
-      .select()
-      .from(deploymentLogs)
-      .where(eq(deploymentLogs.deploymentId, deployment.deploymentId))
+    const logRows = await readProjectDeploymentLogs(
+      { projectId: projectId, deploymentId: deployment.deploymentId },
+      1000,
+    )
 
     if (!deploymentRow) {
       throw new Error('Expected deployment row to exist.')
@@ -329,8 +333,7 @@ async function main() {
 
     if (
       !logRows.some(
-        (row) =>
-          row.seq === job.logStartSeq - 1 && row.content.includes('Queued'),
+        (row) => row.stream === 'control' && row.content.includes('Queued'),
       )
     ) {
       throw new Error('Expected initial queued log chunk to be persisted.')
@@ -362,7 +365,7 @@ async function main() {
       )
     }
 
-    const pushDeploymentId = pushResult.created[0].deploymentId
+    const pushDeploymentId = pushResult.created[0]!.deploymentId
     const pushDeploymentRows = await db
       .select()
       .from(deployments)
@@ -416,18 +419,17 @@ async function main() {
     }
 
     const duplicatePushDeploymentId =
-      duplicatePushResult.created[0].deploymentId
+      duplicatePushResult.created[0]!.deploymentId
 
     await db
       .update(deployments)
       .set({ status: 'canceled', finishedAt: new Date() })
       .where(eq(deployments.id, duplicatePushDeploymentId))
 
-    await expectCompletionToFail({
+    await expectCompletionToBeIgnored({
       serverId: registration.serverId,
       token,
       deploymentId: deployment.deploymentId,
-      message: 'Deployment is not running.',
     })
 
     await db.insert(projects).values({
@@ -528,10 +530,10 @@ async function main() {
       .from(deployments)
       .where(eq(deployments.id, brokenDeploymentId))
       .limit(1)
-    const brokenLogRows = await db
-      .select()
-      .from(deploymentLogs)
-      .where(eq(deploymentLogs.deploymentId, brokenDeploymentId))
+    const brokenLogRows = await readProjectDeploymentLogs(
+      { projectId: brokenProjectId, deploymentId: brokenDeploymentId },
+      1000,
+    )
     const brokenDeploymentRow = brokenDeploymentRows.at(0)
 
     if (brokenDeploymentRow?.status !== 'failed') {
@@ -601,20 +603,20 @@ async function main() {
       },
       envVars: encryptDeploymentEnvVars([{ key: 'SMOKE_VALUE', value: 'ok' }]),
       runtimeId: buildRuntimeId({ projectId, environmentId }),
-      startedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      startedAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
     })
 
-    await getProjectContext({ userId, teamSlug, projectName })
+    await failStaleRunningDeployments()
 
     const staleDeploymentRows = await db
       .select()
       .from(deployments)
       .where(eq(deployments.id, staleDeploymentId))
       .limit(1)
-    const staleLogRows = await db
-      .select()
-      .from(deploymentLogs)
-      .where(eq(deploymentLogs.deploymentId, staleDeploymentId))
+    const staleLogRows = await readProjectDeploymentLogs(
+      { projectId: projectId, deploymentId: staleDeploymentId },
+      1000,
+    )
     const staleMessage =
       'Deployment timed out after the agent stopped reporting.'
 
@@ -681,48 +683,53 @@ async function expectDeploymentToFail({
   throw new Error('Expected deployment creation to fail.')
 }
 
-async function expectCompletionToFail({
+async function expectCompletionToBeIgnored({
   serverId,
   token,
   deploymentId,
-  message,
 }: {
   serverId: string
   token: string
   deploymentId: string
-  message: string
 }) {
-  try {
-    await completeDeploymentJob({
-      serverId,
-      token,
-      completion: {
-        deploymentId,
-        status: 'succeeded',
-        gitSha: 'late-sha',
-        logs: ['late completion'],
-        events: [
-          {
-            phase: 'completed',
-            message: 'Late completion should not be accepted.',
-          },
-        ],
-      },
-    })
-  } catch (error) {
-    if (error instanceof Error && error.message === message) {
-      return
-    }
+  const result = await completeDeploymentJob({
+    serverId,
+    token,
+    completion: {
+      deploymentId,
+      status: 'succeeded',
+      gitSha: 'late-sha',
+      logStartSeq: 1,
+      logs: ['late completion'],
+      events: [
+        {
+          phase: 'completed',
+          message: 'Late completion should be ignored.',
+        },
+      ],
+    },
+  })
 
-    throw error
+  if (!result.ignored) {
+    throw new Error('Expected repeated deployment completion to be ignored.')
   }
-
-  throw new Error('Expected deployment completion to fail.')
 }
 
 async function cleanup({ teamId, userId }: { teamId: string; userId: string }) {
   try {
+    const removedProjects = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.teamId, teamId))
     await db.delete(projects).where(eq(projects.teamId, teamId))
+    for (const project of removedProjects) {
+      await logsDb
+        .delete(deploymentLogs)
+        .where(eq(deploymentLogs.projectId, project.id))
+      await logsDb
+        .delete(runtimeLogs)
+        .where(eq(runtimeLogs.projectId, project.id))
+    }
     await db.delete(servers).where(eq(servers.teamId, teamId))
     await db.delete(teams).where(eq(teams.id, teamId))
     await db.delete(user).where(eq(user.id, userId))

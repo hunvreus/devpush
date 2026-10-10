@@ -1,19 +1,4 @@
 services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-devpush}
-      POSTGRES_USER: ${POSTGRES_USER:-devpush}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   app:
     image: devpush-app:local
     build:
@@ -29,10 +14,18 @@ services:
       - "${DEVPUSH_HTTP_PORT:-7429}:3000"
     volumes:
       - app_uploads:/repo/app/public/uploads
+      - control_plane_data:/app/storage
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-devpush}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-devpush}
+      DEVPUSH_DATABASE_PATH: ${DEVPUSH_DATABASE_PATH:-/app/storage/devpush.sqlite}
+      DEVPUSH_LOG_DATABASE_PATH: ${DEVPUSH_LOG_DATABASE_PATH:-/app/storage/logs.sqlite}
+      DEVPUSH_DATABASE_URL: ${DEVPUSH_DATABASE_URL:-}
+      DEVPUSH_LOG_DATABASE_URL: ${DEVPUSH_LOG_DATABASE_URL:-}
+      DEVPUSH_DATABASE_AUTH_TOKEN: ${DEVPUSH_DATABASE_AUTH_TOKEN:-}
+      DEVPUSH_LOG_DATABASE_AUTH_TOKEN: ${DEVPUSH_LOG_DATABASE_AUTH_TOKEN:-}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       DEVPUSH_BASE_URL: ${DEVPUSH_BASE_URL:?DEVPUSH_BASE_URL is required}
+      DEVPUSH_TRUST_PROXY: ${DEVPUSH_TRUST_PROXY:-false}
+      DEVPUSH_MONITORING_RETENTION_DAYS: ${DEVPUSH_MONITORING_RETENTION_DAYS:-7}
       DEVPUSH_ADMIN_EMAIL: ${DEVPUSH_ADMIN_EMAIL:-}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
@@ -71,11 +64,15 @@ services:
       dockerfile: deploy/Dockerfile.app
       args:
         VITE_DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
-    depends_on:
-      postgres:
-        condition: service_healthy
+    volumes:
+      - control_plane_data:/app/storage
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-devpush}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-devpush}
+      DEVPUSH_DATABASE_PATH: ${DEVPUSH_DATABASE_PATH:-/app/storage/devpush.sqlite}
+      DEVPUSH_LOG_DATABASE_PATH: ${DEVPUSH_LOG_DATABASE_PATH:-/app/storage/logs.sqlite}
+      DEVPUSH_DATABASE_URL: ${DEVPUSH_DATABASE_URL:-}
+      DEVPUSH_LOG_DATABASE_URL: ${DEVPUSH_LOG_DATABASE_URL:-}
+      DEVPUSH_DATABASE_AUTH_TOKEN: ${DEVPUSH_DATABASE_AUTH_TOKEN:-}
+      DEVPUSH_LOG_DATABASE_AUTH_TOKEN: ${DEVPUSH_LOG_DATABASE_AUTH_TOKEN:-}
       DEVPUSH_STORAGE_ENDPOINT: ${DEVPUSH_STORAGE_ENDPOINT:-}
       DEVPUSH_STORAGE_REGION: ${DEVPUSH_STORAGE_REGION:-}
       DEVPUSH_STORAGE_BUCKET: ${DEVPUSH_STORAGE_BUCKET:-}
@@ -114,32 +111,33 @@ services:
         done
 
   db-backup:
-    image: postgres:17-alpine
+    image: devpush-app:local
     profiles: ["backups"]
     restart: unless-stopped
     depends_on:
-      postgres:
+      app:
         condition: service_healthy
     environment:
-      PGHOST: postgres
-      PGDATABASE: ${POSTGRES_DB:-devpush}
-      PGUSER: ${POSTGRES_USER:-devpush}
-      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DEVPUSH_DATABASE_PATH: ${DEVPUSH_DATABASE_PATH:-/app/storage/devpush.sqlite}
+      DEVPUSH_LOG_DATABASE_PATH: ${DEVPUSH_LOG_DATABASE_PATH:-/app/storage/logs.sqlite}
+      DEVPUSH_DATABASE_URL: ${DEVPUSH_DATABASE_URL:-}
+      DEVPUSH_LOG_DATABASE_URL: ${DEVPUSH_LOG_DATABASE_URL:-}
+      DEVPUSH_DATABASE_AUTH_TOKEN: ${DEVPUSH_DATABASE_AUTH_TOKEN:-}
+      DEVPUSH_LOG_DATABASE_AUTH_TOKEN: ${DEVPUSH_LOG_DATABASE_AUTH_TOKEN:-}
       BACKUP_RETENTION_DAYS: ${DEVPUSH_DB_BACKUP_RETENTION_DAYS:-7}
     volumes:
+      - control_plane_data:/app/storage
       - control_plane_backups:/backups
     command:
       - /bin/sh
       - -ec
       - |
         while true; do
-          stamp=$$(date -u +%Y%m%dT%H%M%SZ)
-          pg_dump --format=custom --file="/backups/devpush-$$stamp.dump"
-          find /backups -type f -name 'devpush-*.dump' -mtime "+$$BACKUP_RETENTION_DAYS" -delete
+          node /repo/app/.maintenance/backup-sqlite.mjs
           sleep 86400
         done
 
 volumes:
-  postgres_data:
+  control_plane_data:
   app_uploads:
   control_plane_backups:

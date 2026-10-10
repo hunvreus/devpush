@@ -513,6 +513,57 @@ func TestCommandEnvIncludesDockerHost(t *testing.T) {
 	assertContains(t, env, "DOCKER_HOST=unix:///run/user/1000/docker.sock")
 }
 
+func TestCommandEnvExcludesAgentToken(t *testing.T) {
+	t.Setenv("DEVPUSH_AGENT_TOKEN", "server-credential")
+	t.Setenv("DEVPUSH_BASE_URL", "https://control.example")
+	runner := NewRunner(Config{}, nil)
+
+	env := strings.Join(runner.commandEnv(), "\n")
+
+	assertNotContains(t, env, "DEVPUSH_AGENT_TOKEN=")
+	assertNotContains(t, env, "DEVPUSH_BASE_URL=")
+}
+
+func TestSelectedBackupVolumesMustBelongToRuntime(t *testing.T) {
+	tempDir := workspaceTempDir(t, "agent-backup-volume-")
+	binDir := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutable(t, filepath.Join(binDir, "docker"), `#!/bin/sh
+if [ "$1" = "volume" ] && [ "$2" = "ls" ]; then
+  case "$@" in
+    *label=com.docker.compose.project=dp_project_production*label=com.docker.compose.volume=data*)
+      echo dp_project_production_data
+      ;;
+  esac
+  exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	runner := NewRunner(Config{}, nil)
+
+	volumes, err := runner.backupVolumeNames(t.Context(), "dp_project_production", backupVolumeSelection{
+		Mode:  "selected",
+		Names: []string{"data"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(volumes, ",") != "dp_project_production_data" {
+		t.Fatalf("unexpected selected volumes: %#v", volumes)
+	}
+
+	_, err = runner.backupVolumeNames(t.Context(), "dp_project_production", backupVolumeSelection{
+		Mode:  "selected",
+		Names: []string{"other-data"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not belong to runtime") {
+		t.Fatalf("expected cross-runtime volume rejection, got %v", err)
+	}
+}
+
 func TestComposeCommandRequiresDockerComposePlugin(t *testing.T) {
 	tempDir := workspaceTempDir(t, "agent-compose-smoke-")
 	binDir := filepath.Join(tempDir, "bin")
@@ -576,6 +627,10 @@ if [ "$1" = "inspect" ] && [ "$2" = "-f" ] && [ "$3" = "{{json .Config.Env}}" ] 
   echo '["CONTAINERS=1","EVENTS=1"]'
   exit 0
 fi
+if [ "$1" = "inspect" ] && [ "$2" = "-f" ] && [ "$3" = "{{json .NetworkSettings.Networks}}" ] && [ "$4" = "devpush-docker-socket-proxy" ]; then
+  echo '{"devpush-proxy":{}}'
+  exit 0
+fi
 if [ "$1" = "inspect" ] && [ "$2" = "-f" ] && [ "$3" = "{{.State.Running}}" ] && [ "$4" = "devpush-docker-socket-proxy" ]; then
   echo true
   exit 0
@@ -591,10 +646,10 @@ if [ "$1" = "inspect" ] && [ "$2" = "-f" ] && [ "$3" = "{{json .Mounts}}" ] && [
   echo '[{"Source":"/var/run/docker.sock"}]'
   exit 0
 fi
-if [ "$1" = "rm" ] && [ "$2" = "-f" ] && [ "$3" = "devpush-traefik" ]; then
+if [ "$1" = "rm" ] && [ "$2" = "-f" ]; then
   exit 0
 fi
-if [ "$1" = "run" ] && [ "$4" = "devpush-traefik" ]; then
+if [ "$1" = "run" ]; then
   exit 0
 fi
 exit 1
@@ -700,23 +755,18 @@ func TestRunCommandTruncatesTheCommandEcho(t *testing.T) {
 	assertContains(t, logs[0], "... [truncated]")
 }
 
-func TestDeploymentLogBatchKeepsBoundedTail(t *testing.T) {
+func TestDeploymentLogBatchKeepsBoundedPrefix(t *testing.T) {
 	logs := make([]string, maxDeploymentLogBatchLines+2)
 	for index := range logs {
 		logs[index] = fmt.Sprintf("line-%d", index)
 	}
-
 	start, batch := deploymentLogBatch(logs, 0)
-
-	if start != 2 {
-		t.Fatalf("expected batch to start at index 2, got %d", start)
+	if start != 0 || len(batch) != maxDeploymentLogBatchLines || batch[0] != logs[0] {
+		t.Fatalf("unexpected first batch: start=%d lines=%d first=%q", start, len(batch), batch[0])
 	}
-	if len(batch) != maxDeploymentLogBatchLines {
-		t.Fatalf("expected %d lines, got %d", maxDeploymentLogBatchLines, len(batch))
-	}
-	assertContains(t, batch[0], "3 earlier log lines omitted")
-	if batch[len(batch)-1] != fmt.Sprintf("line-%d", len(logs)-1) {
-		t.Fatalf("expected newest log line, got %q", batch[len(batch)-1])
+	next, tail := deploymentLogBatch(logs, len(batch))
+	if next != maxDeploymentLogBatchLines || strings.Join(tail, ",") != strings.Join(logs[maxDeploymentLogBatchLines:], ",") {
+		t.Fatalf("pending tail lost: start=%d tail=%v", next, tail)
 	}
 }
 
@@ -906,9 +956,10 @@ exit 1
 	defer server.Close()
 
 	runner := NewRunner(Config{
-		BaseURL: server.URL,
-		AgentID: "server-1",
-		Token:   "agent-token",
+		BaseURL:  server.URL,
+		StateDir: tempDir,
+		AgentID:  "server-1",
+		Token:    "agent-token",
 	}, nil)
 
 	runner.sendHeartbeat(t.Context())
@@ -956,15 +1007,16 @@ exit 1
 	})
 	mux.HandleFunc("/api/agents/runtime-logs", func(response http.ResponseWriter, request *http.Request) {
 		decodeJSON(t, request, &logsPayload)
-		writeJSON(t, response, runtimeLogsResponse{OK: true, Inserted: 1})
+		writeJSON(t, response, runtimeLogsResponse{OK: true, Accepted: 1, Inserted: 1})
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	runner := NewRunner(Config{
-		BaseURL: server.URL,
-		AgentID: "server-1",
-		Token:   "agent-token",
+		BaseURL:  server.URL,
+		StateDir: t.TempDir(),
+		AgentID:  "server-1",
+		Token:    "agent-token",
 	}, nil)
 
 	runner.sendHeartbeat(t.Context())

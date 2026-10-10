@@ -16,7 +16,7 @@ import type { AuthMethods } from '@/lib/auth/config'
 import { getErrorMessage } from '@/lib/error-message'
 import { isValidEmail } from '@/lib/validation'
 
-type PendingAction = null | 'email' | 'otp' | 'github' | 'google'
+type PendingAction = null | 'email' | 'otp' | 'redirect' | 'github' | 'google'
 
 export function LoginForm({
   authMethods,
@@ -35,11 +35,13 @@ export function LoginForm({
   const busy = pending !== null
 
   async function sendOtp() {
+    if (busy || !authMethods.email) return
     const normalizedEmail = email.trim().toLocaleLowerCase()
-    setEmailError(null)
+    const setSendError = step === 'otp' ? setOtpError : setEmailError
+    setSendError(null)
 
     if (!isValidEmail(normalizedEmail)) {
-      setEmailError(
+      setSendError(
         normalizedEmail ? 'Invalid email address' : 'Enter your email address.',
       )
       return
@@ -54,8 +56,11 @@ export function LoginForm({
       })
 
       if (result.error) {
-        setEmailError(
-          getErrorMessage(result.error, 'Unable to send sign-in code.'),
+        setSendError(
+          getErrorMessage(
+            result.error,
+            'Unable to send your sign-in code. Please try again in a moment.',
+          ),
         )
         return
       }
@@ -64,13 +69,16 @@ export function LoginForm({
       setOtp('')
       setStep('otp')
     } catch {
-      setEmailError('Unable to send sign-in code.')
+      setSendError(
+        'Unable to send your sign-in code. Please try again in a moment.',
+      )
     } finally {
       setPending(null)
     }
   }
 
   async function verifyOtp() {
+    if (busy) return
     if (otp.length !== 6) {
       setOtpError('Enter the 6-digit code.')
       return
@@ -84,13 +92,14 @@ export function LoginForm({
 
       if (result.error) {
         setOtpError(getErrorMessage(result.error, 'Unable to verify code.'))
+        setPending(null)
         return
       }
 
+      setPending('redirect')
       window.location.assign(redirectPath)
     } catch {
       setOtpError('Unable to verify code.')
-    } finally {
       setPending(null)
     }
   }
@@ -107,6 +116,7 @@ export function LoginForm({
   }
 
   async function signInWithProvider(provider: 'github' | 'google') {
+    if (busy || !authMethods[provider]) return
     setPending(provider)
 
     try {
@@ -214,7 +224,7 @@ function EmailStep({
 
           <Field>
             <Button type="submit" disabled={busy}>
-              Continue with email
+              {pending === 'email' ? 'Sending code…' : 'Continue with email'}
               {pending === 'email' ? <Spinner data-icon="inline-end" /> : null}
             </Button>
           </Field>
@@ -306,8 +316,14 @@ function OtpStep({
 
       <Field>
         <Button type="submit" disabled={busy || otp.length !== 6}>
-          Verify code
-          {pending === 'otp' ? <Spinner data-icon="inline-end" /> : null}
+          {pending === 'redirect'
+            ? 'Signing you in…'
+            : pending === 'otp'
+              ? 'Verifying code…'
+              : 'Verify code'}
+          {pending === 'otp' || pending === 'redirect' ? (
+            <Spinner data-icon="inline-end" />
+          ) : null}
         </Button>
         <Button
           type="button"
@@ -315,7 +331,7 @@ function OtpStep({
           disabled={busy}
           onClick={onResend}
         >
-          Resend code
+          {pending === 'email' ? 'Sending code…' : 'Resend code'}
         </Button>
         <Button type="button" variant="ghost" disabled={busy} onClick={onReset}>
           Sign in another way
@@ -330,7 +346,12 @@ type InlineIconProps = {
 }
 
 function Spinner({ 'data-icon': dataIcon }: InlineIconProps) {
-  return <LoaderCircle data-icon={dataIcon} className="size-4 animate-spin" />
+  return (
+    <LoaderCircle
+      data-icon={dataIcon}
+      className="size-4 shrink-0 animate-spin"
+    />
+  )
 }
 
 function GithubIcon({ 'data-icon': dataIcon }: InlineIconProps) {
@@ -341,7 +362,7 @@ function GithubIcon({ 'data-icon': dataIcon }: InlineIconProps) {
       fill="currentColor"
       viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
-      className="size-4"
+      className="size-4 shrink-0"
       aria-hidden="true"
     >
       <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
@@ -355,7 +376,7 @@ function GoogleIcon({ 'data-icon': dataIcon }: InlineIconProps) {
       data-icon={dataIcon}
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      className="size-4"
+      className="size-4 shrink-0"
       aria-hidden="true"
     >
       <path
@@ -375,5 +396,24 @@ function GoogleIcon({ 'data-icon': dataIcon }: InlineIconProps) {
         fill="#EA4335"
       />
     </svg>
+  )
+}
+
+export function LoginPending() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-10 text-foreground">
+      <div
+        className="w-full max-w-xs space-y-6"
+        aria-label="Loading sign in"
+        aria-busy="true"
+      >
+        <h1 className="text-center leading-snug font-medium">
+          Sign in to devpush
+        </h1>
+        <p role="status" className="text-center text-sm text-muted-foreground">
+          Loading sign-in options…
+        </p>
+      </div>
+    </main>
   )
 }

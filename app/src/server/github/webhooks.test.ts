@@ -29,6 +29,37 @@ describe('GitHub webhooks', () => {
     ).toBe(false)
   })
 
+  test('validates required webhook headers before reading the body', async () => {
+    const { validateGitHubWebhookHeaders } = await import('./webhooks')
+    const valid = new Headers({
+      'x-github-delivery': '12345678-1234-1234-1234-123456789abc',
+      'x-github-event': 'push',
+      'x-hub-signature-256': `sha256=${'a'.repeat(64)}`,
+    })
+
+    expect(validateGitHubWebhookHeaders(valid)).toEqual({
+      ok: true,
+      deliveryId: '12345678-1234-1234-1234-123456789abc',
+      event: 'push',
+      signature: `sha256=${'a'.repeat(64)}`,
+    })
+    expect(validateGitHubWebhookHeaders(new Headers())).toMatchObject({
+      ok: false,
+      status: 401,
+    })
+    valid.set('x-hub-signature-256', 'sha256=not-hex')
+    expect(validateGitHubWebhookHeaders(valid)).toMatchObject({
+      ok: false,
+      status: 401,
+    })
+    valid.set('x-hub-signature-256', `sha256=${'a'.repeat(64)}`)
+    valid.delete('x-github-delivery')
+    expect(validateGitHubWebhookHeaders(valid)).toMatchObject({
+      ok: false,
+      status: 400,
+    })
+  })
+
   test('extracts branch names from push refs', async () => {
     const { getBranchFromGitHubRef } = await import('./webhooks')
 

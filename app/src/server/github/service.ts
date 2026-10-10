@@ -143,7 +143,10 @@ export async function getGitHubAccount(
   userId: string,
 ): Promise<GitHubAccount | null> {
   const accountRows = await db
-    .select({ accessToken: account.accessToken })
+    .select({
+      accessToken: account.accessToken,
+      login: account.providerAccountUsername,
+    })
     .from(account)
     .where(and(eq(account.userId, userId), eq(account.providerId, 'github')))
     .orderBy(desc(account.updatedAt))
@@ -154,13 +157,17 @@ export async function getGitHubAccount(
     return null
   }
 
-  const user = await githubRequest<GitHubUserResponse>(
-    '/user',
-    githubAccount.accessToken,
-  )
+  const login =
+    githubAccount.login ??
+    (
+      await githubRequest<GitHubUserResponse>(
+        '/user',
+        githubAccount.accessToken,
+      )
+    ).login
 
   return {
-    login: user.login,
+    login,
     accessToken: githubAccount.accessToken,
   }
 }
@@ -679,6 +686,7 @@ function normalizePrivateKey(value: string) {
   }
 
   const [, label, body] = singleLinePem
+  if (label === undefined || body === undefined) return withNewlines
   const chunks = body.match(/.{1,64}/g) ?? []
   return [
     `-----BEGIN ${label}-----`,

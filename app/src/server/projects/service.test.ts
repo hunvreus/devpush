@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest'
 
-import { buildDefaultHostForProject, verifyDomainAddress } from './service'
+import {
+  buildDefaultHostForProject,
+  generatedAliasUsesHttps,
+} from './hostnames'
+import { verifyDomainAddress } from './settings'
 import { parseComposeMetadata } from './compose-metadata'
 import { getEffectiveProjectRoutes } from './mappers'
 
@@ -23,13 +27,13 @@ describe('buildDefaultHostForProject', () => {
     ).toBe('my-app-192-168-1-10.nip.io')
   })
 
-  test('uses the local control-plane address when no IPv4 is reported', () => {
+  test('uses IPv6 nip.io DNS instead of silently routing to localhost', () => {
     expect(
       buildDefaultHostForProject({
         projectName: 'my-app',
         serverPublicAddress: '2001:db8::1',
       }),
-    ).toBe('my-app-127-0-0-1.nip.io')
+    ).toBe('my-app.2001-db8--1.nip.io')
   })
 
   test('keeps the generated DNS label within 63 characters', () => {
@@ -44,6 +48,18 @@ describe('buildDefaultHostForProject', () => {
 })
 
 describe('verifyDomainAddress', () => {
+  test('accepts equivalent IPv6 AAAA addresses', async () => {
+    await expect(
+      verifyDomainAddress({
+        hostname: 'app.example.com',
+        expectedAddress: '2001:db8::1',
+        resolveAddresses: async () => [
+          '2001:0db8:0000:0000:0000:0000:0000:0001',
+        ],
+      }),
+    ).resolves.toEqual({ verified: true, message: null })
+  })
+
   test('accepts DNS that resolves to the assigned server', async () => {
     await expect(
       verifyDomainAddress({
@@ -230,4 +246,20 @@ describe('environment route inheritance', () => {
       },
     ])
   })
+})
+
+test('public IPv6 aliases use HTTPS while local IPv6 uses HTTP', () => {
+  expect(generatedAliasUsesHttps('2a01:4f8:1c16:500c::1')).toBe(true)
+  for (const address of ['::1', '::', 'fd00::1', 'fe80::1', '2001:db8::1']) {
+    expect(generatedAliasUsesHttps(address)).toBe(false)
+  }
+})
+
+test('canonicalizes IPv6 and keeps every generated DNS label valid', () => {
+  const host = buildDefaultHostForProject({
+    projectName: 'a'.repeat(100),
+    serverPublicAddress: '2A01:04F8:1C16:500C:0:0:0:1',
+  })
+  expect(host).toMatch(/\.2a01-4f8-1c16-500c--1\.nip\.io$/)
+  expect(host.split('.').every((label) => label.length <= 63)).toBe(true)
 })

@@ -22,7 +22,7 @@ export const Route = createFileRoute('/api/agents/heartbeat')({
               runtimeIds: payload.runtimeIds,
               runtimes: payload.runtimes,
               system: payload.system,
-              metrics: payload.metrics,
+              metricSamples: payload.metricSamples,
             }),
           'Unable to record agent heartbeat.',
         )

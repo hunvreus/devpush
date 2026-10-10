@@ -18,7 +18,7 @@
     "audit:dependencies": "pnpm audit --audit-level=high",
     "typecheck": "pnpm --dir app typecheck",
     "lint": "pnpm --dir app lint",
-    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs app/scripts/github-app.test.mjs",
+    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs scripts/setup-hetzner.test.mjs app/scripts/github-app.test.mjs",
     "test:integration": "pnpm --dir app test:integration",
     "smoke:deploy": "pnpm --dir app smoke:deploy",
     "smoke:agent": "GOCACHE=$PWD/.tmp/go-build-cache DEVPUSH_RUN_DOCKER_SMOKE=1 go test ./agent/internal/agent -run 'TestRunDeploymentJob(RunsRealDockerCompose|RoutesThroughRealTraefik)' -count=1 -v",
@@ -35,10 +35,21 @@
     "validate:cloudflare": "pnpm --dir app validate:cloudflare",
     "deploy:cloudflare": "pnpm --dir app validate:cloudflare:config && pnpm --dir app db:migrate:cloudflare && pnpm agent:build:linux && pnpm publish:agents:cloudflare && pnpm --dir app deploy:cloudflare:worker",
     "agent:test": "GOCACHE=$PWD/.tmp/go-build-cache go test ./agent/...",
-    "setup:github-app": "node app/scripts/setup-github-app.mjs"
+    "setup:github-app": "node app/scripts/setup-github-app.mjs",
+    "setup:hetzner": "node scripts/setup-hetzner.mjs"
   },
   "devDependencies": {
     "@clack/prompts": "^1.7.0",
     "jsonc-parser": "^3.3.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "browserslist": "4.28.7",
+      "esbuild": "0.28.1",
+      "fast-uri": "3.1.7",
+      "qs": "6.16.0",
+      "minimatch>brace-expansion": "5.0.11",
+      "xmlbuilder2>js-yaml": "4.3.2"
+    }
   }
 }

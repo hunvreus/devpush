@@ -1,312 +1,52 @@
-import { eq, inArray, sql } from 'drizzle-orm'
-
-import type { db } from '@/server/db'
-import {
-  agentJobs,
-  deployments,
-  environments,
-  projects,
-} from '@/server/db/schema'
-
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+import { sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 
 export type DeprovisionJobPayload = {
   schemaVersion: 1
-  runtimeIds: Array<string>
+  runtimeIds: string[]
   removeVolumes: boolean
   reason: string
 }
 
 export const cleanupVolumeRetentionMs = 7 * 24 * 60 * 60 * 1000
 
-type RuntimeTarget = {
-  runtimeId: string
-  serverId: string
-}
-
-export async function enqueueProjectDeprovisionJobs(
-  tx: DbTransaction,
-  {
-    projectId,
-    teamId,
-    reason,
-  }: {
-    projectId: string
-    teamId: string
-    reason: string
-  },
-) {
-  const runtimes = await listProjectRuntimeTargets(tx, projectId)
-
-  await enqueueRuntimeCleanupJobs(tx, {
-    projectId,
-    teamId,
-    reason,
-    runtimes,
-    includePurge: true,
-  })
-}
-
-export async function enqueueTeamDeprovisionJobs(
-  tx: DbTransaction,
-  {
-    teamId,
-    reason,
-  }: {
-    teamId: string
-    reason: string
-  },
-) {
-  const runtimes = await listTeamRuntimeTargets(tx, teamId)
-
-  await enqueueRuntimeCleanupJobs(tx, {
-    teamId,
-    reason,
-    runtimes,
-    includePurge: true,
-  })
-}
-
-async function listProjectRuntimeTargets(
-  tx: DbTransaction,
-  projectId: string,
-): Promise<Array<RuntimeTarget>> {
-  const environmentRows = await tx
-    .select({
-      runtimeId: environments.runtimeId,
-      serverId: sql<
-        string | null
-      >`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
-    })
-    .from(environments)
-    .innerJoin(projects, eq(projects.id, environments.projectId))
-    .where(eq(environments.projectId, projectId))
-  const deploymentRows = await tx
-    .select({
-      runtimeId: deployments.runtimeId,
-      serverId: deployments.serverId,
-    })
-    .from(deployments)
-    .innerJoin(environments, eq(environments.id, deployments.environmentId))
-    .where(eq(environments.projectId, projectId))
-
-  return dedupeRuntimeTargets([
-    ...environmentRows
-      .filter((row): row is { runtimeId: string; serverId: string } =>
-        Boolean(row.serverId),
-      )
-      .map((row) => ({
-        runtimeId: row.runtimeId,
-        serverId: row.serverId,
-      })),
-    ...deploymentRows,
-  ])
-}
-
-async function listTeamRuntimeTargets(
-  tx: DbTransaction,
-  teamId: string,
-): Promise<Array<RuntimeTarget>> {
-  const projectRows = await tx
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.teamId, teamId))
-  const projectIds = projectRows.map((row) => row.id)
-
-  if (projectIds.length === 0) {
-    return []
-  }
-
-  const environmentRows = await tx
-    .select({
-      runtimeId: environments.runtimeId,
-      serverId: sql<
-        string | null
-      >`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
-    })
-    .from(environments)
-    .innerJoin(projects, eq(projects.id, environments.projectId))
-    .where(inArray(environments.projectId, projectIds))
-  const deploymentRows = await tx
-    .select({
-      runtimeId: deployments.runtimeId,
-      serverId: deployments.serverId,
-    })
-    .from(deployments)
-    .innerJoin(environments, eq(environments.id, deployments.environmentId))
-    .where(inArray(environments.projectId, projectIds))
-
-  return dedupeRuntimeTargets([
-    ...environmentRows
-      .filter((row): row is { runtimeId: string; serverId: string } =>
-        Boolean(row.serverId),
-      )
-      .map((row) => ({
-        runtimeId: row.runtimeId,
-        serverId: row.serverId,
-      })),
-    ...deploymentRows,
-  ])
-}
-
-export async function enqueueRuntimeCleanupJobs(
-  tx: DbTransaction,
-  {
-    projectId,
-    teamId,
-    reason,
-    runtimes,
-    includePurge,
-  }: {
-    projectId?: string
-    teamId?: string
-    reason: string
-    runtimes: Array<RuntimeTarget>
-    includePurge: boolean
-  },
-) {
-  const runtimeIdsByServer = groupRuntimeIdsByServer(runtimes)
-
-  if (runtimeIdsByServer.size === 0) {
-    return []
-  }
-
-  const now = new Date()
-  const purgeAvailableAt = new Date(now.getTime() + cleanupVolumeRetentionMs)
-  const rows = Array.from(runtimeIdsByServer.entries()).flatMap(
-    ([serverId, runtimeIds]) => {
-      const sortedRuntimeIds = Array.from(runtimeIds).sort()
-
-      const deprovisionJob = {
-        id: crypto.randomUUID(),
-        type: 'deprovision' as const,
-        status: 'queued' as const,
-        serverId,
-        teamId,
-        projectId,
-        payload: {
-          schemaVersion: 1,
-          runtimeIds: sortedRuntimeIds,
-          removeVolumes: false,
-          reason,
-        } satisfies DeprovisionJobPayload,
-        maxAttempts: 10,
-        availableAt: now,
-        createdAt: now,
-        updatedAt: now,
-      }
-
-      if (!includePurge) {
-        return [deprovisionJob]
-      }
-
-      return [
-        deprovisionJob,
-        {
-          id: crypto.randomUUID(),
-          type: 'purge' as const,
-          status: 'queued' as const,
-          serverId,
-          teamId,
-          projectId,
-          payload: {
-            schemaVersion: 1,
-            runtimeIds: sortedRuntimeIds,
-            removeVolumes: true,
-            reason: `${reason} Purge retained volumes after the retention window.`,
-          } satisfies DeprovisionJobPayload,
-          maxAttempts: 10,
-          availableAt: purgeAvailableAt,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]
-    },
-  )
-
-  return tx.insert(agentJobs).values(rows).returning({ id: agentJobs.id })
-}
-
-export async function enqueueRuntimePurgeJobs(
-  tx: DbTransaction,
-  {
-    projectId,
-    teamId,
-    reason,
-    runtimes,
-  }: {
-    projectId?: string
-    teamId?: string
-    reason: string
-    runtimes: Array<RuntimeTarget>
-  },
-) {
-  const runtimeIdsByServer = groupRuntimeIdsByServer(runtimes)
-
-  if (runtimeIdsByServer.size === 0) {
-    return []
-  }
-
-  const now = new Date()
-  const rows = Array.from(runtimeIdsByServer.entries()).map(
-    ([serverId, runtimeIds]) => ({
-      id: crypto.randomUUID(),
-      type: 'purge' as const,
-      status: 'queued' as const,
-      serverId,
-      teamId,
-      projectId,
-      payload: {
-        schemaVersion: 1,
-        runtimeIds: Array.from(runtimeIds).sort(),
-        removeVolumes: true,
-        reason,
-      } satisfies DeprovisionJobPayload,
-      maxAttempts: 10,
-      availableAt: now,
-      createdAt: now,
-      updatedAt: now,
-    }),
-  )
-
-  return tx.insert(agentJobs).values(rows).returning({ id: agentJobs.id })
-}
-
-function dedupeRuntimeTargets(
-  runtimes: Array<RuntimeTarget>,
-): Array<RuntimeTarget> {
-  const seen = new Set<string>()
-  const result: Array<RuntimeTarget> = []
-
-  for (const runtime of runtimes) {
-    const key = `${runtime.serverId}:${runtime.runtimeId}`
-
-    if (seen.has(key)) {
-      continue
-    }
-
-    seen.add(key)
-    result.push(runtime)
-  }
-
-  return result
-}
-
-function groupRuntimeIdsByServer(runtimes: Array<RuntimeTarget>) {
-  const runtimeIdsByServer = new Map<string, Set<string>>()
-
-  for (const runtime of runtimes) {
-    const runtimeId = runtime.runtimeId.trim()
-    const serverId = runtime.serverId.trim()
-
-    if (!runtimeId || !serverId) {
-      continue
-    }
-
-    const runtimeIds = runtimeIdsByServer.get(serverId) ?? new Set<string>()
-    runtimeIds.add(runtimeId)
-    runtimeIdsByServer.set(serverId, runtimeIds)
-  }
-
-  return runtimeIdsByServer
+// Derive targets inside the caller's deletion batch. One noisy project cannot
+// produce an unbounded agent payload; every target is kept in a chunk of 200.
+export function runtimeCleanupInsert(input: {
+  projectIds: SQL
+  guard: SQL
+  projectId?: string
+  reason: string
+  now: Date
+}) {
+  const now = input.now.getTime()
+  return sql`with targets as materialized (
+    select p.team_id, trim(coalesce(e.server_id, p.default_server_id)) as server_id,
+      trim(e.runtime_id) as runtime_id
+    from environments e join projects p on p.id = e.project_id
+    where p.id in (${input.projectIds}) and ${input.guard}
+    union
+    select p.team_id, trim(d.server_id), trim(d.runtime_id)
+    from deployments d join environments e on e.id = d.environment_id
+      join projects p on p.id = e.project_id
+    where p.id in (${input.projectIds}) and ${input.guard}
+  ), numbered as (
+    select *, (row_number() over (partition by team_id, server_id order by runtime_id) - 1) / 200 as chunk
+    from targets where server_id is not null and server_id <> '' and runtime_id <> ''
+  ), groups as (
+    select team_id, server_id, chunk, json_group_array(runtime_id) as runtime_ids
+    from (select * from numbered order by team_id, server_id, chunk, runtime_id)
+    group by team_id, server_id, chunk
+  ), kinds as (select 'deprovision' as type union all select 'purge')
+  insert into agent_jobs
+    (id, type, status, server_id, team_id, project_id, payload, max_attempts, available_at, created_at, updated_at)
+  select lower(hex(randomblob(16))), kinds.type, 'queued', groups.server_id, groups.team_id,
+    ${input.projectId ?? null},
+    json_object('schemaVersion', 1, 'runtimeIds', json(groups.runtime_ids),
+      'removeVolumes', json(case when kinds.type = 'purge' then 'true' else 'false' end),
+      'reason', case when kinds.type = 'purge'
+        then ${`${input.reason} Purge retained volumes after the retention window.`} else ${input.reason} end),
+    10, case when kinds.type = 'purge' then ${now + cleanupVolumeRetentionMs} else ${now} end,
+    ${now}, ${now}
+  from groups cross join kinds`
 }

@@ -1,9 +1,10 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
+import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
 import { ProjectLogs } from '@/features/projects/project-logs'
-import { ProjectRoutePending } from '@/features/projects/project-route-pending'
+import { ProjectSectionPending } from '@/features/projects/project-route-pending'
 import { stringSearchValidator } from '@/lib/search'
-import { getProjectLogs } from '@/server/projects/functions'
+import { projectLogsQueryOptions } from '@/lib/project-context-query'
 
 const validateSearch = stringSearchValidator([
   'branch',
@@ -16,37 +17,38 @@ const validateSearch = stringSearchValidator([
 export const Route = createFileRoute('/$teamSlug/projects/$projectName/logs')({
   validateSearch,
   loaderDeps: ({ search }) => search,
-  loader: async ({ params, deps }) => {
-    const context = await getProjectLogs({
-      data: {
-        teamSlug: params.teamSlug,
-        projectName: params.projectName,
-        branch: deps.branch,
-        date: deps.date,
-        deploymentId: deps.deploymentId,
-        environmentId: deps.environmentId,
-        keyword: deps.keyword,
-      },
-    })
-
-    if (!context) {
-      throw redirect({ to: '/auth/login' })
-    }
-
-    return context
-  },
-  pendingMs: 0,
-  pendingMinMs: 300,
+  loader: ({ context, params, deps }) =>
+    context.queryClient.fetchQuery(
+      projectLogsQueryOptions(
+        {
+          teamSlug: params.teamSlug,
+          projectName: params.projectName,
+          branch: deps.branch,
+          date: deps.date,
+          deploymentId: deps.deploymentId,
+          environmentId: deps.environmentId,
+          keyword: deps.keyword,
+        },
+        context.queryClient,
+      ),
+    ),
+  pendingMs: 150,
+  pendingMinMs: 200,
   pendingComponent: LogsPending,
   component: LogsRoute,
 })
 
 function LogsPending() {
-  return <ProjectRoutePending section="logs" />
+  return <ProjectSectionPending section="logs" />
 }
 
 function LogsRoute() {
-  const context = Route.useLoaderData()
+  const params = Route.useParams()
+  const search = Route.useSearch()
+  const queryClient = useQueryClient()
+  const { data: context } = useSuspenseQuery(
+    projectLogsQueryOptions({ ...params, ...search }, queryClient),
+  )
 
   return <ProjectLogs context={context} />
 }

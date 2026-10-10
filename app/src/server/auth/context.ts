@@ -1,25 +1,26 @@
+import { listBackupStorage } from '@/server/backups/storage'
 import { createServerFn } from '@tanstack/react-start'
 
 import { getAuthMethods } from '@/lib/auth/config'
 import { getAuthSession } from '@/server/auth/session.server'
 import { getAgentBinaryStatus } from '@/server/install/agent-binary'
-import { listTeamDeployments } from '@/server/projects/service'
-import { requireTeamServer } from '@/server/servers/service'
+import { listTeamDeployments } from '@/server/projects/context'
+import { requireServerForTeam } from '@/server/servers/service'
 import {
   getUserContext,
   getTeamDeletionStatus,
+  requireTeam,
+} from '@/server/teams/service'
+import {
   listTeamInvites,
   listTeamMembers,
   listTeamProjects,
   listTeamServers,
-  requireTeam,
-} from '@/server/teams/service'
-import {
-  backfillAuthAccountIdentities,
-  listUserTeams,
-} from '@/server/users/service'
+} from '@/server/teams/queries'
+import { listAuthAccounts, listUserTeams } from '@/server/users/service'
 
 export type AuthUserContext = Awaited<ReturnType<typeof getUserContext>>
+export type TeamContextSection = 'overview' | 'servers' | 'settings'
 
 export const getLoginContext = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -54,7 +55,7 @@ export const getUserSettingsContext = createServerFn({ method: 'GET' }).handler(
 
     const [context, accounts, teams] = await Promise.all([
       getUserContext(session.user.id),
-      backfillAuthAccountIdentities({ userId: session.user.id }),
+      listAuthAccounts(session.user.id, { validateUser: false }),
       listUserTeams(session.user.id),
     ])
 
@@ -67,7 +68,7 @@ export const getUserSettingsContext = createServerFn({ method: 'GET' }).handler(
   },
 )
 
-export const getTeamHomeContext = createServerFn({ method: 'GET' })
+export const getTeamShellContext = createServerFn({ method: 'GET' })
   .validator((data: { teamSlug: string }) => data)
   .handler(async ({ data }) => {
     const session = await getAuthSession()
@@ -76,30 +77,28 @@ export const getTeamHomeContext = createServerFn({ method: 'GET' })
       return null
     }
 
-    const [userContext, team] = await Promise.all([
-      getUserContext(session.user.id),
-      requireTeam(session.user.id, data.teamSlug),
-    ])
+    const userContext = await getUserContext(session.user.id)
+    const team = userContext.teams.find((item) => item.slug === data.teamSlug)
 
-    const [projects, deployments, servers, serverInstall] = await Promise.all([
+    if (!team) {
+      throw new Error('Team not found')
+    }
+
+    const [projects, servers] = await Promise.all([
       listTeamProjects(team.id),
-      listTeamDeployments({ teamId: team.id, limit: 5 }),
-      listTeamServers(team.id),
-      getAgentBinaryStatus(),
+      listTeamServers(team.id, { includeMonitoring: false }),
     ])
 
     return {
       userContext,
       team,
       projects,
-      deployments,
       servers,
-      serverInstall,
     }
   })
 
-export const getTeamSettingsContext = createServerFn({ method: 'GET' })
-  .validator((data: { teamSlug: string }) => data)
+export const getTeamSectionContext = createServerFn({ method: 'GET' })
+  .validator((data: { section: TeamContextSection; teamSlug: string }) => data)
   .handler(async ({ data }) => {
     const session = await getAuthSession()
 
@@ -107,26 +106,37 @@ export const getTeamSettingsContext = createServerFn({ method: 'GET' })
       return null
     }
 
-    const [userContext, team] = await Promise.all([
-      getUserContext(session.user.id),
-      requireTeam(session.user.id, data.teamSlug),
-    ])
+    const team = await requireTeam(session.user.id, data.teamSlug)
 
-    const [members, invites, servers, deletionStatus] = await Promise.all([
-      listTeamMembers(team.id),
-      listTeamInvites(team.id),
-      listTeamServers(team.id),
-      getTeamDeletionStatus({ teamId: team.id }),
-    ])
+    if (data.section === 'overview') {
+      return {
+        section: data.section,
+        deployments: await listTeamDeployments({ teamId: team.id, limit: 5 }),
+      } as const
+    }
+
+    if (data.section === 'servers') {
+      const [servers, serverInstall] = await Promise.all([
+        listTeamServers(team.id, { includeMonitoring: true }),
+        getAgentBinaryStatus(),
+      ])
+
+      return { section: data.section, servers, serverInstall } as const
+    }
+
+    const [members, invites, deletionStatus, backupStorage] = await Promise.all(
+      [
+        listTeamMembers(team.id),
+        listTeamInvites(team.id),
+        getTeamDeletionStatus({ teamId: team.id }),
+        listBackupStorage(team.id, team.role !== 'member'),
+      ],
+    )
 
     return {
-      userContext,
-      team,
-      members,
-      invites,
-      servers,
-      deletionStatus,
-    }
+      section: data.section,
+      settings: { deletionStatus, invites, members, backupStorage },
+    } as const
   })
 
 export const getTeamServerContext = createServerFn({ method: 'GET' })
@@ -138,26 +148,14 @@ export const getTeamServerContext = createServerFn({ method: 'GET' })
       return null
     }
 
-    const [userContext, team] = await Promise.all([
-      getUserContext(session.user.id),
-      requireTeam(session.user.id, data.teamSlug),
-    ])
-
-    const [server, servers, serverInstall] = await Promise.all([
-      requireTeamServer({
-        userId: session.user.id,
-        teamSlug: data.teamSlug,
-        serverId: data.serverId,
-      }),
-      listTeamServers(team.id),
-      getAgentBinaryStatus(),
-    ])
+    const team = await requireTeam(session.user.id, data.teamSlug)
+    const server = await requireServerForTeam({
+      teamId: team.id,
+      serverId: data.serverId,
+    })
 
     return {
-      userContext,
       team,
       server,
-      servers,
-      serverInstall,
     }
   })

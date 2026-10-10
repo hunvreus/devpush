@@ -8,6 +8,11 @@ const config = mergeConfig(
     test: {
       exclude: ['**/.git/**', '**/dist/**', '**/node_modules/**'],
       fileParallelism: false,
+      setupFiles: ['src/test/setup-sqlite.ts'],
+      env: {
+        DEVPUSH_SECRET_ENCRYPTION_KEY:
+          'devpush-integration-encryption-key-32-characters',
+      },
       include: ['src/**/*.integration.test.ts'],
       maxWorkers: 1,
       testTimeout: 10_000,

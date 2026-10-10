@@ -1,12 +1,25 @@
 import { randomUUID } from 'node:crypto'
 
-import { and, desc, eq, gt, gte, inArray, isNull, lt, or } from 'drizzle-orm'
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from 'drizzle-orm'
 
 import { db } from '@/server/db'
+import { config } from '@/server/config'
 import {
   serverAvailabilityWindows,
   serverHeartbeats,
   serverMetrics,
+  servers as serverTable,
 } from '@/server/db/schema'
 import { serverDisconnectedAfterMs } from '@/server/servers/status'
 import type { ServerStatus } from '@/server/servers/status'
@@ -15,6 +28,39 @@ const availabilityWindowMaxMs = 24 * 60 * 60 * 1000
 const metricsWindowMs = 24 * 60 * 60 * 1000
 const defaultMetricsLimit = 3_000
 const metricGapAfterMs = 75_000
+
+export async function pruneServerMonitoring(now = new Date()) {
+  const cutoff = new Date(
+    now.getTime() -
+      config.DEVPUSH_MONITORING_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  )
+  const counts = { heartbeats: 0, metrics: 0 }
+  for (const [name, table] of [
+    ['heartbeats', serverHeartbeats],
+    ['metrics', serverMetrics],
+  ] as const) {
+    // Bound each write and the entire maintenance run, including after an outage.
+    for (let batch = 0; batch < 10; batch++) {
+      const rows = await db
+        .delete(table)
+        .where(
+          inArray(
+            table.id,
+            db
+              .select({ id: table.id })
+              .from(table)
+              .where(lt(table.observedAt, cutoff))
+              .orderBy(table.observedAt, table.id)
+              .limit(1000),
+          ),
+        )
+        .returning({ id: table.id })
+      counts[name] += rows.length
+      if (rows.length < 1000) break
+    }
+  }
+  return counts
+}
 
 export type ServerMonitoringSummary = {
   availabilityPercent: number | null
@@ -133,48 +179,48 @@ export async function listServerMonitoringSummaries(
     return summaries
   }
 
-  const heartbeatRows = await db
-    .select({
-      serverId: serverHeartbeats.serverId,
-      observedAt: serverHeartbeats.observedAt,
-    })
-    .from(serverHeartbeats)
-    .where(
-      and(
-        inArray(serverHeartbeats.serverId, serverIds),
-        gte(
-          serverHeartbeats.observedAt,
-          new Date(
-            now.getTime() - availabilityWindowMaxMs - serverDisconnectedAfterMs,
+  const [heartbeatRows, availabilityRows, latestMetricRows] = await Promise.all(
+    [
+      db
+        .select({
+          serverId: serverHeartbeats.serverId,
+          observedAt: serverHeartbeats.observedAt,
+        })
+        .from(serverHeartbeats)
+        .where(
+          and(
+            sql`${serverHeartbeats.serverId} in (select value from json_each(${JSON.stringify(serverIds)}))`,
+            gte(
+              serverHeartbeats.observedAt,
+              new Date(
+                now.getTime() -
+                  availabilityWindowMaxMs -
+                  serverDisconnectedAfterMs,
+              ),
+            ),
           ),
         ),
-      ),
-    )
-
-  const availabilityRows = await db
-    .select({
-      serverId: serverAvailabilityWindows.serverId,
-      startedAt: serverAvailabilityWindows.startedAt,
-      endedAt: serverAvailabilityWindows.endedAt,
-    })
-    .from(serverAvailabilityWindows)
-    .where(
-      and(
-        inArray(serverAvailabilityWindows.serverId, serverIds),
-        lt(serverAvailabilityWindows.startedAt, now),
-        or(
-          isNull(serverAvailabilityWindows.endedAt),
-          gt(
-            serverAvailabilityWindows.endedAt,
-            new Date(now.getTime() - availabilityWindowMaxMs),
+      db
+        .select({
+          serverId: serverAvailabilityWindows.serverId,
+          startedAt: serverAvailabilityWindows.startedAt,
+          endedAt: serverAvailabilityWindows.endedAt,
+        })
+        .from(serverAvailabilityWindows)
+        .where(
+          and(
+            sql`${serverAvailabilityWindows.serverId} in (select value from json_each(${JSON.stringify(serverIds)}))`,
+            lt(serverAvailabilityWindows.startedAt, now),
+            or(
+              isNull(serverAvailabilityWindows.endedAt),
+              gt(
+                serverAvailabilityWindows.endedAt,
+                new Date(now.getTime() - availabilityWindowMaxMs),
+              ),
+            ),
           ),
         ),
-      ),
-    )
-
-  const latestMetricRows = await Promise.all(
-    serverIds.map(async (serverId) => {
-      const rows = await db
+      db
         .select({
           serverId: serverMetrics.serverId,
           observedAt: serverMetrics.observedAt,
@@ -191,30 +237,44 @@ export async function listServerMonitoringSummaries(
           diskReadBytesPerSecond: serverMetrics.diskReadBytesPerSecond,
           diskWriteBytesPerSecond: serverMetrics.diskWriteBytesPerSecond,
         })
-        .from(serverMetrics)
-        .where(eq(serverMetrics.serverId, serverId))
-        .orderBy(desc(serverMetrics.observedAt))
-        .limit(1)
-
-      return rows.at(0) ?? null
-    }),
+        .from(serverTable)
+        .innerJoin(
+          serverMetrics,
+          sql`${serverMetrics.id} = (
+          select latest.id from server_metrics as latest
+          where latest.server_id = ${serverTable.id}
+          order by latest.observed_at desc, latest.id desc limit 1
+        )`,
+        )
+        .where(
+          sql`${serverTable.id} in (select value from json_each(${JSON.stringify(serverIds)}))`,
+        )
+        .orderBy(serverMetrics.serverId, desc(serverMetrics.observedAt)),
+    ],
   )
+
+  const heartbeatsByServer = new Map<string, Array<HeartbeatRow>>()
+  for (const row of heartbeatRows) {
+    const rows = heartbeatsByServer.get(row.serverId) ?? []
+    rows.push(row)
+    heartbeatsByServer.set(row.serverId, rows)
+  }
+
+  const availabilityByServer = new Map<string, Array<AvailabilityWindow>>()
+  for (const row of availabilityRows) {
+    const rows = availabilityByServer.get(row.serverId) ?? []
+    rows.push({ startedAt: row.startedAt, endedAt: row.endedAt })
+    availabilityByServer.set(row.serverId, rows)
+  }
   const latestMetrics = new Map(
-    latestMetricRows
-      .filter((row) => row !== null)
-      .map((row) => [row.serverId, formatMetricSample(row)]),
+    latestMetricRows.map((row) => [row.serverId, formatMetricSample(row)]),
   )
 
   for (const server of servers) {
-    const heartbeats = heartbeatRows
-      .filter((row) => row.serverId === server.id)
-      .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime())
-    const persistedWindows = availabilityRows
-      .filter((row) => row.serverId === server.id)
-      .map((row) => ({
-        startedAt: row.startedAt,
-        endedAt: row.endedAt,
-      }))
+    const heartbeats = (heartbeatsByServer.get(server.id) ?? []).sort(
+      (a, b) => a.observedAt.getTime() - b.observedAt.getTime(),
+    )
+    const persistedWindows = availabilityByServer.get(server.id) ?? []
     const availabilityWindows =
       persistedWindows.length > 0
         ? persistedWindows
@@ -406,13 +466,14 @@ export function insertMetricGaps(
     points.push(sample)
   }
 
-  for (let index = 1; index < windows.length; index += 1) {
+  for (const [index, window] of windows.entries()) {
+    if (index === 0) continue
     const disabledAt = windows[index - 1]?.endedAt?.getTime()
     if (disabledAt === undefined) {
       continue
     }
 
-    const enabledAt = windows[index].startedAt.getTime()
+    const enabledAt = window.startedAt.getTime()
     points.push(emptyMetricSample(new Date((disabledAt + enabledAt) / 2)))
   }
 
@@ -465,14 +526,17 @@ function intersectIntervals(
   let rightIndex = 0
 
   while (leftIndex < left.length && rightIndex < right.length) {
-    const start = Math.max(left[leftIndex].start, right[rightIndex].start)
-    const end = Math.min(left[leftIndex].end, right[rightIndex].end)
+    const leftInterval = left[leftIndex]
+    const rightInterval = right[rightIndex]
+    if (!leftInterval || !rightInterval) break
+    const start = Math.max(leftInterval.start, rightInterval.start)
+    const end = Math.min(leftInterval.end, rightInterval.end)
 
     if (end > start) {
       intersections.push({ start, end })
     }
 
-    if (left[leftIndex].end < right[rightIndex].end) {
+    if (leftInterval.end < rightInterval.end) {
       leftIndex += 1
     } else {
       rightIndex += 1

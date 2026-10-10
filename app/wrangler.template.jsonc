@@ -4,6 +4,25 @@
   "main": "src/server.ts",
   "compatibility_date": "2026-08-29",
   "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DEVPUSH_DATABASE",
+      "database_name": "devpush",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "src/server/db/migrations-sqlite",
+    },
+    {
+      "binding": "DEVPUSH_LOG_DATABASE",
+      "database_name": "devpush-logs",
+      "database_id": "00000000-0000-0000-0000-000000000002",
+      "migrations_dir": "src/server/db/migrations-logs",
+    },
+  ],
+  "durable_objects": { "bindings": [{ "name": "DEVPUSH_WORKSPACE_UPDATES", "class_name": "WorkspaceUpdates" }] },
+  "migrations": [{ "tag": "workspace-updates-v1", "new_sqlite_classes": ["WorkspaceUpdates"] }],
+  "placement": {
+    "mode": "smart",
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,

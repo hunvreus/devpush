@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'vitest'
 
-import { isCronDue, isValidCron } from './service'
+import { isCronDue, isValidCron } from './cron'
 
 describe('backup cron schedules', () => {
+  test('incomplete schedules are not due', () => {
+    expect(isCronDue('* * *', new Date())).toBe(false)
+  })
   test('validates ranges, lists, and steps', () => {
     expect(isValidCron('*/15 1-5 * * 1,3,5')).toBe(true)
     expect(isValidCron('61 * * * *')).toBe(false)

@@ -14,6 +14,26 @@ uptime, and the latest state of
 containers belonging to Compose projects. Compose state includes the service,
 container state, Docker health, restart count, start time, and exit code.
 
+Metrics are atomically saved in `metric-history.json` under `DEVPUSH_STATE_DIR`
+before upload. The file retains 24 hours (maximum 3,600 samples) regardless of
+acknowledgment and stores a checkpoint per URL/server identity. Heartbeats upload
+up to 240 oldest pending samples; only an explicit persisted-batch acknowledgment
+advances the checkpoint. Lost responses cause safe retries. Random sample IDs
+remain unique after clock changes or loss of local state.
+
+```sh
+sudo devpush-agent metrics resync
+# With a custom config:
+sudo devpush-agent metrics resync --config /etc/devpush/agent.env
+```
+
+Resync requests replay of available history on the next heartbeat without an
+agent restart. The root-run command leaves its private marker owned by the
+state-directory owner so the service user can read it. An offline agent processes
+the request when started. Corrupt
+history is logged and left untouched for inspection; local state loss cannot
+recover past samples, but newly collected samples get new identities.
+
 Deploy execution currently does this:
 
 - claims the oldest queued deployment for the registered server;

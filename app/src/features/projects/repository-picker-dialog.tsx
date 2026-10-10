@@ -6,9 +6,9 @@ import {
   PlusIcon,
   SearchIcon,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -37,13 +37,14 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import { Skeleton } from '@/components/ui/skeleton'
-import { getErrorMessage } from '@/lib/error-message'
 import {
-  getNewProjectContext,
-  getRepositorySelectionRepositories,
-} from '@/server/projects/functions'
-import type { RepositorySelectionContext } from '@/server/projects/service'
+  RepositoryListPending,
+  RepositoryToolbarPending,
+} from '@/features/repositories/repository-list-pending'
+import { getErrorMessage } from '@/lib/error-message'
+import { repositorySelectionQueryOptions } from '@/lib/repository-selection-query'
+import { getRepositorySelectionRepositories } from '@/server/projects/functions'
+import type { RepositorySelectionContext } from '@/server/projects/types'
 
 export type ProjectRepository = {
   fullName: string
@@ -73,17 +74,25 @@ export function RepositoryPickerDialog({
   teamSlug: string
 }) {
   const [open, setOpen] = useState(false)
-  const [repositorySelection, setRepositorySelection] =
-    useState<RepositorySelectionContext | null>(null)
   const [repositories, setRepositories] = useState<Array<Repository>>([])
-  const [selectedInstallationId, setSelectedInstallationId] = useState<
+  const [chosenInstallationId, setSelectedInstallationId] = useState<
     number | null
   >(currentRepo.installationId)
   const [query, setQuery] = useState('')
-  const [isLoadingContext, setIsLoadingContext] = useState(false)
   const [isLoadingRepos, setIsLoadingRepos] = useState(false)
-  const github = repositorySelection?.github
+  const [reposAttempt, setReposAttempt] = useState(0)
+  const [reposError, setReposError] = useState<string | null>(null)
+  const repositorySelectionQuery = useQuery({
+    ...repositorySelectionQueryOptions(teamSlug),
+    enabled: open,
+  })
+  const [loadedInstallationId, setLoadedInstallationId] = useState<
+    number | null
+  >(null)
+  const github = repositorySelectionQuery.data?.github
   const installations = github?.connected ? github.installations : []
+  const selectedInstallationId =
+    chosenInstallationId ?? installations.at(0)?.id ?? null
   const selectedInstallation = installations.find(
     (installation) => installation.id === selectedInstallationId,
   )
@@ -103,52 +112,14 @@ export function RepositoryPickerDialog({
     .slice(0, 5)
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    let cancelled = false
-    setIsLoadingContext(true)
-
-    void getNewProjectContext({ data: { teamSlug } })
-      .then((context) => {
-        if (cancelled) {
-          return
-        }
-
-        setRepositorySelection(context?.repositorySelection ?? null)
-
-        if (context?.repositorySelection.github.connected) {
-          const defaultInstallationId =
-            currentRepo.installationId ??
-            context.repositorySelection.github.installations.at(0)?.id ??
-            null
-          setSelectedInstallationId(defaultInstallationId)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          toast.error(getErrorMessage(error, 'Unable to load repositories.'))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingContext(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [currentRepo.installationId, open, teamSlug])
-
-  useEffect(() => {
     if (!open || !selectedInstallationId || !github?.connected) {
       return
     }
 
     let cancelled = false
     setIsLoadingRepos(true)
+    setRepositories([])
+    setReposError(null)
 
     void getRepositorySelectionRepositories({
       data: { teamSlug, installationId: selectedInstallationId },
@@ -160,11 +131,17 @@ export function RepositoryPickerDialog({
       })
       .catch((error) => {
         if (!cancelled) {
-          toast.error(getErrorMessage(error, 'Unable to load repositories.'))
+          setReposError(
+            getErrorMessage(
+              error,
+              'Unable to load repositories. Please try again.',
+            ),
+          )
         }
       })
       .finally(() => {
         if (!cancelled) {
+          setLoadedInstallationId(selectedInstallationId)
           setIsLoadingRepos(false)
         }
       })
@@ -172,7 +149,7 @@ export function RepositoryPickerDialog({
     return () => {
       cancelled = true
     }
-  }, [github?.connected, open, selectedInstallationId, teamSlug])
+  }, [github?.connected, open, selectedInstallationId, teamSlug, reposAttempt])
 
   function selectRepository(repo: Repository) {
     onSelect({
@@ -195,13 +172,29 @@ export function RepositoryPickerDialog({
         </DialogHeader>
 
         <div className="scrollbar -m-4 min-h-0 overflow-y-auto p-4">
-          {isLoadingContext ? (
+          {repositorySelectionQuery.isPending ? (
             <div className="space-y-4">
-              <RepositoryToolbarSkeleton />
-              <RepoListSkeleton />
+              <RepositoryToolbarPending />
+              <RepositoryListPending />
+            </div>
+          ) : !repositorySelectionQuery.data ? (
+            <div role="alert" className="text-sm text-destructive">
+              Unable to load repositories.
+              <Button
+                variant="outline"
+                onClick={() => void repositorySelectionQuery.refetch()}
+              >
+                Retry
+              </Button>
             </div>
           ) : github?.connected ? (
             <div className="space-y-4">
+              {repositorySelectionQuery.error ? (
+                <p role="alert" className="text-sm text-destructive">
+                  Unable to refresh repositories. Displayed information may be
+                  out of date.
+                </p>
+              ) : null}
               <div className="flex gap-2">
                 <RepositoryAccountDropdown
                   installations={installations}
@@ -225,8 +218,24 @@ export function RepositoryPickerDialog({
               </div>
 
               <div>
-                {isLoadingRepos ? (
-                  <RepoListSkeleton />
+                {isLoadingRepos ||
+                (selectedInstallationId !== null &&
+                  loadedInstallationId !== selectedInstallationId) ? (
+                  <RepositoryListPending />
+                ) : reposError ? (
+                  <div
+                    role="alert"
+                    className="space-y-2 text-sm text-destructive"
+                  >
+                    <p>{reposError}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setReposAttempt((attempt) => attempt + 1)}
+                    >
+                      Retry
+                    </Button>
+                  </div>
                 ) : filteredRepositories.length > 0 ? (
                   <ul
                     className="overflow-hidden rounded-lg border"
@@ -255,7 +264,7 @@ export function RepositoryPickerDialog({
                           {formatRepositoryUpdatedAt(repo.updatedAt)}
                         </p>
                         {repo.fullName === currentRepo.fullName ? (
-                          <CheckIcon className="ml-auto size-4" />
+                          <CheckIcon className="ml-auto size-4 shrink-0" />
                         ) : (
                           <Button
                             className="ml-auto"
@@ -289,40 +298,6 @@ export function RepositoryPickerDialog({
         </div>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function RepositoryToolbarSkeleton() {
-  return (
-    <div className="flex gap-2">
-      <Skeleton className="h-8 w-40 shrink-0 border border-input bg-muted/70 dark:bg-input/40" />
-      <Skeleton className="h-8 min-w-0 flex-1 border border-input bg-muted/70 dark:bg-input/40" />
-    </div>
-  )
-}
-
-function RepoListSkeleton() {
-  return (
-    <ul
-      className="overflow-hidden rounded-lg border"
-      aria-label="Loading repositories"
-      aria-live="polite"
-    >
-      {Array.from({ length: 5 }).map((_, index) => (
-        <li
-          className="flex h-11 items-center justify-between gap-x-2 border-b px-4 text-sm last:border-b-0"
-          key={index}
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <Skeleton className="h-4 w-32 rounded bg-muted-foreground/20" />
-            <Skeleton className="h-4 w-24 rounded bg-muted-foreground/20" />
-          </span>
-          <Button disabled size="xs" type="button">
-            Select
-          </Button>
-        </li>
-      ))}
-    </ul>
   )
 }
 

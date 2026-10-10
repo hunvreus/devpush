@@ -15,6 +15,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 3 && os.Args[1] == "metrics" && os.Args[2] == "resync" {
+		metricsResync(os.Args[3:])
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "maintenance" {
+		maintenance(os.Args[2:])
+		return
+	}
 	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
 		fmt.Printf("devpush-agent %s\n", agent.Version)
 		return
@@ -83,4 +91,23 @@ func init() {
 	})))
 
 	time.Local = time.UTC
+}
+
+func metricsResync(args []string) {
+	if os.Geteuid() != 0 {
+		slog.Error("metrics resync requires root", "hint", "use sudo devpush-agent metrics resync")
+		os.Exit(1)
+	}
+	flags := flag.NewFlagSet("metrics resync", flag.ExitOnError)
+	path := flags.String("config", "/etc/devpush/agent.env", "agent config path")
+	_ = flags.Parse(args)
+	cfg, err := agent.LoadConfig(*path)
+	if err == nil {
+		err = agent.RequestMetricsResync(cfg)
+	}
+	if err != nil {
+		slog.Error("request metric resync failed", "error", err)
+		os.Exit(1)
+	}
+	fmt.Println("Metrics resync requested. The running agent will replay retained history on its next heartbeat.")
 }

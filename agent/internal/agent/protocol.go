@@ -9,7 +9,7 @@ type agentRequest struct {
 	RuntimeIDs      []string         `json:"runtimeIds,omitempty"`
 	Runtimes        []composeRuntime `json:"runtimes,omitempty"`
 	System          *hostDetails     `json:"system,omitempty"`
-	Metrics         *hostMetrics     `json:"metrics,omitempty"`
+	MetricSamples   []metricSample   `json:"metricSamples,omitempty"`
 }
 
 type hostDetails struct {
@@ -61,10 +61,11 @@ func (metrics hostMetrics) hasValues() bool {
 }
 
 type agentResponse struct {
-	ServerID          string             `json:"serverId"`
-	Status            string             `json:"status"`
-	Credential        string             `json:"credential,omitempty"`
-	RuntimeLogTargets []runtimeLogTarget `json:"runtimeLogTargets"`
+	MetricsAcceptedThrough string             `json:"metricsAcceptedThrough,omitempty"`
+	ServerID               string             `json:"serverId"`
+	Status                 string             `json:"status"`
+	Credential             string             `json:"credential,omitempty"`
+	RuntimeLogTargets      []runtimeLogTarget `json:"runtimeLogTargets"`
 }
 
 type runtimeLogTarget struct {
@@ -86,6 +87,7 @@ type runtimeLogLine struct {
 
 type runtimeLogsResponse struct {
 	OK       bool `json:"ok"`
+	Accepted int  `json:"accepted"`
 	Inserted int  `json:"inserted"`
 }
 
@@ -225,6 +227,7 @@ type backupVolumeSelection struct {
 }
 
 type backupDatabaseDump struct {
+	Format  string `json:"format"`
 	Service string `json:"service"`
 	Command string `json:"command"`
 }

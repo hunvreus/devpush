@@ -21,9 +21,33 @@ const platformEnv = fileURLToPath(
 
 const config = defineConfig({
   resolve: {
-    alias: {
-      '@/server/runtime/platform-env': platformEnv,
-    },
+    alias: [
+      {
+        find: '@/server/realtime/workspace-object',
+        replacement: fileURLToPath(
+          new URL(
+            isCloudflare
+              ? './src/server/realtime/workspace-object.cloudflare.ts'
+              : './src/server/realtime/workspace-object.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      { find: '@/server/runtime/platform-env', replacement: platformEnv },
+      {
+        find: /^@\/server\/db$/,
+        replacement: fileURLToPath(
+          new URL(
+            process.env.DEVPUSH_TEST_LIBSQL === '1' && isVitest
+              ? './src/test/db-libsql.ts'
+              : isCloudflare
+                ? './src/server/db/index.cloudflare.ts'
+                : './src/server/db/index.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+    ],
     tsconfigPaths: true,
   },
   server: {
@@ -79,13 +103,28 @@ const config = defineConfig({
     ? []
     : isCloudflare
       ? [
-          cloudflare({ viteEnvironment: { name: 'ssr' } }),
+          cloudflare({
+            configPath: process.env.DEVPUSH_WRANGLER_CONFIG,
+            viteEnvironment: { name: 'ssr' },
+          }),
           tailwindcss(),
           tanstackStart(),
           viteReact(),
         ]
       : [
           nitro({
+            features: { websocket: true },
+            handlers: [
+              {
+                route: '/api/workspaces/updates',
+                handler: fileURLToPath(
+                  new URL(
+                    './src/server/realtime/node-handler.ts',
+                    import.meta.url,
+                  ),
+                ),
+              },
+            ],
             rollupConfig: { external: [/^@sentry\//] },
             scanDirs: [],
             watchOptions: {

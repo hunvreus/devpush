@@ -30,6 +30,45 @@ afterAll(async () => {
 })
 
 describe('agent runtime reconciliation', () => {
+  test('drains retained orphan volumes in bounded jobs across heartbeats', async () => {
+    const { serverId } = await createFixture()
+    const now = new Date()
+    const old = new Date(now.getTime() - 8 * 24 * 60 * 60_000)
+    const rows = Array.from({ length: 251 }, (_, index) => ({
+      id: crypto.randomUUID(),
+      serverId,
+      runtimeId: `dp_retained_${index.toString().padStart(3, '0')}`,
+      firstSeenAt: old,
+      lastSeenAt: old,
+      cleanupQueuedAt: old,
+    }))
+    touchedObservationIds.push(...rows.map((row) => row.id))
+    await db.insert(agentRuntimeObservations).values(rows)
+    const first = await reconcileReportedRuntimes({
+      serverId,
+      runtimeIds: [],
+      now,
+    })
+    const second = await reconcileReportedRuntimes({
+      serverId,
+      runtimeIds: [],
+      now,
+    })
+    expect(first).toHaveLength(200)
+    expect(second).toHaveLength(51)
+    expect(new Set([...first, ...second]).size).toBe(251)
+    expect(
+      await reconcileReportedRuntimes({ serverId, runtimeIds: [], now }),
+    ).toEqual([])
+    const jobs = await db
+      .select()
+      .from(agentJobs)
+      .where(eq(agentJobs.serverId, serverId))
+    touchedJobIds.push(...jobs.map((job) => job.id))
+    expect(jobs).toHaveLength(2)
+    expect(jobs.every((job) => job.type === 'purge')).toBe(true)
+  })
+
   test('stores the latest Compose service state for an observed runtime', async () => {
     const { serverId } = await createFixture()
     const services = [

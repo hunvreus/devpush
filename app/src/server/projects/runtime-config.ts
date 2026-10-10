@@ -5,12 +5,24 @@ export const maxLifecycleCommandLength = 16 * 1024
 const lifecycleCommandSchema = z
   .string()
   .trim()
-  .max(maxLifecycleCommandLength)
+  .max(
+    maxLifecycleCommandLength,
+    'Commands must be 16,384 characters or fewer.',
+  )
   .nullable()
+
+export const repositoryComposePathSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255, 'Compose paths must be 255 characters or fewer.')
+  .refine(isRepositoryRelativePath, {
+    message: 'Compose paths must stay within the repository.',
+  })
 
 const composeRuntimeConfigSchema = z.strictObject({
   type: z.literal('compose'),
-  path: z.string().trim().min(1).max(255).nullable(),
+  path: repositoryComposePathSchema.nullable(),
   releaseCommand: lifecycleCommandSchema,
   releaseService: z.string().trim().min(1).nullable(),
   readinessPath: z
@@ -20,7 +32,11 @@ const composeRuntimeConfigSchema = z.strictObject({
     .nullable(),
   deployCommand: lifecycleCommandSchema,
   rollbackCommand: lifecycleCommandSchema,
-  timeoutSeconds: z.number().int().min(60).max(7200),
+  timeoutSeconds: z
+    .number()
+    .int('Enter a whole number of seconds.')
+    .min(60, 'Timeout must be at least 60 seconds.')
+    .max(7200, 'Timeout must be 7,200 seconds or fewer.'),
 })
 
 export const projectRuntimeConfigSchema = composeRuntimeConfigSchema
@@ -61,4 +77,22 @@ export function requireProjectRuntimeConfig(
     throw new Error('Project runtime configuration is invalid.')
   }
   return config
+}
+
+function isRepositoryRelativePath(value: string) {
+  if (
+    value.startsWith('/') ||
+    value.includes('\\') ||
+    Array.from(value).some((character) => {
+      const code = character.charCodeAt(0)
+      return code <= 31 || code === 127
+    })
+  ) {
+    return false
+  }
+
+  const segments = value.split('/')
+  return segments.every(
+    (segment) => segment.length > 0 && segment !== '.' && segment !== '..',
+  )
 }

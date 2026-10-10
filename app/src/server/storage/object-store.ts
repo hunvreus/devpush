@@ -1,15 +1,9 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3'
 
 import { config } from '@/server/config'
 import { getR2ObjectStore } from '@/server/runtime/platform-env'
+import type { S3Client } from '@aws-sdk/client-s3'
 
 type StoredObject = {
   body: Buffer
@@ -18,6 +12,7 @@ type StoredObject = {
 
 export interface ObjectStore {
   delete: (key: string) => Promise<void>
+  exists: (key: string) => Promise<boolean>
   get: (key: string) => Promise<StoredObject>
   put: (key: string, body: Uint8Array, contentType?: string) => Promise<void>
 }
@@ -46,6 +41,9 @@ function createR2ObjectStore(bucket: R2Bucket): ObjectStore {
   return {
     async delete(key) {
       await bucket.delete(key)
+    },
+    async exists(key) {
+      return Boolean(await bucket.head(key))
     },
     async get(key) {
       const object = await bucket.get(key)
@@ -84,6 +82,15 @@ function createLocalObjectStore(): ObjectStore {
         if (!isMissingFile(error)) throw error
       }
     },
+    async exists(key) {
+      try {
+        await access(resolveLocalKey(root, key))
+        return true
+      } catch (error) {
+        if (isMissingFile(error)) return false
+        throw error
+      }
+    },
     async get(key) {
       return { body: await readFile(resolveLocalKey(root, key)) }
     },
@@ -97,20 +104,52 @@ function createLocalObjectStore(): ObjectStore {
 
 function createS3ObjectStore(): ObjectStore {
   const bucket = config.DEVPUSH_STORAGE_BUCKET!
-  const client = new S3Client({
-    endpoint: config.DEVPUSH_STORAGE_ENDPOINT,
-    region: config.DEVPUSH_STORAGE_REGION ?? 'auto',
-    credentials: {
-      accessKeyId: config.DEVPUSH_STORAGE_ACCESS_KEY_ID!,
-      secretAccessKey: config.DEVPUSH_STORAGE_SECRET_ACCESS_KEY!,
-    },
-  })
+  let clientPromise: Promise<S3Client> | undefined
+  const getClient = () =>
+    (clientPromise ??= import('@aws-sdk/client-s3').then(
+      ({ S3Client }) =>
+        new S3Client({
+          endpoint: config.DEVPUSH_STORAGE_ENDPOINT,
+          region: config.DEVPUSH_STORAGE_REGION ?? 'auto',
+          credentials: {
+            accessKeyId: config.DEVPUSH_STORAGE_ACCESS_KEY_ID!,
+            secretAccessKey: config.DEVPUSH_STORAGE_SECRET_ACCESS_KEY!,
+          },
+        }),
+    ))
 
   return {
     async delete(key) {
+      const [{ DeleteObjectCommand }, client] = await Promise.all([
+        import('@aws-sdk/client-s3'),
+        getClient(),
+      ])
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
     },
+    async exists(key) {
+      try {
+        const [{ HeadObjectCommand }, client] = await Promise.all([
+          import('@aws-sdk/client-s3'),
+          getClient(),
+        ])
+        await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }))
+        return true
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          'name' in error &&
+          (error.name === 'NotFound' || error.name === 'NoSuchKey')
+        ) {
+          return false
+        }
+        throw error
+      }
+    },
     async get(key) {
+      const [{ GetObjectCommand }, client] = await Promise.all([
+        import('@aws-sdk/client-s3'),
+        getClient(),
+      ])
       const result = await client.send(
         new GetObjectCommand({ Bucket: bucket, Key: key }),
       )
@@ -123,6 +162,10 @@ function createS3ObjectStore(): ObjectStore {
       }
     },
     async put(key, body, contentType) {
+      const [{ PutObjectCommand }, client] = await Promise.all([
+        import('@aws-sdk/client-s3'),
+        getClient(),
+      ])
       await client.send(
         new PutObjectCommand({
           Body: body,

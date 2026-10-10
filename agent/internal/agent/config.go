@@ -10,15 +10,16 @@ import (
 )
 
 type Config struct {
-	AgentID          string
-	BaseURL          string
-	Token            string
-	StateDir         string
-	DockerHost       string
-	TraefikEmail     string
-	TraefikHTTPPort  int
-	TraefikHTTPSPort int
-	GitCloneBase     string
+	AgentID              string
+	BaseURL              string
+	Token                string
+	StateDir             string
+	DockerHost           string
+	TraefikEmail         string
+	TraefikHTTPPort      int
+	TraefikHTTPSPort     int
+	GitCloneBase         string
+	RuntimeLogQueueBytes int64
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -60,17 +61,25 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	queueBytes := int64(128 << 20)
+	if value := firstNonEmpty(os.Getenv("DEVPUSH_RUNTIME_LOG_QUEUE_BYTES"), values["DEVPUSH_RUNTIME_LOG_QUEUE_BYTES"]); value != "" {
+		queueBytes, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || queueBytes < 1 {
+			return Config{}, errors.New("DEVPUSH_RUNTIME_LOG_QUEUE_BYTES must be a positive integer")
+		}
+	}
 
 	cfg := Config{
-		AgentID:          firstNonEmpty(os.Getenv("DEVPUSH_AGENT_ID"), values["DEVPUSH_AGENT_ID"]),
-		BaseURL:          firstNonEmpty(os.Getenv("DEVPUSH_BASE_URL"), values["DEVPUSH_BASE_URL"]),
-		Token:            firstNonEmpty(os.Getenv("DEVPUSH_AGENT_TOKEN"), values["DEVPUSH_AGENT_TOKEN"]),
-		StateDir:         firstNonEmpty(os.Getenv("DEVPUSH_STATE_DIR"), values["DEVPUSH_STATE_DIR"], "/var/lib/devpush-agent"),
-		DockerHost:       firstNonEmpty(os.Getenv("DOCKER_HOST"), values["DOCKER_HOST"]),
-		TraefikEmail:     firstNonEmpty(os.Getenv("DEVPUSH_TRAEFIK_EMAIL"), values["DEVPUSH_TRAEFIK_EMAIL"]),
-		TraefikHTTPPort:  httpPort,
-		TraefikHTTPSPort: httpsPort,
-		GitCloneBase:     firstNonEmpty(os.Getenv("DEVPUSH_GIT_CLONE_BASE_URL"), values["DEVPUSH_GIT_CLONE_BASE_URL"], "https://github.com"),
+		AgentID:              firstNonEmpty(os.Getenv("DEVPUSH_AGENT_ID"), values["DEVPUSH_AGENT_ID"]),
+		BaseURL:              firstNonEmpty(os.Getenv("DEVPUSH_BASE_URL"), values["DEVPUSH_BASE_URL"]),
+		Token:                firstNonEmpty(os.Getenv("DEVPUSH_AGENT_TOKEN"), values["DEVPUSH_AGENT_TOKEN"]),
+		StateDir:             firstNonEmpty(os.Getenv("DEVPUSH_STATE_DIR"), values["DEVPUSH_STATE_DIR"], "/var/lib/devpush-agent"),
+		DockerHost:           firstNonEmpty(os.Getenv("DOCKER_HOST"), values["DOCKER_HOST"]),
+		TraefikEmail:         firstNonEmpty(os.Getenv("DEVPUSH_TRAEFIK_EMAIL"), values["DEVPUSH_TRAEFIK_EMAIL"]),
+		TraefikHTTPPort:      httpPort,
+		TraefikHTTPSPort:     httpsPort,
+		GitCloneBase:         firstNonEmpty(os.Getenv("DEVPUSH_GIT_CLONE_BASE_URL"), values["DEVPUSH_GIT_CLONE_BASE_URL"], "https://github.com"),
+		RuntimeLogQueueBytes: queueBytes,
 	}
 
 	if cfg.BaseURL == "" {

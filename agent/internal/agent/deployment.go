@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,7 +14,16 @@ import (
 const (
 	maxDeploymentLogBatchBytes = 1 << 20
 	maxDeploymentLogBatchLines = 5_000
+	maxDeploymentEventBatch    = 100
 )
+
+func nullableString(value string) *string {
+	if value == "" {
+		return nil
+	}
+
+	return &value
+}
 
 func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) jobCompletion {
 	logs := []string{}
@@ -35,25 +45,23 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 			return
 		}
 
-		logStart, pendingLogs := deploymentLogBatch(logs, flushedLogs)
-		progress := jobProgress{
-			ServerID:     runner.cfg.AgentID,
-			Token:        runner.currentCredential(),
-			DeploymentID: job.ID,
-			LogStartSeq:  baseLogSeq + logStart,
-			Logs:         pendingLogs,
-			Events:       append([]jobEvent{}, events[flushedEvents:]...),
+		for flushedLogs < len(logs) || flushedEvents < len(events) {
+			logStart, pendingLogs := deploymentLogBatch(logs, flushedLogs)
+			eventEnd := deploymentEventBatchEnd(events, flushedEvents)
+			progress := jobProgress{
+				ServerID: runner.cfg.AgentID, Token: runner.currentCredential(),
+				DeploymentID: job.ID, LogStartSeq: baseLogSeq + logStart,
+				Logs: pendingLogs, Events: append([]jobEvent{}, events[flushedEvents:eventEnd]...),
+			}
+			if err := runner.reportProgress(ctx, progress); err != nil {
+				runner.log.Warn("report deployment progress failed", "deployment_id", job.ID, "error", err)
+				return
+			}
+			flushedLogs += len(pendingLogs)
+			flushedEvents = eventEnd
 		}
-		if err := runner.reportProgress(ctx, progress); err != nil {
-			runner.log.Warn("report deployment progress failed", "deployment_id", job.ID, "error", err)
-			return
-		}
-
-		flushedLogs = len(logs)
-		flushedEvents = len(events)
 	}
 	makeCompletion := func() jobCompletion {
-		logStart, pendingLogs := deploymentLogBatch(logs, flushedLogs)
 		return jobCompletion{
 			ServerID:     runner.cfg.AgentID,
 			Token:        runner.currentCredential(),
@@ -61,8 +69,8 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 			DeploymentID: job.ID,
 			Status:       status,
 			GitSha:       nullableString(gitSha),
-			LogStartSeq:  baseLogSeq + logStart,
-			Logs:         pendingLogs,
+			LogStartSeq:  baseLogSeq + flushedLogs,
+			Logs:         append([]string{}, logs[flushedLogs:]...),
 			Events:       append([]jobEvent{}, events[flushedEvents:]...),
 		}
 	}
@@ -115,7 +123,7 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	}
 	addEvent("repo_fetched", fmt.Sprintf("Fetched %s:%s.", job.Repo.FullName, job.Repo.Branch))
 
-	sha, err := runner.commandOutput(ctx, repoDir, "git", "rev-parse", "--short", "HEAD")
+	sha, err := runner.commandOutput(ctx, repoDir, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return fail(fmt.Errorf("unable to read deployed Git SHA: %w", err))
 	}
@@ -127,8 +135,8 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	default:
 		return fail(fmt.Errorf("unsupported deployment runtime type %q", job.Runtime.Type))
 	}
-	composePath := filepath.Join(repoDir, job.Runtime.Path)
-	if _, err := os.Stat(composePath); err != nil {
+	composePath, err := resolveRepositoryFile(repoDir, job.Runtime.Path)
+	if err != nil {
 		return fail(fmt.Errorf("Compose file %s was not found in the repository checkout. Update the project Compose path or add the file: %w", job.Runtime.Path, err))
 	}
 	addEvent("compose_resolved", fmt.Sprintf("Resolved %s.", job.Runtime.Path))
@@ -293,13 +301,8 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 		return fail(fmt.Errorf("Docker Compose services did not become healthy: %w", err))
 	}
 
-	if len(job.Routes) > 0 {
-		route := job.Routes[0]
-		readinessPath := routeReadinessPath(route.Path, job.Runtime.ReadinessPath)
-		addEvent("readiness_check_started", fmt.Sprintf("Checking %s%s through Traefik.", route.Host, readinessPath))
-		if err := runner.checkReadiness(ctx, route, readinessPath); err != nil {
-			return fail(fmt.Errorf("readiness check failed for %s%s through Traefik. Check that the service listens on port %d and returns a 2xx/3xx response: %w", route.Host, readinessPath, route.Port, err))
-		}
+	if err := runner.checkDeploymentRoutes(ctx, job.Routes, job.Runtime.ReadinessPath, addEvent); err != nil {
+		return fail(err)
 	}
 
 	addEvent("traffic_switched", "Deployment finished on the target server.")
@@ -313,27 +316,32 @@ func deploymentLogBatch(logs []string, start int) (int, []string) {
 		return start, []string{}
 	}
 
-	batchStart := len(logs)
-	batchBytes := 0
-	for index := len(logs) - 1; index >= start; index-- {
-		if len(logs)-index > maxDeploymentLogBatchLines {
+	end := start
+	batchBytes := 1
+	for end < len(logs) && end-start < maxDeploymentLogBatchLines {
+		encoded, _ := json.Marshal(logs[end])
+		lineBytes := len(encoded) + 1
+		if end > start && batchBytes+lineBytes > maxDeploymentLogBatchBytes {
 			break
 		}
-		lineBytes := len(logs[index])
-		if batchStart < len(logs) && batchBytes+lineBytes > maxDeploymentLogBatchBytes {
-			break
-		}
-		batchStart = index
 		batchBytes += lineBytes
+		end++
 	}
+	return start, append([]string{}, logs[start:end]...)
 
-	batch := append([]string{}, logs[batchStart:]...)
-	if batchStart > start {
-		omitted := batchStart - start + 1
-		batch[0] = fmt.Sprintf("[... %d earlier log lines omitted ...]", omitted)
+}
+
+func deploymentEventBatchEnd(events []jobEvent, start int) int {
+	end, bytes := start, 1
+	for end < len(events) && end-start < maxDeploymentEventBatch {
+		encoded, _ := json.Marshal(events[end])
+		if end > start && bytes+len(encoded)+1 > maxDeploymentLogBatchBytes {
+			break
+		}
+		bytes += len(encoded) + 1
+		end++
 	}
-
-	return batchStart, batch
+	return end
 }
 
 func resolveLifecycleCommand(runtime runtimeConfig, action string) (string, string) {

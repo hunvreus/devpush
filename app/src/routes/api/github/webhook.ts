@@ -5,20 +5,58 @@ import {
   getBranchFromGitHubRef,
   parseGitHubInstallationWebhookPayload,
   parseGitHubPushPayload,
+  requireGitHubWebhookConfiguration,
+  validateGitHubWebhookHeaders,
   verifyGitHubWebhookSignature,
 } from '@/server/github/webhooks'
-import { createDeploymentsForGitHubPush } from '@/server/projects/service'
+import { createDeploymentsForGitHubPush } from '@/server/projects/deployments'
 import {
   RequestBodyTooLargeError,
   readRequestText,
 } from '@/server/http/request-body'
+import { enforceRateLimit } from '@/server/http/rate-limit'
 
-const maxGitHubWebhookBytes = 26 * 1024 * 1024
+// GitHub permits larger payloads, but this endpoint buffers the body before
+// signature verification and only consumes compact push/installation fields.
+const maxGitHubWebhookBytes = 5 * 1024 * 1024
 
 export const Route = createFileRoute('/api/github/webhook')({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const webhookHeaders = validateGitHubWebhookHeaders(request.headers)
+
+        if (!webhookHeaders.ok) {
+          return Response.json(
+            { error: webhookHeaders.error },
+            { status: webhookHeaders.status },
+          )
+        }
+
+        try {
+          requireGitHubWebhookConfiguration()
+        } catch (error) {
+          return Response.json(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'GitHub webhook verification failed.',
+            },
+            { status: 503 },
+          )
+        }
+
+        const rateLimitResponse = await enforceRateLimit({
+          limit: 120,
+          request,
+          scope: 'github-webhook',
+          windowMs: 60_000,
+        })
+        if (rateLimitResponse) {
+          return rateLimitResponse
+        }
+
         let body: string
 
         try {
@@ -37,7 +75,7 @@ export const Route = createFileRoute('/api/github/webhook')({
         try {
           const isValidSignature = verifyGitHubWebhookSignature({
             body,
-            signature: request.headers.get('x-hub-signature-256'),
+            signature: webhookHeaders.signature,
           })
 
           if (!isValidSignature) {
@@ -59,15 +97,7 @@ export const Route = createFileRoute('/api/github/webhook')({
         }
 
         let payload: ReturnType<typeof parseGitHubPushPayload> | null = null
-        const event = request.headers.get('x-github-event')
-        const deliveryId = request.headers.get('x-github-delivery')?.trim()
-
-        if (!deliveryId || deliveryId.length > 255) {
-          return Response.json(
-            { error: 'Missing or invalid GitHub delivery ID.' },
-            { status: 400 },
-          )
-        }
+        const { deliveryId, event } = webhookHeaders
 
         if (
           event === 'installation' ||
@@ -113,7 +143,7 @@ export const Route = createFileRoute('/api/github/webhook')({
         }
 
         if (event !== 'push') {
-          return Response.json({ ok: true, ignored: event ?? 'unknown' })
+          return Response.json({ ok: true, ignored: event })
         }
 
         if (!payload) {

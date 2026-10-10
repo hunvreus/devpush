@@ -2,6 +2,22 @@
 
 devpush treats the repository Compose file as the source of truth.
 
+Deployment details retain displayed logs when the deployment finishes and a
+final snapshot is requested. Transient request failures retry twice;
+an exhausted failure is shown in a destructive Alert beside the log navigation
+with a retry action. Session-expiry redirects do not retry.
+This reports unavailable or incomplete logs, independently of deployment status,
+and does not insert a banner above the log viewer.
+
+Deployment details include the legacy deployment selector in the project header.
+The selected deployment and menu rows observe the detail route's query, including
+workspace notifications and fallback polling, without a duplicate request.
+
+Readiness waits for the Compose health checks configured by the repository and
+for every generated route's valid HTTPS certificate and successful response.
+A new deployment hostname can spend several seconds obtaining its first
+certificate even when its service and existing aliases are already healthy.
+
 ## Project settings
 
 V1 supports:
@@ -122,7 +138,7 @@ loopback aliases use HTTP. Deployment Visit actions use the deployment alias,
 not the moving environment alias. V1 replaces one environment runtime in place, so
 historical revision URLs are not kept active after a newer deployment succeeds.
 
-Custom domains remain pending until a user explicitly verifies that their A
+Custom domains remain pending until a user explicitly verifies that their A or AAAA
 record resolves to the assigned environment server. Verification requires a
 successful deployment for that environment, records the failure reason, and is
 reset when the domain moves to another environment. A successful deployment by
@@ -133,7 +149,7 @@ the request to the service.
 
 ## Readiness
 
-For routed deployments, the agent checks the first public route through the
+For routed deployments, the agent checks every distinct public route and readiness path through the
 managed Traefik container before reporting success. HTTPS checks validate the
 managed certificate for the public hostname. If no readiness path is
 configured, it checks `/`. A custom readiness path such as `/health` overrides
@@ -192,6 +208,14 @@ scoping, such as explicit `name:` values or `external: true`.
 When a project or team is deleted, devpush first deprovisions containers and
 networks while retaining Compose-labeled volumes, then queues a later purge job
 that removes those retained volumes after the retention window.
+Deletion queues cleanup jobs atomically with the resource changes. Each job
+contains at most 200 distinct runtimes per server; larger sets are split into
+additional jobs, preserving all targets. Volume purge is delayed by seven days.
 
 Managed backups are available behind a feature flag and are documented in
 [Backups](./backups.md).
+
+Deployment detail loading uses cached deployment metadata when available. Unknown
+values keep the same row heights and known icons as the loaded view; optional alias
+badges reserve space without a placeholder badge. The log viewer keeps its fixed
+height and displays a centered spinner with “Loading logs” while fetching.

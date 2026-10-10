@@ -1,3 +1,19 @@
+import type { BackupDatabaseDump } from '@/server/backups/service'
+import { backupConfigSchema } from '@/lib/backup-policy-schema'
+import { backupRestoreArtifactSchema } from '@/lib/backup-restore-schema'
+import { projectEnvironmentsSchema } from '@/lib/project-environments-schema'
+import { projectEnvVarsSchema } from '@/lib/project-env-schema'
+import {
+  projectRoutesSchema,
+  projectDomainsSchema,
+} from '@/lib/project-routing-schema'
+import type { envVarSchema } from '@/lib/project-creation-schema'
+import { createProjectSchema } from '@/lib/project-creation-schema'
+import {
+  projectSettingsSchema,
+  projectSettingsErrors,
+  projectValidationErrors,
+} from '@/lib/project-settings-schema'
 import { randomUUID } from 'node:crypto'
 
 import { createServerFn } from '@tanstack/react-start'
@@ -5,88 +21,48 @@ import { z } from 'zod'
 
 import { config } from '@/server/config'
 
-import { getAuthSession } from '@/server/auth/session.server'
+import {
+  getAuthSession,
+  requireAuthSession,
+} from '@/server/auth/session.server'
 import {
   createManualDeployment,
-  createManualBackupRun,
-  createBackupRestoreJob,
-  createProjectFromGitHub,
   createRedeployDeployment,
   createRollbackDeployment,
-  deleteProject,
-  getDeploymentContext,
   getManualDeploymentOptions,
-  getProjectLogsContext,
-  getProjectContext,
-  getRepositorySelection,
-  listRepositorySelectionRepositories,
+} from '@/server/projects/deployments'
+import {
   updateProjectEnvironments,
-  updateProjectDomains,
-  verifyProjectDomain,
+  updateProjectEnvironmentServers,
   updateProjectEnvVars,
+} from '@/server/projects/environments'
+import {
+  deleteProject,
+  updateProjectDomains,
   updateProjectRoutes,
   updateProjectSettings,
-  updateProjectEnvironmentServers,
+  verifyProjectDomain,
+} from '@/server/projects/settings'
+import {
+  createBackupRestoreJob,
+  createManualBackupRun,
   updateProjectBackupConfigs,
-} from '@/server/projects/service'
+} from '@/server/projects/backups'
 import {
-  getUserContext,
-  listTeamProjects,
-  listTeamServers,
-  requireTeam,
-} from '@/server/teams/service'
+  getDeploymentLogsContext,
+  getDeploymentSectionContext,
+  getProjectContext,
+  getProjectLogsSectionContext,
+  getProjectSectionContext,
+} from '@/server/projects/context'
 import {
-  maxLifecycleCommandLength,
-  projectRuntimeConfigSchema,
-} from './runtime-config'
-import type { ProjectRuntimeConfig } from './runtime-config'
+  createProjectFromGitHub,
+  getRepositorySelection,
+  listRepositorySelectionRepositories,
+} from '@/server/projects/repository'
 
 const teamSlugSchema = z.object({
   teamSlug: z.string().min(1),
-})
-
-const envVarSchema = z.object({
-  key: z
-    .string()
-    .trim()
-    .regex(
-      /^[A-Za-z_][A-Za-z0-9_]*$/,
-      'Environment variable keys must use shell-compatible names.',
-    ),
-  value: z.string(),
-  environment: z.string().trim().optional(),
-})
-
-const projectMachineNameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(100)
-  .regex(
-    /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/,
-    'Project names can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen.',
-  )
-
-const createProjectSchema = z.object({
-  teamSlug: z.string().min(1),
-  installationId: z.number().int().positive(),
-  serverId: z.string().trim().optional().nullable(),
-  composePath: z.string().trim().max(255).optional(),
-  readinessPath: z
-    .string()
-    .trim()
-    .refine((value) => !value || value.startsWith('/'), {
-      message: 'Health check paths must start with /.',
-    })
-    .optional(),
-  releaseCommand: z.string().trim().max(maxLifecycleCommandLength).optional(),
-  releaseService: z.string().trim().optional(),
-  envVars: z.array(envVarSchema).optional(),
-  projectName: projectMachineNameSchema,
-  repoFullName: z
-    .string()
-    .min(1)
-    .regex(/^[^/\s]+\/[^/\s]+$/, 'Select a valid GitHub repository.'),
 })
 
 const projectRouteSchema = z.object({
@@ -119,23 +95,7 @@ const backupRouteSchema = projectRouteSchema.extend({
 
 const backupRestoreSchema = projectRouteSchema.extend({
   backupRunId: z.string().min(1),
-  artifacts: z
-    .array(
-      z.discriminatedUnion('type', [
-        z.object({
-          artifactId: z.string().min(1),
-          type: z.literal('volume'),
-          targetVolume: z.string().trim().min(1).max(128),
-        }),
-        z.object({
-          artifactId: z.string().min(1),
-          type: z.literal('database'),
-          targetService: z.string().trim().min(1).max(128),
-          restoreCommand: z.string().trim().min(1).max(2_000),
-        }),
-      ]),
-    )
-    .min(1),
+  artifacts: z.array(backupRestoreArtifactSchema).min(1),
 })
 
 const projectLogsSchema = projectRouteSchema.extend({
@@ -144,96 +104,6 @@ const projectLogsSchema = projectRouteSchema.extend({
   deploymentId: z.string().trim().optional().nullable(),
   environmentId: z.string().trim().optional().nullable(),
   keyword: z.string().trim().optional().nullable(),
-})
-
-const projectEnvironmentSchema = z.object({
-  id: z.string().trim().min(1),
-  name: z.string().trim().min(1).max(255),
-  slug: z
-    .string()
-    .trim()
-    .min(1)
-    .max(255)
-    .regex(
-      /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/,
-      'Environment identifiers can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen.',
-    ),
-  branch: z.string().trim().min(1).max(255),
-  color: z.string().trim().min(1).max(32),
-  position: z.number().int().nonnegative(),
-  status: z.enum(['active', 'deleted']),
-  effectiveServerId: z.string().trim().min(1).nullable(),
-  serverId: z.string().trim().min(1).nullable(),
-})
-
-const routeSchema = z.object({
-  service: z
-    .string()
-    .trim()
-    .min(1)
-    .regex(
-      /^[A-Za-z0-9._-]+$/,
-      'Route services can only contain letters, numbers, dots, underscores, and hyphens.',
-    ),
-  port: z
-    .number()
-    .int()
-    .min(1, 'Route ports must be between 1 and 65535.')
-    .max(65535, 'Route ports must be between 1 and 65535.'),
-  path: z
-    .string()
-    .trim()
-    .min(1)
-    .regex(/^\//, 'Route paths must start with /.')
-    .regex(/^[^\s`]+$/, 'Route paths cannot contain spaces or ` characters.'),
-  stripPrefix: z.boolean().optional().default(false),
-  environmentId: z.string().trim().min(1).optional(),
-})
-
-const domainSchema = z.object({
-  host: z
-    .string()
-    .toLowerCase()
-    .trim()
-    .min(1)
-    .max(253)
-    .regex(
-      /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/,
-      'Domains must be valid DNS hostnames without protocol, path, wildcard, or port.',
-    ),
-  environmentId: z.string().trim().min(1),
-  basePath: z.string().trim(),
-  https: z.boolean(),
-})
-
-const projectSettingsSchema = projectRouteSchema.extend({
-  currentProjectName: z.string().min(1),
-  projectName: projectMachineNameSchema,
-  repoFullName: z
-    .string()
-    .min(1)
-    .regex(/^[^/\s]+\/[^/\s]+$/, 'Select a valid GitHub repository.'),
-  installationId: z.number().int().positive().nullable(),
-  avatarDataUrl: z
-    .string()
-    .max(3_000_000)
-    .regex(/^data:image\/(?:png|jpeg|gif|webp);base64,/)
-    .nullable()
-    .optional(),
-  deleteAvatar: z.boolean().optional(),
-  runtimeConfig: projectRuntimeConfigSchema,
-})
-
-const projectRoutesSchema = projectRouteSchema.extend({
-  routes: z.array(routeSchema),
-})
-
-const projectDomainsSchema = projectRouteSchema.extend({
-  domains: z.array(domainSchema),
-})
-
-const projectEnvironmentsSchema = projectRouteSchema.extend({
-  environments: z.array(projectEnvironmentSchema).min(1),
 })
 
 const projectEnvironmentServersSchema = projectRouteSchema.extend({
@@ -246,88 +116,6 @@ const projectEnvironmentServersSchema = projectRouteSchema.extend({
   ),
 })
 
-const projectEnvVarsSchema = projectRouteSchema.extend({
-  envVars: z.array(envVarSchema),
-})
-
-const backupDatabaseDumpSchema = z.object({
-  service: z
-    .string()
-    .trim()
-    .min(1)
-    .max(128)
-    .regex(
-      /^[A-Za-z0-9._-]+$/,
-      'Backup dump services can only contain letters, numbers, dots, underscores, and hyphens.',
-    ),
-  command: z.string().trim().min(1).max(2_000),
-})
-
-const backupScheduleSchema = z.object({
-  cron: z
-    .string()
-    .trim()
-    .regex(
-      /^(\S+\s+){4}\S+$/,
-      'Backup schedules must use a five-field cron expression.',
-    ),
-})
-
-const backupVolumesSchema = z.object({
-  mode: z.enum(['none', 'allNamed', 'selected']),
-  names: z.array(
-    z
-      .string()
-      .trim()
-      .min(1)
-      .max(128)
-      .regex(
-        /^[A-Za-z0-9._-]+$/,
-        'Backup volume names can only contain letters, numbers, dots, underscores, and hyphens.',
-      ),
-  ),
-})
-
-const backupConfigSchema = z.object({
-  id: z.string().trim().optional(),
-  name: z.string().trim().min(1).max(100),
-  environmentId: z.string().trim().min(1),
-  enabled: z.boolean(),
-  schedule: backupScheduleSchema,
-  destination: z.object({
-    bucket: z
-      .string()
-      .trim()
-      .min(3)
-      .max(63)
-      .regex(
-        /^[a-z0-9][a-z0-9.-]*[a-z0-9]$/,
-        'S3 bucket names must use lowercase DNS-compatible characters.',
-      ),
-    region: z.string().trim().min(1).max(100).optional(),
-    endpoint: z.string().trim().url().optional(),
-    prefix: z.string().trim().max(512).optional(),
-    accessKeyId: z.string().trim().min(1).max(256).optional(),
-    secretAccessKey: z.string().trim().min(1).max(1_024).optional(),
-    clearSecretAccessKey: z.boolean().optional(),
-  }),
-  retention: z.object({
-    local: z.object({
-      count: z.number().int().min(0).max(10_000),
-      days: z.number().int().min(0).max(3650),
-      maxStorageGb: z.number().min(0).max(100_000),
-    }),
-    remote: z.object({
-      enabled: z.boolean(),
-      count: z.number().int().min(0).max(10_000),
-      days: z.number().int().min(0).max(3650),
-      maxStorageGb: z.number().min(0).max(100_000),
-    }),
-  }),
-  volumes: backupVolumesSchema,
-  databaseDumps: z.array(backupDatabaseDumpSchema),
-})
-
 const projectBackupConfigsSchema = projectRouteSchema.extend({
   backupConfigs: z.array(backupConfigSchema),
 })
@@ -337,35 +125,17 @@ const repositorySelectionRepositoriesSchema = z.object({
   installationId: z.number().int().positive(),
 })
 
-export const getNewProjectContext = createServerFn({ method: 'GET' })
+export const getRepositorySelectionContext = createServerFn({ method: 'GET' })
   .validator((data: { teamSlug: string }) => teamSlugSchema.parse(data))
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
+    const session = await requireAuthSession(
+      'Sign in before selecting a repository.',
+    )
 
-    if (!session) {
-      return null
-    }
-
-    const [userContext, team] = await Promise.all([
-      getUserContext(session.user.id),
-      requireTeam(session.user.id, data.teamSlug),
-    ])
-    const [projects, servers, repositorySelection] = await Promise.all([
-      listTeamProjects(team.id),
-      listTeamServers(team.id),
-      getRepositorySelection({
-        userId: session.user.id,
-        teamSlug: data.teamSlug,
-      }),
-    ])
-
-    return {
-      userContext,
-      team,
-      projects,
-      servers,
-      repositorySelection,
-    }
+    return getRepositorySelection({
+      userId: session.user.id,
+      teamSlug: data.teamSlug,
+    })
   })
 
 export const getRepositorySelectionRepositories = createServerFn({
@@ -375,11 +145,9 @@ export const getRepositorySelectionRepositories = createServerFn({
     repositorySelectionRepositoriesSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before selecting a repository.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before selecting a repository.',
+    )
 
     return listRepositorySelectionRepositories({
       userId: session.user.id,
@@ -404,11 +172,9 @@ export const createProject = createServerFn({ method: 'POST' })
     }) => createProjectSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before creating a project.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before creating a project.',
+    )
 
     return createProjectFromGitHub({
       userId: session.user.id,
@@ -440,6 +206,35 @@ export const getProject = createServerFn({ method: 'GET' })
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
+      scope: 'shell',
+    })
+  })
+
+export const getProjectSection = createServerFn({ method: 'GET' })
+  .validator(
+    (data: {
+      projectName: string
+      scope: 'backups' | 'deployments' | 'overview' | 'settings'
+      teamSlug: string
+    }) =>
+      projectRouteSchema
+        .extend({
+          scope: z.enum(['backups', 'deployments', 'overview', 'settings']),
+        })
+        .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+
+    if (!session) {
+      return null
+    }
+
+    return getProjectSectionContext({
+      userId: session.user.id,
+      teamSlug: data.teamSlug,
+      projectName: data.projectName,
+      scope: data.scope,
     })
   })
 
@@ -455,7 +250,27 @@ export const getDeployment = createServerFn({ method: 'GET' })
       return null
     }
 
-    return getDeploymentContext({
+    return getDeploymentSectionContext({
+      userId: session.user.id,
+      teamSlug: data.teamSlug,
+      projectName: data.projectName,
+      deploymentId: data.deploymentId,
+    })
+  })
+
+export const getDeploymentLogs = createServerFn({ method: 'GET' })
+  .validator(
+    (data: { deploymentId: string; projectName: string; teamSlug: string }) =>
+      deploymentRouteSchema.parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+
+    if (!session) {
+      return null
+    }
+
+    return getDeploymentLogsContext({
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
@@ -482,7 +297,7 @@ export const getProjectLogs = createServerFn({ method: 'GET' })
       return null
     }
 
-    return getProjectLogsContext({
+    return getProjectLogsSectionContext({
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
@@ -495,36 +310,28 @@ export const getProjectLogs = createServerFn({ method: 'GET' })
   })
 
 export const saveProjectSettings = createServerFn({ method: 'POST' })
-  .validator(
-    (data: {
-      avatarDataUrl?: string | null
-      deleteAvatar?: boolean
-      installationId: number | null
-      currentProjectName: string
-      projectName: string
-      repoFullName: string
-      runtimeConfig: ProjectRuntimeConfig
-      teamSlug: string
-    }) => projectSettingsSchema.parse(data),
-  )
+  .validator((data: z.input<typeof projectSettingsSchema>) => data)
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before saving project settings.')
+    const session = await requireAuthSession(
+      'Sign in before saving project settings.',
+    )
+    const parsed = projectSettingsSchema.safeParse(data)
+    if (!parsed.success)
+      return {
+        context: null,
+        fieldErrors: projectValidationErrors(parsed.error.issues),
+      }
+    try {
+      const context = await updateProjectSettings({
+        userId: session.user.id,
+        ...parsed.data,
+      })
+      return { context, fieldErrors: null }
+    } catch (error) {
+      const fieldErrors = projectSettingsErrors(error)
+      if (fieldErrors) return { context: null, fieldErrors }
+      throw error
     }
-
-    return updateProjectSettings({
-      userId: session.user.id,
-      teamSlug: data.teamSlug,
-      currentProjectName: data.currentProjectName,
-      projectName: data.projectName,
-      repoFullName: data.repoFullName,
-      installationId: data.installationId,
-      avatarDataUrl: data.avatarDataUrl,
-      deleteAvatar: data.deleteAvatar,
-      runtimeConfig: data.runtimeConfig,
-    })
   })
 
 export const deleteProjectAction = createServerFn({ method: 'POST' })
@@ -537,11 +344,9 @@ export const deleteProjectAction = createServerFn({ method: 'POST' })
     }) => deleteProjectSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before deleting a project.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before deleting a project.',
+    )
 
     return deleteProject({
       userId: session.user.id,
@@ -560,17 +365,14 @@ export const saveProjectRoutes = createServerFn({ method: 'POST' })
         path: string
         port: number
         service: string
+        environmentId?: string
         stripPrefix?: boolean
       }>
       teamSlug: string
     }) => projectRoutesSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before saving routes.')
-    }
+    const session = await requireAuthSession('Sign in before saving routes.')
 
     return updateProjectRoutes({
       userId: session.user.id,
@@ -594,11 +396,7 @@ export const saveProjectDomains = createServerFn({ method: 'POST' })
     }) => projectDomainsSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before saving domains.')
-    }
+    const session = await requireAuthSession('Sign in before saving domains.')
 
     return updateProjectDomains({
       userId: session.user.id,
@@ -616,11 +414,9 @@ export const verifyProjectDomainAction = createServerFn({ method: 'POST' })
         .parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before verifying domains.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before verifying domains.',
+    )
 
     return verifyProjectDomain({
       userId: session.user.id,
@@ -641,18 +437,15 @@ export const saveProjectEnvironments = createServerFn({ method: 'POST' })
         position: number
         slug: string
         status: 'active' | 'deleted'
-        serverId: string | null
       }>
       projectName: string
       teamSlug: string
     }) => projectEnvironmentsSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before saving project environments.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before saving project environments.',
+    )
 
     return updateProjectEnvironments({
       userId: session.user.id,
@@ -675,11 +468,9 @@ export const saveProjectEnvironmentServers = createServerFn({ method: 'POST' })
     }) => projectEnvironmentServersSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before saving project servers.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before saving project servers.',
+    )
 
     return updateProjectEnvironmentServers({
       userId: session.user.id,
@@ -699,11 +490,9 @@ export const saveProjectEnvVars = createServerFn({ method: 'POST' })
     }) => projectEnvVarsSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before saving project environment variables.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before saving project environment variables.',
+    )
 
     return updateProjectEnvVars({
       userId: session.user.id,
@@ -718,18 +507,11 @@ export const saveProjectBackupConfigs = createServerFn({ method: 'POST' })
     (data: {
       backupConfigs: Array<{
         databaseDumps: Array<{
-          command: string
+          engine: BackupDatabaseDump['engine']
+          database: string
           service: string
         }>
-        destination: {
-          accessKeyId?: string
-          bucket: string
-          clearSecretAccessKey?: boolean
-          endpoint?: string
-          prefix?: string
-          region?: string
-          secretAccessKey?: string
-        }
+        destination: { storageId?: string; prefix?: string }
         enabled: boolean
         environmentId: string
         id?: string
@@ -761,11 +543,9 @@ export const saveProjectBackupConfigs = createServerFn({ method: 'POST' })
   )
   .handler(async ({ data }) => {
     requireBackupsEnabled()
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before saving backup settings.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before saving backup settings.',
+    )
 
     return updateProjectBackupConfigs({
       userId: session.user.id,
@@ -785,11 +565,7 @@ export const runProjectBackup = createServerFn({ method: 'POST' })
   )
   .handler(async ({ data }) => {
     requireBackupsEnabled()
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before running a backup.')
-    }
+    const session = await requireAuthSession('Sign in before running a backup.')
 
     return createManualBackupRun({
       backupConfigId: data.backupConfigId,
@@ -813,7 +589,6 @@ export const restoreProjectBackup = createServerFn({ method: 'POST' })
             artifactId: string
             type: 'database'
             targetService: string
-            restoreCommand: string
           }
       >
       projectName: string
@@ -822,11 +597,9 @@ export const restoreProjectBackup = createServerFn({ method: 'POST' })
   )
   .handler(async ({ data }) => {
     requireBackupsEnabled()
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before restoring a backup.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before restoring a backup.',
+    )
 
     return createBackupRestoreJob({
       userId: session.user.id,
@@ -854,11 +627,9 @@ export const deployProject = createServerFn({ method: 'POST' })
     }) => deployProjectSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before deploying a project.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before deploying a project.',
+    )
 
     return createManualDeployment({
       environmentId: data.environmentId,
@@ -876,11 +647,9 @@ export const rollbackProjectDeployment = createServerFn({ method: 'POST' })
       deploymentRouteSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before rolling back a deployment.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before rolling back a deployment.',
+    )
 
     return createRollbackDeployment({
       userId: session.user.id,
@@ -896,11 +665,9 @@ export const redeployProjectDeployment = createServerFn({ method: 'POST' })
       deploymentRouteSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before redeploying a deployment.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before redeploying a deployment.',
+    )
 
     return createRedeployDeployment({
       userId: session.user.id,
@@ -916,11 +683,9 @@ export const getProjectDeployOptions = createServerFn({ method: 'GET' })
       deployOptionsSchema.parse(data),
   )
   .handler(async ({ data }) => {
-    const session = await getAuthSession()
-
-    if (!session) {
-      throw new Error('Sign in before deploying a project.')
-    }
+    const session = await requireAuthSession(
+      'Sign in before deploying a project.',
+    )
 
     return getManualDeploymentOptions({
       environmentId: data.environmentId,

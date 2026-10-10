@@ -55,10 +55,48 @@ const errors = [];
 const warnings = [];
 const localHostnames = new Set(["localhost", "127.0.0.1", "::1"]);
 
-if (productionComposeEnv) {
-  checkRequired("POSTGRES_PASSWORD");
-} else {
-  checkRequired("DATABASE_URL");
+const remoteDatabase = Boolean(
+  env.DEVPUSH_DATABASE_URL?.trim() || env.DEVPUSH_LOG_DATABASE_URL?.trim(),
+);
+if (remoteDatabase) {
+  checkRequired("DEVPUSH_DATABASE_URL");
+  checkRequired("DEVPUSH_LOG_DATABASE_URL");
+  const identities = [];
+  for (const key of ["DEVPUSH_DATABASE_URL", "DEVPUSH_LOG_DATABASE_URL"]) {
+    try {
+      const url = new URL(env[key]);
+      if (
+        !["libsql:", "https:", "http:"].includes(url.protocol) ||
+        !url.hostname ||
+        url.username ||
+        url.password ||
+        url.hash
+      )
+        throw new Error();
+      identities.push(
+        `${url.hostname}:${url.port || (url.protocol === "http:" ? "80" : "443")}${url.pathname.replace(/\/$/, "")}`,
+      );
+    } catch {
+      errors.push(
+        `${key} must be a libsql, HTTPS or HTTP URL without embedded credentials or fragments.`,
+      );
+    }
+  }
+  if (identities.length === 2 && identities[0] === identities[1])
+    errors.push("Main data and logs must use different remote databases.");
+} else if (productionComposeEnv) {
+  checkRequired("DEVPUSH_DATABASE_PATH");
+  checkRequired("DEVPUSH_LOG_DATABASE_PATH");
+}
+if (
+  !remoteDatabase &&
+  resolve(env.DEVPUSH_DATABASE_PATH || "app/.data/devpush.sqlite") ===
+    resolve(env.DEVPUSH_LOG_DATABASE_PATH || "app/.data/logs.sqlite")
+) {
+  errors.push("Main and log database paths must differ.");
+}
+if (!remoteDatabase && (env.DEVPUSH_DATABASE_AUTH_TOKEN || env.DEVPUSH_LOG_DATABASE_AUTH_TOKEN)) {
+  errors.push("Database authentication tokens require remote database URLs.");
 }
 checkRequired("BETTER_AUTH_SECRET");
 checkRequired("DEVPUSH_BASE_URL");
@@ -77,7 +115,8 @@ if (authSecret) {
   const weakSecret =
     authSecret.length < 32 ||
     authSecret === "dev-secret-change-me" ||
-    authSecret === "dev-secret";
+    authSecret === "dev-secret" ||
+    authSecret.startsWith("replace-with-");
   if (weakSecret) {
     issue(
       "BETTER_AUTH_SECRET should be a generated secret with at least 32 characters.",
@@ -95,7 +134,8 @@ const encryptionSecret = env.DEVPUSH_SECRET_ENCRYPTION_KEY?.trim();
 if (
   encryptionSecret &&
   (encryptionSecret.length < 32 ||
-    encryptionSecret === "dev-secret-encryption-key-change-me")
+    encryptionSecret === "dev-secret-encryption-key-change-me" ||
+    encryptionSecret.startsWith("replace-with-"))
 ) {
   issue(
     "DEVPUSH_SECRET_ENCRYPTION_KEY should be a separate generated secret with at least 32 characters.",
@@ -113,15 +153,21 @@ if (
   );
 }
 
-if (
-  productionComposeEnv &&
-  env.POSTGRES_PASSWORD?.startsWith("replace-with-")
-) {
-  issue("POSTGRES_PASSWORD must be changed before running production Compose.");
-}
-
 if (productionComposeEnv) {
   checkRequired("DEVPUSH_CRON_SECRET");
+}
+
+const cronSecret = env.DEVPUSH_CRON_SECRET?.trim();
+if (
+  cronSecret &&
+  (cronSecret.length < 32 || cronSecret.startsWith("replace-with-"))
+) {
+  issue(
+    "DEVPUSH_CRON_SECRET should be a generated secret with at least 32 characters.",
+  );
+}
+if (cronSecret && cronSecret === authSecret) {
+  issue("DEVPUSH_CRON_SECRET must differ from BETTER_AUTH_SECRET.");
 }
 
 checkPair("Google OAuth", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET");
@@ -288,7 +334,7 @@ function isPrivateOrLocalHost(hostname) {
 }
 
 function issue(message) {
-  if (remote) {
+  if (remote || productionComposeEnv) {
     errors.push(message);
   } else {
     warnings.push(message);

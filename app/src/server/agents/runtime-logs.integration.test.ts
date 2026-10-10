@@ -1,19 +1,20 @@
+import { required } from '@/test/required'
 import { createHash } from 'node:crypto'
 
 import { eq, inArray } from 'drizzle-orm'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
-import { closeDb, db } from '@/server/db'
+import { closeDb, db, logsDb } from '@/server/db'
 import {
   environments,
   projects,
-  runtimeLogs,
   servers,
   teamMembers,
   teams,
   user,
 } from '@/server/db/schema'
-import { getProjectLogsContext } from '@/server/projects/service'
+import { runtimeLogs } from '@/server/db/log-schema'
+import { getProjectLogsSectionContext } from '@/server/projects/context'
 import { recordAgentHeartbeat } from '@/server/servers/service'
 import { recordRuntimeLogs } from './runtime-logs'
 
@@ -25,6 +26,7 @@ const touchedTeamIds: Array<string> = []
 const touchedUserIds: Array<string> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await cleanupRows()
 })
 
@@ -33,6 +35,158 @@ afterAll(async () => {
 })
 
 describe('runtime log ingestion', () => {
+  test('bounds inserts and reads across more than one assignment batch', async () => {
+    const { projectId, projectName, serverId, teamSlug, token, userId } =
+      await createFixture()
+    const environmentIds: string[] = []
+    for (let index = 0; index < 25; index++) {
+      const id = crypto.randomUUID()
+      environmentIds.push(id)
+      touchedEnvironmentIds.push(id)
+      await db.insert(environments).values({
+        id,
+        projectId,
+        serverId,
+        name: `Branch ${index}`,
+        slug: `branch-${index}`,
+        branch: `branch-${index}`,
+        runtimeId: `runtime-${index}`,
+      })
+    }
+    const batch = vi.spyOn(logsDb, 'batch')
+    const start = Date.now() - 1000
+    const logs = Array.from({ length: 500 }, (_, index) => ({
+      runtimeId: `runtime-${index % 25}`,
+      service: 'web',
+      observedAt: new Date(start + index).toISOString(),
+      content: `line ${index}`,
+    }))
+    expect(await recordRuntimeLogs({ serverId, token, logs })).toEqual({
+      ok: true,
+      accepted: 500,
+      inserted: 500,
+    })
+    for (const [statements] of batch.mock.calls) {
+      expect(statements.length).toBeLessThanOrEqual(4)
+      for (const statement of statements) {
+        // Drizzle's BatchItem type erases the insert builder's toSQL method.
+        const insert = statement as ReturnType<
+          ReturnType<typeof logsDb.insert>['values']
+        >
+        expect(insert.toSQL().params.length).toBeLessThanOrEqual(100)
+      }
+    }
+    const stored = await logsDb
+      .select({ id: runtimeLogs.id })
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    touchedRuntimeLogIds.push(...stored.map((row) => row.id))
+    const context = { userId, teamSlug, projectName }
+    const all = await getProjectLogsSectionContext(context)
+    expect(all.logs).toHaveLength(200)
+    expect(required(all.logs[0]).content).toBe('line 499')
+    const lastBranch = await getProjectLogsSectionContext({
+      ...context,
+      branch: 'branch-24',
+      environmentId: environmentIds[24],
+    })
+    expect(lastBranch.logs).toHaveLength(20)
+    expect(lastBranch.logs.every((row) => row.runtimeId === 'runtime-24')).toBe(
+      true,
+    )
+  })
+
+  test('replays a partially stored request without acknowledging failure or duplicating lines', async () => {
+    const { serverId, token } = await createFixture()
+    const logs = Array.from({ length: 40 }, (_, index) => ({
+      runtimeId: 'dp_project_production',
+      service: 'web',
+      observedAt: new Date().toISOString(),
+      content: `line ${index}`,
+    }))
+    const insert = logsDb.insert.bind(logsDb)
+    let calls = 0
+    const failure = vi.spyOn(logsDb, 'insert').mockImplementation((table) => {
+      if (++calls === 5) throw new Error('storage unavailable')
+      return insert(table)
+    })
+    await expect(recordRuntimeLogs({ serverId, token, logs })).rejects.toThrow(
+      'storage unavailable',
+    )
+    failure.mockRestore()
+    const partial = await logsDb
+      .select()
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    touchedRuntimeLogIds.push(...partial.map((row) => row.id))
+    expect(partial).toHaveLength(32)
+    expect(await recordRuntimeLogs({ serverId, token, logs })).toEqual({
+      ok: true,
+      accepted: 40,
+      inserted: 8,
+    })
+    const stored = await logsDb
+      .select()
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    touchedRuntimeLogIds.push(...stored.map((row) => row.id))
+    expect(stored).toHaveLength(40)
+  })
+
+  test('filters separate storage by current branch, assignment and project permissions', async () => {
+    const { projectId, projectName, serverId, teamSlug, token, userId } =
+      await createFixture()
+    await recordRuntimeLogs({
+      serverId,
+      token,
+      logs: [
+        {
+          runtimeId: 'dp_project_production',
+          service: 'web',
+          observedAt: new Date().toISOString(),
+          content: 'ÄPI ready',
+        },
+      ],
+    })
+    const stored = await logsDb
+      .select()
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    touchedRuntimeLogIds.push(...stored.map((row) => row.id))
+    expect(stored[0]).toMatchObject({ projectId, searchContent: 'äpi ready' })
+    const context = { userId, teamSlug, projectName }
+    expect(
+      (await getProjectLogsSectionContext({ ...context, keyword: 'äpi' })).logs,
+    ).toHaveLength(1)
+    expect(
+      (await getProjectLogsSectionContext({ ...context, branch: 'another' }))
+        .logs,
+    ).toHaveLength(0)
+    await expect(
+      getProjectLogsSectionContext({ ...context, userId: 'outsider' }),
+    ).rejects.toThrow()
+    await db
+      .update(environments)
+      .set({ branch: 'renamed' })
+      .where(eq(environments.projectId, projectId))
+    expect(
+      (await getProjectLogsSectionContext({ ...context, branch: 'main' })).logs,
+    ).toHaveLength(0)
+    expect(
+      (await getProjectLogsSectionContext({ ...context, branch: 'renamed' }))
+        .logs,
+    ).toHaveLength(1)
+    // Removing the current server assignment makes previously captured output
+    // inaccessible even though its denormalized identity remains in log storage.
+    await db
+      .update(environments)
+      .set({ serverId: null })
+      .where(eq(environments.projectId, projectId))
+    const unassigned = await getProjectLogsSectionContext(context)
+    expect(unassigned.logs).toHaveLength(0)
+    expect(unassigned.hasAnyLogs).toBe(false)
+  })
+
   test('records assigned runtime logs and deduplicates repeated batches', async () => {
     const { projectName, serverId, teamSlug, token, userId } =
       await createFixture()
@@ -56,10 +210,18 @@ describe('runtime log ingestion', () => {
       ],
     }
 
-    await recordRuntimeLogs(payload)
-    await recordRuntimeLogs(payload)
+    expect(await recordRuntimeLogs(payload)).toEqual({
+      ok: true,
+      accepted: 1,
+      inserted: 1,
+    })
+    expect(await recordRuntimeLogs(payload)).toEqual({
+      ok: true,
+      accepted: 1,
+      inserted: 0,
+    })
 
-    const rows = await db
+    const rows = await logsDb
       .select({
         id: runtimeLogs.id,
         runtimeId: runtimeLogs.runtimeId,
@@ -79,7 +241,7 @@ describe('runtime log ingestion', () => {
       },
     ])
 
-    const context = await getProjectLogsContext({
+    const context = await getProjectLogsSectionContext({
       userId,
       teamSlug,
       projectName,
@@ -99,14 +261,17 @@ describe('runtime log ingestion', () => {
   })
 
   test('prunes runtime logs older than 24 hours during ingestion', async () => {
-    const { serverId, token } = await createFixture()
+    const { projectId, environmentId, serverId, token } = await createFixture()
     const oldObservedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
     const currentObservedAt = new Date()
     const oldLogId = `runtime-log-${crypto.randomUUID()}`
 
     touchedRuntimeLogIds.push(oldLogId)
-    await db.insert(runtimeLogs).values({
+    await logsDb.insert(runtimeLogs).values({
       id: oldLogId,
+      projectId,
+      environmentId,
+      searchContent: 'old runtime line',
       serverId,
       runtimeId: 'dp_project_production',
       service: 'web',
@@ -133,7 +298,7 @@ describe('runtime log ingestion', () => {
       ],
     })
 
-    const rows = await db
+    const rows = await logsDb
       .select({
         id: runtimeLogs.id,
         content: runtimeLogs.content,
@@ -182,7 +347,7 @@ describe('runtime log ingestion', () => {
       ],
     })
 
-    const rows = await db
+    const rows = await logsDb
       .select({ id: runtimeLogs.id, content: runtimeLogs.content })
       .from(runtimeLogs)
       .where(eq(runtimeLogs.serverId, serverId))
@@ -192,7 +357,7 @@ describe('runtime log ingestion', () => {
       { id: expect.any(String), content: 'Inherited server log' },
     ])
 
-    const context = await getProjectLogsContext({
+    const context = await getProjectLogsSectionContext({
       userId,
       teamSlug,
       projectName,
@@ -240,7 +405,7 @@ describe('runtime log ingestion', () => {
       ],
     })
 
-    const rows = await db
+    const rows = await logsDb
       .select({ id: runtimeLogs.id })
       .from(runtimeLogs)
       .where(eq(runtimeLogs.serverId, serverId))
@@ -309,6 +474,7 @@ async function createFixture() {
   })
 
   return {
+    environmentId,
     projectId,
     projectName: `project-${suffix}`,
     serverId,
@@ -321,7 +487,7 @@ async function createFixture() {
 
 async function cleanupRows() {
   if (touchedRuntimeLogIds.length > 0) {
-    await db
+    await logsDb
       .delete(runtimeLogs)
       .where(inArray(runtimeLogs.id, touchedRuntimeLogIds))
     touchedRuntimeLogIds.length = 0

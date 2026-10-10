@@ -34,4 +34,17 @@ describe('project runtime config', () => {
 
     expect(parseProjectRuntimeConfig(config)).toBeNull()
   })
+
+  test.each([
+    '../compose.yml',
+    'deploy/../../compose.yml',
+    '/etc/compose.yml',
+    './compose.yml',
+    'deploy\\compose.yml',
+    'deploy//compose.yml',
+  ])('rejects Compose paths outside the repository contract: %s', (path) => {
+    const config = createComposeRuntimeConfig({ path })
+
+    expect(parseProjectRuntimeConfig(config)).toBeNull()
+  })
 })

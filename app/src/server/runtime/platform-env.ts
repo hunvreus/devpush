@@ -1,8 +1,6 @@
-export function getDatabaseConnectionString() {
-  return process.env.DATABASE_URL
-}
+import { nodeBroadcaster } from '@/server/realtime/node-broadcaster'
 
-export function requiresRequestScopedDatabase() {
+export function isCloudflareRuntime() {
   return false
 }
 
@@ -14,4 +12,8 @@ export function getWorkerVersionMetadata():
   | { id: string; tag: string }
   | undefined {
   return undefined
+}
+
+export function getWorkspaceUpdates(): WorkspaceUpdatesNamespace | undefined {
+  return nodeBroadcaster
 }

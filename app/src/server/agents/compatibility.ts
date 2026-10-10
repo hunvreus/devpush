@@ -4,9 +4,11 @@ export const currentAgentCapabilities = [
   'jobs.compose.deploy.v1',
   'jobs.compose.cleanup.v1',
   'jobs.backup.v1',
+  'jobs.backup.archive.v1',
   'jobs.backup.cleanup.v1',
   'jobs.restore.v1',
   'runtime.logs.v1',
+  'metrics.history.v1',
 ] as const
 
 export type AgentCapability = (typeof currentAgentCapabilities)[number]
@@ -87,7 +89,10 @@ function isOlderVersion(current: string | null, target: string | null) {
   }
 
   for (let index = 0; index < targetParts.length; index += 1) {
-    const difference = currentParts[index] - targetParts[index]
+    const currentPart = currentParts[index]
+    const targetPart = targetParts[index]
+    if (currentPart === undefined || targetPart === undefined) return false
+    const difference = currentPart - targetPart
     if (difference !== 0) {
       return difference < 0
     }

@@ -18,7 +18,7 @@ export const environmentColors = [
   'teal',
   'cyan',
   'sky',
-]
+] as const
 
 const environmentColorClasses: Record<string, string> = {
   amber: 'bg-amber-500',
@@ -50,7 +50,10 @@ const environmentColorForegroundClasses: Record<string, string> = {
 }
 
 export function getEnvironmentColor(index: number) {
-  return environmentColors[(3 * (index - 1)) % environmentColors.length]
+  return (
+    environmentColors[(3 * (index - 1)) % environmentColors.length] ??
+    environmentColors[0]
+  )
 }
 
 export function EnvironmentDot({
@@ -80,7 +83,7 @@ export function EnvironmentColorOption({
     >
       {checked ? (
         <CheckIcon
-          className={`size-3.5 ${environmentColorForegroundClasses[color] ?? 'text-white'}`}
+          className={`size-3.5 shrink-0 ${environmentColorForegroundClasses[color] ?? 'text-white'}`}
         />
       ) : null}
     </span>

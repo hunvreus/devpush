@@ -22,9 +22,14 @@ export const Route = createFileRoute('/uploads/avatars/$fileName')({
               'cache-control': 'public, max-age=3600',
               'content-type':
                 content.contentType ?? contentType(params.fileName),
+              'x-content-type-options': 'nosniff',
             },
           })
-        } catch {
+        } catch (error) {
+          console.error('Unable to read avatar object', {
+            error,
+            fileName: params.fileName,
+          })
           return new Response('Not found.', { status: 404 })
         }
       },

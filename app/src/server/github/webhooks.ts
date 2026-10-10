@@ -32,6 +32,52 @@ export type GitHubInstallationChange =
   | { type: 'status'; status: 'deleted' | 'suspended' }
   | { type: 'ignore' }
 
+type GitHubWebhookHeadersResult =
+  | {
+      ok: true
+      deliveryId: string
+      event: string
+      signature: string
+    }
+  | { ok: false; error: string; status: 400 | 401 }
+
+export function validateGitHubWebhookHeaders(
+  headers: Headers,
+): GitHubWebhookHeadersResult {
+  const signature = headers.get('x-hub-signature-256')?.trim() ?? ''
+  if (!/^sha256=[a-f0-9]{64}$/i.test(signature)) {
+    return { ok: false, error: 'Invalid signature.', status: 401 }
+  }
+
+  const deliveryId = headers.get('x-github-delivery')?.trim() ?? ''
+  if (!/^[a-z0-9-]{1,255}$/i.test(deliveryId)) {
+    return {
+      ok: false,
+      error: 'Missing or invalid GitHub delivery ID.',
+      status: 400,
+    }
+  }
+
+  const event = headers.get('x-github-event')?.trim() ?? ''
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(event)) {
+    return {
+      ok: false,
+      error: 'Missing or invalid GitHub event.',
+      status: 400,
+    }
+  }
+
+  return { ok: true, deliveryId, event, signature }
+}
+
+export function requireGitHubWebhookConfiguration() {
+  if (!config.GITHUB_APP_WEBHOOK_SECRET) {
+    throw new Error('GitHub webhook secret is not configured.')
+  }
+
+  return config.GITHUB_APP_WEBHOOK_SECRET
+}
+
 export function verifyGitHubWebhookSignature({
   body,
   signature,
@@ -39,15 +85,13 @@ export function verifyGitHubWebhookSignature({
   body: string
   signature: string | null
 }) {
-  if (!config.GITHUB_APP_WEBHOOK_SECRET) {
-    throw new Error('GitHub webhook secret is not configured.')
-  }
+  const webhookSecret = requireGitHubWebhookConfiguration()
 
   if (!signature?.startsWith('sha256=')) {
     return false
   }
 
-  const expected = createHmac('sha256', config.GITHUB_APP_WEBHOOK_SECRET)
+  const expected = createHmac('sha256', webhookSecret)
     .update(body)
     .digest('hex')
   const actual = signature.slice('sha256='.length)

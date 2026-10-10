@@ -1,3 +1,6 @@
+import { z } from 'zod'
+import { storedBackupDatabaseSchema } from '@/lib/backup-database'
+import { backupStorageReferenceSchema } from '@/lib/backup-storage-schema'
 import type {
   aliases,
   backupArtifacts,
@@ -10,11 +13,7 @@ import type {
   servers,
 } from '@/server/db/schema'
 import { backupRetentionSchema } from '@/server/backups/service'
-import type {
-  BackupDatabaseDump,
-  BackupDestination,
-  BackupVolumeSelection,
-} from '@/server/backups/service'
+import type { BackupVolumeSelection } from '@/server/backups/service'
 import { getResourceColor } from '@/server/resources/color'
 import { getEffectiveServerStatus } from '@/server/servers/status'
 import { normalizeDeploymentCommitMeta } from './deployment-config'
@@ -30,7 +29,7 @@ import type {
   ProjectEnvironmentVariable,
   ProjectPublicRoute,
   ProjectRoute,
-} from './service'
+} from './types'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -326,23 +325,10 @@ export function mapProjectDomains(
 export function mapBackupConfig(
   backupConfig: typeof backupConfigs.$inferSelect,
 ): ProjectBackupConfig {
-  const destination =
-    typeof backupConfig.destination === 'object' &&
-    backupConfig.destination !== null
-      ? (backupConfig.destination as Partial<BackupDestination>)
-      : {}
   const retention = backupRetentionSchema.parse(backupConfig.retention)
-  const databaseDumps = Array.isArray(backupConfig.databaseDumps)
-    ? backupConfig.databaseDumps.filter(
-        (dump): dump is BackupDatabaseDump =>
-          typeof dump === 'object' &&
-          dump !== null &&
-          'service' in dump &&
-          'command' in dump &&
-          typeof dump.service === 'string' &&
-          typeof dump.command === 'string',
-      )
-    : []
+  const databaseDumps = z
+    .array(storedBackupDatabaseSchema)
+    .parse(backupConfig.databaseDumps)
 
   return {
     id: backupConfig.id,
@@ -350,16 +336,7 @@ export function mapBackupConfig(
     environmentId: backupConfig.environmentId,
     enabled: backupConfig.enabled,
     schedule: parseBackupSchedule(backupConfig.schedule),
-    destination: {
-      bucket: destination.bucket ?? '',
-      region: destination.region,
-      endpoint: destination.endpoint,
-      prefix: destination.prefix,
-      accessKeyId: destination.accessKeyId,
-      secretAccessKeyPreview: destination.secretAccessKeyPreview
-        ? 'Configured'
-        : undefined,
-    },
+    destination: backupStorageReferenceSchema.parse(backupConfig.destination),
     retention,
     volumes: normalizeBackupVolumes(backupConfig.volumes),
     databaseDumps,
@@ -388,6 +365,14 @@ export function mapBackupRun(
 
   return {
     id: backupRun.id,
+    configId: backupRun.configId,
+    localRecoveryAvailable:
+      isRecord(backupRun.manifest) &&
+      backupRun.manifest.localRecoveryAvailable === true &&
+      artifacts.some(
+        (artifact) =>
+          artifact.storage === 'local' && artifact.type !== 'manifest',
+      ),
     status: backupRun.status,
     environmentId: environment.id,
     environmentName: environmentConfig?.name ?? environment.name,
@@ -399,6 +384,13 @@ export function mapBackupRun(
     startedAt: backupRun.startedAt?.toISOString() ?? null,
     finishedAt: backupRun.finishedAt?.toISOString() ?? null,
     createdAt: backupRun.createdAt.toISOString(),
+    databaseTargets: z
+      .array(storedBackupDatabaseSchema)
+      .parse(
+        isRecord(backupRun.manifest)
+          ? (backupRun.manifest.databaseTargets ?? [])
+          : [],
+      ),
     artifacts: artifacts.map(mapBackupArtifact),
   }
 }

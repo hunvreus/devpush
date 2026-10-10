@@ -1,40 +1,58 @@
+import { useWorkspaceUpdates } from '@/features/teams/use-workspace-updates'
 import {
   Outlet,
   createFileRoute,
-  redirect,
   useParams,
-  useRouter,
+  useRouterState,
 } from '@tanstack/react-router'
+import { useSuspenseQuery } from '@tanstack/react-query'
 
 import { TeamPage } from '@/features/teams/team-header'
-import { useVisibleRefresh } from '@/lib/use-visible-refresh'
-import { getTeamHomeContext } from '@/server/auth/context'
+import { TeamLayoutPending } from '@/features/teams/team-route-pending'
+import { teamShellQueryOptions } from '@/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug')({
-  loader: async ({ params }) => {
-    const context = await getTeamHomeContext({
-      data: { teamSlug: params.teamSlug },
-    })
-
-    if (!context) {
-      throw redirect({ to: '/auth/login' })
+  ssr: false,
+  loader: ({ context, location, params }) => {
+    if (isProjectRoute(location.pathname, params.teamSlug)) {
+      return
     }
 
-    return context
+    return context.queryClient.fetchQuery(
+      teamShellQueryOptions({ teamSlug: params.teamSlug }),
+    )
   },
+  pendingMs: 150,
+  pendingMinMs: 200,
+  pendingComponent: TeamLayoutPending,
   component: TeamLayoutRoute,
 })
 
 function TeamLayoutRoute() {
-  const router = useRouter()
   const params = useParams({ strict: false })
-  const context = Route.useLoaderData()
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+  const teamSlug = String(params.teamSlug)
+  useWorkspaceUpdates(teamSlug)
+
+  if (isProjectRoute(pathname, teamSlug)) {
+    return <Outlet />
+  }
+
+  return <TeamLayoutContent teamSlug={teamSlug} />
+}
+
+function TeamLayoutContent({ teamSlug }: { teamSlug: string }) {
+  const params = useParams({ strict: false })
+  const { data: context } = useSuspenseQuery(
+    teamShellQueryOptions({ teamSlug }),
+  )
+
   const project =
     typeof params.projectName === 'string'
       ? context.projects.find((item) => item.name === params.projectName)
       : undefined
-
-  useVisibleRefresh(() => router.invalidate())
 
   return (
     <TeamPage
@@ -48,4 +66,8 @@ function TeamLayoutRoute() {
       <Outlet />
     </TeamPage>
   )
+}
+
+function isProjectRoute(pathname: string, teamSlug: string) {
+  return pathname.startsWith(`/${teamSlug}/projects/`)
 }

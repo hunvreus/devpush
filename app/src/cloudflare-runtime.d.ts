@@ -1,6 +1,8 @@
-interface Hyperdrive {
-  connectionString: string
-}
+/* Ambient modules require inline import types to keep this file a script. */
+/* eslint-disable @typescript-eslint/consistent-type-imports */
+// Keep this ambient file a script so cloudflare:workers is declared, not augmented.
+
+type D1Database = import('@cloudflare/workers-types').D1Database
 
 interface R2ObjectBody {
   arrayBuffer: () => Promise<ArrayBuffer>
@@ -12,6 +14,7 @@ interface R2ObjectBody {
 interface R2Bucket {
   delete: (key: string) => Promise<void>
   get: (key: string) => Promise<R2ObjectBody | null>
+  head: (key: string) => Promise<{ size: number } | null>
   put: (
     key: string,
     value: ArrayBuffer | ArrayBufferView | string,
@@ -24,8 +27,27 @@ interface WorkerVersionMetadata {
   tag: string
 }
 
+interface WorkspaceUpdatesNamespace {
+  getByName: (name: string) => {
+    fetch: (request: Request) => Promise<Response>
+    publish: (kind: string, activeSessionIds: string[]) => Promise<void>
+  }
+}
+
+declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair
+declare const WebSocketRequestResponsePair: typeof import('@cloudflare/workers-types').WebSocketRequestResponsePair
+interface ResponseInit {
+  webSocket?: import('@cloudflare/workers-types').WebSocket
+}
+
 interface Env {
-  DEVPUSH_DATABASE: Hyperdrive
+  DEVPUSH_WORKSPACE_UPDATES?: WorkspaceUpdatesNamespace
+  DEVPUSH_DATABASE: D1Database
+  DEVPUSH_LOG_DATABASE: D1Database
+  DEVPUSH_DATABASE_URL?: string
+  DEVPUSH_LOG_DATABASE_URL?: string
+  DEVPUSH_DATABASE_AUTH_TOKEN?: string
+  DEVPUSH_LOG_DATABASE_AUTH_TOKEN?: string
   DEVPUSH_OBJECTS: R2Bucket
 }
 
@@ -38,7 +60,11 @@ interface ScheduledController {
 }
 
 interface ExportedHandler<TEnvironment> {
-  fetch?: (request: Request, env: TEnvironment) => Response | Promise<Response>
+  fetch?: (
+    request: Request,
+    env: TEnvironment,
+    context: ExecutionContext,
+  ) => Response | Promise<Response>
   scheduled?: (
     controller: ScheduledController,
     env: TEnvironment,
@@ -48,4 +74,5 @@ interface ExportedHandler<TEnvironment> {
 
 declare module 'cloudflare:workers' {
   export const env: Env
+  export const DurableObject: typeof import('@cloudflare/workers-types').DurableObject
 }

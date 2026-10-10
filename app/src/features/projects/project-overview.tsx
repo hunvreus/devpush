@@ -1,4 +1,4 @@
-import { Link, useParams } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import {
   ArrowRightIcon,
   BoxesIcon,
@@ -17,8 +17,11 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { DeploymentList } from '@/features/deployments/deployment-list'
+import { ProjectHeading } from './project-heading'
+import {
+  DeploymentList,
+  DeploymentListPending,
+} from '@/features/deployments/deployment-list'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
 import { ManualDeployDialog } from '@/features/projects/manual-deploy-dialog'
 import { formatAge } from '@/features/servers/team-servers'
@@ -27,29 +30,23 @@ import {
   hasActiveDeployment,
 } from '@/features/projects/deploy-readiness'
 import { routeUrl } from '@/lib/urls'
-import type { ProjectContext } from '@/server/projects/service'
+import type { ProjectContext } from '@/server/projects/types'
 
-export function ProjectOverview({ context }: { context: ProjectContext }) {
-  const params = useParams({ strict: false })
-  const teamSlug =
-    typeof params.teamSlug === 'string' ? params.teamSlug : 'ronan-berder'
+export function ProjectOverview({
+  context,
+  deploymentsPending = false,
+}: {
+  context: ProjectContext
+  deploymentsPending?: boolean
+}) {
+  const teamSlug = context.team.slug
   const { project, environment, deployments } = context
   const deployBlockReason = getDeployBlockReason(environment)
   const hasActiveDeploy = hasActiveDeployment(deployments)
 
   return (
     <>
-      <section>
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <ResourceAvatar
-            name={project.name}
-            src={project.avatarUrl ?? undefined}
-            color={project.color}
-            size="md"
-          />
-          {project.name}
-        </h1>
-      </section>
+      <ProjectHeading teamSlug={teamSlug} project={project} />
 
       <section className="space-y-4">
         <header className="flex h-8 items-center justify-between gap-x-4">
@@ -183,9 +180,15 @@ export function ProjectOverview({ context }: { context: ProjectContext }) {
             </ManualDeployDialog>
           ) : null}
         </header>
-        {deployments.length > 0 ? (
+        {deploymentsPending ? (
+          <DeploymentListPending label="Latest deployments loading" />
+        ) : deployments.length > 0 ? (
           <div className="space-y-4">
-            <DeploymentList deployments={deployments} limit={4} />
+            <DeploymentList
+              deployments={deployments}
+              limit={4}
+              teamSlug={teamSlug}
+            />
             <footer className="flex justify-end">
               <Button variant="outline" asChild>
                 <Link

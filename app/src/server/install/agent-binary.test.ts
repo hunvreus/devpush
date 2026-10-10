@@ -129,6 +129,21 @@ describe('agent binary status', () => {
       filename: 'devpush-agent-linux-arm64',
     })
   })
+
+  test('checks R2 metadata without downloading binaries for status', async () => {
+    const head = vi.fn(async () => ({ size: 1 }))
+    const get = vi.fn()
+    runtime.bucket = { get, head } as unknown as R2Bucket
+
+    const { getAgentBinaryStatus } = await loadAgentBinaryModule()
+
+    await expect(getAgentBinaryStatus()).resolves.toEqual({
+      ready: true,
+      message: null,
+    })
+    expect(head).toHaveBeenCalledTimes(2)
+    expect(get).not.toHaveBeenCalled()
+  })
 })
 
 function writeExecutable(path: string) {

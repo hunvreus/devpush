@@ -1,7 +1,7 @@
 import { createFileRoute, notFound, useParams } from '@tanstack/react-router'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { ProjectBackupDetails } from '@/features/projects/project-backups'
+import { ProjectBackupDetails } from '@/features/projects/project-backup-details'
 import { projectContextQueryOptions } from '@/lib/project-context-query'
 
 export const Route = createFileRoute(
@@ -16,15 +16,20 @@ export const Route = createFileRoute(
 })
 
 function BackupPolicyRoute() {
+  const queryClient = useQueryClient()
   const { backupId } = Route.useParams()
   const params = useParams({
     from: '/$teamSlug/projects/$projectName/backups/$backupId',
   })
   const { data: context } = useSuspenseQuery(
-    projectContextQueryOptions({
-      teamSlug: params.teamSlug,
-      projectName: params.projectName,
-    }),
+    projectContextQueryOptions(
+      {
+        teamSlug: params.teamSlug,
+        projectName: params.projectName,
+        scope: 'backups',
+      },
+      queryClient,
+    ),
   )
 
   return <ProjectBackupDetails context={context} backupId={backupId} />

@@ -1,4 +1,7 @@
+import { serverNameSchema } from '@/lib/server-name-schema'
+import { afterMutation, copyText } from '@/lib/action-feedback'
 import { Link, useRouter } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   BanIcon,
   CopyIcon,
@@ -8,7 +11,7 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -58,9 +61,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ResourceAvatar } from '@/components/resource-avatar'
+import { TeamHeading } from '@/features/teams/team-heading'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { getErrorMessage, getFieldErrorMessage } from '@/lib/error-message'
+import { invalidateResourceQueries } from '@/lib/resource-cache'
 import { cn } from '@/lib/utils'
 import { canManageTeamSettings } from '@/lib/team-role'
 import {
@@ -76,7 +80,7 @@ import type {
   ServerDeleteDiagnostic,
   ServerInstallCommand,
 } from '@/server/servers/service'
-import type { ServerSummary, TeamSummary } from '@/server/teams/service'
+import type { ServerSummary, TeamSummary } from '@/server/teams/types'
 
 type ServerItem = ServerSummary | CreatedServer
 
@@ -85,7 +89,7 @@ export function TeamServers({
   team,
   servers,
 }: {
-  serverInstall: {
+  serverInstall?: {
     ready: boolean
     message: string | null
   }
@@ -93,6 +97,7 @@ export function TeamServers({
   servers: Array<ServerSummary>
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [items, setItems] = useState<Array<ServerItem>>(servers)
   const [addServerOpen, setAddServerOpen] = useState(false)
   const canManageServers = canManageTeamSettings(team.role)
@@ -102,29 +107,21 @@ export function TeamServers({
 
   return (
     <>
-      <section className="flex items-center justify-between gap-4">
-        <h1 className="flex items-center gap-x-3 text-2xl font-medium">
-          <Link to="/$teamSlug" params={{ teamSlug: team.slug }}>
-            <ResourceAvatar
-              name={team.name}
-              src={team.image ?? undefined}
-              color={team.color}
-              size="md"
-            />
-          </Link>
-          <span className="text-muted-foreground/25 font-normal">/</span>
-          <span>Servers</span>
-        </h1>
-        {items.length > 0 && canManageServers ? (
-          <Button onClick={() => setAddServerOpen(true)}>
-            <PlusIcon data-icon="inline-start" />
-            Add server
-          </Button>
-        ) : null}
-      </section>
+      <TeamHeading
+        team={team}
+        crumb={<span>Servers</span>}
+        actions={
+          items.length > 0 && canManageServers ? (
+            <Button onClick={() => setAddServerOpen(true)}>
+              <PlusIcon data-icon="inline-start" />
+              Add server
+            </Button>
+          ) : null
+        }
+      />
 
       <section className="space-y-4">
-        {!serverInstall.ready && serverInstall.message ? (
+        {!serverInstall?.ready && serverInstall?.message ? (
           <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             {serverInstall.message}
           </div>
@@ -141,6 +138,7 @@ export function TeamServers({
                     <TooltipTrigger asChild>
                       <span className="inline-flex">
                         <ServerAvatar
+                          size="sm"
                           name={server.name}
                           status={server.status}
                         />
@@ -204,7 +202,10 @@ export function TeamServers({
                     <ServerActionsMenu
                       server={server}
                       teamSlug={team.slug}
-                      onChanged={() => void router.invalidate()}
+                      onChanged={async () => {
+                        await invalidateResourceQueries(queryClient, team.slug)
+                        await router.invalidate()
+                      }}
                     />
                   </div>
                 ) : null}
@@ -236,7 +237,13 @@ export function TeamServers({
           open={addServerOpen}
           teamSlug={team.slug}
           onOpenChange={setAddServerOpen}
-          onCreated={(server) => setItems((current) => [server, ...current])}
+          onCreated={async (server) => {
+            setItems((current) => [server, ...current])
+            await afterMutation(async () => {
+              await invalidateResourceQueries(queryClient, team.slug)
+              await router.invalidate()
+            }, 'Server created, but refreshing the page failed. Please reload.')
+          }}
         />
       ) : null}
     </>
@@ -273,14 +280,14 @@ function formatCount(count: number, singular: string) {
   return `${count.toLocaleString()} ${singular}${count === 1 ? '' : 's'}`
 }
 
-function ServerActionsMenu({
+export function ServerActionsMenu({
   server,
   teamSlug,
   onChanged,
 }: {
-  server: ServerItem
+  server: Pick<ServerItem, 'id' | 'name' | 'status'>
   teamSlug: string
-  onChanged: () => void
+  onChanged: () => void | Promise<void>
 }) {
   const [installOpen, setInstallOpen] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
@@ -294,15 +301,27 @@ function ServerActionsMenu({
     string | null
   >(null)
   const [isChangingStatus, setIsChangingStatus] = useState(false)
+  const diagnosticRequest = useRef(0)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [serverDeleted, setServerDeleted] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isLoadingDeleteDiagnostic, setIsLoadingDeleteDiagnostic] =
     useState(false)
   const isDisabled = server.status === 'disabled'
   const canChangeStatus =
     !isChangingStatus && (isDisabled || disableConfirmation === server.name)
-  const canDelete = !isDeleting && deleteConfirmation.trim() === server.name
+  const canDelete =
+    !isDeleting && !serverDeleted && deleteConfirmation.trim() === server.name
 
   async function toggleServerStatus() {
+    if (
+      isChangingStatus ||
+      isDeleting ||
+      serverDeleted ||
+      (!isDisabled && disableConfirmation !== server.name)
+    )
+      return
+    setActionError(null)
     setIsChangingStatus(true)
 
     try {
@@ -326,15 +345,19 @@ function ServerActionsMenu({
       }
 
       setStatusOpen(false)
-      onChanged()
+      await afterMutation(
+        async () => onChanged(),
+        'The action completed, but refreshing the page failed. Please reload.',
+      )
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to update server status.'))
+      setActionError(getErrorMessage(error, 'Unable to update server status.'))
     } finally {
       setIsChangingStatus(false)
     }
   }
 
   async function loadDeleteDiagnostic() {
+    const request = ++diagnosticRequest.current
     setIsLoadingDeleteDiagnostic(true)
     setDeleteDiagnosticError(null)
 
@@ -345,17 +368,28 @@ function ServerActionsMenu({
           serverId: server.id,
         },
       })
+      if (request !== diagnosticRequest.current) return
       setDeleteDiagnostic(diagnostic)
     } catch (error) {
+      if (request !== diagnosticRequest.current) return
       setDeleteDiagnosticError(
         getErrorMessage(error, 'Unable to inspect server usage.'),
       )
     } finally {
-      setIsLoadingDeleteDiagnostic(false)
+      if (request === diagnosticRequest.current)
+        setIsLoadingDeleteDiagnostic(false)
     }
   }
 
   async function deleteCurrentServer() {
+    if (
+      isDeleting ||
+      isChangingStatus ||
+      serverDeleted ||
+      deleteConfirmation.trim() !== server.name
+    )
+      return
+    setActionError(null)
     setIsDeleting(true)
 
     try {
@@ -367,17 +401,24 @@ function ServerActionsMenu({
           cancelOngoingDeployments,
         },
       })
+      setServerDeleted(true)
+      setDeleteOpen(false)
       toast.success('Server deleted.')
       setDeleteOpen(false)
-      onChanged()
+      await afterMutation(
+        async () => onChanged(),
+        'The action completed, but refreshing the page failed. Please reload.',
+      )
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to delete server.'))
+      setActionError(getErrorMessage(error, 'Unable to delete server.'))
     } finally {
       setIsDeleting(false)
     }
   }
 
   function onStatusOpenChange(open: boolean) {
+    if (isChangingStatus || isDeleting || serverDeleted) return
+    setActionError(null)
     setStatusOpen(open)
 
     if (!open) {
@@ -386,6 +427,9 @@ function ServerActionsMenu({
   }
 
   function onDeleteOpenChange(open: boolean) {
+    if (isDeleting || isChangingStatus || serverDeleted) return
+    diagnosticRequest.current += 1
+    setActionError(null)
     setDeleteOpen(open)
 
     if (!open) {
@@ -417,9 +461,12 @@ function ServerActionsMenu({
             <>
               <DropdownMenuItem
                 className="whitespace-nowrap"
+                disabled={isDisabled}
                 onSelect={() => setInstallOpen(true)}
               >
-                Install agent
+                {isDisabled
+                  ? 'Enable server to install agent'
+                  : 'Install agent'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
@@ -427,7 +474,7 @@ function ServerActionsMenu({
           {isDisabled ? (
             <DropdownMenuItem
               className="whitespace-nowrap"
-              onSelect={() => setStatusOpen(true)}
+              onSelect={() => onStatusOpenChange(true)}
             >
               Enable server
             </DropdownMenuItem>
@@ -436,7 +483,7 @@ function ServerActionsMenu({
             <DropdownMenuItem
               className="whitespace-nowrap"
               variant="destructive"
-              onSelect={() => setStatusOpen(true)}
+              onSelect={() => onStatusOpenChange(true)}
             >
               <BanIcon />
               Disable server
@@ -445,7 +492,7 @@ function ServerActionsMenu({
           <DropdownMenuItem
             className="whitespace-nowrap"
             variant="destructive"
-            onSelect={() => setDeleteOpen(true)}
+            onSelect={() => onDeleteOpenChange(true)}
           >
             <Trash2Icon />
             Delete server
@@ -477,6 +524,7 @@ function ServerActionsMenu({
             <Field>
               <Input
                 aria-label={`Type ${server.name} to confirm`}
+                required
                 disabled={isChangingStatus}
                 placeholder={server.name}
                 value={disableConfirmation}
@@ -491,6 +539,7 @@ function ServerActionsMenu({
             </Field>
           ) : null}
 
+          <FieldError role="alert">{actionError}</FieldError>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isChangingStatus}>
               Cancel
@@ -531,9 +580,18 @@ function ServerActionsMenu({
                 Inspecting server usage...
               </p>
             ) : deleteDiagnosticError ? (
-              <p className="text-sm text-destructive">
-                {deleteDiagnosticError}
-              </p>
+              <div className="space-y-2">
+                <p role="alert" className="text-sm text-destructive">
+                  {deleteDiagnosticError}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void loadDeleteDiagnostic()}
+                >
+                  Retry inspection
+                </Button>
+              </div>
             ) : deleteDiagnostic ? (
               <p className="text-sm">
                 {deleteDiagnostic.projectCount === 0
@@ -542,23 +600,25 @@ function ServerActionsMenu({
               </p>
             ) : null}
 
-            <label className="flex items-center gap-3 text-sm">
+            <Field orientation="horizontal">
               <Checkbox
+                id="delete-server-list-cancel-deployments"
                 checked={cancelOngoingDeployments}
-                disabled={isDeleting}
+                disabled={isDeleting || serverDeleted}
                 onCheckedChange={(checked) =>
                   setCancelOngoingDeployments(checked === true)
                 }
               />
-              <span className="font-medium">
+              <FieldLabel htmlFor="delete-server-list-cancel-deployments">
                 Cancel ongoing deployments on this server
-              </span>
-            </label>
+              </FieldLabel>
+            </Field>
 
             <Field>
               <Input
                 aria-label={`Type ${server.name} to confirm`}
-                disabled={isDeleting}
+                required
+                disabled={isDeleting || serverDeleted}
                 placeholder={server.name}
                 value={deleteConfirmation}
                 onChange={(event) => setDeleteConfirmation(event.target.value)}
@@ -572,8 +632,11 @@ function ServerActionsMenu({
             </Field>
           </div>
 
+          <FieldError role="alert">{actionError}</FieldError>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting || serverDeleted}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               disabled={!canDelete}
               variant="destructive"
@@ -592,7 +655,7 @@ function ServerActionsMenu({
   )
 }
 
-function InstallServerDialog({
+export function InstallServerDialog({
   open,
   teamSlug,
   server,
@@ -600,12 +663,13 @@ function InstallServerDialog({
 }: {
   open?: boolean
   teamSlug: string
-  server: ServerItem
+  server: Pick<ServerItem, 'id' | 'name'>
   onOpenChange?: (open: boolean) => void
 }) {
   const [internalOpen, setInternalOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [installCommand, setInstallCommand] = useState<string | null>(null)
+  const [installError, setInstallError] = useState<string | null>(null)
   const isOpen = open ?? internalOpen
 
   async function createCommand() {
@@ -613,6 +677,7 @@ function InstallServerDialog({
       return
     }
 
+    setInstallError(null)
     setIsCreating(true)
 
     try {
@@ -624,13 +689,16 @@ function InstallServerDialog({
       })
       setInstallCommand(result.installCommand)
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to create install command.'))
+      setInstallError(
+        getErrorMessage(error, 'Unable to create install command.'),
+      )
     } finally {
       setIsCreating(false)
     }
   }
 
   function close(nextOpen: boolean) {
+    if (isCreating) return
     onOpenChange?.(nextOpen)
 
     if (open === undefined) {
@@ -639,16 +707,17 @@ function InstallServerDialog({
 
     if (!nextOpen) {
       setInstallCommand(null)
+      setInstallError(null)
     }
   }
 
   useEffect(() => {
-    if (!isOpen || installCommand || isCreating) {
+    if (!isOpen || installCommand || isCreating || installError) {
       return
     }
 
     void createCommand()
-  }, [isOpen, installCommand, isCreating])
+  }, [isOpen, installCommand, isCreating, installError])
 
   return (
     <Dialog open={isOpen} onOpenChange={close}>
@@ -666,6 +735,17 @@ function InstallServerDialog({
           </div>
         ) : installCommand ? (
           <InstallCommand command={installCommand} />
+        ) : installError ? (
+          <div className="space-y-3">
+            <FieldError role="alert">{installError}</FieldError>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void createCommand()}
+            >
+              Retry
+            </Button>
+          </div>
         ) : null}
       </DialogContent>
     </Dialog>
@@ -681,7 +761,7 @@ export function AddServerDialog({
   open: boolean
   teamSlug: string
   onOpenChange: (open: boolean) => void
-  onCreated: (server: CreatedServer) => void
+  onCreated: (server: CreatedServer) => void | Promise<void>
 }) {
   const [name, setName] = useState('')
   const [nameError, setNameError] = useState<string | null>(null)
@@ -690,6 +770,14 @@ export function AddServerDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (isCreating) return
+    const parsed = serverNameSchema.safeParse(name)
+    if (!parsed.success) {
+      setNameError(
+        parsed.error.issues[0]?.message ?? 'Enter a valid server name.',
+      )
+      return
+    }
     setNameError(null)
     setIsCreating(true)
 
@@ -702,7 +790,7 @@ export function AddServerDialog({
       })
 
       setCreatedServer(server)
-      onCreated(server)
+      await onCreated(server)
     } catch (error) {
       setNameError(
         getFieldErrorMessage({
@@ -717,6 +805,7 @@ export function AddServerDialog({
   }
 
   function close(nextOpen: boolean) {
+    if (isCreating) return
     onOpenChange(nextOpen)
 
     if (!nextOpen) {
@@ -750,12 +839,19 @@ export function AddServerDialog({
             </div>
           </div>
         ) : (
-          <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+          <form
+            noValidate
+            className="space-y-4"
+            onSubmit={(event) => void submit(event)}
+          >
             <Field data-invalid={Boolean(nameError)}>
-              <FieldLabel htmlFor="server-name">Name</FieldLabel>
+              <FieldLabel htmlFor="server-name">Name (required)</FieldLabel>
               <Input
                 aria-invalid={Boolean(nameError)}
                 id="server-name"
+                disabled={isCreating}
+                maxLength={100}
+                aria-describedby="new-server-name-error"
                 onChange={(event) => {
                   setName(event.target.value)
                   setNameError(null)
@@ -764,13 +860,14 @@ export function AddServerDialog({
                 required
                 value={name}
               />
-              <FieldError>{nameError}</FieldError>
+              <FieldError id="new-server-name-error">{nameError}</FieldError>
             </Field>
             <div className="flex justify-end gap-2">
               <Button
                 variant="ghost"
                 type="button"
                 onClick={() => close(false)}
+                disabled={isCreating}
               >
                 Cancel
               </Button>
@@ -801,8 +898,7 @@ export function InstallCommand({
   inputClassName?: string
 }) {
   async function copyInstallCommand() {
-    await navigator.clipboard.writeText(command)
-    toast.success('Install command copied.')
+    await copyText(command, 'Install command')
   }
 
   return (

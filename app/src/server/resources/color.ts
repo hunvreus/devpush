@@ -9,5 +9,5 @@ export function getResourceColor(id: string): ResourceColor {
     hash = (hash * 31 + char.charCodeAt(0)) >>> 0
   }
 
-  return resourceColors[hash % resourceColors.length]
+  return resourceColors[hash % resourceColors.length] ?? resourceColors[0]
 }

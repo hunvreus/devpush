@@ -34,7 +34,7 @@ func (runner *Runner) deliverCompletion(ctx context.Context, id string, completi
 	if err != nil {
 		return err
 	}
-	if err := runner.post(ctx, "/api/agents/jobs/complete", json.RawMessage(requestBody), &completeJobResponse{}); err != nil {
+	if err := runner.postCompletion(ctx, requestBody); err != nil {
 		return err
 	}
 
@@ -71,7 +71,7 @@ func (runner *Runner) flushPendingCompletions(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := runner.post(ctx, "/api/agents/jobs/complete", json.RawMessage(requestBody), &completeJobResponse{}); err != nil {
+		if err := runner.postCompletion(ctx, requestBody); err != nil {
 			return err
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -79,6 +79,60 @@ func (runner *Runner) flushPendingCompletions(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+func (runner *Runner) postCompletion(ctx context.Context, body []byte) error {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return fmt.Errorf("decode completion: %w", err)
+	}
+	if envelope.Type == "deploy" {
+		var completion jobCompletion
+		if err := json.Unmarshal(body, &completion); err != nil {
+			return fmt.Errorf("decode deployment completion: %w", err)
+		}
+		if completion.LogStartSeq < 1 {
+			return errors.New("deployment completion requires a positive log sequence")
+		}
+		logs, events := completion.Logs, completion.Events
+		logOffset, eventOffset := 0, 0
+		for {
+			_, chunk := deploymentLogBatch(logs, logOffset)
+			eventEnd := deploymentEventBatchEnd(events, eventOffset)
+			if logOffset+len(chunk) == len(logs) && eventEnd == len(events) {
+				completion.LogStartSeq += logOffset
+				completion.Logs = chunk
+				completion.Events = append([]jobEvent{}, events[eventOffset:eventEnd]...)
+				var err error
+				body, err = json.Marshal(completion)
+				if err != nil {
+					return err
+				}
+				break
+			}
+			progress := jobProgress{
+				ServerID: completion.ServerID, Token: completion.Token,
+				DeploymentID: completion.DeploymentID,
+				LogStartSeq:  completion.LogStartSeq + logOffset,
+				Logs:         chunk, Events: append([]jobEvent{}, events[eventOffset:eventEnd]...),
+			}
+			if err := runner.reportProgress(ctx, progress); err != nil {
+				return err
+			}
+			logOffset += len(chunk)
+			eventOffset = eventEnd
+		}
+	}
+	var response completeJobResponse
+	if err := runner.postWithStatus(ctx, "/api/agents/jobs/complete", json.RawMessage(body), &response, 200); err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New("control plane did not acknowledge completion")
+	}
 	return nil
 }
 

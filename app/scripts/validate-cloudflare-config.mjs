@@ -1,27 +1,33 @@
+import { remoteDatabaseConfig } from '../src/server/db/remote-config.ts'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { parse, printParseErrorCode } from 'jsonc-parser'
+
+import { getD1Bindings } from '../../scripts/d1-config.mjs'
 
 const configPath = resolve(
   process.cwd(),
   process.env.DEVPUSH_WRANGLER_CONFIG || 'wrangler.jsonc',
 )
-const secretsPath = resolve(process.cwd(), '.cloudflare-secrets.json')
+const secretsPath = resolve(
+  process.cwd(),
+  process.env.DEVPUSH_CLOUDFLARE_SECRETS_FILE || '.cloudflare-secrets.json',
+)
 const source = await readFile(configPath, 'utf8').catch(() => {
   throw new Error('Run `pnpm configure` to generate app/wrangler.jsonc.')
 })
-const config = JSON.parse(source)
-const hyperdriveId = config.hyperdrive?.find(
-  (item) => item.binding === 'DEVPUSH_DATABASE',
-)?.id
+const parseErrors = []
+const config = parse(source, parseErrors, { allowTrailingComma: true })
+
+if (parseErrors.length > 0) {
+  const error = parseErrors[0]
+  throw new Error(
+    `Could not parse ${configPath}: ${printParseErrorCode(error.error)} at offset ${error.offset}.`,
+  )
+}
 const bucketName = config.r2_buckets?.find(
   (item) => item.binding === 'DEVPUSH_OBJECTS',
 )?.bucket_name
-
-if (!hyperdriveId || /^0+$/.test(hyperdriveId)) {
-  throw new Error(
-    'Run `pnpm configure` to configure the DEVPUSH_DATABASE Hyperdrive binding.',
-  )
-}
 
 if (!bucketName) {
   throw new Error(
@@ -35,6 +41,8 @@ const secrets = JSON.parse(
   }),
 )
 const values = { ...config.vars, ...secrets }
+const remote = remoteDatabaseConfig(values)
+const bindings = remote ? [] : getD1Bindings(config)
 const missingSecrets = [
   'BETTER_AUTH_SECRET',
   'DEVPUSH_SECRET_ENCRYPTION_KEY',
@@ -44,6 +52,23 @@ if (missingSecrets.length > 0) {
   throw new Error(
     `Cloudflare secrets are missing: ${missingSecrets.join(', ')}. Re-run \`pnpm configure\`.`,
   )
+}
+
+requireGeneratedSecret('BETTER_AUTH_SECRET', secrets.BETTER_AUTH_SECRET)
+requireGeneratedSecret(
+  'DEVPUSH_SECRET_ENCRYPTION_KEY',
+  secrets.DEVPUSH_SECRET_ENCRYPTION_KEY,
+)
+if (secrets.BETTER_AUTH_SECRET === secrets.DEVPUSH_SECRET_ENCRYPTION_KEY) {
+  throw new Error(
+    'DEVPUSH_SECRET_ENCRYPTION_KEY must differ from BETTER_AUTH_SECRET.',
+  )
+}
+if (secrets.DEVPUSH_CRON_SECRET !== undefined) {
+  requireGeneratedSecret('DEVPUSH_CRON_SECRET', secrets.DEVPUSH_CRON_SECRET)
+  if (secrets.DEVPUSH_CRON_SECRET === secrets.BETTER_AUTH_SECRET) {
+    throw new Error('DEVPUSH_CRON_SECRET must differ from BETTER_AUTH_SECRET.')
+  }
 }
 
 if (typeof config.vars?.DEVPUSH_BASE_URL !== 'string') {
@@ -79,5 +104,18 @@ if (
 }
 
 console.log(
-  `Cloudflare bindings configured: Hyperdrive ${hyperdriveId}, R2 ${bucketName}.`,
+  `Cloudflare bindings configured: ${remote ? 'remote libSQL (main and logs)' : `D1 ${bindings.map((item) => item.database_name).join(' and ')}`}, R2 ${bucketName}.`,
 )
+
+function requireGeneratedSecret(name, value) {
+  if (
+    typeof value !== 'string' ||
+    value.length < 32 ||
+    value.startsWith('replace-with-') ||
+    value === 'dev-secret-change-me'
+  ) {
+    throw new Error(
+      `${name} must be a generated secret of at least 32 characters.`,
+    )
+  }
+}

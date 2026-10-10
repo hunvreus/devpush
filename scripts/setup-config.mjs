@@ -1,3 +1,4 @@
+import { localD1Ids } from "./d1-config.mjs";
 import {
   chmodSync,
   existsSync,
@@ -12,13 +13,16 @@ import { parse, printParseErrorCode } from "jsonc-parser";
 export const cloudflareTemplatePath = "app/wrangler.template.jsonc";
 export const cloudflareConfigPath = "app/wrangler.jsonc";
 export const cloudflareSecretsPath = "app/.cloudflare-secrets.json";
-export const cloudflareDatabasePath = "app/.cloudflare-database.env";
 
 export function createCloudflareConfig({
   accountId,
   bucketName,
   customDomain,
-  hyperdriveId,
+  databaseId,
+  databaseName = "devpush",
+  remoteDatabase = false,
+  logDatabaseId,
+  logDatabaseName = "devpush-logs",
   template = {},
   vars,
   workersDev,
@@ -29,9 +33,25 @@ export function createCloudflareConfig({
     name: workerName,
     ...(accountId ? { account_id: accountId } : {}),
     ...(vars && Object.keys(vars).length > 0 ? { vars } : {}),
-    ...(hyperdriveId
+    ...(databaseId ||
+    logDatabaseId ||
+    databaseName !== "devpush" ||
+    logDatabaseName !== "devpush-logs"
       ? {
-          hyperdrive: [{ binding: "DEVPUSH_DATABASE", id: hyperdriveId }],
+          d1_databases: [
+            {
+              binding: "DEVPUSH_DATABASE",
+              database_id: databaseId || "",
+              database_name: databaseName,
+              migrations_dir: "src/server/db/migrations-sqlite",
+            },
+            {
+              binding: "DEVPUSH_LOG_DATABASE",
+              database_id: logDatabaseId || "",
+              database_name: logDatabaseName,
+              migrations_dir: "src/server/db/migrations-logs",
+            },
+          ],
         }
       : {}),
     ...(bucketName
@@ -40,6 +60,9 @@ export function createCloudflareConfig({
         }
       : {}),
   };
+
+  delete config.hyperdrive;
+  if (remoteDatabase) delete config.d1_databases;
 
   if (customDomain) {
     config.workers_dev = false;
@@ -57,8 +80,11 @@ export function readCloudflareConfig(filePath) {
   if (!config) return null;
 
   try {
-    const hyperdrive = config.hyperdrive?.find(
+    const database = config.d1_databases?.find(
       (item) => item.binding === "DEVPUSH_DATABASE",
+    );
+    const logDatabase = config.d1_databases?.find(
+      (item) => item.binding === "DEVPUSH_LOG_DATABASE",
     );
     const bucket = config.r2_buckets?.find(
       (item) => item.binding === "DEVPUSH_OBJECTS",
@@ -70,7 +96,14 @@ export function readCloudflareConfig(filePath) {
       customDomain:
         config.routes?.find((route) => route.custom_domain === true)?.pattern ||
         "",
-      hyperdriveId: hyperdrive?.id || "",
+      databaseId: localD1Ids.includes(database?.database_id)
+        ? ""
+        : database?.database_id || "",
+      databaseName: database?.database_name || "",
+      logDatabaseId: localD1Ids.includes(logDatabase?.database_id)
+        ? ""
+        : logDatabase?.database_id || "",
+      logDatabaseName: logDatabase?.database_name || "",
       vars:
         config.vars &&
         typeof config.vars === "object" &&
@@ -206,17 +239,6 @@ export function validateUrl(value) {
     return undefined;
   } catch {
     return "Enter a valid URL.";
-  }
-}
-
-export function validatePostgresUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "postgres:" || url.protocol === "postgresql:"
-      ? undefined
-      : "Use a postgres:// or postgresql:// URL.";
-  } catch {
-    return "Enter a valid PostgreSQL URL.";
   }
 }
 

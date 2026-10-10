@@ -3,45 +3,10 @@ import type { ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-
-export function ProjectSettingsSection({
-  title,
-  description,
-  children,
-  footer,
-  id,
-}: {
-  title: string
-  description: string
-  children: ReactNode
-  footer?: ReactNode
-  id: string
-}) {
-  return (
-    <Card id={id} className="scroll-mt-8">
-      <CardHeader className="border-b">
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-      {footer ? (
-        <CardFooter className="justify-end gap-x-2">{footer}</CardFooter>
-      ) : null}
-    </Card>
-  )
-}
 
 export function ProjectSettingsActionTooltip({
   children,
@@ -61,11 +26,15 @@ export function ProjectSettingsActionTooltip({
 export function ProjectSettingsActions({
   hasChanges,
   isSaving,
+  saveDisabled = false,
+  form,
   onCancel,
   onSave,
 }: {
   hasChanges: boolean
   isSaving: boolean
+  saveDisabled?: boolean
+  form?: string
   onCancel: () => void
   onSave: () => Promise<void>
 }) {
@@ -80,9 +49,10 @@ export function ProjectSettingsActions({
         Cancel
       </Button>
       <Button
-        type="button"
-        onClick={() => void onSave()}
-        disabled={!hasChanges || isSaving}
+        type={form ? 'submit' : 'button'}
+        form={form}
+        onClick={form ? undefined : () => void onSave()}
+        disabled={!hasChanges || isSaving || saveDisabled}
       >
         {isSaving ? (
           <LoaderIcon data-icon="inline-start" className="animate-spin" />

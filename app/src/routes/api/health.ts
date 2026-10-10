@@ -8,7 +8,7 @@ export const Route = createFileRoute('/api/health')({
     handlers: {
       GET: async () => {
         try {
-          await db.execute(sql`select 1`)
+          await db.run(sql`select 1`)
           return Response.json({ status: 'ok' })
         } catch {
           return Response.json({ status: 'unhealthy' }, { status: 503 })
