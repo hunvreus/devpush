@@ -112,7 +112,7 @@ async def team_index(
 
     deployments_result = await db.execute(
         select(Deployment)
-        .options(selectinload(Deployment.aliases))
+        .options(selectinload(Deployment.aliases), selectinload(Deployment.project))
         .join(Project)
         .where(Project.team_id == team.id, Project.status != "deleted")
         .order_by(Deployment.created_at.desc())
