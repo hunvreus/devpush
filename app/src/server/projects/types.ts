@@ -16,7 +16,7 @@ import type {
   UserContext,
 } from '@/server/teams/types'
 import type { ProjectComposeMetadata } from './compose-metadata'
-import type { ProjectRuntimeConfig } from './runtime-config'
+import type { ProjectRuntimeConfig } from '@/lib/project-runtime-config'
 
 export type RepositorySelectionContext = {
   github:
@@ -109,6 +109,7 @@ export type ProjectEnvironmentConfig = {
 }
 
 export type ProjectBackupConfig = {
+  settingsVersion: number
   id: string
   name: string
   environmentId: string
@@ -145,6 +146,15 @@ export type ProjectBackupRun = {
 }
 
 export type ProjectBackupRestore = {
+  artifacts?: Array<{
+    artifactId: string
+    type: 'volume' | 'database'
+    targetVolume?: string
+    targetService?: string
+  }>
+
+  serverId?: string | null
+  serverName?: string | null
   id: string
   backupRunId: string
   environmentId: string
@@ -194,6 +204,7 @@ export type ProjectContext = {
   userContext: UserContext
   team: TeamSummary
   project: {
+    settingsVersion: number
     id: string
     name: string
     githubInstallationId: number | null
@@ -267,6 +278,7 @@ export type ProjectSectionContext =
     }
   | {
       scope: 'settings'
+      context: ProjectContext
       projectId: string
       composeMetadata: ProjectContext['composeMetadata']
       domains: ProjectContext['domains']

@@ -1,9 +1,15 @@
+import { withWorkspaceAccess } from '@/deployment/workspace-access'
+import { deploymentContext } from '@/deployment/server-context'
+import { getDeploymentServices } from '@/deployment/services.server'
+import { recoverStaleCleanupJobs } from '@/server/agents/container-cleanup-state'
+import { teamSettingsAccess } from '@/server/settings-version'
+import { PublicError } from '@/lib/public-error'
 import { recordAgentMetricSamples } from './metric-history'
 import type { AgentMetricSample } from './metric-history-schema'
 import { deleteServerState, changeServerEnabled } from './lifecycle'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { and, eq, gt, inArray, lt, ne, or, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, ne, or, sql } from 'drizzle-orm'
 
 import { reconcileReportedRuntimes } from '@/server/agents/reconciliation'
 import type { ReportedRuntime } from '@/server/agents/reconciliation'
@@ -22,13 +28,11 @@ import {
 } from '@/server/db/schema'
 import {
   listServerMetricSeries,
+  downsampleServerMetricSeries,
   listServerMonitoringSummaries,
   recordServerHeartbeat,
 } from '@/server/servers/monitoring'
-import type {
-  ServerMetricsSample,
-  ServerMonitoringSummary,
-} from '@/server/servers/monitoring'
+import type { ServerMonitoringSummary } from '@/server/servers/monitoring'
 import { requireTeam, requireTeamManager } from '@/server/teams/service'
 import { getEffectiveServerStatus } from '@/server/servers/status'
 import type { ServerStatus } from '@/server/servers/status'
@@ -46,6 +50,7 @@ export type ServerInstallCommand = {
 }
 
 export type ServerDetail = {
+  settingsVersion: number
   id: string
   name: string
   status: ServerStatus
@@ -54,6 +59,8 @@ export type ServerDetail = {
   agentCapabilities: Array<string> | null
   agentUpdate: AgentUpdate
   publicAddress: string | null
+  publicIpv4?: string | null
+  publicIpv6?: string | null
   lastSeenAt: string | null
   hostname: string | null
   operatingSystem: string | null
@@ -62,11 +69,6 @@ export type ServerDetail = {
   cpuCoreCount: number | null
   hostUptimeSeconds: number | null
   monitoring: ServerMonitoringSummary
-  metricSeries: Array<ServerMetricsSample>
-  metricWindow: {
-    startedAt: string
-    endedAt: string
-  }
   createdAt: string
   updatedAt: string
 }
@@ -79,10 +81,9 @@ export type ServerDeleteDiagnostic = {
 }
 
 const serverMachineNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/
-const serverMachineNameError =
-  'Server names can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen.'
 
 export type AgentRegistration = {
+  managedCertificates?: boolean
   metricsAcceptedThrough?: string
   serverId: string
   status: 'connected'
@@ -123,6 +124,7 @@ export async function requireServerForTeam({
 }): Promise<ServerDetail> {
   const rows = await db
     .select({
+      settingsVersion: servers.settingsVersion,
       id: servers.id,
       name: servers.name,
       status: servers.status,
@@ -130,6 +132,8 @@ export async function requireServerForTeam({
       agentProtocolVersion: servers.agentProtocolVersion,
       agentCapabilities: servers.agentCapabilities,
       publicAddress: servers.publicAddress,
+      publicIpv4: servers.publicIpv4,
+      publicIpv6: servers.publicIpv6,
       lastSeenAt: servers.lastSeenAt,
       hostname: servers.hostname,
       operatingSystem: servers.operatingSystem,
@@ -152,30 +156,14 @@ export async function requireServerForTeam({
   const server = rows.at(0)
 
   if (!server) {
-    throw new Error('Server not found.')
+    throw new PublicError('SERVER_NOT_FOUND')
   }
 
   const now = new Date()
-  const metricWindowStart = new Date(
-    Math.max(server.createdAt.getTime(), now.getTime() - 24 * 60 * 60 * 1000),
+  const monitoring = await listServerMonitoringSummaries(
+    [{ id: server.id, createdAt: server.createdAt, status: server.status }],
+    now,
   )
-  const [monitoring, metricSeries] = await Promise.all([
-    listServerMonitoringSummaries(
-      [
-        {
-          id: server.id,
-          createdAt: server.createdAt,
-          status: server.status,
-        },
-      ],
-      now,
-    ),
-    listServerMetricSeries({
-      serverId: server.id,
-      now,
-      startAt: metricWindowStart,
-    }),
-  ])
 
   return {
     ...server,
@@ -199,22 +187,50 @@ export async function requireServerForTeam({
       availabilityWindowMs: 0,
       latestMetrics: null,
     },
-    metricSeries,
-    metricWindow: {
-      startedAt: metricWindowStart.toISOString(),
-      endedAt: now.toISOString(),
-    },
     createdAt: server.createdAt.toISOString(),
     updatedAt: server.updatedAt.toISOString(),
   }
 }
 
+export async function requireServerMetricHistoryForTeam({
+  teamId,
+  serverId,
+}: {
+  teamId: string
+  serverId: string
+}) {
+  const [server] = await db
+    .select({ createdAt: servers.createdAt })
+    .from(servers)
+    .where(
+      and(
+        eq(servers.id, serverId),
+        eq(servers.teamId, teamId),
+        ne(servers.status, 'deleted'),
+      ),
+    )
+    .limit(1)
+  if (!server) throw new PublicError('SERVER_NOT_FOUND')
+  const now = new Date()
+  const startAt = new Date(
+    Math.max(server.createdAt.getTime(), now.getTime() - 24 * 60 * 60 * 1000),
+  )
+  return {
+    points: downsampleServerMetricSeries(
+      await listServerMetricSeries({ serverId, now, startAt }),
+    ),
+    window: { startedAt: startAt.toISOString(), endedAt: now.toISOString() },
+  }
+}
+
 export async function updateTeamServer({
+  settingsVersion,
   userId,
   teamSlug,
   serverId,
   name,
 }: {
+  settingsVersion?: number
   userId: string
   teamSlug: string
   serverId: string
@@ -224,7 +240,7 @@ export async function updateTeamServer({
   validateServerMachineName(nextName)
   const team = await requireTeamManager(userId, teamSlug)
   const existingRows = await db
-    .select({ id: servers.id })
+    .select({ id: servers.id, settingsVersion: servers.settingsVersion })
     .from(servers)
     .where(
       and(
@@ -236,8 +252,12 @@ export async function updateTeamServer({
     .limit(1)
 
   if (!existingRows.at(0)) {
-    throw new Error('Server not found.')
+    throw new PublicError('SERVER_NOT_FOUND')
   }
+
+  const expectedVersion = settingsVersion ?? existingRows[0]!.settingsVersion
+  if (expectedVersion !== existingRows[0]!.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
 
   const duplicateRows = await db
     .select({ id: servers.id })
@@ -253,13 +273,28 @@ export async function updateTeamServer({
     .limit(1)
 
   if (duplicateRows.at(0)) {
-    throw new Error('Server names must be unique within a team.')
+    throw new PublicError('SERVER_NAME_CONFLICT')
   }
 
-  await db
+  const changed = await db
     .update(servers)
-    .set({ name: nextName, handle: nextName, updatedAt: new Date() })
-    .where(eq(servers.id, serverId))
+    .set({
+      name: nextName,
+      handle: nextName,
+      settingsVersion: sql`${servers.settingsVersion} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(servers.id, serverId),
+        eq(servers.settingsVersion, expectedVersion),
+        ne(servers.status, 'deleted'),
+        teamSettingsAccess(team.id, userId),
+      ),
+    )
+    .returning({ settingsVersion: servers.settingsVersion })
+  if (!changed.length) throw new PublicError('SETTINGS_CONFLICT')
+  return changed[0]!
 }
 
 export async function disableTeamServer({
@@ -289,11 +324,11 @@ export async function disableTeamServer({
   const server = existingRows.at(0)
 
   if (!server) {
-    throw new Error('Server not found.')
+    throw new PublicError('SERVER_NOT_FOUND')
   }
 
   if (confirmationName !== server.name) {
-    throw new Error('Type the server name to confirm disabling.')
+    throw new PublicError('SERVER_DISABLE_CONFIRMATION')
   }
 
   const now = new Date()
@@ -306,7 +341,7 @@ export async function disableTeamServer({
       now,
     }))
   ) {
-    throw new Error('Server state or permissions changed. Try again.')
+    throw new PublicError('SERVER_STATE_CHANGED')
   }
 }
 
@@ -334,11 +369,11 @@ export async function enableTeamServer({
 
   const server = existingRows.at(0)
   if (!server) {
-    throw new Error('Server not found.')
+    throw new PublicError('SERVER_NOT_FOUND')
   }
 
   if (server.status !== 'disabled') {
-    throw new Error('Only disabled servers can be enabled.')
+    throw new PublicError('SERVER_ENABLE_DISABLED_ONLY')
   }
 
   const now = new Date()
@@ -351,7 +386,7 @@ export async function enableTeamServer({
       now,
     }))
   ) {
-    throw new Error('Server state or permissions changed. Try again.')
+    throw new PublicError('SERVER_STATE_CHANGED')
   }
 }
 
@@ -380,7 +415,7 @@ export async function createPendingServer({
     .limit(1)
 
   if (duplicateRows.at(0)) {
-    throw new Error('Server names must be unique within a team.')
+    throw new PublicError('SERVER_NAME_CONFLICT')
   }
 
   const serverId = randomUUID()
@@ -389,24 +424,26 @@ export async function createPendingServer({
   const enrollmentTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000)
 
   const now = new Date()
-  await db.batch([
-    db.insert(servers).values({
-      id: serverId,
-      teamId: team.id,
-      name: nextName,
-      handle: nextName,
-      status: 'pending',
-      enrollmentTokenHash,
-      enrollmentTokenExpiresAt,
-      createdAt: now,
-      updatedAt: now,
-    }),
-    db.insert(serverAvailabilityWindows).values({
-      id: randomUUID(),
-      serverId,
-      startedAt: now,
-    }),
-  ])
+  await withWorkspaceAccess(team.id, 'server.create', () =>
+    db.batch([
+      db.insert(servers).values({
+        id: serverId,
+        teamId: team.id,
+        name: nextName,
+        handle: nextName,
+        status: 'pending',
+        enrollmentTokenHash,
+        enrollmentTokenExpiresAt,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      db.insert(serverAvailabilityWindows).values({
+        id: randomUUID(),
+        serverId,
+        startedAt: now,
+      }),
+    ]),
+  )
 
   return {
     id: serverId,
@@ -431,6 +468,7 @@ export async function createServerInstallCommand({
   const team = await requireTeamManager(userId, teamSlug)
   const serverRows = await db
     .select({
+      settingsVersion: servers.settingsVersion,
       id: servers.id,
       status: servers.status,
       lastSeenAt: servers.lastSeenAt,
@@ -447,15 +485,15 @@ export async function createServerInstallCommand({
   const server = serverRows.at(0)
 
   if (!server) {
-    throw new Error('Server not found.')
+    throw new PublicError('SERVER_NOT_FOUND')
   }
 
   if (server.status === 'disabled') {
-    throw new Error('Disabled servers cannot be enrolled.')
+    throw new PublicError('SERVER_DISABLED_ENROLLMENT')
   }
 
   if (server.status === 'deleted') {
-    throw new Error('Deleted servers cannot be enrolled.')
+    throw new PublicError('SERVER_DELETED_ENROLLMENT')
   }
 
   if (
@@ -464,9 +502,7 @@ export async function createServerInstallCommand({
       lastSeenAt: server.lastSeenAt,
     }) === 'connected'
   ) {
-    throw new Error(
-      'Connected servers cannot be re-enrolled. Disable the server first.',
-    )
+    throw new PublicError('SERVER_CONNECTED_ENROLLMENT')
   }
 
   const enrollmentToken = `dps_${randomBytes(32).toString('base64url')}`
@@ -498,12 +534,18 @@ export async function registerAgent({
   protocolVersion,
   capabilities,
   publicAddress,
+  publicIpv4,
+  publicIpv6,
+  routingAddress,
 }: {
   token: string
   agentVersion?: string | null
   protocolVersion?: number
   capabilities?: Array<string>
   publicAddress: string | null
+  routingAddress?: string
+  publicIpv4?: string | null
+  publicIpv6?: string | null
 }): Promise<AgentRegistration> {
   const auth = await findServerForCredential(token)
   const server = auth.server
@@ -511,6 +553,8 @@ export async function registerAgent({
   if (server.status === 'deleted') {
     throw new AgentRequestError(403, 'Server was deleted.')
   }
+
+  await getDeploymentServices().workspaceAccess?.connected(server.teamId)
 
   const now = new Date()
   const credential =
@@ -522,7 +566,7 @@ export async function registerAgent({
     ...(agentVersion ? { agentVersion } : {}),
     ...(protocolVersion ? { agentProtocolVersion: protocolVersion } : {}),
     ...(capabilities ? { agentCapabilities: capabilities } : {}),
-    ...(publicAddress ? { publicAddress } : {}),
+    ...mergePublicAddresses(server, { publicIpv4, publicIpv6, routingAddress }),
     lastSeenAt: now,
     ...(credential
       ? { pendingAgentCredentialHash: hashToken(credential) }
@@ -552,6 +596,9 @@ export async function recordAgentHeartbeat({
   protocolVersion,
   capabilities,
   publicAddress,
+  publicIpv4,
+  publicIpv6,
+  routingAddress,
   runtimeIds,
   runtimes,
   system,
@@ -563,6 +610,9 @@ export async function recordAgentHeartbeat({
   protocolVersion?: number
   capabilities?: Array<string>
   publicAddress: string | null
+  routingAddress?: string
+  publicIpv4?: string | null
+  publicIpv6?: string | null
   runtimeIds?: Array<string>
   runtimes?: Array<ReportedRuntime>
   system?: HostDetailsInput
@@ -577,26 +627,25 @@ export async function recordAgentHeartbeat({
 
   const now = new Date()
   if (server.status !== 'deleted') {
-    if (auth.credentialType === 'pending') {
-      await db
-        .update(servers)
-        .set({
-          agentCredentialHash: server.pendingAgentCredentialHash,
-          pendingAgentCredentialHash: null,
-          enrollmentTokenHash: null,
-          enrollmentTokenExpiresAt: null,
-          agentCredentialRotatedAt: now,
-          updatedAt: now,
-        })
-        .where(eq(servers.id, server.id))
-    }
-
     const updates = {
       status: 'connected' as const,
+      ...(auth.credentialType === 'pending'
+        ? {
+            agentCredentialHash: server.pendingAgentCredentialHash,
+            pendingAgentCredentialHash: null,
+            enrollmentTokenHash: null,
+            enrollmentTokenExpiresAt: null,
+            agentCredentialRotatedAt: now,
+          }
+        : {}),
       ...(agentVersion ? { agentVersion } : {}),
       ...(protocolVersion ? { agentProtocolVersion: protocolVersion } : {}),
       ...(capabilities ? { agentCapabilities: capabilities } : {}),
-      ...(publicAddress ? { publicAddress } : {}),
+      ...mergePublicAddresses(server, {
+        publicIpv4,
+        publicIpv6,
+        routingAddress,
+      }),
       ...(system?.hostname ? { hostname: system.hostname } : {}),
       ...(system?.operatingSystem
         ? { operatingSystem: system.operatingSystem }
@@ -608,10 +657,28 @@ export async function recordAgentHeartbeat({
         ? { hostUptimeSeconds: system.uptimeSeconds }
         : {}),
       lastSeenAt: now,
-      updatedAt: now,
+      updatedAt: sql`case when ${servers.status} <> 'connected' or ${Number(auth.credentialType === 'pending')} = 1 then ${now.getTime()} else ${servers.updatedAt} end`,
     }
 
-    await db.update(servers).set(updates).where(eq(servers.id, server.id))
+    const updated = await db
+      .update(servers)
+      .set(updates)
+      .where(
+        and(
+          eq(servers.id, server.id),
+          ne(servers.status, 'disabled'),
+          ne(servers.status, 'deleted'),
+          eq(
+            auth.credentialType === 'pending'
+              ? servers.pendingAgentCredentialHash
+              : servers.agentCredentialHash,
+            hashToken(token),
+          ),
+        ),
+      )
+      .returning({ id: servers.id })
+    if (!updated.length)
+      throw new AgentRequestError(403, 'Server state or credential changed.')
     await recordServerHeartbeat({
       serverId: server.id,
       observedAt: now,
@@ -635,8 +702,24 @@ export async function recordAgentHeartbeat({
       ? undefined
       : await recordAgentMetricSamples(server.id, metricSamples ?? [], now)
 
+  const deploymentServices = getDeploymentServices()
+  if (deploymentServices.serverLifecycle) {
+    const current = await deploymentContext.readServer(server.id)
+    if (current) {
+      try {
+        await deploymentServices.serverLifecycle.reconcile(current)
+      } catch {
+        console.warn('Server address reconciliation is pending.', {
+          serverId: server.id,
+        })
+      }
+    }
+  }
   return {
     metricsAcceptedThrough,
+    ...(server.status !== 'deleted' && deploymentServices.certificates
+      ? { managedCertificates: true }
+      : {}),
     serverId: server.id,
     status: 'connected',
     runtimeLogTargets:
@@ -663,27 +746,35 @@ export async function rotateAgentCredential({
   if (server.status === 'deleted') {
     throw new AgentRequestError(403, 'Server was deleted.')
   }
-  if (auth.credentialType === 'pending') {
-    await db
-      .update(servers)
-      .set({
-        agentCredentialHash: server.pendingAgentCredentialHash,
-        pendingAgentCredentialHash: null,
-        enrollmentTokenHash: null,
-        agentCredentialRotatedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(servers.id, server.id))
-  }
-
   const credential = `dpa_${randomBytes(32).toString('base64url')}`
-  await db
+  const now = new Date()
+  const rotated = await db
     .update(servers)
     .set({
+      ...(auth.credentialType === 'pending'
+        ? {
+            agentCredentialHash: server.pendingAgentCredentialHash,
+            enrollmentTokenHash: null,
+            agentCredentialRotatedAt: now,
+          }
+        : {}),
       pendingAgentCredentialHash: hashToken(credential),
-      updatedAt: new Date(),
+      updatedAt: now,
     })
-    .where(eq(servers.id, server.id))
+    .where(
+      and(
+        eq(servers.id, server.id),
+        ne(servers.status, 'deleted'),
+        sql`agent_credential_hash is ${server.agentCredentialHash}`,
+        sql`pending_agent_credential_hash is ${server.pendingAgentCredentialHash}`,
+      ),
+    )
+    .returning({ id: servers.id })
+  if (rotated.length !== 1)
+    throw new AgentRequestError(
+      409,
+      'Agent credential changed. Retry rotation.',
+    )
 
   return { serverId: server.id, status: 'connected', credential }
 }
@@ -700,6 +791,7 @@ export async function getServerDeleteDiagnostic({
   const team = await requireTeamManager(userId, teamSlug)
   const serverRows = await db
     .select({
+      settingsVersion: servers.settingsVersion,
       id: servers.id,
       name: servers.name,
     })
@@ -715,7 +807,7 @@ export async function getServerDeleteDiagnostic({
   const server = serverRows.at(0)
 
   if (!server) {
-    throw new Error('Server not found.')
+    throw new PublicError('SERVER_NOT_FOUND')
   }
 
   const assignmentRows = await db
@@ -762,6 +854,7 @@ export async function deleteTeamServer({
   const team = await requireTeamManager(userId, teamSlug)
   const serverRows = await db
     .select({
+      settingsVersion: servers.settingsVersion,
       id: servers.id,
       name: servers.name,
     })
@@ -777,11 +870,11 @@ export async function deleteTeamServer({
   const server = serverRows.at(0)
 
   if (!server) {
-    throw new Error('Server not found.')
+    throw new PublicError('SERVER_NOT_FOUND')
   }
 
   if (confirmationName !== server.name) {
-    throw new Error('Type the server name to confirm deletion.')
+    throw new PublicError('SERVER_DELETE_CONFIRMATION')
   }
 
   const now = new Date()
@@ -793,7 +886,7 @@ export async function deleteTeamServer({
     cancelOngoingDeployments,
     now,
   })
-  if (!changed) throw new Error('Server not found or access changed.')
+  if (!changed) throw new PublicError('SERVER_ACCESS_CHANGED')
 }
 
 export async function requireAgentServer({
@@ -845,7 +938,7 @@ function validateServerMachineName(name: string) {
     name.length > 100 ||
     !serverMachineNamePattern.test(name)
   ) {
-    throw new Error(serverMachineNameError)
+    throw new PublicError('SERVER_NAME_INVALID')
   }
 }
 
@@ -853,8 +946,13 @@ async function findServerForCredential(token: string) {
   const tokenHash = hashToken(token)
   const rows = await db
     .select({
+      settingsVersion: servers.settingsVersion,
       id: servers.id,
+      teamId: servers.teamId,
       status: servers.status,
+      publicAddress: servers.publicAddress,
+      publicIpv4: servers.publicIpv4,
+      publicIpv6: servers.publicIpv6,
       enrollmentTokenHash: servers.enrollmentTokenHash,
       enrollmentTokenExpiresAt: servers.enrollmentTokenExpiresAt,
       agentCredentialHash: servers.agentCredentialHash,
@@ -907,9 +1005,13 @@ async function requireAgentCredential(
   }
 
   if (auth.server.status === 'deleted') {
-    await recoverStaleDeletedServerCleanupJobs(auth.server.id, cleanupJobId)
+    await recoverStaleCleanupJobs(db, {
+      serverId: auth.server.id,
+      cleanupJobId,
+      now: new Date(),
+    })
 
-    if (!(await hasPermittedDeletedServerWork(auth.server.id))) {
+    if (!(await hasPermittedDeletedServerWork(auth.server.id, cleanupJobId))) {
       throw new AgentRequestError(403, 'Server was deleted.')
     }
   }
@@ -917,55 +1019,10 @@ async function requireAgentCredential(
   return auth
 }
 
-async function recoverStaleDeletedServerCleanupJobs(
+async function hasPermittedDeletedServerWork(
   serverId: string,
   cleanupJobId?: string,
 ) {
-  const now = new Date()
-  const cutoff = new Date(now.getTime() - 60 * 60 * 1000)
-  const staleJobFilter = and(
-    eq(agentJobs.serverId, serverId),
-    inArray(agentJobs.type, ['deprovision', 'purge']),
-    eq(agentJobs.status, 'running'),
-    lt(agentJobs.claimedAt, cutoff),
-    ...(cleanupJobId ? [ne(agentJobs.id, cleanupJobId)] : []),
-  )
-
-  await db.batch([
-    db
-      .update(agentJobs)
-      .set({
-        status: 'abandoned',
-        errorMessage: 'Cleanup stopped reporting after its final attempt.',
-        finishedAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          staleJobFilter,
-          sql`${agentJobs.attempt} >= ${agentJobs.maxAttempts}`,
-        ),
-      ),
-    db
-      .update(agentJobs)
-      .set({
-        status: 'queued',
-        errorMessage: 'Cleanup stopped reporting and will be retried.',
-        claimedAt: null,
-        availableAt: now,
-        finishedAt: null,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          staleJobFilter,
-          sql`${agentJobs.attempt} < ${agentJobs.maxAttempts}`,
-        ),
-      ),
-  ])
-}
-
-async function hasPermittedDeletedServerWork(serverId: string) {
   const [deploymentRows, jobRows] = await Promise.all([
     db
       .select({ id: deployments.id })
@@ -984,7 +1041,10 @@ async function hasPermittedDeletedServerWork(serverId: string) {
         and(
           eq(agentJobs.serverId, serverId),
           inArray(agentJobs.type, ['deprovision', 'purge']),
-          inArray(agentJobs.status, ['queued', 'running']),
+          or(
+            inArray(agentJobs.status, ['queued', 'running']),
+            cleanupJobId ? eq(agentJobs.id, cleanupJobId) : sql`0`,
+          ),
         ),
       )
       .limit(1),
@@ -1003,9 +1063,41 @@ function buildInstallCommand({
   const installUrl = `${baseUrl.replace(/\/$/, '')}/api/install/agent`
   const tokenInstallUrl = `${installUrl}/${encodeURIComponent(token)}`
 
-  return `tmp="$(mktemp)" && curl -fsSL ${shellQuote(tokenInstallUrl)} -o "$tmp" && sudo bash "$tmp"; status=$?; test -z "\${tmp:-}" || rm -f "$tmp"; exit "$status"`
+  return `(tmp="$(mktemp)" && curl -fsSL ${shellQuote(tokenInstallUrl)} -o "$tmp" && sudo bash "$tmp"; status=$?; test -z "\${tmp:-}" || rm -f "$tmp"; exit "$status")`
 }
 
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+export function mergePublicAddresses(
+  server: {
+    publicAddress: string | null
+    publicIpv4: string | null
+    publicIpv6: string | null
+  },
+  reported: {
+    publicIpv4?: string | null
+    publicIpv6?: string | null
+    routingAddress?: string
+  },
+) {
+  if (reported.routingAddress) {
+    return {
+      publicAddress: reported.routingAddress,
+      publicIpv4: reported.routingAddress.includes(':')
+        ? null
+        : reported.routingAddress,
+      publicIpv6: reported.routingAddress.includes(':')
+        ? reported.routingAddress
+        : null,
+    }
+  }
+  const publicIpv4 = reported.publicIpv4 ?? server.publicIpv4
+  const publicIpv6 = reported.publicIpv6 ?? server.publicIpv6
+  return {
+    publicIpv4,
+    publicIpv6,
+    publicAddress: publicIpv4 ?? publicIpv6 ?? server.publicAddress,
+  }
 }

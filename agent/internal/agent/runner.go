@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,13 +33,14 @@ const (
 
 var Capabilities = []string{
 	"jobs.compose.deploy.v1",
-	"jobs.compose.cleanup.v1",
+	"jobs.compose.cleanup.v2",
 	"jobs.backup.v1",
 	"jobs.backup.archive.v1",
 	"jobs.backup.cleanup.v1",
 	"jobs.restore.v1",
 	"runtime.logs.v1",
 	"metrics.history.v1",
+	"ingress.certificates.v1",
 }
 
 var (
@@ -51,6 +53,12 @@ var (
 )
 
 type Runner struct {
+	certificateNextAt time.Time
+	discoverAddress   func(context.Context, string, string) (string, error)
+	addressMu         sync.RWMutex
+	publicIpv4        string
+	publicIpv6        string
+
 	cfg                    Config
 	httpClient             *http.Client
 	log                    *slog.Logger
@@ -73,7 +81,7 @@ func NewRunner(cfg Config, log *slog.Logger) Runner {
 	}
 
 	return Runner{
-		cfg: cfg,
+		discoverAddress: discoverPublicAddress, cfg: cfg,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -168,6 +176,8 @@ func (runner *Runner) Run(ctx context.Context) error {
 		"state_dir", runner.cfg.StateDir,
 	)
 
+	runner.refreshPublicAddresses(ctx)
+	go runner.refreshPublicAddressLoop(ctx)
 	serverID, err := runner.registerWithRetry(ctx)
 	if err != nil {
 		return err
@@ -178,6 +188,10 @@ func (runner *Runner) Run(ctx context.Context) error {
 	if err := Resume(runner.cfg); err != nil {
 		return err
 	}
+
+	logCtx, cancelLogs := context.WithCancel(ctx)
+	defer cancelLogs()
+	go runner.runJobLogUploads(logCtx)
 
 	runAgentLoops(
 		ctx,
@@ -288,8 +302,10 @@ func (runner *Runner) registerWithRetry(ctx context.Context) (string, error) {
 }
 
 func (runner *Runner) register(ctx context.Context) (string, error) {
+	ipv4, ipv6 := runner.publicAddresses()
 	var response agentResponse
 	if err := runner.post(ctx, "/api/agents/register", agentRequest{
+		PublicIpv4: ipv4, PublicIpv6: ipv6, RoutingAddress: runner.cfg.RoutingAddress,
 		Token:           runner.currentCredential(),
 		AgentVersion:    Version,
 		ProtocolVersion: ProtocolVersion,
@@ -307,8 +323,10 @@ func (runner *Runner) register(ctx context.Context) (string, error) {
 }
 
 func (runner *Runner) sendHeartbeat(ctx context.Context) {
+	ipv4, ipv6 := runner.publicAddresses()
 	var response agentResponse
 	payload := agentRequest{
+		PublicIpv4: ipv4, PublicIpv6: ipv6, RoutingAddress: runner.cfg.RoutingAddress,
 		ServerID:        runner.cfg.AgentID,
 		Token:           runner.currentCredential(),
 		AgentVersion:    Version,
@@ -323,13 +341,20 @@ func (runner *Runner) sendHeartbeat(ctx context.Context) {
 	}
 	payload.System = collectHostDetails()
 	runtimeIDs, err := runner.cachedComposeRuntimeIDs(ctx)
+	if err == nil {
+		runtimeIDs, err = heartbeatRuntimeIDs(runtimeIDs)
+	}
 	if err != nil {
 		runner.log.Warn("runtime discovery failed", "error", err)
 	} else {
 		payload.RuntimeIDs = runtimeIDs
 	}
-	if runtimes, err := runner.listComposeRuntimeStates(ctx); err != nil {
-		runner.log.Warn("runtime state collection failed", "error", err)
+	runtimes, stateErr := runner.listComposeRuntimeStates(ctx)
+	if stateErr == nil {
+		runtimes, stateErr = heartbeatRuntimeStates(runtimes)
+	}
+	if stateErr != nil {
+		runner.log.Warn("runtime state collection failed", "error", stateErr)
 	} else {
 		payload.Runtimes = runtimes
 	}
@@ -347,6 +372,11 @@ func (runner *Runner) sendHeartbeat(ctx context.Context) {
 	if metricErr == nil {
 		if err := runner.acknowledgeMetrics(history, samples, response.MetricsAcceptedThrough); err != nil {
 			runner.log.Warn("metric acknowledgment failed", "error", err)
+		}
+	}
+	if response.ManagedCertificates {
+		if err := runner.syncManagedCertificate(ctx); err != nil {
+			runner.log.Warn("managed certificate sync failed", "error", err)
 		}
 	}
 	runner.reportRuntimeLogs(ctx, response.RuntimeLogTargets)
@@ -382,6 +412,14 @@ func (runner *Runner) claimAndRunJob(ctx context.Context) {
 		return
 	}
 	if response.Job == nil {
+		return
+	}
+
+	if err := runner.prepareInterruptedCompletion(*response.Job); err != nil {
+		runner.log.Error("cannot persist job recovery record; job will not execute", "job_id", response.Job.ID, "error", err)
+		if reportErr := runner.reportUnstartedJob(ctx, *response.Job); reportErr != nil {
+			runner.log.Error("cannot report unstarted job; control-plane timeout recovery required", "job_id", response.Job.ID, "error", reportErr)
+		}
 		return
 	}
 
@@ -485,10 +523,6 @@ func (runner *Runner) deploymentCanceled(ctx context.Context, deploymentID strin
 	return response.Status == "canceled"
 }
 
-func (runner *Runner) runCancellableCommand(ctx context.Context, deploymentID string, dir string, logs *[]string, name string, args ...string) error {
-	return runner.runCancellableCommandWithEnv(ctx, deploymentID, dir, logs, nil, name, args...)
-}
-
 func (runner *Runner) runCancellableCommandWithEnv(ctx context.Context, deploymentID string, dir string, logs *[]string, env []string, name string, args ...string) error {
 	if runner.deploymentCanceled(ctx, deploymentID) {
 		return errDeploymentCanceled
@@ -537,7 +571,15 @@ func (runner *Runner) runCommand(ctx context.Context, dir string, logs *[]string
 }
 
 func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[]string, env []string, name string, args ...string) error {
+	commandEnv := mergeCommandEnv(runner.commandEnv(), env)
+	var secrets []string
+	if name == "git" {
+		commandEnv, secrets = gitCommandEnvironment(commandEnv)
+	}
 	safeArgs := redactArgs(args)
+	for index := range safeArgs {
+		safeArgs[index] = redactCommandOutput(safeArgs[index], secrets)
+	}
 	*logs = append(*logs, truncateLogLine(
 		"$ "+name+" "+strings.Join(safeArgs, " "),
 		maxDeploymentLogLineLen,
@@ -545,7 +587,7 @@ func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[
 
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
-	command.Env = mergeCommandEnv(runner.commandEnv(), env)
+	command.Env = commandEnv
 	output := cappedTailBuffer{maxBytes: maxCommandOutputBytes}
 	command.Stdout = &output
 	command.Stderr = &output
@@ -558,7 +600,7 @@ func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[
 		for _, line := range strings.Split(strings.TrimSpace(string(output.data)), "\n") {
 			if strings.TrimSpace(line) != "" {
 				redactedLine := truncateLogLine(
-					redactToken(line),
+					redactCommandOutput(line, secrets),
 					maxDeploymentLogLineLen,
 				)
 				outputLines = append(outputLines, redactedLine)
@@ -679,14 +721,19 @@ func (runner *Runner) composeCommand(ctx context.Context) (string, []string, err
 func (runner *Runner) cloneURL(repo repo) string {
 	baseURL := strings.TrimRight(runner.cfg.GitCloneBase, "/")
 	if baseURL == "" || baseURL == "https://github.com" {
-		return fmt.Sprintf(
-			"https://x-access-token:%s@github.com/%s.git",
-			repo.Token,
-			repo.FullName,
-		)
+		return fmt.Sprintf("https://github.com/%s.git", repo.FullName)
 	}
 
 	return fmt.Sprintf("%s/%s.git", baseURL, repo.FullName)
+}
+
+// Git configuration in the child environment keeps credentials out of argv and .git/config.
+func (runner *Runner) gitAuthEnv(repository repo) []string {
+	if repository.Token == "" || (runner.cfg.GitCloneBase != "" && strings.TrimRight(runner.cfg.GitCloneBase, "/") != "https://github.com") {
+		return nil
+	}
+	header := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+repository.Token))
+	return []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader", "GIT_CONFIG_VALUE_0=" + header, "GIT_TERMINAL_PROMPT=0"}
 }
 
 func (runner *Runner) post(ctx context.Context, path string, payload any, response any) error {

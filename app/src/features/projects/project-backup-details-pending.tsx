@@ -1,3 +1,4 @@
+import { ComposeServiceInput } from './compose-service-input'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
@@ -65,16 +66,9 @@ export function ProjectBackupDetailsPending({
             footer={canManage !== false ? footer : undefined}
           >
             <FieldGroup>
-              <Field orientation="horizontal" className="justify-between">
-                <div className="space-y-1">
-                  <FieldLabel>Status</FieldLabel>
-                  <FieldDescription>
-                    Enabled policies are eligible for scheduled backup jobs.
-                    Paused policies keep their configuration but do not enqueue
-                    backups.
-                  </FieldDescription>
-                </div>
-                <Switch disabled aria-label="Status loading" />
+              <Field orientation="horizontal">
+                <Switch disabled aria-label="Enabled loading" />
+                <FieldLabel>Enabled</FieldLabel>
               </Field>
               <PendingField label="Name (required)" />
               <PendingSelect label="Environment" />
@@ -160,44 +154,81 @@ export function ProjectBackupDetailsPending({
               ))}
             </div>
           </BackupPolicySection>
-          <BackupPolicySection
-            id="targets"
-            title="Backup targets"
-            description="Choose the volumes and databases to back up. Each target produces a separate file."
-            footer={canManage !== false ? footer : undefined}
-          >
-            <div aria-label="Backup targets loading" className="space-y-4">
-              {[0, 1].map((index) => (
-                <div
-                  key={index}
-                  className="grid gap-4 border-b py-4 md:grid-cols-[180px_180px_minmax(0,1fr)_2rem]"
-                >
-                  <PendingSelect label="Type" />
-                  <PendingSelect label="Target" />
-                  <div className="space-y-3 pt-7">
-                    <Skeleton className="h-9 w-full" />
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-4 w-3/4" />
-                  </div>
-                  <Button
-                    disabled
-                    variant="ghost"
-                    size="icon"
-                    className="mt-7"
-                    aria-label="Remove target"
-                  >
-                    <TrashIcon />
-                  </Button>
-                </div>
-              ))}
-              {canManage !== false ? (
-                <Button disabled variant="outline">
-                  <PlusIcon data-icon="inline-start" />
-                  Add target
-                </Button>
-              ) : null}
-            </div>
-          </BackupPolicySection>
+          {(['volumes', 'databases'] as const).map((kind) => (
+            <BackupPolicySection
+              key={kind}
+              id={kind}
+              title={kind === 'volumes' ? 'Volumes' : 'Databases'}
+              description={
+                kind === 'volumes'
+                  ? 'Archive files from named Compose volumes. Use database backups for running databases.'
+                  : 'Create engine-specific dumps from services. Leave Database blank to include all databases in that service. Credentials come from the service’s database environment variables.'
+              }
+              footer={canManage !== false ? footer : undefined}
+            >
+              <div
+                className="space-y-4"
+                aria-label={`${kind === 'volumes' ? 'Volumes' : 'Databases'} loading`}
+              >
+                {kind === 'volumes' ? (
+                  <Field>
+                    <FieldLabel>Volumes to back up</FieldLabel>
+                    <Select disabled>
+                      <SelectTrigger aria-label="Volumes to back up loading">
+                        <Skeleton className="h-4 w-28" />
+                      </SelectTrigger>
+                    </Select>
+                  </Field>
+                ) : (
+                  <>
+                    <div>
+                      <div
+                        className={`grid gap-x-2 border-b pb-2 text-sm font-medium grid-cols-[minmax(0,1fr)_minmax(0,2fr)_2.5rem]`}
+                      >
+                        <span>Service</span>
+                        <div className="grid grid-cols-2 gap-x-2">
+                          <span>Engine</span>
+                          <span>Database</span>
+                        </div>
+                        <span />
+                      </div>
+                      <div
+                        className={`grid items-start gap-x-2 border-b py-2 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_2.5rem]`}
+                      >
+                        <ComposeServiceInput
+                          disabled
+                          services={[]}
+                          value=""
+                          onValueChange={ignore}
+                          aria-label="Service loading"
+                        />
+                        <div className="grid grid-cols-2 gap-x-2">
+                          <Select disabled>
+                            <SelectTrigger aria-label="Engine loading">
+                              <Skeleton className="h-4 w-24" />
+                            </SelectTrigger>
+                          </Select>
+                          <Input disabled aria-label="Database loading" />
+                        </div>
+                        <Button
+                          disabled
+                          variant="destructive"
+                          size="icon"
+                          aria-label="Remove database"
+                        >
+                          <TrashIcon />
+                        </Button>
+                      </div>
+                    </div>
+                    <Button disabled variant="outline">
+                      <PlusIcon />
+                      Add database
+                    </Button>
+                  </>
+                )}
+              </div>
+            </BackupPolicySection>
+          ))}
           {canManage !== false ? (
             <BackupPolicySection
               id="danger"

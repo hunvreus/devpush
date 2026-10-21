@@ -6,6 +6,7 @@ import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
 import { closeDb, db, logsDb } from '@/server/db'
 import {
+  deployments,
   environments,
   projects,
   servers,
@@ -35,6 +36,76 @@ afterAll(async () => {
 })
 
 describe('runtime log ingestion', () => {
+  test.each(['replaced', 'deleted'] as const)(
+    'delivers captured %s-runtime logs only from their historical server',
+    async (state) => {
+      const { environmentId, projectId, serverId, token } =
+        await createFixture()
+      const historicalRuntime = `dp_historical_${crypto.randomUUID()}`
+      await db.insert(deployments).values({
+        id: crypto.randomUUID(),
+        environmentId,
+        serverId,
+        runtimeId: historicalRuntime,
+        status: 'succeeded',
+        repoId: 1,
+        repoFullName: 'acme/app',
+        gitSha: 'abc',
+        gitBranch: 'main',
+        config: {},
+        envVars: '',
+      })
+      await db
+        .update(environments)
+        .set({
+          runtimeId: 'dp_replacement',
+          ...(state === 'deleted' ? { status: 'deleted' as const } : {}),
+        })
+        .where(eq(environments.id, environmentId))
+      if (state === 'deleted')
+        await db
+          .update(projects)
+          .set({ status: 'deleted' })
+          .where(eq(projects.id, projectId))
+      const logs = [
+        {
+          runtimeId: historicalRuntime,
+          service: 'web',
+          observedAt: new Date().toISOString(),
+          content: 'Captured before replacement',
+        },
+      ]
+      expect(await recordRuntimeLogs({ serverId, token, logs })).toEqual({
+        ok: true,
+        accepted: 1,
+        inserted: 1,
+      })
+      expect(await recordRuntimeLogs({ serverId, token, logs })).toEqual({
+        ok: true,
+        accepted: 1,
+        inserted: 0,
+      })
+      const other = await createFixture()
+      expect(
+        await recordRuntimeLogs({
+          serverId: other.serverId,
+          token: other.token,
+          logs,
+        }),
+      ).toEqual({ ok: true, accepted: 0, inserted: 0 })
+      const rows = await logsDb
+        .select()
+        .from(runtimeLogs)
+        .where(eq(runtimeLogs.serverId, serverId))
+      touchedRuntimeLogIds.push(...rows.map((row) => row.id))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        projectId,
+        environmentId,
+        runtimeId: historicalRuntime,
+      })
+    },
+  )
   test('bounds inserts and reads across more than one assignment batch', async () => {
     const { projectId, projectName, serverId, teamSlug, token, userId } =
       await createFixture()

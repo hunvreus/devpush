@@ -1,3 +1,5 @@
+import { backupsEnabled } from '@/lib/backup-feature'
+import { pageHead } from '@/lib/page-head'
 import {
   Outlet,
   createFileRoute,
@@ -13,17 +15,19 @@ import { projectContextQueryOptions } from '@/lib/project-context-query'
 import { stringSearchValidator } from '@/lib/search'
 
 const validateSearch = stringSearchValidator([
+  'policy',
   'environment',
   'server',
   'status',
   'time',
+  'type',
 ] as const)
 
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/backups',
 )({
   beforeLoad: () => {
-    if (import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED !== 'true') {
+    if (!backupsEnabled) {
       throw notFound()
     }
   },
@@ -43,13 +47,14 @@ export const Route = createFileRoute(
   pendingMinMs: 200,
   pendingComponent: BackupsPending,
   component: BackupsRoute,
+  head: ({ params }) =>
+    pageHead('Backups', params.projectName, params.teamSlug),
 })
 
 function BackupsPending() {
   const isIndex = useRouterState({
     select: (state) => state.location.pathname.endsWith('/backups'),
   })
-
   return <ProjectSectionPending section={isIndex ? 'backups' : 'backup'} />
 }
 

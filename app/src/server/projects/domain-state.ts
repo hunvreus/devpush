@@ -1,3 +1,8 @@
+import {
+  advanceProjectSettings,
+  projectSettingsGuard,
+  rethrowSettingsConflict,
+} from '@/server/settings-version'
 import { sql } from 'drizzle-orm'
 import type { AtomicStore } from '@/server/db/atomic'
 import { aliases, domains } from '@/server/db/schema'
@@ -5,6 +10,8 @@ import { aliases, domains } from '@/server/db/schema'
 export async function replaceProjectDomains(
   store: AtomicStore,
   input: {
+    userId?: string
+    settingsVersion?: number
     projectId: string
     now: Date
     domains: Array<{
@@ -36,13 +43,29 @@ export async function replaceProjectDomains(
       message = case when ${domains.environmentId} = excluded.environment_id then ${domains.message} else null end,
       verified_at = case when ${domains.environmentId} = excluded.environment_id then ${domains.verifiedAt} else null end,
       environment_id = excluded.environment_id, base_path = excluded.base_path, https = excluded.https,
-      created_at = excluded.created_at, updated_at = excluded.updated_at`),
+      updated_at = excluded.updated_at`),
     )
   }
   const remove =
     store.run(sql`delete from ${domains} where project_id = ${input.projectId}
     and hostname not in (select value from json_each(${JSON.stringify(input.domains.map((domain) => domain.host))}))`)
-  const [first, ...rest] = inserts
-  if (first) await store.batch([first, ...rest, remove])
-  else await remove
+  try {
+    await store.batch([
+      advanceProjectSettings(
+        store,
+        input.projectId,
+        input.userId && input.settingsVersion !== undefined
+          ? projectSettingsGuard(
+              input.projectId,
+              input.userId,
+              input.settingsVersion,
+            )
+          : sql`1`,
+      ),
+      ...inserts,
+      remove,
+    ])
+  } catch (error) {
+    rethrowSettingsConflict(error)
+  }
 }

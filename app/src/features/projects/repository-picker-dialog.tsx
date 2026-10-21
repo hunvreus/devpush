@@ -41,7 +41,7 @@ import {
   RepositoryListPending,
   RepositoryToolbarPending,
 } from '@/features/repositories/repository-list-pending'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { repositorySelectionQueryOptions } from '@/lib/repository-selection-query'
 import { getRepositorySelectionRepositories } from '@/server/projects/functions'
 import type { RepositorySelectionContext } from '@/server/projects/types'
@@ -132,7 +132,7 @@ export function RepositoryPickerDialog({
       .catch((error) => {
         if (!cancelled) {
           setReposError(
-            getErrorMessage(
+            getPublicErrorMessage(
               error,
               'Unable to load repositories. Please try again.',
             ),
@@ -279,9 +279,15 @@ export function RepositoryPickerDialog({
                     ))}
                   </ul>
                 ) : (
-                  <p className="flex h-50 items-center justify-center rounded-lg bg-muted px-4 text-sm text-muted-foreground">
-                    No repositories found
-                  </p>
+                  <Empty className="min-h-50 border">
+                    <EmptyHeader>
+                      <EmptyTitle>No repositories found.</EmptyTitle>
+                      <EmptyDescription>
+                        Try a different search or check which repositories the
+                        GitHub App can access.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
                 )}
               </div>
             </div>

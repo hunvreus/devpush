@@ -9,15 +9,20 @@ import { getRequestPublicAddress } from './request-ip'
 export async function enforceRateLimit({
   limit,
   request,
+  identity: explicitIdentity,
   scope,
   windowMs,
 }: {
   limit: number
-  request: Request
+  request?: Request
+  identity?: string
   scope: string
   windowMs: number
 }) {
-  const identity = getRequestPublicAddress(request) ?? 'unknown-address'
+  const identity =
+    explicitIdentity ??
+    (request ? getRequestPublicAddress(request) : null) ??
+    'unknown-address'
   const key = `${scope}:${createHash('sha256').update(identity).digest('hex')}`
   const now = new Date()
   const resetAt = new Date(now.getTime() + windowMs)

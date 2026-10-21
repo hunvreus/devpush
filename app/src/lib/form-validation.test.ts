@@ -5,6 +5,7 @@ import { formErrors } from './form-errors'
 
 test('team constraints preserve per-field errors including image validation', () => {
   const result = teamGeneralSchema.safeParse({
+    settingsVersion: 1, teamId: 't',
     teamSlug: 'team',
     name: ' ',
     slug: '-bad',

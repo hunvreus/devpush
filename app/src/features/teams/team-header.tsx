@@ -1,3 +1,4 @@
+import { WorkspaceStatus, WorkspaceNotice } from '#devpush/deployment/ui'
 import { LogoMark } from '@/components/logo-mark'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import {
@@ -23,6 +24,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { deploymentContextQueryOptions } from '@/lib/project-context-query'
 import { useTheme } from 'next-themes'
 import {
+  ArrowUpRightIcon,
   BellIcon,
   CheckIcon,
   ChevronsUpDownIcon,
@@ -32,8 +34,7 @@ import {
   LoaderIcon,
   MoonIcon,
   SunIcon,
-  SettingsIcon,
-  XIcon,
+  CircleAlertIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
@@ -43,11 +44,16 @@ import { getCachedTeamContexts } from '@/lib/team-context-query'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ResourceAvatar } from '@/components/resource-avatar'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog-launcher'
 import { getServerAvailabilityNotice } from '@/features/servers/server-availability'
 import { ServerAvailabilityAlert } from '@/features/servers/server-availability-alert'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { displayNameFromSlug } from '@/lib/display-name'
 import { cn } from '@/lib/utils'
 import {
@@ -65,7 +71,10 @@ import type {
   ServerSummary,
   TeamSummary,
 } from '@/server/teams/types'
-import { acceptUserTeamInviteAction } from '@/server/teams/functions'
+import {
+  acceptUserTeamInviteAction,
+  declineUserTeamInviteAction,
+} from '@/server/teams/functions'
 import {
   isProjectTabActive,
   isTeamTabActive,
@@ -159,41 +168,56 @@ function TeamHeader({
   const tabs = currentProject ? projectTabs : teamTabs
 
   return (
-    <header className="sticky top-0 z-20 flex flex-col gap-y-2 border-b bg-background px-8">
-      <div className="flex h-16 items-center justify-between gap-x-4">
-        <nav className="flex min-w-0 items-center gap-x-1.5">
+    <header className="sticky top-0 z-20 flex flex-col gap-y-2 border-b bg-background px-3 sm:px-8">
+      <div className="flex h-16 min-w-0 items-center justify-between gap-x-2 sm:gap-x-4">
+        <nav className="flex min-w-0 flex-1 items-center gap-x-0.5 sm:gap-x-1.5">
           <Button
             asChild
             variant="ghost"
             size="icon-sm"
-            className="mr-1 shrink-0"
+            className={cn(
+              'group mr-1 shrink-0',
+              currentProject && 'max-sm:hidden',
+            )}
           >
             <Link to="/" aria-label="devpush">
-              <LogoMark />
+              <LogoMark className="size-4.5 shrink-0 transition-colors duration-200 group-hover:text-orange-600 group-focus-visible:text-orange-600" />
             </Link>
           </Button>
-          <span className="text-xl text-muted-foreground/25">/</span>
+          <span
+            className={cn(
+              'shrink-0 text-xl text-muted-foreground/25',
+              currentProject && 'max-sm:hidden',
+            )}
+          >
+            /
+          </span>
           {activeTeam && activeUserContext ? (
             <TeamSwitcher
               currentTeam={activeTeam}
               teams={activeUserContext.teams}
+              collapsed={currentProject}
             />
           ) : (
             <PendingResourceSwitcher
               label={displayNameFromSlug(teamSlug)}
               name={teamSlug}
               ariaLabel="Team loading"
+              collapsed={currentProject}
               teamSlug={teamSlug}
             />
           )}
           {currentProject ? (
             <>
-              <span className="text-xl text-muted-foreground/25">/</span>
+              <span className="shrink-0 text-xl text-muted-foreground/25">
+                /
+              </span>
               {activeProject ? (
                 <ProjectSwitcher
                   teamSlug={teamSlug}
                   project={activeProject}
                   projects={activeProjects}
+                  collapsed={Boolean(activeDeployment)}
                 />
               ) : (
                 <PendingResourceSwitcher
@@ -208,6 +232,7 @@ function TeamHeader({
                       : 'Project'
                   }
                   ariaLabel="Project loading"
+                  collapsed={Boolean(activeDeployment)}
                   teamSlug={teamSlug}
                   projectName={
                     typeof params.projectName === 'string'
@@ -220,7 +245,9 @@ function TeamHeader({
           ) : null}
           {activeDeployment ? (
             <>
-              <span className="text-xl text-muted-foreground/25">/</span>
+              <span className="shrink-0 text-xl text-muted-foreground/25">
+                /
+              </span>
               <DeploymentSwitcher
                 deployment={activeDeployment}
                 deployments={activeDeployments}
@@ -233,23 +260,31 @@ function TeamHeader({
               />
             </>
           ) : null}
+          {activeTeam && activeTeam.slug === teamSlug ? (
+            <WorkspaceStatus teamSlug={teamSlug} role={activeTeam.role} />
+          ) : null}
         </nav>
 
-        <nav className="flex items-center gap-x-2" aria-label="User menu">
-          <HelpDialog />
+        <nav
+          className="flex shrink-0 items-center gap-2"
+          aria-label="User menu"
+        >
           {activeUserContext ? (
-            <>
-              <NotificationsMenu invites={activeUserContext.invites} />
-              <UserMenu userContext={activeUserContext} />
-            </>
+            <UserMenu userContext={activeUserContext} />
           ) : (
             <PendingUserNavigation />
           )}
         </nav>
       </div>
 
-      <nav className="-mt-2 -mb-[1px]" aria-label="Secondary navigation">
-        <ul className="flex items-center gap-x-1" role="tablist">
+      <nav
+        className="scrollbar -mt-2 -mb-[1px] overflow-x-auto"
+        aria-label="Secondary navigation"
+      >
+        <ul
+          className="flex w-max min-w-full items-center gap-x-1"
+          role="tablist"
+        >
           {tabs.map((tab) => {
             const active = currentProject
               ? isProjectTabActive(pathname, tab.label)
@@ -268,7 +303,7 @@ function TeamHeader({
               <li
                 key={tab.label}
                 role="presentation"
-                className={`border-b-2 pb-1.5 ${
+                className={`shrink-0 border-b-2 pb-1.5 ${
                   active ? 'border-primary' : 'border-transparent'
                 }`}
               >
@@ -321,9 +356,21 @@ export function TeamPage({
   servers?: Array<ServerSummary>
 }) {
   const serverNotice = getServerAvailabilityNotice(servers)
+  const queryClient = useQueryClient()
+  const params = useParams({ strict: false })
+  const hydrated = useHydrated()
+  const teamSlug =
+    typeof params.teamSlug === 'string'
+      ? params.teamSlug
+      : (currentTeam?.slug ?? '')
+  const noticeTeam =
+    currentTeam ??
+    (hydrated
+      ? getCachedTeamContexts(queryClient, teamSlug).at(0)?.team
+      : undefined)
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className="min-h-screen min-w-0 bg-background text-foreground">
       <TeamHeader
         currentProject={projectNavigation || Boolean(currentProject)}
         currentProjectContext={currentProject}
@@ -332,9 +379,15 @@ export function TeamPage({
         currentTeam={currentTeam}
       />
       <div
-        className={cn('mx-auto w-full max-w-screen-xl p-8', contentClassName)}
+        className={cn(
+          'mx-auto w-full min-w-0 max-w-screen-xl p-4 sm:p-8',
+          contentClassName,
+        )}
         aria-busy={pending || undefined}
       >
+        {noticeTeam ? (
+          <WorkspaceNotice teamSlug={noticeTeam.slug} role={noticeTeam.role} />
+        ) : null}
         {serverNotice && currentTeam && !currentProject ? (
           <ServerAvailabilityAlert notice={serverNotice} team={currentTeam} />
         ) : null}
@@ -345,12 +398,14 @@ export function TeamPage({
 }
 
 function PendingResourceSwitcher({
+  collapsed = false,
   ariaLabel,
   label,
   name,
   projectName,
   teamSlug,
 }: {
+  collapsed?: boolean
   ariaLabel: string
   label: string
   name: string
@@ -360,13 +415,26 @@ function PendingResourceSwitcher({
   const content = (
     <>
       <ResourceAvatar data-icon="inline-start" name={name} size="xs" />
-      <span>{label}</span>
+      <span className={cn('max-w-48 truncate', collapsed && 'max-sm:hidden')}>
+        {label}
+      </span>
     </>
   )
 
   return (
-    <div className="flex items-center" aria-label={ariaLabel}>
-      <Button asChild variant="ghost" size="sm" className="gap-1.5 px-1.5">
+    <div
+      className={cn(
+        'flex min-w-0 items-center',
+        collapsed ? 'max-sm:shrink-0' : 'flex-1 sm:flex-initial',
+      )}
+      aria-label={ariaLabel}
+    >
+      <Button
+        asChild
+        variant="ghost"
+        size="sm"
+        className="min-w-0 shrink gap-1.5 px-1 max-sm:gap-1 sm:px-1.5"
+      >
         {projectName ? (
           <Link
             to="/$teamSlug/projects/$projectName"
@@ -384,7 +452,7 @@ function PendingResourceSwitcher({
         type="button"
         variant="ghost"
         size="icon-sm"
-        className="pointer-events-none text-muted-foreground"
+        className="pointer-events-none shrink-0 text-muted-foreground max-sm:size-5"
         aria-hidden="true"
         tabIndex={-1}
       >
@@ -401,9 +469,8 @@ function PendingUserNavigation() {
         type="button"
         variant="ghost"
         size="icon-sm"
-        className="pointer-events-none"
         aria-label="Notifications loading"
-        tabIndex={-1}
+        disabled
       >
         <BellIcon />
       </Button>
@@ -411,7 +478,7 @@ function PendingUserNavigation() {
         type="button"
         variant="ghost"
         size="icon-sm"
-        className="rounded-full border-0"
+        className="relative rounded-full border-0"
         aria-label="User menu loading"
         aria-busy="true"
         disabled
@@ -423,9 +490,11 @@ function PendingUserNavigation() {
 }
 
 function TeamSwitcher({
+  collapsed = false,
   currentTeam,
   teams,
 }: {
+  collapsed?: boolean
   currentTeam: TeamSummary
   teams: Array<TeamSummary>
 }) {
@@ -433,9 +502,23 @@ function TeamSwitcher({
   const queryClient = useQueryClient()
 
   return (
-    <div className="flex items-center">
-      <Button asChild variant="ghost" size="sm" className="gap-1.5 px-1.5">
-        <Link to="/$teamSlug" params={{ teamSlug: currentTeam.slug }}>
+    <div
+      className={cn(
+        'flex min-w-0 items-center',
+        collapsed ? 'max-sm:shrink-0' : 'flex-1 sm:flex-initial',
+      )}
+    >
+      <Button
+        asChild
+        variant="ghost"
+        size="sm"
+        className="min-w-0 shrink gap-1.5 px-1 max-sm:gap-1 sm:px-1.5"
+      >
+        <Link
+          to="/$teamSlug"
+          params={{ teamSlug: currentTeam.slug }}
+          aria-label={currentTeam.name}
+        >
           <ResourceAvatar
             data-icon="inline-start"
             name={currentTeam.name}
@@ -443,7 +526,11 @@ function TeamSwitcher({
             color={currentTeam.color}
             size="xs"
           />
-          <span>{currentTeam.name}</span>
+          <span
+            className={cn('max-w-48 truncate', collapsed && 'max-sm:hidden')}
+          >
+            {currentTeam.name}
+          </span>
         </Link>
       </Button>
       <DropdownMenu>
@@ -451,13 +538,17 @@ function TeamSwitcher({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-muted-foreground"
+            className="shrink-0 text-muted-foreground max-sm:size-5"
             aria-label="Switch team"
           >
             <ChevronsUpDownIcon />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="bottom" className="w-auto">
+        <DropdownMenuContent
+          align="start"
+          side="bottom"
+          className="w-auto max-w-[calc(100vw-2rem)]"
+        >
           <DropdownMenuItem className="gap-1.5 whitespace-nowrap">
             <ResourceAvatar
               name={currentTeam.name}
@@ -465,7 +556,7 @@ function TeamSwitcher({
               color={currentTeam.color}
               size="xs"
             />
-            <span>{currentTeam.name}</span>
+            <span className="min-w-0 truncate">{currentTeam.name}</span>
             <CheckIcon className="ml-auto text-muted-foreground" />
           </DropdownMenuItem>
           {teams
@@ -484,7 +575,7 @@ function TeamSwitcher({
                     color={teamOption.color}
                     size="xs"
                   />
-                  <span>{teamOption.name}</span>
+                  <span className="min-w-0 truncate">{teamOption.name}</span>
                   <span className="ml-auto size-4" />
                 </Link>
               </DropdownMenuItem>
@@ -529,10 +620,12 @@ function TeamSwitcher({
 }
 
 function ProjectSwitcher({
+  collapsed = false,
   teamSlug,
   project,
   projects,
 }: {
+  collapsed?: boolean
   teamSlug: string
   project: ProjectNavigationSummary
   projects: Array<ProjectNavigationSummary>
@@ -542,11 +635,22 @@ function ProjectSwitcher({
     typeof params.projectName === 'string' ? params.projectName : project.name
 
   return (
-    <div className="flex items-center">
-      <Button asChild variant="ghost" size="sm" className="gap-1.5 px-1.5">
+    <div
+      className={cn(
+        'flex min-w-0 items-center',
+        collapsed ? 'max-sm:shrink-0' : 'flex-1 sm:flex-initial',
+      )}
+    >
+      <Button
+        asChild
+        variant="ghost"
+        size="sm"
+        className="min-w-0 shrink gap-1.5 px-1 max-sm:gap-1 sm:px-1.5"
+      >
         <Link
           to="/$teamSlug/projects/$projectName"
           params={{ teamSlug, projectName }}
+          aria-label={project.name}
         >
           <ResourceAvatar
             data-icon="inline-start"
@@ -555,7 +659,11 @@ function ProjectSwitcher({
             color={project.color}
             size="xs"
           />
-          <span>{project.name}</span>
+          <span
+            className={cn('max-w-48 truncate', collapsed && 'max-sm:hidden')}
+          >
+            {project.name}
+          </span>
         </Link>
       </Button>
       <DropdownMenu>
@@ -563,13 +671,17 @@ function ProjectSwitcher({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-muted-foreground"
+            className="shrink-0 text-muted-foreground max-sm:size-5"
             aria-label="Switch project"
           >
             <ChevronsUpDownIcon />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="bottom" className="w-auto">
+        <DropdownMenuContent
+          align="start"
+          side="bottom"
+          className="w-auto max-w-[calc(100vw-2rem)]"
+        >
           <DropdownMenuItem asChild className="gap-1.5 whitespace-nowrap">
             <Link
               to="/$teamSlug/projects/$projectName"
@@ -581,7 +693,7 @@ function ProjectSwitcher({
                 color={project.color}
                 size="xs"
               />
-              <span>{project.name}</span>
+              <span className="min-w-0 truncate">{project.name}</span>
               <CheckIcon className="ml-auto" />
             </Link>
           </DropdownMenuItem>
@@ -604,7 +716,7 @@ function ProjectSwitcher({
                     color={projectOption.color}
                     size="xs"
                   />
-                  <span>{projectOption.name}</span>
+                  <span className="min-w-0 truncate">{projectOption.name}</span>
                   <span className="ml-auto size-4" />
                 </Link>
               </DropdownMenuItem>
@@ -644,8 +756,13 @@ function DeploymentSwitcher({
   teamSlug: string
 }) {
   return (
-    <div className="flex items-center">
-      <Button asChild variant="ghost" size="sm" className="px-1.5">
+    <div className="flex min-w-0 flex-1 items-center sm:flex-initial">
+      <Button
+        asChild
+        variant="ghost"
+        size="sm"
+        className="min-w-0 shrink px-1 sm:px-1.5"
+      >
         <Link
           to="/$teamSlug/projects/$projectName/deployments/$deploymentId"
           params={{ teamSlug, projectName, deploymentId: deployment.id }}
@@ -655,7 +772,7 @@ function DeploymentSwitcher({
             data-icon="inline-start"
             status={deployment.status}
           />
-          <span className="font-mono text-[13px]">
+          <span className="truncate font-mono text-[13px]">
             {shortId(deployment.id)}
           </span>
         </Link>
@@ -665,14 +782,18 @@ function DeploymentSwitcher({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-muted-foreground"
+            className="shrink-0 text-muted-foreground max-sm:size-5"
             aria-label="Switch deployment"
             disabled={deployment.status === undefined}
           >
             <ChevronsUpDownIcon />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="bottom" className="w-auto">
+        <DropdownMenuContent
+          align="start"
+          side="bottom"
+          className="w-auto max-w-[calc(100vw-2rem)]"
+        >
           <DropdownMenuItem className="gap-x-2 whitespace-nowrap">
             <DeploymentStatusIcon status={deployment.status} />
             <span className="font-mono text-[13px]">
@@ -732,15 +853,19 @@ function NotificationsMenu({
     AuthUserContext['invites'][number] | null
   >(null)
   const [busyInviteId, setBusyInviteId] = useState<string | null>(null)
+  const [busyInviteAction, setBusyInviteAction] = useState<
+    'accept' | 'decline' | null
+  >(null)
   const invitationLabel =
     invites.length === 1 ? '1 team invitation' : `${invites.length} invitations`
 
   async function acceptInvite() {
-    if (!selectedInvite) {
+    if (!selectedInvite || busyInviteId) {
       return
     }
 
     setBusyInviteId(selectedInvite.id)
+    setBusyInviteAction('accept')
 
     try {
       const teamSlug = await acceptUserTeamInviteAction({
@@ -761,31 +886,65 @@ function NotificationsMenu({
         'The action completed, but opening the next page failed. Please reload.',
       )
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to accept invitation.'))
+      toast.error(getPublicErrorMessage(error, 'Unable to accept invitation.'))
     } finally {
       setBusyInviteId(null)
+      setBusyInviteAction(null)
+    }
+  }
+
+  async function declineInvite() {
+    if (!selectedInvite || busyInviteId) return
+    setBusyInviteId(selectedInvite.id)
+    setBusyInviteAction('decline')
+    try {
+      await declineUserTeamInviteAction({
+        data: { inviteId: selectedInvite.id },
+      })
+      toast.success('Invitation declined.')
+      setSelectedInvite(null)
+      await afterMutation(async () => {
+        await invalidateResourceQueries(queryClient)
+        await router.invalidate()
+      }, 'Invitation declined, but refreshing the page failed. Please reload.')
+    } catch (error) {
+      toast.error(getPublicErrorMessage(error, 'Unable to decline invitation.'))
+    } finally {
+      setBusyInviteId(null)
+      setBusyInviteAction(null)
     }
   }
 
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="relative"
-            aria-label="Notifications"
-          >
-            <BellIcon />
-            {invites.length > 0 ? (
-              <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-red-500" />
-            ) : null}
-          </Button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="relative"
+                aria-label="Notifications"
+                aria-description={
+                  invites.length > 0 ? invitationLabel : undefined
+                }
+              >
+                <BellIcon />
+                {invites.length > 0 ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-0.5 right-0.5 size-2 rounded-full bg-destructive ring-2 ring-background"
+                  />
+                ) : null}
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Notifications</TooltipContent>
+        </Tooltip>
         <DropdownMenuContent
           align="end"
-          className={invites.length > 0 ? 'w-80' : 'w-auto'}
+          className="w-72 max-w-[calc(100vw-2rem)]"
         >
           {invites.length === 0 ? (
             <p className="flex items-center justify-center px-2 py-1.5 text-sm text-muted-foreground">
@@ -798,30 +957,27 @@ function NotificationsMenu({
               {invites.map((invite) => (
                 <DropdownMenuItem
                   key={invite.id}
-                  className="gap-3 whitespace-normal"
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    setSelectedInvite(invite)
-                  }}
+                  className="whitespace-normal"
+                  onSelect={() => setSelectedInvite(invite)}
                 >
-                  <ResourceAvatar
-                    name={invite.team.name}
-                    src={invite.team.image ?? undefined}
-                    color={invite.team.color}
-                    size="sm"
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">
-                      {invite.team.name}
+                  <span className="flex min-w-0 max-w-64 flex-col gap-1 text-left">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ResourceAvatar
+                        name={invite.team.name}
+                        src={invite.team.image ?? undefined}
+                        color={invite.team.color}
+                        size="xs"
+                      />
+                      <span className="truncate">{invite.team.name}</span>
                     </span>
-                    <span className="block truncate text-muted-foreground">
+                    <span className="truncate pl-7 text-muted-foreground">
+                      <time dateTime={invite.createdAt}>
+                        {formatInviteAge(invite.createdAt)}
+                      </time>
                       {invite.inviter
-                        ? `${invite.inviter.name || invite.inviter.email} invited you as ${invite.role}`
-                        : `Invited as ${invite.role}`}
+                        ? ` by ${invite.inviter.name || invite.inviter.email}`
+                        : ''}
                     </span>
-                  </span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                    {formatShortDate(invite.createdAt)}
                   </span>
                 </DropdownMenuItem>
               ))}
@@ -840,35 +996,71 @@ function NotificationsMenu({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Team invitation</DialogTitle>
-            <DialogDescription>
-              {selectedInvite?.inviter
-                ? `${selectedInvite.inviter.name || selectedInvite.inviter.email} invited you to join this team.`
-                : 'You have been invited to join this team.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedInvite ? (
-            <div className="flex items-center gap-3 rounded-md border p-3">
-              <ResourceAvatar
-                name={selectedInvite.team.name}
-                src={selectedInvite.team.image ?? undefined}
-                color={selectedInvite.team.color}
-                size="default"
-              />
-              <div className="min-w-0">
-                <p className="truncate font-medium">
+            <DialogTitle>
+              {selectedInvite
+                ? `Invitation to "${selectedInvite.team.name}"`
+                : 'Team invitation'}
+            </DialogTitle>
+            {selectedInvite ? (
+              <DialogDescription>
+                {selectedInvite.inviter ? (
+                  <>
+                    <strong className="font-medium">
+                      {selectedInvite.inviter.name ||
+                        selectedInvite.inviter.email}
+                    </strong>{' '}
+                    invited you
+                  </>
+                ) : (
+                  'You have been invited'
+                )}{' '}
+                to join the "
+                <strong className="font-medium">
                   {selectedInvite.team.name}
-                </p>
-                <p className="text-muted-foreground">
-                  {selectedInvite.role} role · Expires{' '}
-                  {formatShortDate(selectedInvite.expiresAt)}
-                </p>
+                </strong>
+                " team. This invitation will expire on{' '}
+                <strong className="font-medium">
+                  {formatInvitationExpiry(selectedInvite.expiresAt)}
+                </strong>
+                .
+              </DialogDescription>
+            ) : null}
+          </DialogHeader>
+          {selectedInvite ? (
+            <dl className="divide-y rounded-lg border text-sm">
+              <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-4 px-4 py-2">
+                <dt className="text-muted-foreground">Team</dt>
+                <dd className="flex min-w-0 items-center gap-2">
+                  <ResourceAvatar
+                    name={selectedInvite.team.name}
+                    src={selectedInvite.team.image ?? undefined}
+                    color={selectedInvite.team.color}
+                    size="xs"
+                  />
+                  <span className="min-w-0 truncate">
+                    {selectedInvite.team.name}
+                  </span>
+                </dd>
               </div>
-            </div>
+              <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+                <dt className="text-muted-foreground">Role</dt>
+                <dd>{selectedInvite.role === 'admin' ? 'Admin' : 'Member'}</dd>
+              </div>
+            </dl>
           ) : null}
 
           <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busyInviteId !== null}
+              onClick={() => void declineInvite()}
+            >
+              {busyInviteAction === 'decline' ? (
+                <LoaderIcon data-icon="inline-start" className="animate-spin" />
+              ) : null}
+              Decline invitation
+            </Button>
             <Button
               type="button"
               variant="ghost"
@@ -882,7 +1074,7 @@ function NotificationsMenu({
               disabled={busyInviteId !== null}
               onClick={acceptInvite}
             >
-              {busyInviteId ? (
+              {busyInviteAction === 'accept' ? (
                 <LoaderIcon data-icon="inline-start" className="animate-spin" />
               ) : null}
               Accept invitation
@@ -895,69 +1087,95 @@ function NotificationsMenu({
 }
 
 function UserMenu({ userContext }: { userContext: AuthUserContext }) {
+  const [aboutOpen, setAboutOpen] = useState(false)
   const { resolvedTheme, setTheme } = useTheme()
-  const { user, defaultTeam } = userContext
+  const { user } = userContext
   const label = user.name || user.email
   const initial = label.trim().charAt(0).toLocaleUpperCase() || '?'
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="rounded-full border-0"
-          aria-label="User menu"
+    <>
+      <NotificationsMenu invites={userContext.invites} />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="relative rounded-full border-0"
+            aria-label="User menu"
+          >
+            <Avatar className="size-6">
+              {user.image ? (
+                <AvatarImage
+                  src={user.image}
+                  alt={user.email}
+                  referrerPolicy="no-referrer"
+                />
+              ) : null}
+              <AvatarFallback>{initial}</AvatarFallback>
+            </Avatar>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="w-auto max-w-[calc(100vw-2rem)]"
         >
-          <Avatar className="size-6">
-            {user.image ? (
-              <AvatarImage src={user.image} alt={user.email} />
-            ) : null}
-            <AvatarFallback>{initial}</AvatarFallback>
-          </Avatar>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto">
-        <DropdownMenuLabel className="px-2.5 py-1.5 text-sm text-foreground">
-          <span className="block whitespace-nowrap font-medium">{label}</span>
-          <span className="block whitespace-nowrap text-muted-foreground">
-            {user.email}
-          </span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="whitespace-nowrap">
-          <Link to="/settings">Account settings</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="whitespace-nowrap">
-          <Link to="/$teamSlug" params={{ teamSlug: defaultTeam.slug }}>
-            Default team
-          </Link>
-        </DropdownMenuItem>
-        {user.isInstallationAdmin ? (
-          <>
-            <DropdownMenuSeparator />
+          <DropdownMenuLabel className="px-2.5 py-1.5 text-sm text-foreground">
+            <span className="block max-w-64 truncate font-medium">{label}</span>
+            <span className="block max-w-64 truncate text-muted-foreground">
+              {user.email}
+            </span>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {user.isInstallationAdmin ? (
             <DropdownMenuItem asChild>
-              <Link to="/admin">
-                <SettingsIcon />
+              <Link
+                to="/admin"
+                search={{
+                  allowlistQuery: '',
+                  allowlistPage: 1,
+                  userQuery: '',
+                  userPage: 1,
+                }}
+              >
                 Admin
               </Link>
             </DropdownMenuItem>
-          </>
-        ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="whitespace-nowrap"
-          onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-        >
-          <span className="block dark:hidden">Theme: Dark</span>
-          <span className="hidden dark:block">Theme: Light</span>
-          <MoonIcon className="ml-auto block text-muted-foreground dark:hidden" />
-          <SunIcon className="ml-auto hidden text-muted-foreground dark:block" />
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <SignOutMenuItem />
-      </DropdownMenuContent>
-    </DropdownMenu>
+          ) : null}
+          <DropdownMenuItem asChild className="whitespace-nowrap">
+            <Link to="/settings">Account</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="whitespace-nowrap"
+            onClick={() =>
+              setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+            }
+          >
+            <span className="block dark:hidden">Theme: Dark</span>
+            <span className="hidden dark:block">Theme: Light</span>
+            <MoonIcon className="ml-auto block text-muted-foreground dark:hidden" />
+            <SunIcon className="ml-auto hidden text-muted-foreground dark:block" />
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <a
+              href="https://devpu.sh/docs"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Help
+              <ArrowUpRightIcon className="ml-auto opacity-50" />
+            </a>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setAboutOpen(true)}>
+            About devpush
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <SignOutMenuItem />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <HelpDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+    </>
   )
 }
 
@@ -973,14 +1191,14 @@ function DeploymentStatusIcon({
     return (
       <CircleCheckIcon
         data-icon={dataIcon}
-        className="size-4 shrink-0 text-green-500"
+        className="size-4 shrink-0 text-success"
       />
     )
   }
 
   if (status === 'failed') {
     return (
-      <CircleXIcon
+      <CircleAlertIcon
         data-icon={dataIcon}
         className="size-4 shrink-0 text-destructive"
       />
@@ -989,7 +1207,7 @@ function DeploymentStatusIcon({
 
   if (status === 'canceled') {
     return (
-      <XIcon
+      <CircleXIcon
         data-icon={dataIcon}
         className="size-4 shrink-0 text-muted-foreground"
       />
@@ -1017,9 +1235,30 @@ function shortId(id: string) {
   return id.slice(0, 7)
 }
 
-function formatShortDate(value: string) {
+function formatInvitationExpiry(value: string) {
   return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
+    month: 'long',
     day: 'numeric',
+    year: 'numeric',
   }).format(new Date(value))
+}
+
+function formatInviteAge(value: string) {
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(value).getTime()) / 1000),
+  )
+  if (seconds < 60) return 'just now'
+  const formatter = new Intl.RelativeTimeFormat('en-US', { numeric: 'always' })
+  for (const [unit, duration] of [
+    ['year', 31536000],
+    ['month', 2592000],
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ] as const) {
+    if (seconds >= duration)
+      return formatter.format(-Math.floor(seconds / duration), unit)
+  }
+  return 'just now'
 }

@@ -1,3 +1,4 @@
+import { CopyButton } from '@/components/copy-button'
 import { ProjectBackupsPending } from './project-backups-pending'
 import { ProjectBackupDetailsPending } from './project-backup-details-pending'
 import { ProjectSettings } from './project-settings'
@@ -36,11 +37,11 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-  InputGroupButton,
 } from '@/components/ui/input-group'
 import {
   CircleHelpIcon,
   Clock3Icon,
+  LoaderIcon,
   ServerIcon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
@@ -49,7 +50,6 @@ import {
   Link2Icon,
   MoreHorizontalIcon,
   ChevronsUpDownIcon,
-  CopyIcon,
   SettingsIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -63,11 +63,9 @@ import {
   FieldDescription,
   FieldGroup,
 } from '@/components/ui/field'
-import { copyText } from '@/lib/action-feedback'
 import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
 import { projectSettingsNavigationItems } from './project-settings-utils'
 import { ProjectHeading } from './project-heading'
-import { EnvironmentDot } from './environment-dot'
 
 type PendingProjectContext = {
   avatarUrl: string | null
@@ -387,7 +385,10 @@ function DeploymentDetailPending({
             <div className="h-5 min-w-20" />
           </div>
           <div className="flex min-h-5 flex-wrap items-center gap-x-8 gap-y-2">
-            <MetadataItemPending icon={<EnvironmentDot />} textWidth="w-20" />
+            <MetadataItemPending
+              icon={<Skeleton className="size-2.5 shrink-0 rounded-full" />}
+              textWidth="w-20"
+            />
             <MetadataItemPending icon={<ServerIcon />} textWidth="w-36" />
             <MetadataItemPending icon={<GitBranchIcon />} textWidth="w-10" />
             <MetadataItemPending
@@ -443,15 +444,7 @@ function ProjectLogsPending({ context }: { context: PendingProjectContext }) {
   })
   return (
     <div className="space-y-8" aria-label="Loading project logs">
-      <ProjectHeadingPending
-        context={context}
-        crumbs={['Logs']}
-        controls={
-          <Button variant="outline" size="icon" disabled aria-label="Refresh">
-            <RefreshCwIcon />
-          </Button>
-        }
-      />
+      <ProjectHeadingPending context={context} crumbs={['Logs']} />
       <section>
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -479,6 +472,15 @@ function ProjectLogsPending({ context }: { context: PendingProjectContext }) {
             />
             <PendingFilter name="date" label="All dates" />
             <PendingFilter name="branch" label="All branches" />
+            <Button
+              className="ml-auto"
+              variant="ghost"
+              size="icon"
+              disabled
+              aria-label="Refresh"
+            >
+              <RefreshCwIcon />
+            </Button>
           </div>
           <LogAreaPending />
         </div>
@@ -583,17 +585,12 @@ function ProjectGeneralPending({
               disabled={!context.projectId}
             />
             <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                size="icon-sm"
-                aria-label="Copy project ID"
+              <CopyButton
+                value={context.projectId ?? ''}
+                label="Copy project ID"
+                inputGroup
                 disabled={!context.projectId}
-                onClick={() =>
-                  context.projectId &&
-                  void copyText(context.projectId, 'Project ID')
-                }
-              >
-                <CopyIcon />
-              </InputGroupButton>
+              />
             </InputGroupAddon>
           </InputGroup>
           <FieldDescription>
@@ -776,7 +773,7 @@ function RouteSettingsPending() {
       title="Routes"
       description="Default routes apply to every environment. Environment routes add paths or override the default target for the same path."
       columns="grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem]"
-      headers={['Scope', 'Path *', '', 'Service *', 'Port *', 'Strip', '']}
+      headers={['Scope', 'Path', '', 'Service', 'Port', 'Strip', '']}
       rows={1}
       action="Add route"
     />
@@ -789,7 +786,7 @@ function DomainSettingsPending() {
       title="Domains"
       description="Custom domain names associated with this project's environments."
       columns="grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_5.5rem_2.5rem]"
-      headers={['Host *', 'Environment *', 'Base route', 'HTTPS', 'Status', '']}
+      headers={['Host', 'Environment', 'Base route', 'HTTPS', '', '']}
       rows={1}
       action="Add domain"
     />
@@ -960,9 +957,16 @@ function SectionHeadingPending({
 function LogAreaPending() {
   return (
     <div className="relative h-[500px] rounded-lg border p-2" aria-busy="true">
-      <p role="status" className="p-2 text-sm text-muted-foreground">
-        Loading logs…
-      </p>
+      <div
+        role="status"
+        className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
+        <LoaderIcon
+          className="size-4 shrink-0 animate-spin"
+          aria-hidden="true"
+        />
+        Loading logs
+      </div>
     </div>
   )
 }
@@ -995,9 +999,9 @@ function PendingFilter({
         : value
     : label
   return (
-    <Select disabled>
+    <Select disabled value={selected ? value : 'all'}>
       <SelectTrigger className={className} aria-label={label}>
-        <SelectValue>
+        <SelectValue placeholder={label}>
           {selected && unknownSelection ? (
             <Skeleton className="h-4 w-24" />
           ) : (

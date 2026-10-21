@@ -95,7 +95,11 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 		return makeCompletion()
 	}
 	run := func(dir string, name string, args ...string) error {
-		return runner.runCancellableCommand(ctx, job.ID, dir, &logs, name, args...)
+		var env []string
+		if name == "git" && len(args) > 0 && (args[0] == "clone" || args[0] == "fetch") {
+			env = runner.gitAuthEnv(job.Repo)
+		}
+		return runner.runCancellableCommandWithEnv(ctx, job.ID, dir, &logs, env, name, args...)
 	}
 
 	workdir := filepath.Join(runner.cfg.StateDir, "deployments", job.ID)
@@ -106,6 +110,18 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	if err := os.MkdirAll(workdir, 0o750); err != nil {
 		return fail(err)
 	}
+
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		keep := workdir
+		if status != "succeeded" {
+			keep = ""
+		}
+		if err := runner.pruneDeploymentDirectories(cleanupCtx, keep); err != nil {
+			runner.log.Warn("deployment directory cleanup failed", "error", err)
+		}
+	}()
 
 	addEvent("config_synced", "Deployment configuration received.")
 
@@ -173,6 +189,9 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 	if err != nil {
 		return fail(fmt.Errorf("unable to inspect the resolved Docker Compose configuration: %w", err))
 	}
+	for _, warning := range model.riskWarnings() {
+		logs = append(logs, truncateLogLine("Warning: "+warning, maxDeploymentLogLineLen))
+	}
 	publishedPortServices := model.servicesWithPublishedPorts()
 	if len(publishedPortServices) > 0 {
 		logs = append(logs, truncateLogLine(
@@ -221,7 +240,11 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 		}
 	}
 	if needsOverride {
-		if err := writeManagedComposeOverride(overrideFile, job.Runtime.ProjectName, job.Routes, publishedPortServices, hostNetworkServices); err != nil {
+		managedNames, err := runner.managedCertificateNames()
+		if err != nil {
+			return fail(err)
+		}
+		if err := writeManagedComposeOverride(overrideFile, job.Runtime.ProjectName, job.Routes, publishedPortServices, hostNetworkServices, managedNames...); err != nil {
 			return fail(fmt.Errorf("unable to generate managed Compose override: %w", err))
 		}
 		addEvent("config_synced", "Generated devpush managed-ingress override.")

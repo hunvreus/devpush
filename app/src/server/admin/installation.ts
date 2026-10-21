@@ -1,9 +1,6 @@
-import { readFile } from 'node:fs/promises'
-
 import { z } from 'zod'
 
-import { config } from '@/server/config'
-import { getWorkerVersionMetadata } from '@/server/runtime/platform-env'
+import { readCurrentInstallation } from '@/server/admin/installation-current'
 
 export type InstallationInfo = {
   current: {
@@ -24,26 +21,12 @@ export type InstallationInfo = {
   } | null
 }
 
-const versionFileSchema = z
-  .object({
-    arch: z.string().optional(),
-    distro: z.string().optional(),
-    distro_version: z.string().optional(),
-    git_commit: z.string().optional(),
-    git_ref: z.string().optional(),
-    install_id: z.string().optional(),
-    updated_at: z.string().optional(),
-  })
-  .passthrough()
-
 const tagSchema = z.array(
   z.object({
     name: z.string(),
   }),
 )
 
-const versionFilePath =
-  config.DEVPUSH_VERSION_FILE ?? '/var/lib/devpush/version.json'
 const cacheTtlMs = 5 * 60 * 1000
 const requestTimeoutMs = 3_000
 
@@ -90,42 +73,6 @@ export async function getInstallationInfo({
           ? `https://github.com/hunvreus/devpush/releases/tag/${latestTag.tag}`
           : null,
     },
-  }
-}
-
-async function readCurrentInstallation(): Promise<InstallationInfo['current']> {
-  const workerVersion = getWorkerVersionMetadata()
-  if (workerVersion) {
-    return {
-      arch: null,
-      distro: 'Cloudflare Workers',
-      distroVersion: null,
-      gitCommit: workerVersion.id,
-      gitRef: workerVersion.tag || workerVersion.id,
-      installId: workerVersion.id,
-      updatedAt: null,
-    }
-  }
-
-  try {
-    const raw = await readFile(versionFilePath, 'utf8')
-    const versionInfo = versionFileSchema.parse(JSON.parse(raw))
-
-    if (!versionInfo.git_ref) {
-      return null
-    }
-
-    return {
-      arch: versionInfo.arch ?? null,
-      distro: versionInfo.distro ?? null,
-      distroVersion: versionInfo.distro_version ?? null,
-      gitCommit: versionInfo.git_commit ?? null,
-      gitRef: versionInfo.git_ref,
-      installId: versionInfo.install_id ?? null,
-      updatedAt: versionInfo.updated_at ?? null,
-    }
-  } catch {
-    return null
   }
 }
 

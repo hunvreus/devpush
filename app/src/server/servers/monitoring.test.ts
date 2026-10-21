@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateHeartbeatAvailability,
   insertMetricGaps,
+  downsampleServerMetricSeries,
 } from '@/server/servers/monitoring'
 
 describe('calculateHeartbeatAvailability', () => {
@@ -133,5 +134,58 @@ describe('insertMetricGaps', () => {
       observedAt: '2026-06-28T09:50:30.000Z',
       cpuPercent: null,
     })
+  })
+})
+
+describe('chart downsampling', () => {
+  const sample = (index: number) => ({
+    observedAt: new Date(index * 30_000).toISOString(),
+    cpuPercent: 10,
+    load1: null,
+    memoryUsedBytes: 100,
+    memoryTotalBytes: 200,
+    diskUsedBytes: 100,
+    diskTotalBytes: 200,
+    networkReceiveBytesPerSecond: 10,
+    networkTransmitBytesPerSecond: 20,
+    diskReadBytesPerSecond: null,
+    diskWriteBytesPerSecond: null,
+  })
+  it('reduces a full day while retaining endpoints and independent CPU/network peaks', () => {
+    const samples = Array.from({ length: 2880 }, (_, index) => sample(index))
+    samples[123]!.cpuPercent = 99
+    samples[129]!.networkReceiveBytesPerSecond = 9999
+    samples[131]!.memoryUsedBytes = 199
+    const result = downsampleServerMetricSeries(samples)
+    expect(result.length).toBeLessThanOrEqual(600)
+    expect(result[0]).toEqual(samples[0])
+    expect(result.at(-1)).toEqual(samples.at(-1))
+    for (const index of [123, 129, 131])
+      expect(result).toContain(samples[index])
+  })
+  it('retains both sides of outages and missing individual metrics', () => {
+    const samples = Array.from({ length: 2880 }, (_, index) => sample(index))
+    const gap = {
+      ...samples[141]!,
+      cpuPercent: null,
+      memoryUsedBytes: null,
+      memoryTotalBytes: null,
+      diskUsedBytes: null,
+      diskTotalBytes: null,
+      networkReceiveBytesPerSecond: null,
+      networkTransmitBytesPerSecond: null,
+    }
+    const partial = { ...samples[160]!, cpuPercent: null }
+    const source = [
+      ...samples.slice(0, 141),
+      gap,
+      ...samples.slice(142, 160),
+      partial,
+      ...samples.slice(161),
+    ]
+    const result = downsampleServerMetricSeries(source)
+    for (const index of [140, 141, 142, 159, 160, 161])
+      expect(result).toContain(source[index])
+    expect(downsampleServerMetricSeries([sample(0)])).toEqual([sample(0)])
   })
 })

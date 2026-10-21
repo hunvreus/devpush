@@ -25,6 +25,20 @@ describe('agent compatibility', () => {
     ).toMatchObject({ status: 'required' })
   })
 
+  test('requires cleanup attempt protection even when deployments remain compatible', () => {
+    expect(
+      getAgentUpdate({
+        ...currentMetadata,
+        capabilities: ['jobs.compose.deploy.v1', 'jobs.compose.cleanup.v1'],
+        latestVersion: null,
+        recommendedVersion: null,
+      }),
+    ).toMatchObject({
+      status: 'required',
+      reason: expect.stringContaining('attempt protection'),
+    })
+  })
+
   test('reports an optional newer agent release', () => {
     expect(
       getAgentUpdate({

@@ -1,3 +1,4 @@
+import { showSettingsConflict } from '@/lib/settings-conflict'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -8,10 +9,15 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { LoaderIcon, PencilIcon, PlusIcon, HardDriveIcon } from 'lucide-react'
+import { LoaderIcon, SettingsIcon, PlusIcon, TrashIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { SettingsSection } from '@/components/settings-layout'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -29,6 +35,14 @@ import {
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/ui/table'
+import {
   Empty,
   EmptyHeader,
   EmptyTitle,
@@ -43,7 +57,7 @@ import {
   saveBackupStorageAction,
   deleteBackupStorageAction,
 } from '@/server/backups/storage-functions'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { formErrors } from '@/lib/form-errors'
 import type { FormErrors } from '@/lib/form-errors'
 
@@ -62,7 +76,6 @@ export function BackupStorageSettings({
   )
   const [removing, setRemoving] = useState<BackupStorageSummary | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   async function refreshRows(next: BackupStorageSummary[]) {
     setRows(next)
     await Promise.all([
@@ -81,46 +94,90 @@ export function BackupStorageSettings({
     >
       {rows.length ? (
         <div className="space-y-4">
-          <div className="divide-y">
-            {rows.map((row) => (
-              <div
-                key={row.id}
-                className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
-              >
-                <HardDriveIcon className="size-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">{row.name}</p>
-                  <p className="break-all text-sm text-muted-foreground">
-                    {row.bucket} · {row.region}
-                    {row.endpoint ? ` · ${row.endpoint}` : ' · Amazon S3'}
-                  </p>
-                </div>
-                {canManage ? (
-                  <div className="flex shrink-0 gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditing(row)}
-                    >
-                      <PencilIcon data-icon="inline-start" />
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setDeleteError(null)
-                        setRemoving(row)
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ))}
+          <div className="overflow-hidden rounded-lg border">
+            <Table className="table-fixed">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">Name</TableHead>
+                  <TableHead>Bucket</TableHead>
+                  <TableHead className="w-24">Region</TableHead>
+                  <TableHead className="last:pr-4">Endpoint</TableHead>
+                  {canManage ? (
+                    <TableHead className="w-24">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  ) : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="pl-4">
+                      <span
+                        className="block truncate font-medium"
+                        title={row.name}
+                      >
+                        {row.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <span className="block truncate" title={row.bucket}>
+                        {row.bucket}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <span className="block truncate" title={row.region}>
+                        {row.region}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground last:pr-4">
+                      <span
+                        className="block truncate"
+                        title={row.endpoint ?? 'Amazon S3'}
+                      >
+                        {row.endpoint ?? 'Amazon S3'}
+                      </span>
+                    </TableCell>
+                    {canManage ? (
+                      <TableCell>
+                        <div className="-mr-2 flex justify-end gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                aria-label={`Settings for ${row.name}`}
+                                onClick={() => setEditing(row)}
+                              >
+                                <SettingsIcon />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Storage settings</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="destructive"
+                                aria-label={`Remove ${row.name}`}
+                                onClick={() => {
+                                  setRemoving(row)
+                                }}
+                              >
+                                <TrashIcon />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Remove storage</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
           {canManage ? (
             <Button
@@ -173,7 +230,6 @@ export function BackupStorageSettings({
                 backups or retained remote backups cannot be removed.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <FieldError>{deleteError}</FieldError>
             <AlertDialogFooter>
               <Button
                 variant="ghost"
@@ -187,18 +243,23 @@ export function BackupStorageSettings({
                 disabled={deleting}
                 onClick={async () => {
                   setDeleting(true)
-                  setDeleteError(null)
+
                   try {
                     await refreshRows(
                       await deleteBackupStorageAction({
-                        data: { teamSlug: team.slug, storageId: removing.id },
+                        data: {
+                          teamSlug: team.slug,
+                          storageId: removing.id,
+                          settingsVersion: removing.settingsVersion,
+                        },
                       }),
                     )
                     setRemoving(null)
                     toast.success('Backup storage removed.')
                   } catch (cause) {
-                    setDeleteError(
-                      getErrorMessage(cause, 'Unable to remove storage.'),
+                    if (showSettingsConflict(cause)) return
+                    toast.error(
+                      getPublicErrorMessage(cause, 'Unable to remove storage.'),
                     )
                   } finally {
                     setDeleting(false)
@@ -225,7 +286,12 @@ export function BackupStorageSettings({
           onClose={() => setEditing(null)}
           onSave={async (input) => {
             const saved = await saveBackupStorageAction({
-              data: { teamSlug: team.slug, input },
+              data: {
+                teamSlug: team.slug,
+                input,
+                settingsVersion:
+                  editing === 'new' ? null : editing.settingsVersion,
+              },
             })
             await refreshRows(saved)
           }}
@@ -282,21 +348,20 @@ function BackupStorageDialog({
       key: 'secretAccessKey',
       label: 'Secret access key',
       secret: true,
-      optional: Boolean(storage),
-      description: storage
-        ? 'Leave empty to keep the saved secret. A replacement is stored encrypted.'
-        : 'Stored encrypted and never displayed again.',
     },
   ] as const
   async function submit() {
     if (busy) return
     const parsed = backupStorageSchema.safeParse({ ...draft, id: storage?.id })
-    if (!parsed.success) {
-      setErrors(formErrors(parsed.error.issues))
-      return
+    const validationErrors: FormErrors = parsed.success
+      ? {}
+      : formErrors(parsed.error.issues)
+    if (!storage && !draft.secretAccessKey.trim()) {
+      validationErrors.secretAccessKey = 'Enter a secret access key.'
     }
-    if (!storage && !draft.secretAccessKey) {
-      setErrors({ secretAccessKey: 'Enter a secret access key.' })
+    if (!parsed.success || Object.keys(validationErrors).length > 0) {
+      if (validationErrors.form) toast.error(validationErrors.form)
+      setErrors(validationErrors)
       return
     }
     setErrors({})
@@ -308,9 +373,10 @@ function BackupStorageDialog({
       )
       onClose()
     } catch (cause) {
-      setErrors({
-        form: getErrorMessage(cause, 'Unable to save backup storage.'),
-      })
+      if (showSettingsConflict(cause)) return
+      toast.error(
+        getPublicErrorMessage(cause, 'Unable to save backup storage.'),
+      )
     } finally {
       setBusy(false)
     }
@@ -322,7 +388,7 @@ function BackupStorageDialog({
         if (!open && !busy) onClose()
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] grid-cols-1 overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {storage ? 'Edit backup storage' : 'Add backup storage'}
@@ -341,19 +407,33 @@ function BackupStorageDialog({
             void submit()
           }}
         >
-          <fieldset disabled={busy}>
-            <FieldGroup>
+          <fieldset className="min-w-0" disabled={busy}>
+            <FieldGroup className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               {fields.map((field) => (
-                <Field key={field.key}>
+                <Field
+                  key={field.key}
+                  className={
+                    field.key === 'name' || field.key === 'endpoint'
+                      ? 'sm:col-span-2'
+                      : undefined
+                  }
+                >
                   <FieldLabel htmlFor={`storage-${field.key}`}>
                     {field.label}
-                    {'optional' in field && field.optional ? '' : ' (required)'}
+                    {'optional' in field ? ' (optional)' : ''}
                   </FieldLabel>
                   <Input
                     id={`storage-${field.key}`}
-                    value={draft[field.key]}
+                    value={
+                      storage && field.key === 'secretAccessKey'
+                        ? '••••••••••••••••'
+                        : draft[field.key]
+                    }
                     type={'secret' in field ? 'password' : 'text'}
-                    readOnly={Boolean(storage && 'location' in field)}
+                    readOnly={Boolean(
+                      storage &&
+                      ('location' in field || field.key === 'secretAccessKey'),
+                    )}
                     placeholder={
                       'placeholder' in field ? field.placeholder : undefined
                     }
@@ -375,7 +455,6 @@ function BackupStorageDialog({
                   </FieldError>
                 </Field>
               ))}
-              <FieldError>{errors.form}</FieldError>
             </FieldGroup>
           </fieldset>
         </form>

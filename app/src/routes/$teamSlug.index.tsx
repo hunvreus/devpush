@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { useRefreshError } from '@/lib/use-refresh-error'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
@@ -21,6 +22,7 @@ export const Route = createFileRoute('/$teamSlug/')({
   pendingMinMs: 200,
   pendingComponent: TeamOverviewPending,
   component: TeamHomeRoute,
+  head: ({ params }) => pageHead('Overview', params.teamSlug),
 })
 
 function TeamHomeRoute() {

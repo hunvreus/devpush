@@ -1,7 +1,9 @@
+import { pruneDeletedResources } from '@/server/deleted-resources'
 import { saveBackupStorage } from '@/server/backups/storage'
 import { required } from '@/test/required'
 import { eq, inArray } from 'drizzle-orm'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
+import * as ProjectContextModule from './context'
 
 import { closeDb, db } from '@/server/db'
 import { currentAgentCapabilities } from '@/server/agents/compatibility'
@@ -40,7 +42,8 @@ import {
 import {
   createBackupRestoreJob,
   createManualBackupRun,
-  updateProjectBackupConfigs,
+  saveProjectBackupPolicy,
+  deleteProjectBackupPolicy,
 } from './backups'
 import {
   deleteProject,
@@ -52,7 +55,8 @@ import {
   parseDeploymentConfig,
 } from './deployment-config'
 import { encryptProjectEnvVars } from './project-env-vars'
-import { createComposeRuntimeConfig } from './runtime-config'
+import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+import { resolveAvailableAliasHostname } from './hostnames'
 
 const touchedJobIds: Array<string> = []
 const touchedBackupRunIds: Array<string> = []
@@ -75,6 +79,82 @@ afterAll(async () => {
 })
 
 describe('project settings integration', () => {
+  test('stale policy deletion preserves newer settings', async () => {
+    const f = await createProjectFixture()
+    const id = makeId('concurrent-policy')
+    await db.insert(backupConfigs).values({
+      id,
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      name: 'Concurrent policy',
+      schedule: { cron: '0 2 * * *' },
+      destination: {},
+      retention: {
+        local: { count: 7, days: 0, maxStorageGb: 0 },
+        remote: { enabled: false, count: 7, days: 0, maxStorageGb: 0 },
+      },
+    })
+    await db
+      .update(backupConfigs)
+      .set({ name: 'Newer policy' })
+      .where(eq(backupConfigs.id, id))
+    await expect(
+      deleteProjectBackupPolicy({
+        userId: f.ownerId,
+        teamSlug: f.teamSlug,
+        projectName: f.projectName,
+        settingsVersion: 1,
+        policyId: id,
+      }),
+    ).rejects.toMatchObject({ code: 'SETTINGS_CONFLICT' })
+    expect(
+      await db.select().from(backupConfigs).where(eq(backupConfigs.id, id)),
+    ).toHaveLength(1)
+  })
+
+  test('demotion after backup context loading prevents the final replacement', async () => {
+    const f = await createProjectFixture()
+    const id = makeId('protected-policy')
+    await db.insert(backupConfigs).values({
+      id,
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      name: 'Protected policy',
+      schedule: { cron: '0 2 * * *' },
+      destination: {},
+      retention: {
+        local: { count: 7, days: 0, maxStorageGb: 0 },
+        remote: { enabled: false, count: 7, days: 0, maxStorageGb: 0 },
+      },
+    })
+    const original = ProjectContextModule.getProjectContext
+    const contextRead = vi
+      .spyOn(ProjectContextModule, 'getProjectContext')
+      .mockImplementationOnce(async (params) => {
+        const context = await original(params)
+        await db
+          .update(teamMembers)
+          .set({ role: 'member' })
+          .where(eq(teamMembers.userId, f.adminId))
+        return context
+      })
+    try {
+      await expect(
+        deleteProjectBackupPolicy({
+          userId: f.adminId,
+          teamSlug: f.teamSlug,
+          projectName: f.projectName,
+          settingsVersion: 1,
+          policyId: id,
+        }),
+      ).rejects.toMatchObject({ code: 'SETTINGS_CONFLICT' })
+      expect(
+        await db.select().from(backupConfigs).where(eq(backupConfigs.id, id)),
+      ).toHaveLength(1)
+    } finally {
+      contextRead.mockRestore()
+    }
+  })
   test('definition-only saves preserve persisted server assignments', async () => {
     const fixture = await createProjectFixture()
     const input = {
@@ -179,31 +259,33 @@ describe('project settings integration', () => {
       databaseDumps: [],
     }
     const route = {
+      settingsVersion: null,
       userId: fixture.adminId,
       teamSlug: fixture.teamSlug,
       projectName: fixture.projectName,
     }
-    const saved = await updateProjectBackupConfigs({
+    const saved = await saveProjectBackupPolicy({
       ...route,
-      backupConfigs: [policy],
+      policy,
     })
+    expect(saved.backupConfigs[0]?.settingsVersion).toBe(1)
     expect(saved.backupConfigs[0]?.destination).toEqual({
       storageId: localStorage.id,
+      prefix: `projects/${fixture.projectId}/environments/${fixture.environmentId}/backups/${policy.id}`,
     })
     expect(JSON.stringify(saved)).not.toContain('secretAccessKey')
     await expect(
-      updateProjectBackupConfigs({
+      saveProjectBackupPolicy({
         ...route,
-        backupConfigs: [
-          { ...policy, destination: { storageId: foreignStorage.id } },
-        ],
+        settingsVersion: 1,
+        policy: { ...policy, destination: { storageId: foreignStorage.id } },
       }),
     ).rejects.toThrow('in this workspace')
     await expect(
-      updateProjectBackupConfigs({
+      saveProjectBackupPolicy({
         ...route,
         userId: fixture.memberId,
-        backupConfigs: [policy],
+        policy,
       }),
     ).rejects.toThrow('Only team owners and admins')
     await expect(
@@ -219,10 +301,10 @@ describe('project settings integration', () => {
         .from(backupConfigs)
         .where(eq(backupConfigs.id, policy.id))
     )[0]!
-    expect(preserved.destination).toEqual({ storageId: localStorage.id })
+    expect(preserved.destination).toEqual(saved.backupConfigs[0]?.destination)
   })
 
-  test('replaces large backup policy sets atomically and keeps the old set after a later insert fails', async () => {
+  test('updates only the selected policy and preserves its creation time', async () => {
     const { ownerId, teamSlug, projectName, projectId, environmentId } =
       await createProjectFixture()
     const configs = Array.from({ length: 20 }, (_, index) => ({
@@ -240,34 +322,42 @@ describe('project settings integration', () => {
       databaseDumps: [],
     }))
     const input = { userId: ownerId, teamSlug, projectName }
-    await updateProjectBackupConfigs({ ...input, backupConfigs: configs })
-    expect(
-      await db
-        .select()
-        .from(backupConfigs)
-        .where(eq(backupConfigs.projectId, projectId)),
-    ).toHaveLength(20)
-    const replacement = configs
-      .slice(0, 7)
-      .map((config) => ({ ...config, id: makeId('replacement') }))
-    replacement.push(required(replacement[0]))
-    await expect(
-      updateProjectBackupConfigs({ ...input, backupConfigs: replacement }),
-    ).rejects.toThrow()
-    const stored = await db
+    for (const policy of configs)
+      await saveProjectBackupPolicy({ ...input, settingsVersion: null, policy })
+    const [first] = await db
       .select()
       .from(backupConfigs)
-      .where(eq(backupConfigs.projectId, projectId))
-    expect(stored.map((config) => config.id).sort()).toEqual(
-      configs.map((config) => config.id).sort(),
-    )
-    await updateProjectBackupConfigs({ ...input, backupConfigs: [] })
+      .where(eq(backupConfigs.id, configs[0]!.id))
+    const changed = await saveProjectBackupPolicy({
+      ...input,
+      settingsVersion: 1,
+      policy: { ...configs[0]!, name: 'Updated' },
+    })
+    expect(changed.backupConfigs).toHaveLength(20)
+    const [saved] = await db
+      .select()
+      .from(backupConfigs)
+      .where(eq(backupConfigs.id, configs[0]!.id))
+    expect(saved!.createdAt).toEqual(first!.createdAt)
+    expect(saved!.settingsVersion).toBe(2)
+    await expect(
+      saveProjectBackupPolicy({
+        ...input,
+        settingsVersion: 1,
+        policy: configs[0]!,
+      }),
+    ).rejects.toMatchObject({ code: 'SETTINGS_CONFLICT' })
+    await deleteProjectBackupPolicy({
+      ...input,
+      settingsVersion: 2,
+      policyId: configs[0]!.id,
+    })
     expect(
       await db
         .select()
         .from(backupConfigs)
         .where(eq(backupConfigs.projectId, projectId)),
-    ).toEqual([])
+    ).toHaveLength(19)
   })
 
   test('custom domains reject environments from another project', async () => {
@@ -569,7 +659,7 @@ describe('project settings integration', () => {
     }
     const stagingIds = [makeId('environment'), makeId('environment')]
     touchedEnvironmentIds.push(...stagingIds)
-    const results = await Promise.all(
+    const results = await Promise.allSettled(
       stagingIds.map((id) =>
         updateProjectEnvironments({
           userId: fixture.ownerId,
@@ -598,7 +688,15 @@ describe('project settings integration', () => {
     expect(required(rows.filter((e) => e.slug === 'production')[0]).id).toBe(
       fixture.environmentId,
     )
-    for (const result of results) {
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1)
+    expect(
+      results.find((result) => result.status === 'rejected'),
+    ).toMatchObject({ reason: { code: 'SETTINGS_CONFLICT' } })
+    for (const settled of results) {
+      if (settled.status !== 'fulfilled') continue
+      const result = settled.value
       const aliasRows = await db
         .select()
         .from(aliases)
@@ -669,6 +767,25 @@ describe('project settings integration', () => {
       developmentId,
       stagingId,
     ])
+  })
+
+  test('managed hostname collisions retain the namespace within DNS limits', async () => {
+    const { environmentId, projectId } = await createProjectFixture()
+    const domainId = makeId('domain')
+    const suffix = `${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`
+    const hostname = `${'a'.repeat(63)}.${suffix}`
+    touchedDomainIds.push(domainId)
+    await db
+      .insert(domains)
+      .values({ id: domainId, environmentId, projectId, hostname })
+    const resolved = await resolveAvailableAliasHostname({
+      hostname,
+      uniquenessKey: projectId,
+    })
+    expect(resolved).not.toBe(hostname)
+    expect(resolved.endsWith(`.${suffix}`)).toBe(true)
+    expect(resolved.length).toBeLessThanOrEqual(253)
+    expect(resolved.split('.').every((label) => label.length <= 63)).toBe(true)
   })
 
   test('generated aliases disambiguate custom domain collisions', async () => {
@@ -1022,8 +1139,9 @@ describe('project settings integration', () => {
     const { memberId, projectName, teamSlug } = await createProjectFixture()
 
     await expect(
-      updateProjectBackupConfigs({
-        backupConfigs: [],
+      deleteProjectBackupPolicy({
+        settingsVersion: 1,
+        policyId: 'unavailable',
         projectName,
         teamSlug,
         userId: memberId,
@@ -1261,7 +1379,21 @@ describe('project settings integration', () => {
       phase: 'complete',
       errorMessage: null,
     })
-    expect(hostnameRows).toEqual([])
+    expect(hostnameRows.length).toBeGreaterThan(0)
+    await pruneDeletedResources()
+    expect(
+      await db.select().from(aliases).where(eq(aliases.projectId, projectId)),
+    ).toHaveLength(hostnameRows.length)
+    await db
+      .update(agentJobs)
+      .set({ status: 'succeeded' })
+      .where(
+        eq(agentJobs.id, jobRows.find((job) => job.type === 'deprovision')!.id),
+      )
+    await pruneDeletedResources()
+    expect(
+      await db.select().from(aliases).where(eq(aliases.projectId, projectId)),
+    ).toEqual([])
     expect(jobRows).toHaveLength(3)
     expect(jobRows.find((job) => job.id === backupJobId)).toMatchObject({
       type: 'backup',
@@ -1319,10 +1451,21 @@ describe('project settings integration', () => {
       ownerId,
       projectId,
       projectName,
+      environmentId,
       runningDeploymentId,
       queuedDeploymentId,
       teamSlug,
     } = await createProjectFixture()
+
+    const reservedHostname = `${projectName}-127-0-0-1.nip.io`
+    const domainId = makeId('retained-domain')
+    touchedDomainIds.push(domainId)
+    await db.insert(domains).values({
+      id: domainId,
+      projectId,
+      environmentId,
+      hostname: reservedHostname,
+    })
 
     await deleteProject({
       userId: ownerId,
@@ -1374,11 +1517,48 @@ describe('project settings integration', () => {
       ]),
     )
     expect(jobRows).toEqual([])
+    expect(
+      await db.select().from(aliases).where(eq(aliases.projectId, projectId)),
+    ).toHaveLength(1)
+    expect(
+      await db.select().from(domains).where(eq(domains.projectId, projectId)),
+    ).toHaveLength(1)
+    expect(
+      await resolveAvailableAliasHostname({
+        hostname: reservedHostname,
+        uniquenessKey: 'replacement-project',
+      }),
+    ).not.toBe(reservedHostname)
   })
 
+  test.each([createRollbackDeployment, createRedeployDeployment])(
+    'historical replay rejects a moved environment',
+    async (replay) => {
+      const f = await createProjectFixture()
+      await db
+        .update(environments)
+        .set({ serverId: null })
+        .where(eq(environments.id, f.environmentId))
+      await expect(
+        replay({
+          deploymentId: f.succeededDeploymentId,
+          userId: f.ownerId,
+          teamSlug: f.teamSlug,
+          projectName: f.projectName,
+        }),
+      ).rejects.toMatchObject({ code: 'DEPLOYMENT_SERVER_CHANGED' })
+    },
+  )
+
   test('rollback reuses the source deployment config and env vars', async () => {
-    const { ownerId, projectName, succeededDeploymentId, teamSlug } =
+    const { ownerId, projectId, projectName, succeededDeploymentId, teamSlug } =
       await createProjectFixture()
+    await db
+      .update(projects)
+      .set({
+        routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
+      })
+      .where(eq(projects.id, projectId))
 
     const rollback = await createRollbackDeployment({
       deploymentId: succeededDeploymentId,
@@ -1422,18 +1602,16 @@ describe('project settings integration', () => {
         readinessPath: '/old-health',
       },
     })
-    expect(deploymentConfig?.routes).toEqual(
-      expect.arrayContaining([
-        {
-          host: 'old.example.devpush.app',
-          https: true,
-          path: '/',
-          service: 'old-web',
-          port: 8080,
-          stripPrefix: false,
-        },
-      ]),
-    )
+    expect(
+      deploymentConfig?.routes.some(
+        (route) => route.host === 'old.example.devpush.app',
+      ),
+    ).toBe(false)
+    expect(
+      deploymentConfig?.routes.some(
+        (route) => route.host === `${projectName}.example.devpush.app`,
+      ),
+    ).toBe(true)
     expect(hostnameRows.at(0)?.hostname).toMatch(
       new RegExp(`^${rollback.deploymentId.slice(0, 7)}-`),
     )
@@ -1466,8 +1644,14 @@ describe('project settings integration', () => {
   })
 
   test('redeploy reuses the source deployment config and env vars', async () => {
-    const { ownerId, projectName, succeededDeploymentId, teamSlug } =
+    const { ownerId, projectId, projectName, succeededDeploymentId, teamSlug } =
       await createProjectFixture()
+    await db
+      .update(projects)
+      .set({
+        routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
+      })
+      .where(eq(projects.id, projectId))
 
     const redeploy = await createRedeployDeployment({
       deploymentId: succeededDeploymentId,
@@ -1511,22 +1695,97 @@ describe('project settings integration', () => {
         readinessPath: '/old-health',
       },
     })
-    expect(deploymentConfig?.routes).toEqual(
-      expect.arrayContaining([
-        {
-          host: 'old.example.devpush.app',
-          https: true,
-          path: '/',
-          service: 'old-web',
-          port: 8080,
-          stripPrefix: false,
-        },
-      ]),
-    )
+    expect(
+      deploymentConfig?.routes.some(
+        (route) => route.host === 'old.example.devpush.app',
+      ),
+    ).toBe(false)
+    expect(
+      deploymentConfig?.routes.some(
+        (route) => route.host === `${projectName}.example.devpush.app`,
+      ),
+    ).toBe(true)
     expect(hostnameRows.at(0)?.hostname).toMatch(
       new RegExp(`^${redeploy.deploymentId.slice(0, 7)}-`),
     )
   })
+
+  test.each(['server_disconnected', 'agent_update_required'] as const)(
+    'records skipped push %s without canceling existing deployments',
+    async (reason) => {
+      const { projectId, environmentId, serverId, runningDeploymentId } =
+        await createProjectFixture()
+      const installationId = 456789
+      touchedInstallationIds.push(installationId)
+      await db.insert(githubInstallations).values({
+        installationId,
+        accountLogin: 'example',
+        accountType: 'Organization',
+        repositorySelection: 'selected',
+      })
+      await db
+        .update(projects)
+        .set({ githubInstallationId: installationId, githubRepoId: 123 })
+        .where(eq(projects.id, projectId))
+      await db
+        .update(servers)
+        .set(
+          reason === 'server_disconnected'
+            ? { status: 'disconnected' }
+            : { agentCapabilities: [] },
+        )
+        .where(eq(servers.id, serverId))
+      const beforeAliases = await db
+        .select()
+        .from(aliases)
+        .where(eq(aliases.projectId, projectId))
+      const push = {
+        deliveryId: crypto.randomUUID(),
+        installationId,
+        repositoryId: 123,
+        repositoryFullName: 'example/project',
+        branch: 'main',
+        gitSha: 'abc123',
+        message: 'Blocked push',
+      }
+      const result = await createDeploymentsForGitHubPush(push)
+      expect(result).toMatchObject({
+        created: [],
+        skipped: [{ projectId, environmentId, reason }],
+      })
+      const rows = await db
+        .select()
+        .from(deployments)
+        .where(eq(deployments.githubDeliveryId, push.deliveryId))
+      touchedDeploymentIds.push(...rows.map((row) => row.id))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        status: 'failed',
+        phase: 'failed',
+        trigger: 'webhook',
+      })
+      expect(rows[0]?.errorMessage).toContain(
+        reason === 'server_disconnected'
+          ? 'disconnected'
+          : 'requires an update',
+      )
+      expect(
+        (
+          await db
+            .select()
+            .from(deployments)
+            .where(eq(deployments.id, runningDeploymentId))
+        )[0]?.status,
+      ).toBe('running')
+      expect(
+        await db.select().from(aliases).where(eq(aliases.projectId, projectId)),
+      ).toEqual(beforeAliases)
+      expect(await createDeploymentsForGitHubPush(push)).toMatchObject({
+        created: [],
+        skipped: [{ reason: 'duplicate_delivery' }],
+      })
+    },
+  )
 
   test('push deployments snapshot effective default and environment routes', async () => {
     const { environmentId, projectId, projectName, serverId } =
@@ -1571,10 +1830,14 @@ describe('project settings integration', () => {
       deliveryId,
       installationId,
       repositoryId: repoId,
-      repositoryFullName: 'example/project',
+      repositoryFullName: 'example/renamed-project',
       branch: 'main',
       gitSha: 'abcdef123456',
       message: 'Push deployment',
+      authorName: 'Ada',
+      authoredAt: '2026-10-12T01:00:00Z',
+      commitUrl:
+        'https://github.com/example/renamed-project/commit/abcdef123456',
     }
     const result = await createDeploymentsForGitHubPush(push)
     const deploymentId = result.created.at(0)?.deploymentId
@@ -1585,10 +1848,21 @@ describe('project settings integration', () => {
 
     touchedDeploymentIds.push(deploymentId)
 
+    const [beforeRepeat] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
     await expect(createDeploymentsForGitHubPush(push)).resolves.toMatchObject({
       created: [],
       skipped: [{ projectId, environmentId, reason: 'duplicate_delivery' }],
     })
+
+    const [afterRepeat] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+    expect(afterRepeat?.updatedAt).toEqual(beforeRepeat?.updatedAt)
+    expect(afterRepeat?.settingsVersion).toBe(beforeRepeat?.settingsVersion)
 
     const rows = await db
       .select({ deployment: deployments })
@@ -1596,10 +1870,21 @@ describe('project settings integration', () => {
       .where(eq(deployments.id, deploymentId))
     const snapshot = parseDeploymentConfig(rows.at(0)?.deployment.config)
 
+    expect(
+      (await db.select().from(projects).where(eq(projects.id, projectId)))[0]
+        ?.githubRepo,
+    ).toBe('example/renamed-project')
     expect(rows.at(0)?.deployment).toMatchObject({
       serverId,
       runtimeId: 'runtime-production',
       trigger: 'webhook',
+      repoFullName: 'example/renamed-project',
+      commitMeta: {
+        message: push.message,
+        authorName: push.authorName,
+        authoredAt: push.authoredAt,
+        url: push.commitUrl,
+      },
     })
     expect(snapshot?.routes).toEqual(
       expect.arrayContaining([

@@ -1,0 +1,41 @@
+# Dedicated devpush test VM. Docker runs directly on the guest.
+minimumLimaVersion: 1.1.0
+vmType: vz
+networks:
+  - vzNAT: true
+    interface: lima0
+# Access the VM directly; leave host HTTP(S) ports available for other apps.
+portForwards:
+  - guestPort: 80
+    ignore: true
+  - guestPort: 443
+    ignore: true
+base:
+  - template://_images/ubuntu-lts
+  - template://_default/mounts
+cpus: 2
+memory: 4GiB
+disk: 30GiB
+containerd:
+  system: false
+  user: false
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y curl ca-certificates git
+      if ! command -v docker >/dev/null; then
+        curl -fsSL https://get.docker.com -o /tmp/install-docker.sh
+        sh /tmp/install-docker.sh
+        rm /tmp/install-docker.sh
+      fi
+      systemctl enable --now docker
+      touch /etc/devpush-test-vm
+probes:
+  - script: |
+      #!/bin/sh
+      sudo docker info >/dev/null && sudo docker compose version >/dev/null
+    hint: Docker installation must complete before tests can run.

@@ -1,14 +1,17 @@
-import { isValidCron } from '@/server/backups/cron'
+import { buildRuntimeId } from '@/lib/runtime-id'
 import type {
   ProjectBackupArtifact,
   ProjectBackupConfig,
   ProjectBackupRun,
+  ProjectBackupRestore,
 } from '@/server/projects/types'
 
 export type BackupFilters = {
+  policy?: string
   environment?: string
   server?: string
   status?: string
+  type?: string
   time?: string
 }
 
@@ -25,19 +28,74 @@ export function getSchedulePresetValue(cron: string) {
     : 'custom'
 }
 
-export function filterBackupRuns(
-  runs: Array<ProjectBackupRun>,
+export function getLatestBackupRuns(runs: ProjectBackupRun[]) {
+  const latest = new Map<string, ProjectBackupRun>()
+  for (const run of runs) {
+    if (!run.configId) continue
+    const previous = latest.get(run.configId)
+    if (
+      !previous ||
+      run.createdAt > previous.createdAt ||
+      (run.createdAt === previous.createdAt && run.id > previous.id)
+    )
+      latest.set(run.configId, run)
+  }
+  return latest
+}
+
+export function getBackupActivity(
+  runs: ProjectBackupRun[],
+  restores: ProjectBackupRestore[],
   filters: BackupFilters,
   now = new Date(),
 ) {
   const since = getSinceDate(filters.time, now)
-  return runs.filter(
-    (run) =>
-      (!filters.environment || run.environmentId === filters.environment) &&
-      (!filters.server || run.serverId === filters.server) &&
-      (!filters.status || run.status === filters.status) &&
-      (!since || new Date(run.createdAt) >= since),
+  return [
+    ...runs.map((run) => ({
+      type: 'backup' as const,
+      record: run,
+      source: run,
+    })),
+    ...restores.map((restore) => ({
+      type: 'restore' as const,
+      record: restore,
+      source: runs.find((run) => run.id === restore.backupRunId),
+    })),
+  ]
+    .filter(
+      ({ type, record, source }) =>
+        (!filters.policy || source?.configId === filters.policy) &&
+        (!filters.type || filters.type === type) &&
+        (!filters.environment ||
+          record.environmentId === filters.environment) &&
+        (!filters.status || record.status === filters.status) &&
+        (!filters.server || record.serverId === filters.server) &&
+        (!since || new Date(record.startedAt ?? record.createdAt) >= since),
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.record.startedAt ?? b.record.createdAt).getTime() -
+        new Date(a.record.startedAt ?? a.record.createdAt).getTime(),
+    )
+}
+
+export function formatBackupAge(value: string, now = Date.now()) {
+  const minutes = Math.max(
+    0,
+    Math.round((now - new Date(value).getTime()) / 60000),
   )
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`
+}
+
+export function formatBackupUtc(value: string) {
+  return new Intl.DateTimeFormat('en', {
+    dateStyle: 'medium',
+    timeStyle: 'long',
+    timeZone: 'UTC',
+  }).format(new Date(value))
 }
 
 export function getSinceDate(time: string | undefined, now = new Date()) {
@@ -63,47 +121,7 @@ export function formatBackupStatus(status: ProjectBackupRun['status']) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-export function formatBackupDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
-}
-
-export function formatBackupArtifacts(
-  artifacts: ProjectBackupRun['artifacts'],
-) {
-  if (artifacts.length === 0) {
-    return 'No artifacts'
-  }
-  const files = artifacts.filter((artifact) => artifact.type !== 'manifest')
-  const volumes = new Set(
-    files
-      .filter((a) => a.type === 'volume')
-      .map((a) => a.objectKey.split('/').at(-1)),
-  ).size
-  const dumps = new Set(
-    files
-      .filter((a) => a.type === 'database')
-      .map((a) => a.objectKey.split('/').at(-1)),
-  ).size
-  const targets =
-    [
-      volumes ? `${volumes} volume${volumes === 1 ? '' : 's'}` : '',
-      dumps ? `${dumps} dump${dumps === 1 ? '' : 's'}` : '',
-    ]
-      .filter(Boolean)
-      .join(', ') || 'No backup files'
-  const locations = [
-    files.some((a) => a.storage === 'local') ? 'Server' : '',
-    files.some((a) => a.storage === 'remote') ? 'Remote' : '',
-  ]
-    .filter(Boolean)
-    .join(' + ')
-  return locations ? `${targets} · ${locations}` : targets
-}
-
-export function inferArtifactName(artifact: ProjectBackupArtifact) {
+function inferArtifactName(artifact: ProjectBackupArtifact) {
   const fileName = artifact.objectKey.split('/').at(-1) ?? artifact.objectKey
   return fileName
     .replace(/^\d+-/, '')
@@ -126,14 +144,6 @@ export function formatBytes(value: number) {
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`
 }
 
-export function getDefaultBackupPrefix(
-  projectId: string,
-  environmentId: string,
-  backupId: string,
-) {
-  return `projects/${projectId}/environments/${environmentId}/backups/${backupId}`
-}
-
 export function getDatabaseServiceOptions({
   databaseDumps,
   services,
@@ -150,27 +160,12 @@ export function getDatabaseServiceOptions({
   ).sort()
 }
 
-export function isValidRetention(retention: ProjectBackupConfig['retention']) {
-  return [retention.local, retention.remote].every(
-    (item) =>
-      Number.isInteger(item.count) &&
-      item.count >= 0 &&
-      Number.isInteger(item.days) &&
-      item.days >= 0 &&
-      Number.isFinite(item.maxStorageGb) &&
-      item.maxStorageGb >= 0,
-  )
-}
-
-export function isCronSchedule(value: string) {
-  return isValidCron(value)
-}
-
 export const backupDetailSections = [
   { id: 'general', label: 'General' },
   { id: 'destination', label: 'Remote backups' },
   { id: 'retention', label: 'Retention' },
-  { id: 'targets', label: 'Backup targets' },
+  { id: 'volumes', label: 'Volumes' },
+  { id: 'databases', label: 'Databases' },
   { id: 'danger', label: 'Danger' },
 ]
 
@@ -180,16 +175,16 @@ export function getComposeArtifactName(
   environmentId: string,
 ) {
   const name = inferArtifactName(artifact)
-  const prefix = `dp_${projectId
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .slice(0, 10)
-    .padEnd(10, '0')}_${environmentId
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .slice(0, 10)
-    .padEnd(10, '0')}_`
-  return artifact.type === 'volume' && name.startsWith(prefix)
-    ? name.slice(prefix.length)
+  return artifact.type === 'volume'
+    ? getComposeVolumeName(name, projectId, environmentId)
     : name
+}
+
+export function getComposeVolumeName(
+  name: string,
+  projectId: string,
+  environmentId: string,
+) {
+  const prefix = buildRuntimeId({ projectId, environmentId }) + '_'
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name
 }

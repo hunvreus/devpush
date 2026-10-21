@@ -1,7 +1,20 @@
+import DeploymentWorkspaceSettings, {
+  workspaceSettingsNavigation,
+} from '#devpush/deployment/ui'
+import {
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+  EmptyDescription,
+} from '@/components/ui/empty'
+import { useSettingsVersion } from '@/lib/use-settings-version'
+import { backupsEnabled } from '@/lib/backup-feature'
+import { showSettingsConflict } from '@/lib/settings-conflict'
+import { CopyButton } from '@/components/copy-button'
 import { BackupStorageSettings } from './backup-storage-settings'
 import type { BackupStorageSummary } from '@/lib/backup-storage-schema'
 import { setTeamContextQueryData } from '@/lib/team-context-query'
-import { inviteSchema, bulkInviteSchema } from '@/lib/team-forms-schema'
+import { bulkInviteSchema, parseInviteEmails } from '@/lib/team-forms-schema'
 import { useAvatarInput } from '@/lib/use-avatar-input'
 import { afterMutation, copyText } from '@/lib/action-feedback'
 import { teamGeneralSchema } from '@/lib/team-settings-schema'
@@ -10,8 +23,6 @@ import type { FormErrors } from '@/lib/form-errors'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronDownIcon,
-  CopyIcon,
   InfoIcon,
   LoaderIcon,
   PlusIcon,
@@ -46,7 +57,6 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
 import {
   Dialog,
   DialogContent,
@@ -55,12 +65,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Field,
   FieldDescription,
@@ -72,7 +76,6 @@ import { Input } from '@/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
 import {
@@ -102,10 +105,9 @@ import {
   canManageTeamMembers,
 } from '@/lib/team-role'
 import type { TeamRole } from '@/lib/team-role'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import {
-  createTeamInviteAction,
   createTeamInvitesAction,
   deleteTeamAction,
   removeTeamMemberAction,
@@ -152,6 +154,7 @@ export function TeamSettings({
     )
   }
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [savedGeneral, setSavedGeneral] = useState(team)
   const [generalErrors, setGeneralErrors] = useState<FormErrors>({})
   const [name, setName] = useState(team.name)
   const [slug, setSlug] = useState(team.slug)
@@ -165,21 +168,15 @@ export function TeamSettings({
   const [deleteAvatar, setDeleteAvatar] = useState(false)
   const [isSavingGeneral, setIsSavingGeneral] = useState(false)
   const [memberQuery, setMemberQuery] = useState('')
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
-  const [inviteErrors, setInviteErrors] = useState<FormErrors>({})
   const [bulkInviteErrors, setBulkInviteErrors] = useState<FormErrors>({})
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false)
   const [bulkInviteEmails, setBulkInviteEmails] = useState('')
   const [bulkInviteRole, setBulkInviteRole] = useState<'admin' | 'member'>(
     'member',
   )
   const [bulkInviteDialogOpen, setBulkInviteDialogOpen] = useState(false)
   const [memberPage, setMemberPage] = useState(1)
-  const [isInviting, setIsInviting] = useState(false)
   const [isBulkInviting, setIsBulkInviting] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
   const [teamDeleted, setTeamDeleted] = useState(false)
   const [isDeletingTeam, setIsDeletingTeam] = useState(false)
   const [deleteTeamConfirmation, setDeleteTeamConfirmation] = useState('')
@@ -212,12 +209,26 @@ export function TeamSettings({
   const avatarUrl = deleteAvatar ? null : (avatarDataUrl ?? team.image)
   const generalDirty =
     isReadingAvatar ||
-    name.trim() !== team.name ||
-    slug.trim() !== team.slug ||
+    name.trim() !== savedGeneral.name ||
+    slug.trim() !== savedGeneral.slug ||
     Boolean(avatarDataUrl) ||
     deleteAvatar
 
+  const settingsVersion = useSettingsVersion({
+    version: team.settingsVersion,
+    dirty: generalDirty,
+    saving: isSavingGeneral,
+    refresh: () => {
+      setName(team.name)
+      setSlug(team.slug)
+      setSavedGeneral(team)
+      setGeneralErrors({})
+    },
+  })
+
   function resetGeneral() {
+    settingsVersion.current = team.settingsVersion
+    setSavedGeneral(team)
     setGeneralErrors({})
     setName(team.name)
     setSlug(team.slug)
@@ -274,6 +285,8 @@ export function TeamSettings({
     if (!canManageMembers) return
     if (isSavingGeneral || isReadingAvatar || !generalDirty) return
     const parsed = teamGeneralSchema.safeParse({
+      teamId: team.id,
+      settingsVersion: settingsVersion.current,
       teamSlug: team.slug,
       name,
       slug,
@@ -282,6 +295,7 @@ export function TeamSettings({
     })
     if (!parsed.success) {
       const errors = formErrors(parsed.error.issues)
+      if (errors.form) toast.error(errors.form)
       setGeneralErrors(errors)
       document
         .getElementById(
@@ -296,10 +310,15 @@ export function TeamSettings({
     try {
       const result = await updateTeamGeneralAction({ data: parsed.data })
       if (result.fieldErrors) {
+        if (result.fieldErrors.form) toast.error(result.fieldErrors.form)
         setGeneralErrors(result.fieldErrors)
         return
       }
       const nextTeam = result.team
+      settingsVersion.current = nextTeam.settingsVersion
+      setSavedGeneral(nextTeam)
+      setName(nextTeam.name)
+      setSlug(nextTeam.slug)
       await setTeamContextQueryData(queryClient, nextTeam)
       setAvatarDataUrl(null)
       setDeleteAvatar(false)
@@ -316,51 +335,12 @@ export function TeamSettings({
         )
       }
     } catch (error) {
-      setGeneralErrors({
-        form: getErrorMessage(error, 'Unable to save team. Please try again.'),
-      })
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to save team. Please try again.'),
+      )
     } finally {
       setIsSavingGeneral(false)
-    }
-  }
-
-  async function sendInvite() {
-    if (isInviting) return
-    const parsed = inviteSchema.safeParse({
-      teamSlug: team.slug,
-      email: inviteEmail,
-      role: inviteRole,
-    })
-    if (!parsed.success) {
-      setInviteErrors(formErrors(parsed.error.issues))
-      document.getElementById('invite-email')?.focus()
-      return
-    }
-    setInviteErrors({})
-    setIsInviting(true)
-
-    try {
-      const result = await createTeamInviteAction({
-        data: {
-          teamSlug: team.slug,
-          email: parsed.data.email,
-          role: parsed.data.role,
-        },
-      })
-      setInviteEmail('')
-      setInviteRole('member')
-      setInviteDialogOpen(false)
-      await handleInviteResult(result, 'Invite sent.')
-      await refreshTeam()
-    } catch (error) {
-      setInviteErrors({
-        form: getErrorMessage(
-          error,
-          'Unable to send invite. Please try again.',
-        ),
-      })
-    } finally {
-      setIsInviting(false)
     }
   }
 
@@ -376,6 +356,23 @@ export function TeamSettings({
       document.getElementById('bulk-invite-emails')?.focus()
       return
     }
+    const submitted = bulkInviteEmails.split(/[\s,]+/).filter(Boolean)
+    const existing = new Set(
+      members.map((member) => member.user.email.toLowerCase()),
+    )
+    const emails = parseInviteEmails(bulkInviteEmails).filter(
+      (email) => !existing.has(email),
+    )
+    const skipped = submitted.length - emails.length
+    if (!emails.length) {
+      toast.warning(
+        `No invitations sent. ${skipped} ${skipped === 1 ? 'address' : 'addresses'} skipped.`,
+      )
+      setBulkInviteEmails('')
+      setBulkInviteErrors({})
+      setBulkInviteDialogOpen(false)
+      return
+    }
     setBulkInviteErrors({})
     setIsBulkInviting(true)
 
@@ -383,43 +380,39 @@ export function TeamSettings({
       const result = await createTeamInvitesAction({
         data: {
           teamSlug: team.slug,
-          emails: bulkInviteEmails,
+          emails: emails.join(', '),
           role: bulkInviteRole,
         },
       })
-      if (result.failedEmails.length > 0) {
+      const summary = `${result.emailSentCount} ${result.emailSentCount === 1 ? 'invitation' : 'invitations'} sent.${skipped ? ` ${skipped} ${skipped === 1 ? 'address' : 'addresses'} skipped.` : ''}${result.emailCount > result.emailSentCount ? ` ${result.emailCount - result.emailSentCount} invitation email(s) failed to send.` : ''}${result.failedEmails.length ? ` ${result.failedEmails.length} address(es) could not be invited.` : ''}`
+      if (
+        result.failedEmails.length ||
+        result.emailSentCount !== result.emailCount ||
+        skipped
+      )
+        toast.warning(summary)
+      else toast.success(summary)
+      if (result.failedEmails.length) {
         setBulkInviteEmails(
           result.failedEmails.map((item) => item.email).join('\n'),
         )
         setBulkInviteErrors({
           emails: result.failedEmails.map((item) => item.message).join(' '),
-          form: `${result.emailCount} ${result.emailCount === 1 ? 'invitation' : 'invitations'} created; ${result.emailSentCount} ${result.emailSentCount === 1 ? 'email' : 'emails'} sent. Only failed addresses remain below.`,
         })
-        await refreshTeam()
-        return
-      }
-      setBulkInviteEmails('')
-      setBulkInviteRole('member')
-      setBulkInviteDialogOpen(false)
-      if (result.emailSentCount === result.emailCount) {
-        toast.success(
-          result.emailCount === 1
-            ? 'Invite sent.'
-            : `${result.emailCount} invites sent.`,
-        )
       } else {
-        toast.warning(
-          `${result.emailCount} invites created, ${result.emailSentCount} emails sent.`,
-        )
+        setBulkInviteEmails('')
+        setBulkInviteRole('member')
+        setBulkInviteDialogOpen(false)
       }
       await refreshTeam()
     } catch (error) {
-      setBulkInviteErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to send invites. Please try again.',
         ),
-      })
+      )
     } finally {
       setIsBulkInviting(false)
     }
@@ -427,7 +420,7 @@ export function TeamSettings({
 
   async function updateRole(memberUserId: string, role: TeamRole) {
     if (busyId || isDeletingTeam || teamDeleted) return
-    setActionError(null)
+
     setBusyId(memberUserId)
 
     try {
@@ -438,7 +431,8 @@ export function TeamSettings({
       await refreshTeam()
       setPendingRoleChange(null)
     } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to update member.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to update member.'))
     } finally {
       setBusyId(null)
     }
@@ -448,7 +442,7 @@ export function TeamSettings({
     const member = members.find((item) => item.user.id === memberUserId)
     if (!member || removeMemberConfirmation !== member.user.email) return
     if (busyId || isDeletingTeam || teamDeleted) return
-    setActionError(null)
+
     setBusyId(memberUserId)
 
     try {
@@ -459,7 +453,8 @@ export function TeamSettings({
       toast.success('Member removed.')
       await refreshTeam()
     } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to remove member.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to remove member.'))
     } finally {
       setBusyId(null)
     }
@@ -467,7 +462,7 @@ export function TeamSettings({
 
   async function transferOwnership(memberUserId: string) {
     if (busyId || isDeletingTeam || teamDeleted) return
-    setActionError(null)
+
     setBusyId(memberUserId)
 
     try {
@@ -478,7 +473,8 @@ export function TeamSettings({
       toast.success('Ownership transferred.')
       await refreshTeam()
     } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to transfer ownership.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to transfer ownership.'))
     } finally {
       setBusyId(null)
     }
@@ -486,7 +482,7 @@ export function TeamSettings({
 
   async function resendInvite(inviteId: string) {
     if (busyId || isDeletingTeam || teamDeleted) return
-    setActionError(null)
+
     setBusyId(inviteId)
 
     try {
@@ -496,7 +492,8 @@ export function TeamSettings({
       await handleInviteResult(result, 'Invite resent.')
       await refreshTeam()
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to resend invite.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to resend invite.'))
     } finally {
       setBusyId(null)
     }
@@ -521,7 +518,7 @@ export function TeamSettings({
 
   async function revokeInvite(inviteId: string) {
     if (busyId || isDeletingTeam || teamDeleted) return
-    setActionError(null)
+
     setBusyId(inviteId)
 
     try {
@@ -530,7 +527,8 @@ export function TeamSettings({
       toast.success('Invite revoked.')
       await refreshTeam()
     } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to revoke invite.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to revoke invite.'))
     } finally {
       setBusyId(null)
     }
@@ -545,7 +543,7 @@ export function TeamSettings({
       deleteTeamConfirmation !== team.slug
     )
       return
-    setActionError(null)
+
     setIsDeletingTeam(true)
 
     try {
@@ -564,7 +562,8 @@ export function TeamSettings({
         'The action completed, but opening the next page failed. Please reload.',
       )
     } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to delete team.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to delete team.'))
     } finally {
       setIsDeletingTeam(false)
     }
@@ -574,7 +573,13 @@ export function TeamSettings({
     <div className="space-y-8">
       <TeamHeading team={team} crumb={<span>Team settings</span>} />
 
-      <SettingsLayout navigation={teamSettingsNavigationItems}>
+      <SettingsLayout
+        navigation={[
+          ...teamSettingsNavigationItems.slice(0, 2),
+          ...workspaceSettingsNavigation,
+          ...teamSettingsNavigationItems.slice(2),
+        ]}
+      >
         <SettingsSection
           id="general"
           title="General"
@@ -730,26 +735,13 @@ export function TeamSettings({
                   readOnly
                 />
                 <InputGroupAddon align="inline-end">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <InputGroupButton
-                        size="icon-sm"
-                        type="button"
-                        aria-label="Copy team ID"
-                        onClick={() => void copyText(team.id, 'Team ID')}
-                      >
-                        <CopyIcon />
-                      </InputGroupButton>
-                    </TooltipTrigger>
-                    <TooltipContent>Copy team ID</TooltipContent>
-                  </Tooltip>
+                  <CopyButton value={team.id} label="Copy team ID" inputGroup />
                 </InputGroupAddon>
               </InputGroup>
               <FieldDescription>
                 A unique identifier used in API, environment variables, etc.
               </FieldDescription>
             </Field>
-            <FieldError role="alert">{generalErrors.form}</FieldError>
           </form>
         </SettingsSection>
 
@@ -760,90 +752,6 @@ export function TeamSettings({
         >
           <div className="space-y-6">
             <div className="space-y-4">
-              <Dialog
-                open={inviteDialogOpen}
-                onOpenChange={(open) => {
-                  if (!isInviting) setInviteDialogOpen(open)
-                }}
-              >
-                <DialogContent>
-                  <form
-                    id="invite-form"
-                    noValidate
-                    className="grid gap-4"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      void sendInvite()
-                    }}
-                  >
-                    <fieldset disabled={isInviting} className="grid gap-4">
-                      <DialogHeader>
-                        <DialogTitle>Add member</DialogTitle>
-                        <DialogDescription>
-                          Invite a member to join this team.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <FieldGroup>
-                        <Field data-invalid={Boolean(inviteErrors.email)}>
-                          <FieldLabel htmlFor="invite-email">
-                            Email (required)
-                          </FieldLabel>
-                          <Input
-                            id="invite-email"
-                            required
-                            maxLength={320}
-                            aria-describedby="invite-email-error"
-                            type="email"
-                            placeholder="name@example.com"
-                            value={inviteEmail}
-                            aria-invalid={Boolean(inviteErrors.email)}
-                            onChange={(event) => {
-                              setInviteEmail(event.target.value)
-                              setInviteErrors({})
-                            }}
-                          />
-                          <FieldError id="invite-email-error">
-                            {inviteErrors.email}
-                          </FieldError>
-                        </Field>
-                        <Field>
-                          <FieldLabel htmlFor="invite-role">Role</FieldLabel>
-                          <Select
-                            value={inviteRole}
-                            onValueChange={(value) =>
-                              setInviteRole(
-                                value === 'admin' ? 'admin' : 'member',
-                              )
-                            }
-                          >
-                            <SelectTrigger id="invite-role">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="member">Member</SelectItem>
-                              <SelectItem value="admin">Admin</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </Field>
-                      </FieldGroup>
-                      <FieldError role="alert">{inviteErrors.form}</FieldError>
-                      <DialogFooter>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => setInviteDialogOpen(false)}
-                          disabled={isInviting}
-                        >
-                          Cancel
-                        </Button>
-                        <Button type="submit" disabled={isInviting}>
-                          Invite
-                        </Button>
-                      </DialogFooter>
-                    </fieldset>
-                  </form>
-                </DialogContent>
-              </Dialog>
               <Dialog
                 open={bulkInviteDialogOpen}
                 onOpenChange={(open) => {
@@ -862,10 +770,11 @@ export function TeamSettings({
                   >
                     <fieldset disabled={isBulkInviting} className="grid gap-4">
                       <DialogHeader>
-                        <DialogTitle>Bulk invite members</DialogTitle>
+                        <DialogTitle>Add members</DialogTitle>
                         <DialogDescription>
                           Paste email addresses separated by commas, spaces, or
-                          new lines. Each invite will use the selected role.
+                          new lines. Duplicate, invalid and existing member
+                          addresses are skipped.
                         </DialogDescription>
                       </DialogHeader>
                       <FieldGroup>
@@ -905,8 +814,8 @@ export function TeamSettings({
                               setBulkInviteEmails(event.target.value)
                               setBulkInviteErrors({})
                             }}
-                            placeholder="alice@example.com&#10;bob@example.com, carol@example.com"
-                            rows={5}
+                            placeholder="name@example.com"
+                            className="resize-none max-h-64 overflow-y-auto"
                           />
                           <FieldError id="bulk-invite-emails-error">
                             {bulkInviteErrors.emails}
@@ -932,7 +841,7 @@ export function TeamSettings({
                               className="animate-spin"
                             />
                           ) : null}
-                          Invite members
+                          Add members
                         </Button>
                       </DialogFooter>
                     </fieldset>
@@ -951,54 +860,35 @@ export function TeamSettings({
                   />
                 </InputGroup>
                 {canManageMembers ? (
-                  <ButtonGroup>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setInviteErrors({})
-                        setInviteDialogOpen(true)
-                      }}
-                    >
-                      <PlusIcon data-icon="inline-start" />
-                      Add member
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          aria-label="More member actions"
-                        >
-                          <ChevronDownIcon />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setBulkInviteErrors({})
-                            setBulkInviteDialogOpen(true)
-                          }}
-                        >
-                          Bulk invite
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </ButtonGroup>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setBulkInviteErrors({})
+                      setBulkInviteDialogOpen(true)
+                    }}
+                  >
+                    <PlusIcon data-icon="inline-start" />
+                    Add members
+                  </Button>
                 ) : null}
               </div>
 
               {filteredMembers.length === 0 ? (
-                <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                  No members found.
-                </p>
+                <Empty className="min-h-40">
+                  <EmptyHeader>
+                    <EmptyTitle>No members found.</EmptyTitle>
+                    <EmptyDescription>
+                      Try a different name, username or email.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
+                        <TableHead className="pl-4">Name</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead className="w-[120px]">Role</TableHead>
                         <TableHead className="w-28">
@@ -1024,7 +914,7 @@ export function TeamSettings({
 
                         return (
                           <TableRow key={member.id}>
-                            <TableCell>
+                            <TableCell className="pl-4">
                               <div className="flex items-center gap-3">
                                 <Avatar className="size-8">
                                   <AvatarImage
@@ -1055,7 +945,7 @@ export function TeamSettings({
                                   onValueChange={(value) => {
                                     const nextRole = value as TeamRole
                                     if (nextRole === member.role) return
-                                    setActionError(null)
+
                                     setPendingRoleChange({
                                       member,
                                       role: nextRole,
@@ -1090,142 +980,141 @@ export function TeamSettings({
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <div className="ml-auto flex items-center justify-end gap-1">
-                                {canTransferToMember ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        type="button"
-                                        aria-label={`Transfer ownership to ${displayName}`}
-                                        disabled={busyId === member.user.id}
-                                        onClick={() => {
-                                          setActionError(null)
-                                          setPendingOwnershipTransfer(member)
-                                        }}
-                                      >
-                                        <UserRoundCheckIcon />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      Transfer ownership
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : null}
-                                {canManageMember ? (
-                                  <AlertDialog
-                                    open={
-                                      confirmation ===
-                                      `remove:${member.user.id}`
-                                    }
-                                    onOpenChange={(open) => {
-                                      if (
-                                        !busyId &&
-                                        !isDeletingTeam &&
-                                        !teamDeleted
-                                      ) {
-                                        setActionError(null)
-                                        setConfirmation(
-                                          open
-                                            ? `remove:${member.user.id}`
-                                            : null,
-                                        )
-                                      }
-                                    }}
-                                  >
+                              <div className="ml-auto">
+                                <div className="-mr-2 flex items-center justify-end gap-1">
+                                  {canTransferToMember ? (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <AlertDialogTrigger asChild>
-                                          <Button
-                                            variant="destructive"
-                                            size="icon"
-                                            type="button"
-                                            aria-label="Remove member"
-                                            disabled={
-                                              busyId === member.user.id ||
-                                              isLastOwner
-                                            }
-                                            onClick={() =>
-                                              setRemoveMemberConfirmation('')
-                                            }
-                                          >
-                                            <Trash2Icon />
-                                          </Button>
-                                        </AlertDialogTrigger>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          type="button"
+                                          aria-label={`Transfer ownership to ${displayName}`}
+                                          disabled={busyId === member.user.id}
+                                          onClick={() => {
+                                            setPendingOwnershipTransfer(member)
+                                          }}
+                                        >
+                                          <UserRoundCheckIcon />
+                                        </Button>
                                       </TooltipTrigger>
                                       <TooltipContent>
-                                        Remove member
+                                        Transfer ownership
                                       </TooltipContent>
                                     </Tooltip>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>
-                                          Remove {displayName}?
-                                        </AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          This removes the member from the team.
-                                          They will no longer have access to
-                                          this team or its projects.{' '}
-                                          {`Type "${member.user.email}" to confirm.`}
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <Field>
-                                        <Input
-                                          aria-label={`Type ${member.user.email} to confirm`}
-                                          id={`remove-member-${member.user.id}`}
-                                          required
-                                          disabled={Boolean(busyId)}
-                                          placeholder={member.user.email}
-                                          value={removeMemberConfirmation}
-                                          onChange={(event) =>
-                                            setRemoveMemberConfirmation(
-                                              event.target.value,
-                                            )
-                                          }
-                                          onKeyDown={(event) => {
-                                            if (
-                                              event.key === 'Enter' &&
-                                              busyId !== member.user.id &&
-                                              removeMemberConfirmation ===
+                                  ) : null}
+                                  {canManageMember ? (
+                                    <AlertDialog
+                                      open={
+                                        confirmation ===
+                                        `remove:${member.user.id}`
+                                      }
+                                      onOpenChange={(open) => {
+                                        if (
+                                          !busyId &&
+                                          !isDeletingTeam &&
+                                          !teamDeleted
+                                        ) {
+                                          setConfirmation(
+                                            open
+                                              ? `remove:${member.user.id}`
+                                              : null,
+                                          )
+                                        }
+                                      }}
+                                    >
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <AlertDialogTrigger asChild>
+                                            <Button
+                                              variant="destructive"
+                                              size="icon"
+                                              type="button"
+                                              aria-label="Remove member"
+                                              disabled={
+                                                busyId === member.user.id ||
+                                                isLastOwner
+                                              }
+                                              onClick={() =>
+                                                setRemoveMemberConfirmation('')
+                                              }
+                                            >
+                                              <Trash2Icon />
+                                            </Button>
+                                          </AlertDialogTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Remove member
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>
+                                            Remove {displayName}?
+                                          </AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This removes the member from the
+                                            team. They will no longer have
+                                            access to this team or its projects.{' '}
+                                            {`Type "${member.user.email}" to confirm.`}
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <Field>
+                                          <Input
+                                            aria-label={`Type ${member.user.email} to confirm`}
+                                            id={`remove-member-${member.user.id}`}
+                                            required
+                                            disabled={Boolean(busyId)}
+                                            placeholder={member.user.email}
+                                            value={removeMemberConfirmation}
+                                            onChange={(event) =>
+                                              setRemoveMemberConfirmation(
+                                                event.target.value,
+                                              )
+                                            }
+                                            onKeyDown={(event) => {
+                                              if (
+                                                event.key === 'Enter' &&
+                                                busyId !== member.user.id &&
+                                                removeMemberConfirmation ===
+                                                  member.user.email
+                                              ) {
+                                                event.preventDefault()
+                                                void removeMember(
+                                                  member.user.id,
+                                                )
+                                              }
+                                            }}
+                                          />
+                                        </Field>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel
+                                            disabled={busyId === member.user.id}
+                                          >
+                                            Cancel
+                                          </AlertDialogCancel>
+                                          <AlertDialogAction
+                                            variant="destructive"
+                                            disabled={
+                                              busyId === member.user.id ||
+                                              removeMemberConfirmation !==
                                                 member.user.email
-                                            ) {
+                                            }
+                                            onClick={(event) => {
                                               event.preventDefault()
                                               void removeMember(member.user.id)
-                                            }
-                                          }}
-                                        />
-                                      </Field>
-                                      <FieldError role="alert">
-                                        {actionError}
-                                      </FieldError>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel
-                                          disabled={busyId === member.user.id}
-                                        >
-                                          Cancel
-                                        </AlertDialogCancel>
-                                        <AlertDialogAction
-                                          variant="destructive"
-                                          disabled={
-                                            busyId === member.user.id ||
-                                            removeMemberConfirmation !==
-                                              member.user.email
-                                          }
-                                          onClick={(event) => {
-                                            event.preventDefault()
-                                            void removeMember(member.user.id)
-                                          }}
-                                        >
-                                          {busyId === member.user.id ? (
-                                            <LoaderIcon className="animate-spin" />
-                                          ) : null}
-                                          Remove member
-                                        </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                                ) : null}
+                                            }}
+                                          >
+                                            {busyId === member.user.id ? (
+                                              <LoaderIcon className="animate-spin" />
+                                            ) : null}
+                                            Remove member
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  ) : null}
+                                </div>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1251,7 +1140,7 @@ export function TeamSettings({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Email</TableHead>
+                        <TableHead className="pl-4">Email</TableHead>
                         <TableHead className="w-[120px]">Role</TableHead>
                         <TableHead className="w-[120px]">Expires</TableHead>
                         <TableHead className="w-28">
@@ -1262,7 +1151,7 @@ export function TeamSettings({
                     <TableBody>
                       {invites.map((invite) => (
                         <TableRow key={invite.id}>
-                          <TableCell className="truncate font-medium text-foreground">
+                          <TableCell className="pl-4 truncate font-medium text-foreground">
                             {invite.email}
                           </TableCell>
                           <TableCell className="capitalize text-muted-foreground">
@@ -1272,88 +1161,90 @@ export function TeamSettings({
                             {formatInviteDate(invite.expiresAt)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="ml-auto flex items-center justify-end gap-1">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    type="button"
-                                    aria-label="Resend invite"
-                                    disabled={busyId === invite.id}
-                                    onClick={() => void resendInvite(invite.id)}
-                                  >
-                                    <RefreshCwIcon />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Resend invite</TooltipContent>
-                              </Tooltip>
-                              <AlertDialog
-                                open={confirmation === `revoke:${invite.id}`}
-                                onOpenChange={(open) => {
-                                  if (
-                                    !busyId &&
-                                    !isDeletingTeam &&
-                                    !teamDeleted
-                                  ) {
-                                    setActionError(null)
-                                    setConfirmation(
-                                      open ? `revoke:${invite.id}` : null,
-                                    )
-                                  }
-                                }}
-                              >
+                            <div className="ml-auto">
+                              <div className="-mr-2 flex items-center justify-end gap-1">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <AlertDialogTrigger asChild>
-                                      <Button
-                                        variant="destructive"
-                                        size="icon"
-                                        type="button"
-                                        aria-label="Remove invite"
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      type="button"
+                                      aria-label="Resend invite"
+                                      disabled={busyId === invite.id}
+                                      onClick={() =>
+                                        void resendInvite(invite.id)
+                                      }
+                                    >
+                                      <RefreshCwIcon />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Resend invite</TooltipContent>
+                                </Tooltip>
+                                <AlertDialog
+                                  open={confirmation === `revoke:${invite.id}`}
+                                  onOpenChange={(open) => {
+                                    if (
+                                      !busyId &&
+                                      !isDeletingTeam &&
+                                      !teamDeleted
+                                    ) {
+                                      setConfirmation(
+                                        open ? `revoke:${invite.id}` : null,
+                                      )
+                                    }
+                                  }}
+                                >
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="destructive"
+                                          size="icon"
+                                          type="button"
+                                          aria-label="Remove invite"
+                                          disabled={busyId === invite.id}
+                                        >
+                                          <Trash2Icon />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Remove invite
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>
+                                        Revoke invite?
+                                      </AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        This revokes the pending invitation for{' '}
+                                        {invite.email}.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel
                                         disabled={busyId === invite.id}
                                       >
-                                        <Trash2Icon />
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Remove invite</TooltipContent>
-                                </Tooltip>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Revoke invite?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This revokes the pending invitation for{' '}
-                                      {invite.email}.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <FieldError role="alert">
-                                    {actionError}
-                                  </FieldError>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel
-                                      disabled={busyId === invite.id}
-                                    >
-                                      Cancel
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      variant="destructive"
-                                      disabled={busyId === invite.id}
-                                      onClick={(event) => {
-                                        event.preventDefault()
-                                        void revokeInvite(invite.id)
-                                      }}
-                                    >
-                                      {busyId === invite.id ? (
-                                        <LoaderIcon className="animate-spin" />
-                                      ) : null}
-                                      Revoke invite
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
+                                        Cancel
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction
+                                        variant="destructive"
+                                        disabled={busyId === invite.id}
+                                        onClick={(event) => {
+                                          event.preventDefault()
+                                          void revokeInvite(invite.id)
+                                        }}
+                                      >
+                                        {busyId === invite.id ? (
+                                          <LoaderIcon className="animate-spin" />
+                                        ) : null}
+                                        Revoke invite
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1368,7 +1259,6 @@ export function TeamSettings({
               onOpenChange={(open) => {
                 if (!open && !busyId) {
                   setPendingRoleChange(null)
-                  setActionError(null)
                 }
               }}
             >
@@ -1386,7 +1276,6 @@ export function TeamSettings({
                     ) : null}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
-                <FieldError role="alert">{actionError}</FieldError>
                 <AlertDialogFooter>
                   <AlertDialogCancel
                     disabled={
@@ -1426,7 +1315,6 @@ export function TeamSettings({
               onOpenChange={(open) => {
                 if (!open && !busyId) {
                   setPendingOwnershipTransfer(null)
-                  setActionError(null)
                 }
               }}
             >
@@ -1444,7 +1332,6 @@ export function TeamSettings({
                     ) : null}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
-                <FieldError role="alert">{actionError}</FieldError>
                 <AlertDialogFooter>
                   <AlertDialogCancel
                     disabled={
@@ -1479,7 +1366,8 @@ export function TeamSettings({
           </div>
         </SettingsSection>
 
-        {import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED === 'true' ? (
+        <DeploymentWorkspaceSettings teamSlug={team.slug} role={team.role} />
+        {backupsEnabled ? (
           <BackupStorageSettings team={team} storage={backupStorage} />
         ) : null}
         <SettingsSection
@@ -1506,7 +1394,6 @@ export function TeamSettings({
               open={confirmation === 'delete'}
               onOpenChange={(open) => {
                 if (!busyId && !isDeletingTeam && !teamDeleted) {
-                  setActionError(null)
                   setConfirmation(open ? 'delete' : null)
                 }
               }}
@@ -1560,7 +1447,6 @@ export function TeamSettings({
                     }}
                   />
                 </Field>
-                <FieldError role="alert">{actionError}</FieldError>
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={isDeletingTeam || teamDeleted}>
                     Cancel

@@ -1,24 +1,20 @@
 export function LogoMark({
-  className = 'size-4 shrink-0',
+  className = 'size-4.5 shrink-0',
 }: {
   className?: string
 }) {
   return (
     <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      viewBox="0 0 120 96"
+      fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-hidden="true"
     >
-      <path d="m16 6 6 6-6 6" />
-      <path d="M7 3 2 21M4.5 12H22" />
+      <path
+        fillRule="evenodd"
+        d="M48 0H96L120 24V72H72V96H24L0 72V24H48V0ZM24 48V72H48V48H24ZM72 24V48H96V24H72Z"
+      />
     </svg>
   )
 }

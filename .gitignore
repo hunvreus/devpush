@@ -1,4 +1,5 @@
 # Local state
+app/public/uploads/
 .DS_Store
 .env
 .env.*

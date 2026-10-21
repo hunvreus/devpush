@@ -30,6 +30,7 @@ import {
 } from '@/server/projects/environment-state'
 import { enqueueDeployment } from '@/server/projects/queue-state'
 import { replaceProjectRoutes } from '@/server/projects/route-state'
+import { saveProjectBackupPolicyState } from '@/server/projects/backup-policy-state'
 import { replaceProjectDomains } from '@/server/projects/domain-state'
 import {
   failStaleAgentJob,
@@ -46,28 +47,132 @@ import {
   claimDeployment,
 } from '@/server/agents/claims'
 
-let runtime: Awaited<ReturnType<typeof createD1TestStores>>['runtime']
+let runtime:
+  | Awaited<ReturnType<typeof createD1TestStores>>['runtime']
+  | undefined
 let main: ReturnType<typeof openD1<typeof schema>>
 let logs: ReturnType<typeof openD1<typeof logSchema>>
 beforeAll(async () => {
   ;({ runtime, main, logs } = await createD1TestStores())
-})
+}, 30_000)
 
-afterAll(async () => runtime.dispose())
+afterAll(async () => runtime?.dispose())
 
 describe('local D1 storage', () => {
+  test('backup policy saves enforce their own version and live roles on D1', async () => {
+    const teamId = 'backup-guard-team',
+      userId = 'backup-guard-user',
+      projectId = 'backup-guard-project',
+      environmentId = 'backup-guard-env'
+    const revision = new Date()
+    await main
+      .insert(schema.teams)
+      .values({ id: teamId, name: teamId, slug: teamId })
+    await main.insert(schema.user).values({
+      id: userId,
+      name: userId,
+      username: userId,
+      email: `${userId}@example.invalid`,
+    })
+    await main
+      .insert(schema.teamMembers)
+      .values({ id: 'backup-guard-member', teamId, userId, role: 'admin' })
+    await main.insert(schema.projects).values({
+      id: projectId,
+      teamId,
+      name: projectId,
+      slug: projectId,
+      githubRepo: 'test/repo',
+      runtimeConfig: { kind: 'compose' },
+      updatedAt: revision,
+    })
+    await main.insert(schema.environments).values({
+      id: environmentId,
+      projectId,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      runtimeId: 'dp_backup_guard',
+    })
+    const configs: Array<typeof schema.backupConfigs.$inferInsert> = Array.from(
+      { length: 20 },
+      (_, index) => ({
+        id: `backup-guard-policy-${index}`,
+        name: `Policy ${index}`,
+        projectId,
+        environmentId,
+        enabled: true,
+        destinationType: 's3',
+        destination: {},
+        schedule: { cron: '0 2 * * *' },
+        retention: {
+          local: { count: 7, days: 0, maxStorageGb: 0 },
+          remote: { enabled: false, count: 7, days: 0, maxStorageGb: 0 },
+        },
+        volumes: { mode: 'none', names: [] },
+        databaseDumps: [],
+      }),
+    )
+    const input = {
+      projectId,
+      teamId,
+      userId,
+      settingsVersion: null,
+      now: new Date(),
+      policy: {
+        ...required(configs[0]),
+        id: required(configs[0]).id,
+        name: required(configs[0]).name,
+        environmentId,
+        enabled: true,
+        destination: {},
+        schedule: { cron: '0 2 * * *' },
+        retention: required(configs[0]).retention,
+        volumes: { mode: 'none', names: [] },
+        databaseDumps: [],
+      },
+    }
+    expect(await saveProjectBackupPolicyState(main, input)).toBe(true)
+    expect(
+      await saveProjectBackupPolicyState(main, {
+        ...input,
+        settingsVersion: 1,
+        policy: { ...input.policy, name: 'Updated' },
+      }),
+    ).toBe(true)
+    expect(
+      await saveProjectBackupPolicyState(main, {
+        ...input,
+        settingsVersion: 1,
+      }),
+    ).toBe(false)
+    await main
+      .update(schema.teamMembers)
+      .set({ role: 'member' })
+      .where(eq(schema.teamMembers.userId, userId))
+    expect(
+      await saveProjectBackupPolicyState(main, {
+        ...input,
+        settingsVersion: 2,
+      }),
+    ).toBe(false)
+    const [saved] = await main
+      .select()
+      .from(schema.backupConfigs)
+      .where(eq(schema.backupConfigs.id, input.policy.id))
+    expect(saved?.name).toBe('Updated')
+    expect(saved?.settingsVersion).toBe(2)
+  })
   test('stores full metric batches with original times and idempotent retries on D1', async () => {
     await main
       .insert(schema.teams)
       .values({ id: 'metric-team', slug: 'metric-team', name: 'Metric team' })
-    await main
-      .insert(schema.servers)
-      .values({
-        id: 'metric-server',
-        teamId: 'metric-team',
-        name: 'Metric server',
-        handle: 'metric-server',
-      })
+    await main.insert(schema.servers).values({
+      id: 'metric-server',
+      teamId: 'metric-team',
+      name: 'Metric server',
+      handle: 'metric-server',
+    })
     const now = new Date()
     const samples = Array.from({ length: 240 }, (_, index) => ({
       id: index.toString(16).padStart(32, '0'),
@@ -572,6 +677,53 @@ describe('local D1 storage', () => {
     } finally {
       await main.run(sql`drop trigger reject_deployment_alias`)
     }
+    const blocked = {
+      ...input,
+      deployment: {
+        ...input.deployment,
+        id: 'enqueue-blocked',
+        githubDeliveryId: 'delivery-blocked',
+      },
+      failureMessage: 'Assigned server is disconnected.',
+      queuedMessage: 'Assigned server is disconnected.',
+    }
+    expect(await enqueueDeployment(main, blocked)).toBe(true)
+    expect(
+      await enqueueDeployment(main, {
+        ...blocked,
+        deployment: { ...blocked.deployment, id: 'enqueue-blocked-retry' },
+      }),
+    ).toBe(false)
+    expect(
+      required(
+        (
+          await main
+            .select()
+            .from(schema.deployments)
+            .where(eq(schema.deployments.id, source.id))
+        )[0],
+      ).status,
+    ).toBe('running')
+    expect(
+      required(
+        (
+          await main
+            .select()
+            .from(schema.deployments)
+            .where(eq(schema.deployments.id, blocked.deployment.id))
+        )[0],
+      ),
+    ).toMatchObject({
+      status: 'failed',
+      errorMessage: blocked.failureMessage,
+      finishedAt: now,
+    })
+    expect(
+      await main
+        .select()
+        .from(schema.aliases)
+        .where(eq(schema.aliases.deploymentId, blocked.deployment.id)),
+    ).toEqual([])
     const results = await Promise.all([
       enqueueDeployment(main, input),
       enqueueDeployment(main, {
@@ -1345,7 +1497,12 @@ describe('local D1 storage', () => {
       .select()
       .from(schema.agentJobs)
       .where(eq(schema.agentJobs.id, 'claimed-backup-job'))
-    const input = { job: required(job), backupRunId: 'claimed-backup', now }
+    const input = {
+      job: required(job),
+      payloadSnapshot: JSON.stringify(required(job).payload),
+      backupRunId: 'claimed-backup',
+      now,
+    }
     await main
       .update(schema.agentJobs)
       .set({ payload: { backupRunId: 'different-backup' } })
@@ -1395,6 +1552,50 @@ describe('local D1 storage', () => {
       .from(schema.backupRuns)
       .where(eq(schema.backupRuns.id, 'claimed-backup'))
     expect(run).toMatchObject({ status: 'running', startedAt: now })
+  })
+
+  test('claims and expires SQL-built JSON jobs without reserializing their payload snapshot', async () => {
+    const now = new Date()
+    await main.run(sql`insert into agent_jobs(id,type,server_id,status,payload,available_at)
+      values ('sql-json-claim','backup_cleanup','queue-server','queued',json_object('schemaVersion',1.0,'backupRunIds',json('[]'),'localObjectKeys',json('[]'),'remoteObjectKeys',json('[]'),'destination',json('{}')),${now.getTime()})`)
+    const [snapshot] = await main
+      .select({
+        job: schema.agentJobs,
+        payloadSnapshot: sql<string>`${schema.agentJobs.payload}`,
+      })
+      .from(schema.agentJobs)
+      .where(eq(schema.agentJobs.id, 'sql-json-claim'))
+    expect(required(snapshot).payloadSnapshot).not.toBe(
+      JSON.stringify(required(snapshot).job.payload),
+    )
+    expect(
+      await claimBackupCandidate(main, {
+        ...required(snapshot),
+        backupRunId: null,
+        now,
+      }),
+    ).not.toBeNull()
+    await main
+      .update(schema.agentJobs)
+      .set({ claimedAt: new Date(1) })
+      .where(eq(schema.agentJobs.id, 'sql-json-claim'))
+    const [running] = await main
+      .select({
+        job: schema.agentJobs,
+        payloadSnapshot: sql<string>`${schema.agentJobs.payload}`,
+      })
+      .from(schema.agentJobs)
+      .where(eq(schema.agentJobs.id, 'sql-json-claim'))
+    expect(
+      await failStaleAgentJob(main, {
+        ...required(running),
+        now,
+        timeoutMs: 1000,
+        message: 'Timed out',
+        backupRunId: null,
+        cleanupRunIds: [],
+      }),
+    ).toBe(true)
   })
 
   test('completes backup artifacts and statuses atomically across bounded inserts and terminal replays', async () => {
@@ -1579,6 +1780,7 @@ describe('local D1 storage', () => {
       .where(eq(schema.agentJobs.id, 'stale-job'))
     const input = {
       job: required(job),
+      payloadSnapshot: JSON.stringify(required(job).payload),
       now,
       timeoutMs: 25 * 60 * 60 * 1000,
       message: 'Timed out',
@@ -2619,8 +2821,8 @@ describe('local D1 storage', () => {
 
 test('Workers select D1 bindings when no remote URLs are configured', async () => {
   const stores = openWorkerDatabases({
-    DEVPUSH_DATABASE: await runtime.getD1Database('MAIN'),
-    DEVPUSH_LOG_DATABASE: await runtime.getD1Database('LOGS'),
+    DEVPUSH_DATABASE: await required(runtime).getD1Database('MAIN'),
+    DEVPUSH_LOG_DATABASE: await required(runtime).getD1Database('LOGS'),
   })
   expect(await stores.db.all(sql`select 17 as value`)).toEqual([{ value: 17 }])
   expect(await stores.logsDb.all(sql`select 23 as value`)).toEqual([

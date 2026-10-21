@@ -1,3 +1,5 @@
+import { projectSettingsGuard } from '@/server/settings-version'
+import type { ApiMutationAdmission } from '@/server/api/admission'
 import { sql } from 'drizzle-orm'
 import type { AtomicStore } from '@/server/db/atomic'
 import type { aliases, environments } from '@/server/db/schema'
@@ -40,6 +42,9 @@ export async function replaceProjectEnvironments(
       alias: { id: string; hostname: string; https: boolean } | null
     }>
     now: Date
+    admission?: ApiMutationAdmission
+    settingsVersion?: number
+    userId?: string
   },
 ) {
   const order = <T extends { id: string }>(rows: T[]) =>
@@ -60,17 +65,16 @@ export async function replaceProjectEnvironments(
     ]),
   )
   const expectedAliases = JSON.stringify(
-    order(input.previousAliases).map((a) => [
-      a.id,
-      a.environmentId,
-      a.hostname,
-      a.type,
-      a.deploymentId,
-      a.previousDeploymentId,
-      a.branch,
-      Number(a.https),
-      a.updatedAt.getTime(),
-    ]),
+    order(input.previousAliases.filter((a) => a.type === 'environment')).map(
+      (a) => [
+        a.id,
+        a.environmentId,
+        a.hostname,
+        a.type,
+        a.branch,
+        Number(a.https),
+      ],
+    ),
   )
   const now = input.now.getTime()
   const removed = JSON.stringify(
@@ -124,15 +128,21 @@ export async function replaceProjectEnvironments(
       // Fail the whole batch if the snapshot used to reconcile IDs and generate
       // hostnames has changed. The service reloads and retries, rather than
       // committing a mix of two requests. This works with D1's fixed batches.
-      store.run(sql`update projects set updated_at = case when
+      store.run(sql`update projects set settings_version = settings_version + 1, updated_at = case when
         status = 'active' and default_server_id is ${input.previousDefaultServerId}
+        and not exists(select 1 from json_each(${JSON.stringify([input.defaultServerId === undefined ? input.previousDefaultServerId : input.defaultServerId, ...input.environments.map((e) => e.serverId)].filter(Boolean))}) as assigned where not exists(select 1 from servers s join projects p on p.team_id = s.team_id where p.id = ${input.projectId} and s.id = assigned.value and s.status <> 'deleted'))
+        and ${input.admission?.guard ?? sql`1`} ${input.userId && input.settingsVersion !== undefined ? sql`and ${projectSettingsGuard(input.projectId, input.userId, input.settingsVersion)}` : sql``}
         and (select json_group_array(json_array(id, name, slug, branch, server_id, color, status,
           is_production, position, runtime_id, updated_at)) from
           (select * from environments where project_id = ${input.projectId} order by id)) = ${expectedEnvironments}
-        and (select json_group_array(json_array(id, environment_id, hostname, type, deployment_id,
-          previous_deployment_id, branch, https, updated_at)) from
-          (select * from aliases where project_id = ${input.projectId} order by id)) = ${expectedAliases}
-        then ${now} else null end where id = ${input.projectId}`),
+        and (select json_group_array(json_array(id, environment_id, hostname, type, branch, https)) from
+          (select * from aliases where project_id = ${input.projectId} and type = 'environment' order by id)) = ${expectedAliases}
+        then ${now} else null end,
+        ${input.defaultServerId === undefined ? sql`` : sql`default_server_id = ${input.defaultServerId},`}
+        routes = (select json_group_array(json(value)) from json_each(projects.routes)
+          where coalesce(json_extract(value, '$.environmentId'), '') not in (select value from json_each(${removed})))
+        where id = ${input.projectId}`),
+      ...(input.admission?.statements ?? []),
       ...writes,
       store.run(sql`update environments set status = 'deleted', is_production = 0, updated_at = ${now}
         where project_id = ${input.projectId} and id in (select value from json_each(${removed}))`),
@@ -140,11 +150,6 @@ export async function replaceProjectEnvironments(
         and environment_id in (select value from json_each(${removed}))`),
       store.run(sql`delete from domains where project_id = ${input.projectId}
         and environment_id in (select value from json_each(${removed}))`),
-      store.run(sql`update projects set
-        ${input.defaultServerId === undefined ? sql`` : sql`default_server_id = ${input.defaultServerId},`}
-        routes = (select json_group_array(json(value)) from json_each(projects.routes)
-          where coalesce(json_extract(value, '$.environmentId'), '') not in (select value from json_each(${removed}))),
-        updated_at = ${now} where id = ${input.projectId}`),
     ])
   } catch (error) {
     if (isSnapshotFailure(error)) throw new EnvironmentStateChanged()

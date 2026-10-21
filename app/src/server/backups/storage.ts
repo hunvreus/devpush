@@ -1,4 +1,10 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
+import {
+  saveBackupStorageState,
+  deleteBackupStorageState,
+} from './storage-state'
+import { requireBackupsEnabled } from '@/server/backups/feature'
+import { PublicError } from '@/lib/public-error'
+import { and, asc, eq } from 'drizzle-orm'
 import { backupStorageSchema } from '@/lib/backup-storage-schema'
 import type {
   BackupStorageInput,
@@ -6,12 +12,7 @@ import type {
   BackupStorageReference,
 } from '@/lib/backup-storage-schema'
 import { db } from '@/server/db'
-import {
-  backupStorage,
-  backupConfigs,
-  backupRuns,
-  backupArtifacts,
-} from '@/server/db/schema'
+import { backupStorage } from '@/server/db/schema'
 import { encryptSecret } from '@/server/secrets/crypto'
 import { requireTeam, requireTeamManager } from '@/server/teams/service'
 import type { BackupDestination } from './service'
@@ -22,6 +23,7 @@ export async function listBackupStorage(
 ): Promise<BackupStorageSummary[]> {
   const rows = await db
     .select({
+      settingsVersion: backupStorage.settingsVersion,
       id: backupStorage.id,
       name: backupStorage.name,
       bucket: backupStorage.bucket,
@@ -54,70 +56,32 @@ export async function saveBackupStorage({
   userId,
   teamSlug,
   input,
+  settingsVersion,
 }: {
   userId: string
   teamSlug: string
+  settingsVersion?: number | null
   input: BackupStorageInput
 }) {
+  requireBackupsEnabled()
   const team = await requireTeamManager(userId, teamSlug)
-  const parsed = backupStorageSchema.parse(input)
-  const existing = parsed.id
-    ? (
-        await db
-          .select()
-          .from(backupStorage)
-          .where(
-            and(
-              eq(backupStorage.id, parsed.id),
-              eq(backupStorage.teamId, team.id),
-            ),
-          )
-          .limit(1)
-      ).at(0)
-    : undefined
-  if (parsed.id && !existing) throw new Error('Backup storage not found.')
-  if (!existing && !parsed.secretAccessKey)
-    throw new Error('Enter a secret access key.')
-  // Location is immutable: create another destination to move new backups.
-  if (
-    existing &&
-    (existing.bucket !== parsed.bucket ||
-      existing.region !== parsed.region ||
-      (existing.endpoint ?? '') !== parsed.endpoint)
-  )
-    throw new Error(
-      'Create another storage destination to change its bucket, region or endpoint.',
+  const prepared = await prepareBackupStorage({
+    teamId: team.id,
+    input,
+    settingsVersion,
+  })
+  const changed = await saveBackupStorageState(db, {
+    teamId: team.id,
+    userId,
+    storageId: prepared.id,
+    settingsVersion: prepared.settingsVersion,
+    values: prepared.values,
+    now: new Date(),
+  })
+  if (!changed)
+    throw new PublicError(
+      prepared.settingsVersion === null ? 'FORBIDDEN' : 'SETTINGS_CONFLICT',
     )
-  const now = new Date()
-  const values = {
-    name: parsed.name,
-    bucket: parsed.bucket,
-    region: parsed.region,
-    endpoint: parsed.endpoint || null,
-    accessKeyId: parsed.accessKeyId,
-    secretAccessKeyCiphertext: parsed.secretAccessKey
-      ? encryptSecret(parsed.secretAccessKey)
-      : existing!.secretAccessKeyCiphertext,
-    updatedAt: now,
-  }
-  if (existing) {
-    await db
-      .update(backupStorage)
-      .set(values)
-      .where(
-        and(
-          eq(backupStorage.id, existing.id),
-          eq(backupStorage.teamId, team.id),
-        ),
-      )
-  } else {
-    await db.insert(backupStorage).values({
-      id: crypto.randomUUID(),
-      teamId: team.id,
-      ...values,
-      createdAt: now,
-    })
-  }
   return listBackupStorage(team.id, true)
 }
 
@@ -125,8 +89,7 @@ export async function resolveBackupDestination(
   teamId: string,
   reference: BackupStorageReference,
 ): Promise<BackupDestination> {
-  if (!reference.storageId)
-    throw new Error('Select a workspace backup storage destination.')
+  if (!reference.storageId) throw new PublicError('BACKUP_STORAGE_REQUIRED')
   const row = (
     await db
       .select()
@@ -139,8 +102,7 @@ export async function resolveBackupDestination(
       )
       .limit(1)
   ).at(0)
-  if (!row)
-    throw new Error('Select a backup storage destination in this workspace.')
+  if (!row) throw new PublicError('BACKUP_STORAGE_TEAM_MISMATCH')
   return {
     storageId: row.id,
     bucket: row.bucket,
@@ -156,7 +118,7 @@ export async function refreshBackupCredentials(
   teamId: string,
   snapshot: BackupDestination,
 ): Promise<BackupDestination> {
-  if (!snapshot.storageId) return snapshot
+  if (!snapshot.storageId) throw new PublicError('BACKUP_STORAGE_REQUIRED')
   const current = await resolveBackupDestination(teamId, {
     storageId: snapshot.storageId,
   })
@@ -171,29 +133,90 @@ export async function deleteBackupStorage({
   userId,
   teamSlug,
   storageId,
+  settingsVersion,
 }: {
   userId: string
   teamSlug: string
+  settingsVersion?: number
   storageId: string
 }) {
+  requireBackupsEnabled()
   const team = await requireTeamManager(userId, teamSlug)
-  // References are tested in the deletion statement, never against a stale UI snapshot.
-  const deleted = await db
-    .delete(backupStorage)
-    .where(
-      and(
-        eq(backupStorage.id, storageId),
-        eq(backupStorage.teamId, team.id),
-        sql`not exists (select 1 from ${backupConfigs} where json_extract(${backupConfigs.destination}, '$.storageId') = ${storageId})`,
-        sql`not exists (select 1 from ${backupRuns} where json_extract(${backupRuns.destination}, '$.storageId') = ${storageId}
-      and (${backupRuns.status} in ('queued', 'running') or exists
-        (select 1 from ${backupArtifacts} where ${backupArtifacts.backupRunId} = ${backupRuns.id} and ${backupArtifacts.storage} = 'remote')))`,
-      ),
-    )
-    .returning({ id: backupStorage.id })
-  if (!deleted.length)
-    throw new Error(
-      'Storage cannot be removed while a policy, active backup or retained remote backup references it.',
-    )
+  const current = await getOwnedBackupStorage(team.id, storageId)
+  if (!current) throw new PublicError('BACKUP_STORAGE_NOT_FOUND')
+  const expectedVersion = settingsVersion ?? current.settingsVersion
+  if (expectedVersion !== current.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
+  const changed = await deleteBackupStorageState(db, {
+    teamId: team.id,
+    userId,
+    storageId,
+    settingsVersion: expectedVersion,
+  })
+  if (!changed) {
+    await requireTeamManager(userId, teamSlug)
+    const latest = await getOwnedBackupStorage(team.id, storageId)
+    if (!latest || latest.settingsVersion !== expectedVersion)
+      throw new PublicError('SETTINGS_CONFLICT')
+    throw new PublicError('BACKUP_STORAGE_IN_USE')
+  }
   return listBackupStorage(team.id, true)
+}
+
+export async function getOwnedBackupStorage(teamId: string, storageId: string) {
+  const [row] = await db
+    .select()
+    .from(backupStorage)
+    .where(
+      and(eq(backupStorage.id, storageId), eq(backupStorage.teamId, teamId)),
+    )
+    .limit(1)
+  return row
+}
+
+export async function prepareBackupStorage({
+  teamId,
+  input,
+  settingsVersion,
+  newStorageId,
+}: {
+  teamId: string
+  input: unknown
+  settingsVersion?: number | null
+  newStorageId?: string
+}) {
+  const parsed = backupStorageSchema.parse(input)
+  const existing = parsed.id
+    ? await getOwnedBackupStorage(teamId, parsed.id)
+    : undefined
+  if (parsed.id && !existing) throw new PublicError('BACKUP_STORAGE_NOT_FOUND')
+  if (!existing && !parsed.secretAccessKey)
+    throw new PublicError('BACKUP_STORAGE_SECRET_REQUIRED')
+  if (
+    existing &&
+    (existing.bucket !== parsed.bucket ||
+      existing.region !== parsed.region ||
+      (existing.endpoint ?? '') !== parsed.endpoint)
+  ) {
+    throw new PublicError('BACKUP_STORAGE_LOCATION_IMMUTABLE')
+  }
+  const expectedVersion = existing
+    ? (settingsVersion ?? existing.settingsVersion)
+    : null
+  if (existing && expectedVersion !== existing.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
+  return {
+    id: existing?.id ?? newStorageId ?? crypto.randomUUID(),
+    settingsVersion: expectedVersion,
+    values: {
+      name: parsed.name,
+      bucket: parsed.bucket,
+      region: parsed.region,
+      endpoint: parsed.endpoint || null,
+      accessKeyId: parsed.accessKeyId,
+      secretAccessKeyCiphertext: parsed.secretAccessKey
+        ? encryptSecret(parsed.secretAccessKey)
+        : existing!.secretAccessKeyCiphertext,
+    },
+  }
 }

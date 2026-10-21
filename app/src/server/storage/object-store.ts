@@ -1,5 +1,4 @@
-import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import { createLocalObjectStore } from '@/server/storage/local-object-store'
 
 import { config } from '@/server/config'
 import { getR2ObjectStore } from '@/server/runtime/platform-env'
@@ -69,37 +68,6 @@ export function isRemoteObjectStorageConfigured() {
     config.DEVPUSH_STORAGE_ACCESS_KEY_ID &&
     config.DEVPUSH_STORAGE_SECRET_ACCESS_KEY,
   )
-}
-
-function createLocalObjectStore(): ObjectStore {
-  const root = path.join(process.cwd(), 'public', 'uploads')
-
-  return {
-    async delete(key) {
-      try {
-        await unlink(resolveLocalKey(root, key))
-      } catch (error) {
-        if (!isMissingFile(error)) throw error
-      }
-    },
-    async exists(key) {
-      try {
-        await access(resolveLocalKey(root, key))
-        return true
-      } catch (error) {
-        if (isMissingFile(error)) return false
-        throw error
-      }
-    },
-    async get(key) {
-      return { body: await readFile(resolveLocalKey(root, key)) }
-    },
-    async put(key, body) {
-      const filePath = resolveLocalKey(root, key)
-      await mkdir(path.dirname(filePath), { recursive: true })
-      await writeFile(filePath, body)
-    },
-  }
 }
 
 function createS3ObjectStore(): ObjectStore {
@@ -176,20 +144,4 @@ function createS3ObjectStore(): ObjectStore {
       )
     },
   }
-}
-
-function resolveLocalKey(root: string, key: string) {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_./-]*$/.test(key) || key.includes('..')) {
-    throw new Error('Invalid object key.')
-  }
-
-  return path.join(root, key)
-}
-
-function isMissingFile(error: unknown) {
-  return (
-    error instanceof Error &&
-    'code' in error &&
-    (error as NodeJS.ErrnoException).code === 'ENOENT'
-  )
 }

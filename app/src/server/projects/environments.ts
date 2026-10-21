@@ -1,18 +1,19 @@
+import { resolveGeneratedHostname } from './generated-hostname'
+import { getProjectSettingsContext } from './settings-context'
+import type { ApiMutationAdmission } from '@/server/api/admission'
+import { PublicError } from '@/lib/public-error'
 import {
   EnvironmentStateChanged,
   replaceProjectEnvironments,
 } from './environment-state'
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
+import { projectSettingsGuard } from '@/server/settings-version'
 
 import { db } from '@/server/db'
 import { aliases, environments, projects } from '@/server/db/schema'
 import { getProjectContext } from './context'
-import { buildRuntimeId } from './deployment-config'
-import {
-  buildDefaultHostForEnvironment,
-  generatedAliasUsesHttps,
-  resolveAvailableAliasHostname,
-} from './hostnames'
+import { buildRuntimeId } from '@/lib/runtime-id'
+import { resolveAvailableAliasHostname } from './hostnames'
 import { findDuplicate } from './mappers'
 import { encryptProjectEnvVars } from './project-env-vars'
 import type {
@@ -22,12 +23,18 @@ import type {
 } from './types'
 
 export async function updateProjectEnvironments({
+  projectId,
   userId,
   teamSlug,
   projectName,
   projectEnvironments,
   defaultServerId,
+  admission,
+  settingsVersion,
+
+  mutationTime,
 }: {
+  projectId?: string
   userId: string
   teamSlug: string
   projectName: string
@@ -38,8 +45,13 @@ export async function updateProjectEnvironments({
     }
   >
   defaultServerId?: string | null
+  admission?: ApiMutationAdmission
+  settingsVersion?: number
+  mutationTime?: Date
 }) {
-  const context = await getProjectContext({
+  const context = await getProjectSettingsContext({
+    projectId,
+    settingsVersion,
     userId,
     teamSlug,
     projectName,
@@ -53,6 +65,10 @@ export async function updateProjectEnvironments({
     projectName,
     projectEnvironments,
     defaultServerId,
+    admission,
+    settingsVersion,
+
+    mutationTime,
   })
 }
 
@@ -63,9 +79,14 @@ async function updateProjectEnvironmentsWithContext({
   projectName,
   projectEnvironments,
   defaultServerId,
-  attempt = 0,
+  admission,
+  settingsVersion,
+
+  mutationTime,
 }: {
-  attempt?: number
+  admission?: ApiMutationAdmission
+  settingsVersion?: number
+  mutationTime?: Date
   context: ProjectContext
   userId: string
   teamSlug: string
@@ -78,6 +99,9 @@ async function updateProjectEnvironmentsWithContext({
   >
   defaultServerId?: string | null
 }) {
+  const expectedVersion = settingsVersion ?? context.project.settingsVersion
+  if (expectedVersion !== context.project.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
   const activeEnvironments = projectEnvironments.filter(
     (environment) => environment.status === 'active',
   )
@@ -86,7 +110,7 @@ async function updateProjectEnvironmentsWithContext({
   )
 
   if (!production) {
-    throw new Error('Production environment is required.')
+    throw new PublicError('PROJECT_PRODUCTION_ENVIRONMENT_REQUIRED')
   }
 
   const duplicateSlug = findDuplicate(
@@ -94,10 +118,10 @@ async function updateProjectEnvironmentsWithContext({
   )
 
   if (duplicateSlug) {
-    throw new Error(`Environment identifier "${duplicateSlug}" is duplicated.`)
+    throw new PublicError('PROJECT_ENVIRONMENT_IDENTIFIER_DUPLICATED')
   }
 
-  const now = new Date()
+  const now = mutationTime ?? new Date()
   const effectiveDefaultServerId =
     defaultServerId === undefined
       ? context.project.defaultServerId
@@ -136,7 +160,7 @@ async function updateProjectEnvironmentsWithContext({
       (environment) => environment.slug === 'production',
     ) ?? reconciledEnvironments[0]
   if (!reconciledProduction)
-    throw new Error('Project requires an active environment.')
+    throw new PublicError('PROJECT_ACTIVE_ENVIRONMENT_REQUIRED')
   const replacements = []
 
   for (const [position, environment] of reconciledEnvironments.entries()) {
@@ -151,16 +175,19 @@ async function updateProjectEnvironmentsWithContext({
       : null
 
     if (effectiveServerId && !server) {
-      throw new Error('Select a valid server for every environment.')
+      throw new PublicError('PROJECT_ENVIRONMENT_SERVER_INVALID')
     }
 
-    const requestedHostname = server
-      ? buildDefaultHostForEnvironment({
+    const generatedHost = server
+      ? await resolveGeneratedHostname({
+          kind: 'environment',
+          serverId: server.id,
           environmentSlug: environment.slug,
           projectName: context.project.name,
           serverPublicAddress: server.publicAddress,
         })
       : null
+    const requestedHostname = generatedHost?.hostname ?? null
     const hostname = requestedHostname
       ? await resolveAvailableAliasHostname({
           excludeAliasId: existingAlias?.id,
@@ -188,7 +215,7 @@ async function updateProjectEnvironmentsWithContext({
         ? {
             id: existingAlias?.id ?? crypto.randomUUID(),
             hostname,
-            https: generatedAliasUsesHttps(server?.publicAddress ?? null),
+            https: generatedHost!.https,
           }
         : null,
     })
@@ -203,24 +230,13 @@ async function updateProjectEnvironmentsWithContext({
       previousAliases: aliasRows,
       environments: replacements,
       now,
+      admission,
+      settingsVersion: expectedVersion,
+      userId,
     })
   } catch (error) {
-    if (error instanceof EnvironmentStateChanged && attempt < 2) {
-      return updateProjectEnvironmentsWithContext({
-        context: await getProjectContext({
-          userId,
-          teamSlug,
-          projectName,
-          scope: 'shell',
-        }),
-        userId,
-        teamSlug,
-        projectName,
-        projectEnvironments,
-        defaultServerId,
-        attempt: attempt + 1,
-      })
-    }
+    if (error instanceof EnvironmentStateChanged)
+      throw new PublicError('SETTINGS_CONFLICT')
     throw error
   }
 
@@ -228,19 +244,30 @@ async function updateProjectEnvironmentsWithContext({
 }
 
 export async function updateProjectEnvironmentServers({
+  projectId,
   userId,
   teamSlug,
   projectName,
   defaultServerId,
   environmentServers,
+  admission,
+  settingsVersion,
+
+  mutationTime,
 }: {
+  projectId?: string
   userId: string
   teamSlug: string
   projectName: string
   defaultServerId: string | null
   environmentServers: Array<{ environmentId: string; serverId: string | null }>
+  admission?: ApiMutationAdmission
+  settingsVersion?: number
+  mutationTime?: Date
 }) {
-  const context = await getProjectContext({
+  const context = await getProjectSettingsContext({
+    projectId,
+    settingsVersion,
     userId,
     teamSlug,
     projectName,
@@ -251,14 +278,14 @@ export async function updateProjectEnvironmentServers({
   )
 
   if (duplicateEnvironment !== null) {
-    throw new Error('Each environment can only have one server assignment.')
+    throw new PublicError('PROJECT_ENVIRONMENT_SERVER_DUPLICATED')
   }
 
   if (
     defaultServerId &&
     !context.servers.some((server) => server.id === defaultServerId)
   ) {
-    throw new Error('Select a valid default server.')
+    throw new PublicError('PROJECT_DEFAULT_SERVER_INVALID')
   }
 
   for (const assignment of environmentServers) {
@@ -272,7 +299,7 @@ export async function updateProjectEnvironmentServers({
       : null
 
     if (!environment || (assignment.serverId && !server)) {
-      throw new Error('Select a valid environment and server.')
+      throw new PublicError('PROJECT_SERVER_ASSIGNMENT_INVALID')
     }
   }
 
@@ -289,6 +316,10 @@ export async function updateProjectEnvironmentServers({
     teamSlug,
     projectName,
     defaultServerId,
+    admission,
+    settingsVersion,
+
+    mutationTime,
     projectEnvironments: context.environments.map((environment) => ({
       ...environment,
       serverId: serverByEnvironment.has(environment.id)
@@ -299,29 +330,38 @@ export async function updateProjectEnvironmentServers({
 }
 
 export async function updateProjectEnvVars({
+  settingsVersion,
+  projectId,
   userId,
   teamSlug,
   projectName,
   envVars,
 }: {
+  settingsVersion?: number
+  projectId?: string
   userId: string
   teamSlug: string
   projectName: string
   envVars: Array<ProjectEnvironmentVariable>
 }) {
-  const context = await getProjectContext({
+  const context = await getProjectSettingsContext({
+    projectId,
+    settingsVersion,
     userId,
     teamSlug,
     projectName,
     scope: 'shell',
   })
+  const expectedVersion = settingsVersion ?? context.project.settingsVersion
+  if (expectedVersion !== context.project.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
   const normalizedEnvVars = envVars.filter((item) => item.key.trim() !== '')
   const duplicateKey = findDuplicate(
     normalizedEnvVars.map((item) => `${item.environment ?? ''}:${item.key}`),
   )
 
   if (duplicateKey) {
-    throw new Error('Environment variable keys must be unique per environment.')
+    throw new PublicError('PROJECT_VARIABLE_DUPLICATED')
   }
 
   if (
@@ -333,16 +373,24 @@ export async function updateProjectEnvVars({
         ),
     )
   ) {
-    throw new Error('Select a valid environment for every variable.')
+    throw new PublicError('PROJECT_VARIABLE_ENVIRONMENT_INVALID')
   }
 
-  await db
+  const changed = await db
     .update(projects)
     .set({
+      settingsVersion: sql`${projects.settingsVersion} + 1`,
       envVarsEncrypted: encryptProjectEnvVars(normalizedEnvVars),
       updatedAt: new Date(),
     })
-    .where(eq(projects.id, context.project.id))
+    .where(
+      and(
+        eq(projects.id, context.project.id),
+        projectSettingsGuard(context.project.id, userId, expectedVersion),
+      ),
+    )
+    .returning({ id: projects.id })
+  if (!changed.length) throw new PublicError('SETTINGS_CONFLICT')
 
   return getProjectContext({ userId, teamSlug, projectName, scope: 'settings' })
 }

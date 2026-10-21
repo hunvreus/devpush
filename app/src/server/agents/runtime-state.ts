@@ -43,13 +43,14 @@ export async function reconcileRuntimeState(
   }
   // Decide whether a runtime is still needed inside the same write batch that
   // enqueues cleanup. Assignment or deployment changes cannot race this check.
-  const orphan = sql`substr(ob.runtime_id, 1, 3) = 'dp_'
-    and not exists(select 1 from ${environments} as env join ${projects} as project on project.id = env.project_id
+  const needed = sql`exists(select 1 from ${environments} as env join ${projects} as project on project.id = env.project_id
       where env.runtime_id = ob.runtime_id and env.status = 'active'
         and coalesce(env.server_id, project.default_server_id) = ${input.serverId})
-    and not exists(select 1 from ${deployments} as deployment
+    or exists(select 1 from ${deployments} as deployment
       where deployment.runtime_id = ob.runtime_id and deployment.server_id = ${input.serverId}
-        and deployment.status in ('queued', 'running'))
+        and deployment.status in ('queued', 'running'))`
+  const orphan = sql`substr(ob.runtime_id, 1, 3) = 'dp_'
+    and not (${needed})
     and not exists(select 1 from ${agentJobs} as job
       where job.server_id = ${input.serverId} and job.type in ('deprovision', 'purge')
         and job.status in ('queued', 'running') and json_type(job.payload, '$.runtimeIds') = 'array'
@@ -95,7 +96,12 @@ export async function reconcileRuntimeState(
     where server_id = ${input.serverId} and runtime_id in (
       select runtime.value from ${agentJobs} as job, json_each(job.payload, '$.runtimeIds') as runtime where job.id = ${purgeId})
     returning runtime_id`)
-  const tail = [cleanup, markCleanup, purge, markPurge] as const
+  // A reused runtime starts a new orphan lifecycle when it is detached again.
+  // Pending cleanup alone is not ownership and must not reset the grace period.
+  const resetOwned = store.run(sql`update ${agentRuntimeObservations} as ob
+    set cleanup_queued_at = null, purge_queued_at = null, first_seen_at = ${now}, updated_at = ${now}
+    where ob.server_id = ${input.serverId} and (${needed})`)
+  const tail = [resetOwned, cleanup, markCleanup, purge, markPurge] as const
   const [first, ...rest] = observations
   const results = first
     ? await store.batch([first, ...rest, ...tail])

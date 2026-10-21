@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,53 @@ import (
 )
 
 const runtimeLogOutboxDir = "runtime-log-outbox"
+
+// Retry durable captures even after the hub stops requesting their runtime.
+// Only empty, inactive cursors can be removed without an acknowledgment.
+func (runner *Runner) pendingRuntimeLogTargets(ctx context.Context, active map[string]bool) []runtimeLogTarget {
+	dir := filepath.Join(runner.cfg.StateDir, runtimeLogOutboxDir)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		runner.log.Warn("read runtime log outbox failed", "error", err)
+		return nil
+	}
+	var targets []runtimeLogTarget
+	for _, entry := range entries {
+		if ctx.Err() != nil {
+			break
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		body, err := os.ReadFile(path)
+		var state runtimeLogState
+		if err != nil || json.Unmarshal(body, &state) != nil || state.ServerID != runner.cfg.AgentID || state.RuntimeID == "" || path != runner.runtimeLogStatePath(state.RuntimeID) {
+			runner.log.Warn("runtime log outbox entry cannot be validated", "file", entry.Name())
+			continue
+		}
+		if active[state.RuntimeID] {
+			continue
+		}
+		if len(state.Logs) > 0 {
+			targets = append(targets, runtimeLogTarget{RuntimeID: state.RuntimeID})
+		} else if err := runner.removeRuntimeLogState(state.RuntimeID); err != nil {
+			runner.log.Warn("remove inactive runtime log cursor failed", "error", err)
+		}
+	}
+	return targets
+}
+
+func (runner *Runner) removeRuntimeLogState(runtimeID string) error {
+	path := runner.runtimeLogStatePath(runtimeID)
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
+}
 
 type runtimeLogState struct {
 	ServerID     string           `json:"serverId"`

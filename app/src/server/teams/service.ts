@@ -1,9 +1,11 @@
-import { getErrorMessage } from '@/lib/error-message'
+import { withWorkspaceAccess } from '@/deployment/workspace-access'
+import { PublicError, getPublicErrorMessage } from '@/lib/public-error'
+import { toPublicError } from '@/server/http/public-errors'
 import { bootstrapOwnedTeam, insertOwnedTeam } from './creation'
 import { acceptInvitation } from './invitations'
 import { mutateTeamMembership, mutateTeamOwnership } from './membership'
 import { isUniqueConstraintError } from '@/server/db/errors'
-import { and, count, desc, eq, inArray, lte, ne, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, inArray, lte, ne, sql } from 'drizzle-orm'
 
 import { canManageTeamMembers, canManageTeamSettings } from '@/lib/team-role'
 import type { TeamRole } from '@/lib/team-role'
@@ -13,7 +15,7 @@ import { deleteTeamState } from './deletion-state'
 import { teamInvites, teamMembers, teams, user } from '@/server/db/schema'
 import { sendTeamInviteEmail } from '@/server/email/service'
 import { getResourceColor } from '@/server/resources/color'
-import { removePublicFile, resolveAvatarUpdate } from '@/server/uploads/avatar'
+import { removeOwnedAvatar, resolveAvatarUpdate } from '@/server/uploads/avatar'
 import { canDeleteTeam } from './delete-policy'
 import { isInstallationAdmin } from '@/server/admin/access'
 import {
@@ -32,9 +34,14 @@ const forbiddenTeamSlugs = new Set([
   'auth',
   'deployment-not-found',
   'health',
+  'invites',
+  'mcp',
   'new-team',
+  'oauth',
+  'settings',
   'setup',
   'upload',
+  'uploads',
   'user',
 ])
 
@@ -45,7 +52,7 @@ export async function ensureUserBootstrap(userId: string) {
     .where(eq(user.id, userId))
     .limit(1)
   if (!currentUser || currentUser.status !== 'active')
-    throw new Error('User not found')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   const teamName =
     currentUser.name || currentUser.email.split('@')[0] || currentUser.email
   if (
@@ -56,7 +63,7 @@ export async function ensureUserBootstrap(userId: string) {
       baseSlug: slugify(teamName),
     }))
   )
-    throw new Error('User not found')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   const [updatedUser] = await db
     .select({ defaultTeamId: user.defaultTeamId })
     .from(user)
@@ -75,7 +82,7 @@ export async function getUserContext(userId: string): Promise<UserContext> {
   let currentUser = currentUserRows.at(0)
 
   if (!currentUser || currentUser.status !== 'active') {
-    throw new Error('User not found')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   }
 
   let memberships = membershipRows
@@ -96,7 +103,7 @@ export async function getUserContext(userId: string): Promise<UserContext> {
   }
 
   if (!currentUser || currentUser.status !== 'active') {
-    throw new Error('User not found')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   }
 
   if (memberships.length === 0) {
@@ -115,6 +122,8 @@ export async function getUserContext(userId: string): Promise<UserContext> {
 
   return {
     user: {
+      profileConfirmedAt: currentUser.profileConfirmedAt?.getTime() ?? null,
+      settingsVersion: currentUser.settingsVersion,
       id: currentUser.id,
       name: currentUser.name,
       username: currentUser.username,
@@ -135,6 +144,7 @@ export async function getUserContext(userId: string): Promise<UserContext> {
 function listUserTeamMemberships(userId: string) {
   return db
     .select({
+      settingsVersion: teams.settingsVersion,
       id: teams.id,
       slug: teams.slug,
       name: teams.name,
@@ -147,9 +157,14 @@ function listUserTeamMemberships(userId: string) {
     .orderBy(desc(teams.updatedAt))
 }
 
-export async function requireTeam(userId: string, teamSlug: string) {
+export async function requireTeam(
+  userId: string,
+  teamSlug: string,
+  teamId?: string,
+) {
   const teamRows = await db
     .select({
+      settingsVersion: teams.settingsVersion,
       id: teams.id,
       slug: teams.slug,
       name: teams.name,
@@ -158,18 +173,20 @@ export async function requireTeam(userId: string, teamSlug: string) {
     })
     .from(teamMembers)
     .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+    .innerJoin(user, eq(user.id, teamMembers.userId))
     .where(
       and(
         eq(teamMembers.userId, userId),
-        eq(teams.slug, teamSlug),
+        teamId ? eq(teams.id, teamId) : eq(teams.slug, teamSlug),
         eq(teams.status, 'active'),
+        eq(user.status, 'active'),
       ),
     )
     .limit(1)
   const team = teamRows.at(0)
 
   if (!team) {
-    throw new Error('Team not found')
+    throw new PublicError('TEAM_NOT_FOUND')
   }
 
   return {
@@ -182,7 +199,7 @@ export async function requireTeamManager(userId: string, teamSlug: string) {
   const team = await requireTeam(userId, teamSlug)
 
   if (!canManageTeamSettings(team.role)) {
-    throw new Error('Forbidden')
+    throw new PublicError('FORBIDDEN')
   }
 
   return team
@@ -198,7 +215,7 @@ export async function createTeam({
   const normalizedName = name.trim()
 
   if (!normalizedName) {
-    throw new Error('Team name is required.')
+    throw new PublicError('TEAM_NAME_REQUIRED')
   }
 
   const teamId = crypto.randomUUID()
@@ -211,7 +228,7 @@ export async function createTeam({
       baseSlug: slugify(normalizedName),
     }))
   )
-    throw new Error('User not found')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
 
   const rows = await db
     .select({
@@ -229,13 +246,7 @@ export async function createTeam({
   return requireTeam(userId, team.slug)
 }
 
-export async function getTeamDeletionStatus({
-  ignoreDefaultForUserId,
-  teamId,
-}: {
-  ignoreDefaultForUserId?: string
-  teamId: string
-}) {
+export async function getTeamDeletionStatus({ teamId }: { teamId: string }) {
   const defaultUserRows = await db
     .select({ id: user.id })
     .from(user)
@@ -244,13 +255,14 @@ export async function getTeamDeletionStatus({
   return {
     canDelete: canDeleteTeam({
       defaultUserIds: defaultUserRows.map((row) => row.id),
-      ignoreDefaultForUserId,
     }),
     defaultUserCount: defaultUserRows.length,
   }
 }
 
 export async function updateTeamGeneral({
+  settingsVersion,
+  teamId,
   userId,
   teamSlug,
   name,
@@ -258,6 +270,8 @@ export async function updateTeamGeneral({
   avatarDataUrl,
   deleteAvatar,
 }: {
+  settingsVersion?: number
+  teamId?: string
   userId: string
   teamSlug: string
   name: string
@@ -265,18 +279,24 @@ export async function updateTeamGeneral({
   avatarDataUrl?: string | null
   deleteAvatar?: boolean
 }) {
-  const team = await requireTeam(userId, teamSlug)
+  const team = await requireTeam(userId, teamSlug, teamId)
   requireAdminRole(team.role)
 
+  const expectedVersion = settingsVersion ?? team.settingsVersion
+  if (expectedVersion !== team.settingsVersion)
+    throw new PublicError(
+      'SETTINGS_CONFLICT',
+      `/${encodeURIComponent(team.slug)}/settings`,
+    )
   const normalizedName = name.trim()
   const normalizedSlug = normalizeTeamSlug(slug)
 
   if (!normalizedName) {
-    throw new Error('Team name is required.')
+    throw new PublicError('TEAM_NAME_REQUIRED')
   }
 
   if (forbiddenTeamSlugs.has(normalizedSlug)) {
-    throw new Error('This slug is reserved.')
+    throw new PublicError('TEAM_SLUG_RESERVED')
   }
 
   const avatarPath = await resolveAvatarUpdate({
@@ -288,41 +308,51 @@ export async function updateTeamGeneral({
   })
 
   try {
-    await db
+    const changed = await db
       .update(teams)
       .set({
         name: normalizedName,
         slug: normalizedSlug,
         avatarPath,
+        settingsVersion: sql`${teams.settingsVersion} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(teams.id, team.id))
-  } catch {
+      .where(
+        and(
+          eq(teams.id, team.id),
+          eq(teams.status, 'active'),
+          eq(teams.settingsVersion, expectedVersion),
+          sql`${teams.avatarPath} is ${team.image}`,
+          sql`exists(select 1 from team_members m join user u on u.id = m.user_id where m.team_id = ${team.id} and m.user_id = ${userId} and m.role in ('owner','admin') and u.status = 'active')`,
+        ),
+      )
+      .returning({ id: teams.id })
+    if (!changed.length)
+      throw new PublicError(
+        'SETTINGS_CONFLICT',
+        `/${encodeURIComponent(team.slug)}/settings`,
+      )
+  } catch (error) {
     if (avatarPath && avatarPath !== team.image) {
-      await removePublicFile(avatarPath)
+      await removeOwnedAvatar(avatarPath, {
+        filePrefix: 'team',
+        resourceId: team.id,
+      })
     }
 
-    throw new Error('A team with this slug already exists.')
+    if (isUniqueConstraintError(error))
+      throw new PublicError('TEAM_SLUG_CONFLICT')
+    throw error
+  }
+
+  if (team.image !== avatarPath) {
+    await removeOwnedAvatar(team.image, {
+      filePrefix: 'team',
+      resourceId: team.id,
+    })
   }
 
   return requireTeam(userId, normalizedSlug)
-}
-
-export async function createTeamInvite({
-  userId,
-  teamSlug,
-  email,
-  role,
-}: {
-  userId: string
-  teamSlug: string
-  email: string
-  role: Exclude<TeamRole, 'owner'>
-}) {
-  const team = await requireTeam(userId, teamSlug)
-  requireAdminRole(team.role)
-
-  return upsertTeamInvite({ userId, team, email, role })
 }
 
 export async function createTeamInvites({
@@ -337,11 +367,13 @@ export async function createTeamInvites({
   role: Exclude<TeamRole, 'owner'>
 }) {
   if (emails.length === 0) {
-    throw new Error('Enter at least one email address.')
+    throw new PublicError('TEAM_INVITE_EMAIL_REQUIRED')
   }
 
   const team = await requireTeam(userId, teamSlug)
   requireAdminRole(team.role)
+
+  await withWorkspaceAccess(team.id, 'member.invite', async () => undefined)
 
   let emailCount = 0
   const failedEmails: Array<{ email: string; message: string }> = []
@@ -359,8 +391,8 @@ export async function createTeamInvites({
     } catch (error) {
       failedEmails.push({
         email,
-        message: getErrorMessage(
-          error,
+        message: getPublicErrorMessage(
+          toPublicError(error),
           'Unable to create this invitation. Please try again.',
         ),
       })
@@ -388,6 +420,7 @@ export async function resendTeamInvite({
   const team = await requireTeam(userId, teamSlug)
   requireAdminRole(team.role)
 
+  await withWorkspaceAccess(team.id, 'member.invite', async () => undefined)
   const rows = await db
     .select()
     .from(teamInvites)
@@ -402,7 +435,7 @@ export async function resendTeamInvite({
   const invite = rows.at(0)
 
   if (!invite) {
-    throw new Error('Invite not found.')
+    throw new PublicError('TEAM_INVITE_NOT_FOUND')
   }
 
   return upsertTeamInvite({
@@ -439,7 +472,7 @@ export async function revokeTeamInvite({
     .returning({ id: teamInvites.id })
 
   if (!revokedRows.at(0)) {
-    throw new Error('Invite not found.')
+    throw new PublicError('TEAM_INVITE_NOT_FOUND')
   }
 
   return listTeamInvites(team.id)
@@ -494,11 +527,11 @@ export async function updateTeamMemberRole({
   const member = memberRows.at(0)
 
   if (!member) {
-    throw new Error('Member not found.')
+    throw new PublicError('TEAM_MEMBER_NOT_FOUND')
   }
 
   if (team.role !== 'owner' && (member.role === 'owner' || role === 'owner')) {
-    throw new Error('Only team owners can manage owner roles.')
+    throw new PublicError('TEAM_OWNER_ROLE_FORBIDDEN')
   }
 
   const changed = await mutateTeamMembership(db, {
@@ -540,11 +573,11 @@ export async function removeTeamMember({
   const member = memberRows.at(0)
 
   if (!member) {
-    throw new Error('Member not found.')
+    throw new PublicError('TEAM_MEMBER_NOT_FOUND')
   }
 
   if (team.role !== 'owner' && member.role === 'owner') {
-    throw new Error('Only team owners can remove owners.')
+    throw new PublicError('TEAM_OWNER_REMOVAL_FORBIDDEN')
   }
 
   const changed = await mutateTeamMembership(db, {
@@ -588,17 +621,17 @@ async function throwMembershipChangeError({
       ),
     )
     .limit(1)
-  if (!member) throw new Error('Member not found.')
+  if (!member) throw new PublicError('TEAM_MEMBER_NOT_FOUND')
   if (team.role !== 'owner' && (member.role === 'owner' || role === 'owner')) {
-    throw new Error(
+    throw new PublicError(
       role === null
-        ? 'Only team owners can remove owners.'
-        : 'Only team owners can manage owner roles.',
+        ? 'TEAM_OWNER_REMOVAL_FORBIDDEN'
+        : 'TEAM_OWNER_ROLE_FORBIDDEN',
     )
   }
   if (member.role === 'owner' && role !== 'owner')
-    throw new Error('There must be at least one owner.')
-  throw new Error('Team membership changed. Try again.')
+    throw new PublicError('TEAM_LAST_OWNER')
+  throw new PublicError('TEAM_MEMBERSHIP_CHANGED')
 }
 
 export async function transferTeamOwnership({
@@ -614,7 +647,7 @@ export async function transferTeamOwnership({
   requireOwnerRole(team.role)
 
   if (userId === memberUserId) {
-    throw new Error('Choose another member to transfer ownership to.')
+    throw new PublicError('TEAM_TRANSFER_MEMBER_REQUIRED')
   }
 
   const memberRows = await db
@@ -633,15 +666,15 @@ export async function transferTeamOwnership({
   const targetMembership = memberships.get(memberUserId)
 
   if (!currentMembership || currentMembership.role !== 'owner') {
-    throw new Error('Only team owners can transfer ownership.')
+    throw new PublicError('TEAM_TRANSFER_FORBIDDEN')
   }
 
   if (!targetMembership) {
-    throw new Error('Member not found.')
+    throw new PublicError('TEAM_MEMBER_NOT_FOUND')
   }
 
   if (targetMembership.role === 'owner') {
-    throw new Error('Member is already an owner.')
+    throw new PublicError('TEAM_MEMBER_ALREADY_OWNER')
   }
 
   if (
@@ -651,20 +684,18 @@ export async function transferTeamOwnership({
       memberId: memberUserId,
     }))
   ) {
-    throw new Error('Team membership changed. Try again.')
+    throw new PublicError('TEAM_MEMBERSHIP_CHANGED')
   }
 
   return listTeamMembers(team.id)
 }
 
 export async function deleteTeam({
-  ignoreDefaultForUserId,
   userId,
   teamSlug,
   confirmationName,
 }: {
   confirmationName?: string
-  ignoreDefaultForUserId?: string
   userId: string
   teamSlug: string
 }) {
@@ -672,7 +703,7 @@ export async function deleteTeam({
   requireOwnerRole(team.role)
 
   if (confirmationName !== team.slug) {
-    throw new Error('Type the team name to confirm deletion.')
+    throw new PublicError('TEAM_DELETE_CONFIRMATION')
   }
 
   const defaultUserRows = await db
@@ -682,19 +713,17 @@ export async function deleteTeam({
   if (
     !canDeleteTeam({
       defaultUserIds: defaultUserRows.map((row) => row.id),
-      ignoreDefaultForUserId,
     })
   )
-    throw new Error('You cannot delete a default team.')
+    throw new PublicError('TEAM_DEFAULT_DELETE_FORBIDDEN')
   if (
     !(await deleteTeamState(db, {
       teamId: team.id,
       userId,
-      ignoreDefaultForUserId,
       now: new Date(),
     }))
   )
-    throw new Error('Team changed or became a default team. Try again.')
+    throw new PublicError('TEAM_STATE_CHANGED')
 }
 
 export async function acceptTeamInvite({
@@ -735,7 +764,7 @@ async function acceptPendingInvitation(
     .where(eq(user.id, userId))
     .limit(1)
   if (!currentUser || currentUser.status !== 'active')
-    throw new Error('User not found.')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
 
   const [row] = await db
     .select({ invite: teamInvites, teamSlug: teams.slug })
@@ -750,24 +779,68 @@ async function acceptPendingInvitation(
     )
     .limit(1)
   if (!row || row.invite.expiresAt <= now)
-    throw new Error('Invalid or expired invitation.')
+    throw new PublicError('TEAM_INVITATION_INVALID')
   if (normalizeEmail(currentUser.email) !== row.invite.email) {
-    throw new Error('Sign in with the invited email address to accept.')
+    throw new PublicError('TEAM_INVITATION_EMAIL_MISMATCH')
   }
   if (!currentUser.emailVerified) {
-    throw new Error('Verify your email address before accepting this invite.')
+    throw new PublicError('TEAM_INVITATION_EMAIL_UNVERIFIED')
   }
 
   if (
-    !(await acceptInvitation(db, {
-      userId,
-      inviteId: row.invite.id,
-      tokenHash: row.invite.tokenHash,
-      now,
-    }))
+    !(await withWorkspaceAccess(row.invite.teamId, 'member.accept', () =>
+      acceptInvitation(db, {
+        userId,
+        inviteId: row.invite.id,
+        tokenHash: row.invite.tokenHash,
+        now,
+      }),
+    ))
   )
-    throw new Error('Invalid or expired invitation.')
+    throw new PublicError('TEAM_INVITATION_INVALID')
   return row.teamSlug
+}
+
+export async function declineUserTeamInvite({
+  userId,
+  inviteId,
+}: {
+  userId: string
+  inviteId: string
+}) {
+  return declinePendingInvitation(userId, eq(teamInvites.id, inviteId))
+}
+
+export async function declineTeamInvite({
+  userId,
+  token,
+}: {
+  userId: string
+  token: string
+}) {
+  return declinePendingInvitation(
+    userId,
+    eq(teamInvites.tokenHash, await hashToken(token)),
+  )
+}
+
+async function declinePendingInvitation(
+  userId: string,
+  selector: ReturnType<typeof eq>,
+) {
+  const declined = await db
+    .delete(teamInvites)
+    .where(
+      and(
+        selector,
+        eq(teamInvites.status, 'pending'),
+        gt(teamInvites.expiresAt, new Date()),
+        sql`exists(select 1 from ${user} where ${user.id} = ${userId} and ${user.status} = 'active' and ${user.emailVerified} = 1 and lower(trim(${user.email})) = ${teamInvites.email})`,
+        sql`exists(select 1 from ${teams} where ${teams.id} = ${teamInvites.teamId} and ${teams.status} = 'active')`,
+      ),
+    )
+    .returning({ id: teamInvites.id })
+  if (!declined.length) throw new PublicError('TEAM_INVITATION_INVALID')
 }
 
 function slugify(value: string) {
@@ -798,7 +871,7 @@ async function upsertTeamInvite({
   const normalizedEmail = normalizeEmail(email)
 
   if (!normalizedEmail) {
-    throw new Error('Email is required.')
+    throw new PublicError('TEAM_EMAIL_REQUIRED')
   }
 
   const existingMemberRows = await db
@@ -815,7 +888,7 @@ async function upsertTeamInvite({
     .limit(1)
 
   if (existingMemberRows.length > 0) {
-    throw new Error(`${normalizedEmail} is already a member of this team.`)
+    throw new PublicError('TEAM_ALREADY_MEMBER')
   }
 
   const { token, tokenHash } = await createInviteToken()
@@ -844,7 +917,7 @@ async function upsertTeamInvite({
 
     if (pendingInvite) {
       if (pendingInvite.expiresAt > now) {
-        throw new Error(`Invitation already sent to ${normalizedEmail}.`)
+        throw new PublicError('TEAM_INVITATION_ALREADY_SENT')
       }
 
       inviteId = pendingInvite.id
@@ -854,7 +927,7 @@ async function upsertTeamInvite({
 
   try {
     if (shouldUpdateInvite) {
-      await db
+      const updated = await db
         .update(teamInvites)
         .set({
           role,
@@ -863,7 +936,16 @@ async function upsertTeamInvite({
           inviterId: userId,
           updatedAt: now,
         })
-        .where(eq(teamInvites.id, inviteId))
+        .where(
+          and(
+            eq(teamInvites.id, inviteId),
+            eq(teamInvites.status, 'pending'),
+            sql`exists(select 1 from team_members m join user u on u.id = m.user_id join teams t on t.id = m.team_id
+            where m.user_id = ${userId} and m.team_id = ${team.id} and m.role in ('owner','admin') and u.status = 'active' and t.status = 'active')`,
+          ),
+        )
+        .returning({ id: teamInvites.id })
+      if (updated.length === 0) throw new PublicError('TEAM_INVITE_NOT_FOUND')
     } else {
       await db.insert(teamInvites).values({
         id: inviteId,
@@ -880,7 +962,7 @@ async function upsertTeamInvite({
       throw error
     }
 
-    throw new Error(`Invitation already sent to ${normalizedEmail}.`)
+    throw new PublicError('TEAM_INVITATION_ALREADY_SENT')
   }
 
   const inviteUrl = new URL(
@@ -909,19 +991,19 @@ async function upsertTeamInvite({
 
 function requireAdminRole(role: TeamRole) {
   if (!canManageTeamSettings(role)) {
-    throw new Error('You do not have permission to manage this team.')
+    throw new PublicError('TEAM_MANAGEMENT_FORBIDDEN')
   }
 }
 
 function requireMemberManagerRole(role: TeamRole) {
   if (!canManageTeamMembers(role)) {
-    throw new Error('Only team owners and admins can manage this team.')
+    throw new PublicError('TEAM_MANAGER_REQUIRED')
   }
 }
 
 function requireOwnerRole(role: TeamRole) {
   if (role !== 'owner') {
-    throw new Error('Only team owners can manage this team.')
+    throw new PublicError('TEAM_OWNER_REQUIRED')
   }
 }
 
@@ -933,9 +1015,7 @@ function normalizeTeamSlug(value: string) {
   const slug = value.trim().toLowerCase()
 
   if (!/^[a-z0-9][a-z0-9._-]*[a-z0-9]$/.test(slug) || slug.length > 100) {
-    throw new Error(
-      'Team slugs can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen.',
-    )
+    throw new PublicError('TEAM_SLUG_INVALID')
   }
 
   return slug
@@ -979,6 +1059,6 @@ export async function assertOtherOwner(
     )
 
   if ((rows.at(0)?.value ?? 0) === 0) {
-    throw new Error('There must be at least one owner.')
+    throw new PublicError('TEAM_LAST_OWNER')
   }
 }

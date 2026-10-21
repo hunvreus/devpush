@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   revoke: vi.fn(),
   deleteTeam: vi.fn(),
   save: vi.fn(),
-  invite: vi.fn(),
   bulk: vi.fn(),
   warning: vi.fn(),
   refresh: vi.fn(),
@@ -22,7 +21,6 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@/server/teams/functions', () => ({
   updateTeamGeneralAction: mocks.save,
-  createTeamInviteAction: mocks.invite,
   createTeamInvitesAction: mocks.bulk,
   deleteTeamAction: mocks.deleteTeam,
   removeTeamMemberAction: mocks.remove,
@@ -50,6 +48,7 @@ vi.mock('@/components/settings-layout', () => ({
   }: {
     children: ReactNode
     footer: ReactNode
+    settingsVersion: 1
     id: string
   }) => (
     <section id={id}>
@@ -62,6 +61,7 @@ vi.mock('sonner', () => ({
   toast: { error: mocks.error, success: mocks.success, warning: mocks.warning },
 }))
 const team = {
+  settingsVersion: 1,
   id: 't',
   slug: 'team',
   name: 'Team',
@@ -77,7 +77,7 @@ test('member workspace settings preserve readable fields without management cont
   expect(node.querySelector<HTMLInputElement>('#team-slug')?.readOnly).toBe(
     true,
   )
-  for (const label of ['Upload image', 'Add member', 'Save']) {
+  for (const label of ['Upload image', 'Add members', 'Save']) {
     expect(
       [...node.querySelectorAll('button')].some(
         (button) => button.textContent.trim() === label,
@@ -134,7 +134,9 @@ async function fill(node: HTMLElement, field: string, value: string) {
   await act(async () => {
     const input = node.querySelector<HTMLInputElement>(`#team-${field}`)!
     Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
+      input instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype,
       'value',
     )?.set?.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -207,15 +209,17 @@ test('general save updates cached team data without refreshing the route', async
 async function openInvite(node: HTMLElement) {
   await act(async () =>
     [...node.querySelectorAll<HTMLButtonElement>('button')]
-      .find((item) => item.textContent === 'Add member')!
+      .find((item) => item.textContent === 'Add members')!
       .click(),
   )
 }
 async function fillInvite(value: string) {
   await act(async () => {
-    const input = document.getElementById('invite-email')!
+    const input = document.getElementById('bulk-invite-emails')!
     Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
+      input instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype,
       'value',
     )!.set!.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -224,7 +228,7 @@ async function fillInvite(value: string) {
 async function submitInvite() {
   await act(async () =>
     document
-      .getElementById('invite-form')!
+      .getElementById('bulk-invite-form')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
   )
 }
@@ -233,18 +237,18 @@ test('invitation validates inline and stays editable after a request failure', a
   await openInvite(view.node)
   await fillInvite('invalid')
   await submitInvite()
-  expect(mocks.invite).not.toHaveBeenCalled()
-  expect(document.getElementById('invite-email-error')?.textContent).toContain(
-    'valid email',
-  )
+  expect(mocks.bulk).not.toHaveBeenCalled()
+  expect(
+    document.getElementById('bulk-invite-emails-error')?.textContent,
+  ).toContain('valid email')
   await fillInvite('user@example.com')
-  mocks.invite.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  mocks.bulk.mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await submitInvite()
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   expect(
-    document.querySelector('[role="dialog"] [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
-  expect(
-    (document.getElementById('invite-email') as HTMLInputElement).value,
+    (document.getElementById('bulk-invite-emails') as HTMLInputElement).value,
   ).toBe('user@example.com')
   await view.close()
 })
@@ -252,8 +256,12 @@ test('pending invitation blocks duplicate submit, edits, and dismissal', async (
   const view = await mount()
   await openInvite(view.node)
   await fillInvite('user@example.com')
-  let resolve!: (value: { emailSent: boolean; inviteUrl: string }) => void
-  mocks.invite.mockReturnValueOnce(
+  let resolve!: (value: {
+    emailCount: number
+    emailSentCount: number
+    failedEmails: []
+  }) => void
+  mocks.bulk.mockReturnValueOnce(
     new Promise((done) => {
       resolve = done
     }),
@@ -265,12 +273,12 @@ test('pending invitation blocks duplicate submit, edits, and dismissal', async (
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     ),
   )
-  expect(document.getElementById('invite-email')?.matches(':disabled')).toBe(
-    true,
-  )
-  expect(mocks.invite).toHaveBeenCalledTimes(1)
+  expect(
+    document.getElementById('bulk-invite-emails')?.matches(':disabled'),
+  ).toBe(true)
+  expect(mocks.bulk).toHaveBeenCalledTimes(1)
   await act(async () =>
-    resolve({ emailSent: true, inviteUrl: 'https://example.com/invite' }),
+    resolve({ emailCount: 1, emailSentCount: 1, failedEmails: [] }),
   )
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   await view.close()
@@ -296,7 +304,7 @@ test('bulk invite validates every email then retains only failed addresses after
   const view = await mount()
   await act(async () =>
     [...view.node.querySelectorAll<HTMLButtonElement>('button')]
-      .find((item) => item.textContent === 'Bulk invite')!
+      .find((item) => item.textContent === 'Add members')!
       .click(),
   )
   const fillBulk = async (value: string) => {
@@ -359,17 +367,20 @@ test('bulk invite validates every email then retains only failed addresses after
     (document.getElementById('bulk-invite-emails') as HTMLTextAreaElement)
       .value,
   ).toBe('last@example.com')
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-    '1 invitation created',
+  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain(
+    'Only failed addresses remain',
   )
+  expect(mocks.warning).toHaveBeenCalled()
   expect(mocks.success).not.toHaveBeenCalled()
   await view.close()
 })
 
 const targetMember = {
+  settingsVersion: 1,
   id: 'membership',
   role: 'member' as const,
   user: {
+    settingsVersion: 1,
     id: 'target',
     name: 'Target',
     username: 'target',
@@ -392,7 +403,9 @@ async function fillConfirmation(id: string, value: string) {
   await act(async () => {
     const input = document.getElementById(id)!
     Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
+      input instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype,
       'value',
     )!.set!.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -448,10 +461,9 @@ test.each([
     }
     mock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
     await confirmAction(action)
-    expect(
-      document.querySelector('[role="alertdialog"] [role="alert"]')
-        ?.textContent,
-    ).toContain('Unable to connect')
+    expect(mocks.error).toHaveBeenLastCalledWith(
+      expect.stringContaining('Unable to connect'),
+    )
     let resolve!: () => void
     mock.mockReturnValueOnce(
       new Promise<void>((done) => {
@@ -484,9 +496,9 @@ test('team deletion requires its slug and cannot repeat after success', async ()
   await fillConfirmation('delete-team-confirmation', 'team')
   mocks.deleteTeam.mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await confirmAction('Delete team')
-  expect(
-    document.querySelector('[role="alertdialog"] [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   let resolve!: () => void
   mocks.deleteTeam.mockReturnValueOnce(
     new Promise<void>((done) => {
@@ -548,9 +560,9 @@ test('role changes retain failed confirmation and block pending Escape', async (
   })
   mocks.role.mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await confirmAction('Change role')
-  expect(
-    document.querySelector('[role="alertdialog"] [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   let resolve!: () => void
   mocks.role.mockReturnValueOnce(
     new Promise<void>((done) => {
@@ -575,3 +587,47 @@ test('role changes retain failed confirmation and block pending Escape', async (
 vi.mock('@/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
+
+test('invitation textarea keeps regular Enter behavior without submitting', async () => {
+  const view = await mount()
+  await openInvite(view.node)
+  await fillInvite('user@example.com')
+  const input = document.getElementById(
+    'bulk-invite-emails',
+  ) as HTMLTextAreaElement
+  expect(input.className).toContain('resize-none')
+  const requestSubmit = vi
+    .spyOn(input.form!, 'requestSubmit')
+    .mockImplementation(() => {})
+  await act(async () => {
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        isComposing: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  })
+  expect(requestSubmit).not.toHaveBeenCalled()
+  await act(async () => {
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  })
+  expect(requestSubmit).not.toHaveBeenCalled()
+  requestSubmit.mockRestore()
+  await view.close()
+})

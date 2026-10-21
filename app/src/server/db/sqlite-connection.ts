@@ -11,8 +11,6 @@ import type {
 
 import { sqliteParams } from './sqlite-params'
 
-export { sqliteParams } from './sqlite-params'
-
 export function openSqlite<TSchema extends Record<string, unknown>>(
   path: string,
   schema: TSchema,

@@ -41,7 +41,7 @@ describe('email message builders', () => {
       verifyUrl: 'https://devpu.sh/api/auth/verify?token=<token>&email=new',
     })
 
-    expect(message.subject).toBe('Verify your new devpush email address')
+    expect(message.subject).toBe('Confirm your devpush email change')
     expect(message.text).toContain(
       'Confirm that you want to use new+test@example.com',
     )

@@ -1,3 +1,6 @@
+import { getDefaultBackupPrefix } from '@/lib/backup-paths'
+import { isValidCron } from '@/lib/backup-cron'
+import { showSettingsConflict } from '@/lib/settings-conflict'
 import type { FormErrors } from '@/lib/form-errors'
 import { backupConfigSchema } from '@/lib/backup-policy-schema'
 import { afterMutation } from '@/lib/action-feedback'
@@ -57,18 +60,16 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { EnvironmentDot } from './environment-dot'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
-import { saveProjectBackupConfigs } from '@/server/projects/functions'
+import { saveProjectBackupPolicyAction } from '@/server/projects/functions'
 import type {
   ProjectBackupConfig,
   ProjectContext,
 } from '@/server/projects/types'
 import {
   backupCronPresets as cronPresets,
-  getDefaultBackupPrefix,
   getSchedulePresetValue,
-  isCronSchedule,
 } from './project-backup-utils'
 
 export type BackupPolicyDraft = {
@@ -94,7 +95,8 @@ export type BackupPolicyErrorSection =
   | 'general'
   | 'destination'
   | 'retention'
-  | 'targets'
+  | 'volumes'
+  | 'databases'
   | 'danger'
 
 export type BackupPolicyErrorField =
@@ -121,7 +123,6 @@ export function ComposeRequiredEmpty() {
 }
 
 export function BackupPolicyDialog({
-  backupConfigs,
   children,
   context,
   onSaved,
@@ -198,7 +199,7 @@ export function BackupPolicyDialog({
       return
     }
 
-    if (!isCronSchedule(trimmedCron)) {
+    if (!isValidCron(trimmedCron)) {
       setFieldError({
         field: 'schedule',
         message: 'Use a five-field cron schedule, e.g. 0 2 * * *.',
@@ -209,6 +210,7 @@ export function BackupPolicyDialog({
     setIsSaving(true)
 
     const nextConfig: ProjectBackupConfig = {
+      settingsVersion: 1,
       id,
       name: trimmedName,
       environmentId,
@@ -234,14 +236,14 @@ export function BackupPolicyDialog({
       databaseDumps: [],
     }
 
-    const nextConfigs = [...backupConfigs, nextConfig]
-
     try {
-      const nextContext = await saveProjectBackupConfigs({
+      const nextContext = await saveProjectBackupPolicyAction({
         data: {
+          projectId: context.project.id,
+          settingsVersion: null,
           teamSlug,
           projectName,
-          backupConfigs: nextConfigs,
+          policy: backupConfigSchema.parse(nextConfig),
         },
       })
       await setProjectContextQueryData(queryClient, nextContext, 'backups')
@@ -257,10 +259,8 @@ export function BackupPolicyDialog({
         'The action completed, but opening the next page failed. Please reload.',
       )
     } catch (error) {
-      setFieldError({
-        field: 'form',
-        message: getErrorMessage(error, 'Unable to save backup policy.'),
-      })
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to save backup policy.'))
     } finally {
       setIsSaving(false)
     }

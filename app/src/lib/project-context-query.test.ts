@@ -3,31 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   projectContextQueryOptions,
-  invalidateDeploymentContext,
   invalidateProjectLogs,
 } from './project-context-query'
 
 describe('project query invalidation', () => {
-  it('invalidates the active deployment detail query', async () => {
-    const queryClient = new QueryClient()
-    const params = {
-      deploymentId: 'deployment-1',
-      projectName: 'devpush',
-      teamSlug: 'acme',
-    }
-    const key = [
-      'deployment-context',
-      params.teamSlug,
-      params.projectName,
-      params.deploymentId,
-    ]
-    queryClient.setQueryData(key, { status: 'running' })
-
-    await invalidateDeploymentContext(queryClient, params)
-
-    expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true)
-  })
-
   it('invalidates only the selected project log query', async () => {
     const queryClient = new QueryClient()
     const params = {

@@ -1,3 +1,4 @@
+import { CopyButton } from '@/components/copy-button'
 import {
   allowlistRuleSchema,
   allowlistImportSchema,
@@ -11,20 +12,15 @@ import {
   ArrowUpRightIcon,
   BanIcon,
   ChevronDownIcon,
-  CopyIcon,
   LoaderIcon,
   PlusIcon,
   SearchIcon,
   ShieldCheckIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import {
-  getPageCount,
-  getPageItems,
-  TablePager,
-} from '@/components/table-pager'
+import { TablePager } from '@/components/table-pager'
 import { StandaloneSettingsLayout } from '@/components/settings-layout'
 import {
   AlertDialog,
@@ -118,12 +114,23 @@ import type { AdminOverview } from '@/server/admin/service'
 export function AdminSettings({
   currentUserId,
   overview,
+  onSearchChange,
 }: {
   currentUserId: string
   overview: AdminOverview
+  onSearchChange: (search: {
+    allowlistQuery?: string
+    allowlistPage?: number
+    userQuery?: string
+    userPage?: number
+  }) => void
 }) {
   const router = useRouter()
-  const [userQuery, setUserQuery] = useState('')
+  const [allowlistQuery, setAllowlistQuery] = useState(
+    overview.allowlistPagination.query,
+  )
+  const allowlistPagination = overview.allowlistPagination
+  const [userQuery, setUserQuery] = useState(overview.userPagination.query)
   const [allowlistType, setAllowlistType] = useState<
     'email' | 'domain' | 'pattern'
   >('email')
@@ -133,37 +140,20 @@ export function AdminSettings({
   const [importEmails, setImportEmails] = useState('')
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [userPage, setUserPage] = useState(1)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [isAddingAllowlist, setIsAddingAllowlist] = useState(false)
   const [isImportingAllowlist, setIsImportingAllowlist] = useState(false)
-  const filteredUsers = useMemo(() => {
-    const query = userQuery.trim().toLowerCase()
-    if (!query) return overview.users
-
-    return overview.users.filter((user) =>
-      [user.name, user.username, user.email, user.status]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(query)),
-    )
-  }, [overview.users, userQuery])
-  const userPageCount = getPageCount(filteredUsers.length)
-  const pagedUsers = useMemo(
-    () => getPageItems(filteredUsers, userPage),
-    [filteredUsers, userPage],
-  )
+  const pagedUsers = overview.users
+  const { page: userPage, pageCount: userPageCount } = overview.userPagination
+  useEffect(() => {
+    setUserQuery(overview.userPagination.query)
+  }, [overview.userPagination.query])
 
   useEffect(() => {
-    setUserPage(1)
-  }, [userQuery])
-
-  useEffect(() => {
-    if (userPage > userPageCount) {
-      setUserPage(userPageCount)
-    }
-  }, [userPage, userPageCount])
+    setAllowlistQuery(overview.allowlistPagination.query)
+  }, [overview.allowlistPagination.query])
 
   async function refresh() {
     await afterMutation(
@@ -306,15 +296,6 @@ export function AdminSettings({
       setActionError(getErrorMessage(error, 'Unable to delete user.'))
     } finally {
       setBusyId(null)
-    }
-  }
-
-  async function copyInstallId(installId: string) {
-    try {
-      await navigator.clipboard.writeText(installId)
-      toast.success('Install ID copied.')
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to copy install ID.'))
     }
   }
 
@@ -550,7 +531,7 @@ export function AdminSettings({
 
   return (
     <StandaloneSettingsLayout
-      title="Admin settings"
+      title="Admin"
       navigation={[
         { href: '#installation', label: 'Installation' },
         { href: '#users', label: 'Users' },
@@ -611,24 +592,10 @@ export function AdminSettings({
                     <span className="truncate font-mono text-sm">
                       {installation.current.installId}
                     </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Copy install ID"
-                          onClick={() =>
-                            void copyInstallId(
-                              installation.current?.installId ?? '',
-                            )
-                          }
-                        >
-                          <CopyIcon />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Copy install ID</TooltipContent>
-                    </Tooltip>
+                    <CopyButton
+                      value={installation.current.installId}
+                      label="Copy install ID"
+                    />
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground">-</div>
@@ -657,32 +624,59 @@ export function AdminSettings({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {overview.users.length === 0 ? (
-            <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-              No users found.
-            </p>
+          {overview.userPagination.total === 0 &&
+          !overview.userPagination.query ? (
+            <Empty className="min-h-40">
+              <EmptyHeader>
+                <EmptyTitle>No users found.</EmptyTitle>
+                <EmptyDescription>
+                  {overview.userPagination.query
+                    ? 'Try a different name or email.'
+                    : 'Registered users will appear here.'}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <>
-              <InputGroup className="mr-auto max-w-72">
-                <InputGroupAddon>
-                  <SearchIcon />
-                </InputGroupAddon>
-                <InputGroupInput
-                  placeholder="Search..."
-                  value={userQuery}
-                  onChange={(event) => setUserQuery(event.target.value)}
-                />
-              </InputGroup>
-              {filteredUsers.length === 0 ? (
-                <p className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-                  No users found.
-                </p>
+              <form
+                className="flex items-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  onSearchChange({ userQuery, userPage: 1 })
+                }}
+              >
+                <InputGroup className="mr-auto max-w-72">
+                  <InputGroupAddon>
+                    <SearchIcon />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    aria-label="Search users"
+                    placeholder="Search users..."
+                    value={userQuery}
+                    onChange={(event) => setUserQuery(event.target.value)}
+                  />
+                </InputGroup>
+                <Button type="submit" variant="outline">
+                  Search
+                </Button>
+              </form>
+              {overview.users.length === 0 ? (
+                <Empty className="min-h-40">
+                  <EmptyHeader>
+                    <EmptyTitle>No users found.</EmptyTitle>
+                    <EmptyDescription>
+                      {overview.userPagination.query
+                        ? 'Try a different name or email.'
+                        : 'Registered users will appear here.'}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>User</TableHead>
+                        <TableHead className="pl-4">User</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead>Status</TableHead>
@@ -698,7 +692,7 @@ export function AdminSettings({
 
                         return (
                           <TableRow key={user.id}>
-                            <TableCell>
+                            <TableCell className="pl-4">
                               <div className="flex min-w-0 items-center gap-3">
                                 <Avatar className="size-8">
                                   <AvatarImage
@@ -739,165 +733,173 @@ export function AdminSettings({
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right">
-                              <div className="ml-auto flex items-center justify-end gap-1">
-                                {isCurrentUser ||
-                                user.status ===
-                                  'deleted' ? null : user.status ===
-                                  'banned' ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        type="button"
-                                        aria-label="Unban user"
-                                        disabled={Boolean(busyId)}
-                                        onClick={() =>
-                                          void unbanAdminUser(user.id)
-                                        }
-                                      >
-                                        {busyId === user.id ? (
-                                          <LoaderIcon className="animate-spin" />
-                                        ) : (
-                                          <ShieldCheckIcon />
-                                        )}
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Unban user</TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  <AlertDialog
-                                    open={confirmation === `ban:${user.id}`}
-                                    onOpenChange={(open) => {
-                                      if (!busyId) {
-                                        setActionError(null)
-                                        setConfirmation(
-                                          open ? `ban:${user.id}` : null,
-                                        )
-                                      }
-                                    }}
-                                  >
+                              <div className="ml-auto">
+                                <div className="-mr-2 flex items-center justify-end gap-1">
+                                  {isCurrentUser ||
+                                  user.status ===
+                                    'deleted' ? null : user.status ===
+                                    'banned' ? (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
-                                        <AlertDialogTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon-sm"
-                                            type="button"
-                                            aria-label="Ban user"
-                                            disabled={Boolean(busyId)}
-                                          >
-                                            <BanIcon />
-                                          </Button>
-                                        </AlertDialogTrigger>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Ban user</TooltipContent>
-                                    </Tooltip>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>
-                                          Ban {displayName}?
-                                        </AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          This signs the user out and prevents
-                                          this account from signing up or
-                                          signing in again.
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <FieldError role="alert">
-                                        {actionError}
-                                      </FieldError>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel
+                                        <Button
+                                          variant="ghost"
+                                          size="icon-sm"
+                                          type="button"
+                                          aria-label="Unban user"
                                           disabled={Boolean(busyId)}
-                                        >
-                                          Cancel
-                                        </AlertDialogCancel>
-                                        <AlertDialogAction
-                                          variant="destructive"
-                                          disabled={Boolean(busyId)}
-                                          onClick={(event) => {
-                                            event.preventDefault()
-                                            void banAdminUser(user.id)
-                                          }}
+                                          onClick={() =>
+                                            void unbanAdminUser(user.id)
+                                          }
                                         >
                                           {busyId === user.id ? (
                                             <LoaderIcon className="animate-spin" />
-                                          ) : null}
-                                          Ban user
-                                        </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                                )}
-                                {isCurrentUser ||
-                                user.status !== 'active' ? null : (
-                                  <AlertDialog
-                                    open={confirmation === `delete:${user.id}`}
-                                    onOpenChange={(open) => {
-                                      if (!busyId) {
-                                        setActionError(null)
-                                        setConfirmation(
-                                          open ? `delete:${user.id}` : null,
-                                        )
-                                      }
-                                    }}
-                                  >
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <AlertDialogTrigger asChild>
-                                          <Button
-                                            variant="destructive"
-                                            size="icon-sm"
-                                            type="button"
-                                            aria-label="Remove user"
-                                            disabled={Boolean(busyId)}
-                                          >
-                                            <Trash2Icon />
-                                          </Button>
-                                        </AlertDialogTrigger>
+                                          ) : (
+                                            <ShieldCheckIcon />
+                                          )}
+                                        </Button>
                                       </TooltipTrigger>
                                       <TooltipContent>
-                                        Remove user
+                                        Unban user
                                       </TooltipContent>
                                     </Tooltip>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>
-                                          Delete {displayName}?
-                                        </AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          This queues deletion of the user
-                                          account, owned teams, projects, and
-                                          deployments that are safe to delete.
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <FieldError role="alert">
-                                        {actionError}
-                                      </FieldError>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel
-                                          disabled={Boolean(busyId)}
-                                        >
-                                          Cancel
-                                        </AlertDialogCancel>
-                                        <AlertDialogAction
-                                          variant="destructive"
-                                          disabled={Boolean(busyId)}
-                                          onClick={(event) => {
-                                            event.preventDefault()
-                                            void deleteUser(user.id)
-                                          }}
-                                        >
-                                          {busyId === user.id ? (
-                                            <LoaderIcon className="animate-spin" />
-                                          ) : null}
-                                          Delete user
-                                        </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                                )}
+                                  ) : (
+                                    <AlertDialog
+                                      open={confirmation === `ban:${user.id}`}
+                                      onOpenChange={(open) => {
+                                        if (!busyId) {
+                                          setActionError(null)
+                                          setConfirmation(
+                                            open ? `ban:${user.id}` : null,
+                                          )
+                                        }
+                                      }}
+                                    >
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <AlertDialogTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon-sm"
+                                              type="button"
+                                              aria-label="Ban user"
+                                              disabled={Boolean(busyId)}
+                                            >
+                                              <BanIcon />
+                                            </Button>
+                                          </AlertDialogTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Ban user
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>
+                                            Ban {displayName}?
+                                          </AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This signs the user out and prevents
+                                            this account from signing up or
+                                            signing in again.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <FieldError role="alert">
+                                          {actionError}
+                                        </FieldError>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel
+                                            disabled={Boolean(busyId)}
+                                          >
+                                            Cancel
+                                          </AlertDialogCancel>
+                                          <AlertDialogAction
+                                            variant="destructive"
+                                            disabled={Boolean(busyId)}
+                                            onClick={(event) => {
+                                              event.preventDefault()
+                                              void banAdminUser(user.id)
+                                            }}
+                                          >
+                                            {busyId === user.id ? (
+                                              <LoaderIcon className="animate-spin" />
+                                            ) : null}
+                                            Ban user
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
+                                  {isCurrentUser ||
+                                  user.status !== 'active' ? null : (
+                                    <AlertDialog
+                                      open={
+                                        confirmation === `delete:${user.id}`
+                                      }
+                                      onOpenChange={(open) => {
+                                        if (!busyId) {
+                                          setActionError(null)
+                                          setConfirmation(
+                                            open ? `delete:${user.id}` : null,
+                                          )
+                                        }
+                                      }}
+                                    >
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <AlertDialogTrigger asChild>
+                                            <Button
+                                              variant="destructive"
+                                              size="icon-sm"
+                                              type="button"
+                                              aria-label="Remove user"
+                                              disabled={Boolean(busyId)}
+                                            >
+                                              <Trash2Icon />
+                                            </Button>
+                                          </AlertDialogTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          Remove user
+                                        </TooltipContent>
+                                      </Tooltip>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>
+                                            Delete {displayName}?
+                                          </AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This queues deletion of the user
+                                            account, owned teams, projects, and
+                                            deployments that are safe to delete.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <FieldError role="alert">
+                                          {actionError}
+                                        </FieldError>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel
+                                            disabled={Boolean(busyId)}
+                                          >
+                                            Cancel
+                                          </AlertDialogCancel>
+                                          <AlertDialogAction
+                                            variant="destructive"
+                                            disabled={Boolean(busyId)}
+                                            onClick={(event) => {
+                                              event.preventDefault()
+                                              void deleteUser(user.id)
+                                            }}
+                                          >
+                                            {busyId === user.id ? (
+                                              <LoaderIcon className="animate-spin" />
+                                            ) : null}
+                                            Delete user
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
+                                </div>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -910,7 +912,12 @@ export function AdminSettings({
               <TablePager
                 page={userPage}
                 pageCount={userPageCount}
-                onPageChange={setUserPage}
+                onPageChange={(nextPage) =>
+                  onSearchChange({
+                    userQuery: overview.userPagination.query,
+                    userPage: nextPage,
+                  })
+                }
               />
             </>
           )}
@@ -926,7 +933,8 @@ export function AdminSettings({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {overview.allowlist.length === 0 ? (
+          {overview.allowlistPagination.total === 0 &&
+          !overview.allowlistPagination.query ? (
             <Empty className="min-h-40">
               <EmptyHeader>
                 <EmptyTitle>No allowlist entries.</EmptyTitle>
@@ -938,101 +946,147 @@ export function AdminSettings({
             </Empty>
           ) : (
             <>
-              <div className="flex justify-end">{allowlistActions}</div>
-              <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Value</TableHead>
-                      <TableHead>Added</TableHead>
-                      <TableHead className="w-16">
-                        <span className="sr-only">Actions</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {overview.allowlist.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell>
-                          <Badge variant="secondary">
-                            {formatAllowlistType(entry.type)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="truncate font-medium">
-                          {entry.value}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatAge(entry.createdAt)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <AlertDialog
-                            open={confirmation === `rule:${entry.id}`}
-                            onOpenChange={(open) => {
-                              if (!busyId) {
-                                setActionError(null)
-                                setConfirmation(
-                                  open ? `rule:${entry.id}` : null,
-                                )
-                              }
-                            }}
-                          >
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="destructive"
-                                    size="icon-sm"
-                                    type="button"
-                                    aria-label="Remove allowlist rule"
-                                    disabled={Boolean(busyId)}
-                                  >
-                                    <Trash2Icon />
-                                  </Button>
-                                </AlertDialogTrigger>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                Remove allowlist rule
-                              </TooltipContent>
-                            </Tooltip>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Delete allowlist rule?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This removes {entry.value} from the allowlist.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <FieldError role="alert">
-                                {actionError}
-                              </FieldError>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel disabled={Boolean(busyId)}>
-                                  Cancel
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                  variant="destructive"
-                                  disabled={Boolean(busyId)}
-                                  onClick={(event) => {
-                                    event.preventDefault()
-                                    void removeAllowlistRule(entry.id)
-                                  }}
-                                >
-                                  {busyId === entry.id ? (
-                                    <LoaderIcon className="animate-spin" />
-                                  ) : null}
-                                  Delete rule
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    onSearchChange({ allowlistQuery, allowlistPage: 1 })
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <InputGroup className="max-w-72">
+                    <InputGroupAddon>
+                      <SearchIcon />
+                    </InputGroupAddon>
+                    <InputGroupInput
+                      aria-label="Search allowlist"
+                      placeholder="Search rules..."
+                      value={allowlistQuery}
+                      onChange={(event) =>
+                        setAllowlistQuery(event.target.value)
+                      }
+                    />
+                  </InputGroup>
+                  <Button type="submit" variant="outline">
+                    Search
+                  </Button>
+                </form>
+                {allowlistActions}
               </div>
+              {overview.allowlist.length === 0 ? (
+                <Empty className="min-h-40">
+                  <EmptyHeader>
+                    <EmptyTitle>No matching allowlist rules.</EmptyTitle>
+                    <EmptyDescription>Try a different search.</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              ) : (
+                <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="pl-4">Type</TableHead>
+                        <TableHead>Value</TableHead>
+                        <TableHead>Added</TableHead>
+                        <TableHead className="w-16">
+                          <span className="sr-only">Actions</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {overview.allowlist.map((entry) => (
+                        <TableRow key={entry.id}>
+                          <TableCell className="pl-4">
+                            <Badge variant="secondary">
+                              {formatAllowlistType(entry.type)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="truncate font-medium">
+                            {entry.value}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatAge(entry.createdAt)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <AlertDialog
+                              open={confirmation === `rule:${entry.id}`}
+                              onOpenChange={(open) => {
+                                if (!busyId) {
+                                  setActionError(null)
+                                  setConfirmation(
+                                    open ? `rule:${entry.id}` : null,
+                                  )
+                                }
+                              }}
+                            >
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="icon-sm"
+                                      type="button"
+                                      aria-label="Remove allowlist rule"
+                                      disabled={Boolean(busyId)}
+                                    >
+                                      <Trash2Icon />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Remove allowlist rule
+                                </TooltipContent>
+                              </Tooltip>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>
+                                    Delete allowlist rule?
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This removes {entry.value} from the
+                                    allowlist.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <FieldError role="alert">
+                                  {actionError}
+                                </FieldError>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel disabled={Boolean(busyId)}>
+                                    Cancel
+                                  </AlertDialogCancel>
+                                  <AlertDialogAction
+                                    variant="destructive"
+                                    disabled={Boolean(busyId)}
+                                    onClick={(event) => {
+                                      event.preventDefault()
+                                      void removeAllowlistRule(entry.id)
+                                    }}
+                                  >
+                                    {busyId === entry.id ? (
+                                      <LoaderIcon className="animate-spin" />
+                                    ) : null}
+                                    Delete rule
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <TablePager
+                page={allowlistPagination.page}
+                pageCount={allowlistPagination.pageCount}
+                onPageChange={(allowlistPage) =>
+                  onSearchChange({
+                    allowlistQuery: allowlistPagination.query,
+                    allowlistPage,
+                  })
+                }
+              />
             </>
           )}
         </CardContent>

@@ -7,11 +7,13 @@ import { TeamInvite } from './team-invite'
 
 const mocks = vi.hoisted(() => ({
   accept: vi.fn(),
+  decline: vi.fn(),
   navigate: vi.fn(),
   warning: vi.fn(),
 }))
 vi.mock('@/server/teams/functions', () => ({
   acceptTeamInviteAction: mocks.accept,
+  declineTeamInviteAction: mocks.decline,
 }))
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mocks.navigate,
@@ -96,5 +98,43 @@ test('pending acceptance blocks cancellation and duplicate submissions, then per
 vi.mock('@/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
+
+test('decline blocks other actions, reports failures safely and permits retry', async () => {
+  let reject!: (error: Error) => void
+  mocks.decline.mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail
+      }),
+  )
+  const view = await mount()
+  const decline = () =>
+    [...view.node.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Decline invitation',
+    )!
+  await act(async () => decline().click())
+  expect(view.node.textContent).toContain('Declining…')
+  expect(
+    [...view.node.querySelectorAll<HTMLButtonElement>('button')].every(
+      (button) => button.disabled,
+    ),
+  ).toBe(true)
+  await view.click()
+  expect(mocks.accept).not.toHaveBeenCalled()
+  await act(async () => reject(new Error('private database detail')))
+  expect(view.node.querySelector('[role="alert"]')?.textContent).toBe(
+    'The invitation could not be declined.',
+  )
+  mocks.decline.mockResolvedValueOnce(undefined)
+  await act(async () => decline().click())
+  expect(mocks.decline).toHaveBeenLastCalledWith({ data: { token: 'token' } })
+  expect(mocks.navigate).toHaveBeenCalledWith({
+    to: '/settings',
+    hash: 'teams',
+  })
+  await view.click()
+  expect(mocks.accept).not.toHaveBeenCalled()
+  await view.close()
+})
 
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))

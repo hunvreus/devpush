@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   namespace: vi.fn(),
   rows: vi.fn(),
 }))
-vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.auth } } }))
+vi.mock('@/server/auth/better-auth', () => ({ auth: { api: { getSession: mocks.auth } } }))
 vi.mock('@/server/runtime/platform-env', () => ({
   getWorkspaceUpdates: mocks.namespace,
 }))

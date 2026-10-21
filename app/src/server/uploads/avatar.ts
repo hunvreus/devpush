@@ -1,4 +1,10 @@
+import { PublicError } from '@/lib/public-error'
 import { getObjectStore } from '@/server/storage/object-store'
+
+export type AvatarOwner = {
+  filePrefix: 'user' | 'team' | 'project'
+  resourceId: string
+}
 
 export async function resolveAvatarUpdate({
   currentAvatarPath,
@@ -10,7 +16,7 @@ export async function resolveAvatarUpdate({
   currentAvatarPath: string | null
   avatarDataUrl?: string | null
   deleteAvatar: boolean
-  filePrefix: string
+  filePrefix: AvatarOwner['filePrefix']
   resourceId: string
 }) {
   if (!avatarDataUrl && !deleteAvatar) {
@@ -18,15 +24,14 @@ export async function resolveAvatarUpdate({
   }
 
   if (deleteAvatar || !avatarDataUrl) {
-    if (currentAvatarPath) {
-      await removePublicFile(currentAvatarPath)
-    }
-
     return null
   }
 
   const parsed = parseAvatarDataUrl(avatarDataUrl)
-  const fileName = `${filePrefix}_${resourceId}.${parsed.extension}`
+  if (!/^[A-Za-z0-9_-]+$/.test(resourceId))
+    throw new Error('Invalid avatar owner.')
+  const version = crypto.randomUUID().replaceAll('-', '')
+  const fileName = `${filePrefix}_${resourceId}~${version}.${parsed.extension}`
   const publicPath = `/uploads/avatars/${fileName}`
 
   await getObjectStore().put(
@@ -35,30 +40,26 @@ export async function resolveAvatarUpdate({
     parsed.mimeType,
   )
 
-  if (currentAvatarPath && currentAvatarPath !== publicPath) {
-    await removePublicFile(currentAvatarPath)
-  }
-
   return publicPath
 }
 
-export function parseAvatarDataUrl(dataUrl: string) {
+function parseAvatarDataUrl(dataUrl: string) {
   const match =
     /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl)
 
   if (!match || match[1] === undefined || match[2] === undefined) {
-    throw new Error('Upload a PNG, JPEG, or WebP image.')
+    throw new PublicError('AVATAR_TYPE_UNSUPPORTED')
   }
 
   const mimeType = match[1]
   const buffer = Buffer.from(match[2], 'base64')
 
   if (buffer.byteLength > 2 * 1024 * 1024) {
-    throw new Error('Avatars must be 2 MB or smaller.')
+    throw new PublicError('AVATAR_TOO_LARGE')
   }
 
   if (!matchesImageSignature(buffer, mimeType)) {
-    throw new Error('The uploaded file does not match its image type.')
+    throw new PublicError('AVATAR_CONTENT_MISMATCH')
   }
 
   return {
@@ -96,7 +97,11 @@ function matchesImageSignature(buffer: Buffer, mimeType: string) {
   )
 }
 
-export async function removePublicFile(publicPath: string | null | undefined) {
+export async function removeOwnedAvatar(
+  publicPath: string | null | undefined,
+  owner: AvatarOwner,
+  options: { strict?: boolean } = {},
+) {
   if (!publicPath) {
     return
   }
@@ -104,10 +109,19 @@ export async function removePublicFile(publicPath: string | null | undefined) {
   if (!publicPath.startsWith('/uploads/avatars/')) {
     return
   }
+  const prefix = `/uploads/avatars/${owner.filePrefix}_${owner.resourceId}`
+  if (
+    !/^[A-Za-z0-9_-]+$/.test(owner.resourceId) ||
+    !publicPath.startsWith(prefix)
+  )
+    return
+  const suffix = publicPath.slice(prefix.length)
+  if (!/^(?:~[a-f0-9]{32})?\.(?:png|jpe?g|webp)$/.test(suffix)) return
 
   try {
     await getObjectStore().delete(publicPath.slice('/uploads/'.length))
-  } catch {
+  } catch (error) {
+    if (options.strict) throw error
     // Missing old avatar files should not block saving settings.
   }
 }

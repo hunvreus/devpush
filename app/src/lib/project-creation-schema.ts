@@ -3,7 +3,7 @@ import { projectMachineNameSchema } from './project-settings-schema'
 import {
   maxLifecycleCommandLength,
   repositoryComposePathSchema,
-} from '@/server/projects/runtime-config'
+} from '@/lib/project-runtime-config'
 
 export const envVarSchema = z.object({
   key: z

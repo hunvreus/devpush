@@ -67,5 +67,9 @@ function matchesBranchPattern(branch: string, pattern: string) {
   const prefix = pattern.slice(0, wildcardIndex)
   const suffix = pattern.slice(wildcardIndex + 1)
 
-  return branch.startsWith(prefix) && branch.endsWith(suffix)
+  return (
+    branch.length >= prefix.length + suffix.length &&
+    branch.startsWith(prefix) &&
+    branch.endsWith(suffix)
+  )
 }

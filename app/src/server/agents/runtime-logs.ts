@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 
 import { db, logsDb } from '@/server/db'
 import { runtimeLogs } from '@/server/db/log-schema'
-import { environments, projects } from '@/server/db/schema'
+import { deployments, environments, projects } from '@/server/db/schema'
 import { requireAgentServer } from '@/server/servers/service'
 import {
   runtimeLogRetentionMs,
@@ -170,6 +170,27 @@ async function listAllowedRuntimes({
         ),
       )
     for (const row of rows) assignments.set(row.runtimeId, row)
+    // A durable capture can arrive after replacement or project deletion.
+    // Historical deployment ownership, never the agent's claim alone, permits
+    // delivery from the original server. Existing display/retention guards stay.
+    const historical = await db
+      .selectDistinct({
+        runtimeId: deployments.runtimeId,
+        projectId: projects.id,
+        environmentId: environments.id,
+      })
+      .from(deployments)
+      .innerJoin(environments, eq(environments.id, deployments.environmentId))
+      .innerJoin(projects, eq(projects.id, environments.projectId))
+      .where(
+        and(
+          eq(deployments.serverId, serverId),
+          inArray(deployments.runtimeId, runtimeIds.slice(offset, offset + 80)),
+        ),
+      )
+    for (const row of historical) {
+      if (!assignments.has(row.runtimeId)) assignments.set(row.runtimeId, row)
+    }
   }
   return assignments
 }

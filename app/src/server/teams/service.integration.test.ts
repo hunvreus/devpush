@@ -1,5 +1,5 @@
 import { required } from '@/test/required'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
@@ -11,16 +11,19 @@ import {
   teams,
   user,
 } from '@/server/db/schema'
-import { removePublicFile } from '@/server/uploads/avatar'
+import { mockObjectStore } from '@/test/object-store'
+import { toPublicError } from '@/server/http/public-errors'
 import {
   acceptTeamInvite,
   acceptUserTeamInvite,
+  declineUserTeamInvite,
+  declineTeamInvite,
   cleanupExpiredTeamInvites,
   createTeam,
-  createTeamInvite,
   createTeamInvites,
   deleteTeam,
   ensureUserBootstrap,
+  requireTeam,
   removeTeamMember,
   resendTeamInvite,
   revokeTeamInvite,
@@ -34,13 +37,13 @@ const emailMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 vi.mock('@/server/email/service', () => ({ sendTeamInviteEmail: emailMock }))
 
 const touchedInviteIds: Array<string> = []
-const touchedAvatarPaths: Array<string> = []
 const touchedTeamIds: Array<string> = []
 const touchedUserIds: Array<string> = []
 const touchedServerIds: Array<string> = []
 const touchedJobIds: Array<string> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await cleanupRows()
 })
 
@@ -49,6 +52,150 @@ afterAll(async () => {
 })
 
 describe('team settings integration', () => {
+  test.each(['expired', 'accepted', 'banned', 'changed-email', 'deleted-team'])(
+    'decline preserves an ineligible invitation: %s',
+    async (state) => {
+      const { ownerId, teamId, teamSlug } = await createTeamWithMembers()
+      const invitedUserId = makeId('user')
+      touchedUserIds.push(invitedUserId)
+      await db
+        .insert(user)
+        .values(makeUser(invitedUserId, 'ineligible@example.com'))
+      const token = await inviteAndGetToken({
+        email: 'ineligible@example.com',
+        ownerId,
+        teamSlug,
+      })
+      const [invite] = await listUserPendingTeamInvites(invitedUserId)
+      const inviteId = required(invite).id
+      if (state === 'expired')
+        await db
+          .update(teamInvites)
+          .set({ expiresAt: new Date(0) })
+          .where(eq(teamInvites.id, inviteId))
+      if (state === 'accepted')
+        await acceptTeamInvite({ userId: invitedUserId, token })
+      if (state === 'banned')
+        await db
+          .update(user)
+          .set({ status: 'banned' })
+          .where(eq(user.id, invitedUserId))
+      if (state === 'changed-email')
+        await db
+          .update(user)
+          .set({ email: 'different@example.com' })
+          .where(eq(user.id, invitedUserId))
+      if (state === 'deleted-team')
+        await db
+          .update(teams)
+          .set({ status: 'deleted' })
+          .where(eq(teams.id, teamId))
+      await expect(
+        declineUserTeamInvite({ userId: invitedUserId, inviteId }),
+      ).rejects.toMatchObject({ code: 'TEAM_INVITATION_INVALID' })
+      expect(
+        await db.select().from(teamInvites).where(eq(teamInvites.id, inviteId)),
+      ).toHaveLength(1)
+    },
+  )
+  test('only the verified recipient can decline; the removed invitation cannot be accepted', async () => {
+    const { ownerId, teamId, teamSlug } = await createTeamWithMembers()
+    const invitedUserId = makeId('user')
+    touchedUserIds.push(invitedUserId)
+    await db
+      .insert(user)
+      .values(makeUser(invitedUserId, 'decline@example.com', false))
+    const token = await inviteAndGetToken({
+      email: 'decline@example.com',
+      ownerId,
+      teamSlug,
+    })
+    const [invite] = await listUserPendingTeamInvites(invitedUserId)
+    const inviteId = required(invite).id
+    await expect(
+      declineUserTeamInvite({ userId: ownerId, inviteId }),
+    ).rejects.toMatchObject({ code: 'TEAM_INVITATION_INVALID' })
+    await expect(
+      declineTeamInvite({ userId: invitedUserId, token }),
+    ).rejects.toMatchObject({ code: 'TEAM_INVITATION_INVALID' })
+    await db
+      .update(user)
+      .set({ emailVerified: true })
+      .where(eq(user.id, invitedUserId))
+    await declineUserTeamInvite({ userId: invitedUserId, inviteId })
+    expect(await listUserPendingTeamInvites(invitedUserId)).toEqual([])
+    await expect(
+      acceptTeamInvite({ userId: invitedUserId, token }),
+    ).rejects.toMatchObject({ code: 'TEAM_INVITATION_INVALID' })
+    expect(
+      await db
+        .select()
+        .from(teamMembers)
+        .where(
+          and(
+            eq(teamMembers.userId, invitedUserId),
+            eq(teamMembers.teamId, teamId),
+          ),
+        ),
+    ).toEqual([])
+    const nextToken = await inviteAndGetToken({
+      email: 'decline@example.com',
+      ownerId,
+      teamSlug,
+    })
+    await declineTeamInvite({ userId: invitedUserId, token: nextToken })
+    expect(await listUserPendingTeamInvites(invitedUserId)).toEqual([])
+  })
+  test.each(['mcp', 'oauth', 'settings', 'invites', 'uploads'])(
+    'rejects the reserved %s slug without changing the team',
+    async (slug) => {
+      const { adminId, teamId, teamSlug } = await createTeamWithMembers()
+      await expect(
+        updateTeamGeneral({
+          userId: adminId,
+          teamSlug,
+          name: 'Renamed team',
+          slug: slug.toUpperCase(),
+        }),
+      ).rejects.toMatchObject({ code: 'TEAM_SLUG_RESERVED' })
+      expect(
+        await db
+          .select({ name: teams.name, slug: teams.slug })
+          .from(teams)
+          .where(eq(teams.id, teamId)),
+      ).toEqual([{ name: 'Integration team', slug: teamSlug }])
+    },
+  )
+
+  test.each(['MCP', 'OAuth', 'Settings', 'Invites', 'Uploads'])(
+    'generates a nonreserved URL when a new team is named %s',
+    async (name) => {
+      const { ownerId } = await createTeamWithMembers()
+      const created = await createTeam({ userId: ownerId, name })
+      touchedTeamIds.push(created.id)
+      expect(created.name).toBe(name)
+      expect(created.slug).toMatch(/^team(?:-|$)/)
+      expect(created.slug).not.toBe(name.toLowerCase())
+    },
+  )
+
+  test.each(['MCP', 'OAuth', 'Settings', 'Invites', 'Uploads'])(
+    'bootstrap avoids a reserved URL for an account named %s',
+    async (name) => {
+      const userId = makeId('user')
+      touchedUserIds.push(userId)
+      await db.insert(user).values({ ...makeUser(userId), name })
+      const teamId = await ensureUserBootstrap(userId)
+      touchedTeamIds.push(teamId)
+      const [created] = await db
+        .select({ slug: teams.slug })
+        .from(teams)
+        .where(eq(teams.id, teamId))
+      expect(created?.slug).toMatch(/^team(?:-|$)/)
+      expect(created?.slug).not.toBe(name.toLowerCase())
+    },
+  )
+
   test('concurrent bootstrap creates one team and keeps its default when another team is created', async () => {
     const userId = makeId('user')
     touchedUserIds.push(userId)
@@ -137,10 +284,10 @@ describe('team settings integration', () => {
       name: 'Updated team',
       slug: nextSlug,
     })
-    const inviteResult = await createTeamInvite({
+    const inviteResult = await createTeamInvites({
       userId: adminId,
       teamSlug: nextSlug,
-      email: `${makeId('invite')}@example.com`,
+      emails: [`${makeId('invite')}@example.com`],
       role: 'member',
     })
     touchedInviteIds.push(...inviteResult.invites.map((invite) => invite.id))
@@ -169,10 +316,10 @@ describe('team settings integration', () => {
     ).rejects.toThrow('You do not have permission')
 
     await expect(
-      createTeamInvite({
+      createTeamInvites({
         userId: memberId,
         teamSlug,
-        email: `${makeId('invite')}@example.com`,
+        emails: [`${makeId('invite')}@example.com`],
         role: 'member',
       }),
     ).rejects.toThrow('You do not have permission')
@@ -351,7 +498,6 @@ describe('team settings integration', () => {
         userId: ownerId,
         teamSlug,
         confirmationName: teamSlug,
-        ignoreDefaultForUserId: ownerId,
       }),
     ).rejects.toThrow('You cannot delete a default team.')
 
@@ -440,10 +586,10 @@ describe('team settings integration', () => {
 
   test('lists only pending non-expired invites', async () => {
     const { ownerId, teamId, teamSlug } = await createTeamWithMembers()
-    const active = await createTeamInvite({
+    const active = await createTeamInvites({
       userId: ownerId,
       teamSlug,
-      email: `${makeId('active')}@example.com`,
+      emails: [`${makeId('active')}@example.com`],
       role: 'member',
     })
     touchedInviteIds.push(...active.invites.map((invite) => invite.id))
@@ -465,25 +611,75 @@ describe('team settings integration', () => {
     expect(invites[0]?.id).toBe(active.invites[0]?.id)
   })
 
+  test('bulk invitations reject an empty list before writing', async () => {
+    const { ownerId, teamId, teamSlug } = await createTeamWithMembers()
+    await expect(
+      createTeamInvites({
+        userId: ownerId,
+        teamSlug,
+        emails: [],
+        role: 'member',
+      }),
+    ).rejects.toMatchObject({ code: 'TEAM_INVITE_EMAIL_REQUIRED' })
+    expect(
+      await db.select().from(teamInvites).where(eq(teamInvites.teamId, teamId)),
+    ).toHaveLength(0)
+  })
+
+  test('bulk invitations retain successful emails while reporting duplicates', async () => {
+    const { ownerId, teamSlug } = await createTeamWithMembers()
+    const duplicateEmail = makeId('duplicate') + '@example.com'
+    const newEmail = makeId('new') + '@example.com'
+    const first = await createTeamInvites({
+      userId: ownerId,
+      teamSlug,
+      emails: [duplicateEmail],
+      role: 'member',
+    })
+    touchedInviteIds.push(...first.invites.map((invite) => invite.id))
+    const result = await createTeamInvites({
+      userId: ownerId,
+      teamSlug,
+      emails: [duplicateEmail, newEmail],
+      role: 'member',
+    })
+    touchedInviteIds.push(...result.invites.map((invite) => invite.id))
+    expect(result.emailCount).toBe(1)
+    expect(result.failedEmails).toEqual([
+      {
+        email: duplicateEmail,
+        message: 'An invitation has already been sent to this email address.',
+      },
+    ])
+    expect(result.invites.map((invite) => invite.email).sort()).toEqual(
+      [duplicateEmail, newEmail].sort(),
+    )
+  })
+
   test('reports duplicate pending invites without masking other failures', async () => {
     const { ownerId, teamSlug } = await createTeamWithMembers()
     const email = `${makeId('duplicate')}@example.com`
-    const first = await createTeamInvite({
+    const first = await createTeamInvites({
       userId: ownerId,
       teamSlug,
-      email,
+      emails: [email],
       role: 'member',
     })
     touchedInviteIds.push(...first.invites.map((invite) => invite.id))
 
-    await expect(
-      createTeamInvite({
-        userId: ownerId,
-        teamSlug,
+    const duplicate = await createTeamInvites({
+      userId: ownerId,
+      teamSlug,
+      emails: [email],
+      role: 'admin',
+    })
+    expect(duplicate.emailCount).toBe(0)
+    expect(duplicate.failedEmails).toEqual([
+      {
         email,
-        role: 'admin',
-      }),
-    ).rejects.toThrow(`Invitation already sent to ${email}.`)
+        message: 'An invitation has already been sent to this email address.',
+      },
+    ])
   })
 
   test('replaces expired pending invites for the same email', async () => {
@@ -500,10 +696,10 @@ describe('team settings integration', () => {
       tokenHash: makeId('token'),
     })
 
-    const result = await createTeamInvite({
+    const result = await createTeamInvites({
       userId: ownerId,
       teamSlug,
-      email,
+      emails: [email],
       role: 'admin',
     })
     touchedInviteIds.push(...result.invites.map((invite) => invite.id))
@@ -524,12 +720,43 @@ describe('team settings integration', () => {
     expect(result.invites.map((invite) => invite.id)).toContain(expiredInviteId)
   })
 
-  test('resends a pending invite in place', async () => {
+  test('resend cannot replace a concurrently revoked invitation', async () => {
     const { ownerId, teamSlug } = await createTeamWithMembers()
-    const first = await createTeamInvite({
+    const first = await createTeamInvites({
       userId: ownerId,
       teamSlug,
-      email: `${makeId('resend')}@example.com`,
+      emails: [`${makeId('resend-race')}@example.com`],
+      role: 'member',
+    })
+    const inviteId = first.invites[0]!.id
+    touchedInviteIds.push(inviteId)
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    const hook = vi
+      .spyOn(crypto.subtle, 'digest')
+      .mockImplementationOnce(async (algorithm, data) => {
+        await db
+          .update(teamInvites)
+          .set({ status: 'revoked' })
+          .where(eq(teamInvites.id, inviteId))
+        return digest(algorithm, data)
+      })
+    const calls = emailMock.mock.calls.length
+    try {
+      await expect(
+        resendTeamInvite({ userId: ownerId, teamSlug, inviteId }),
+      ).rejects.toMatchObject({ code: 'TEAM_INVITE_NOT_FOUND' })
+      expect(emailMock.mock.calls.length).toBe(calls)
+    } finally {
+      hook.mockRestore()
+    }
+  })
+
+  test('resends a pending invite in place', async () => {
+    const { ownerId, teamSlug } = await createTeamWithMembers()
+    const first = await createTeamInvites({
+      userId: ownerId,
+      teamSlug,
+      emails: [`${makeId('resend')}@example.com`],
       role: 'member',
     })
     const inviteId = first.invites.at(0)?.id ?? ''
@@ -800,10 +1027,10 @@ describe('team settings integration', () => {
 
     await db.insert(user).values(makeUser(invitedUserId, 'pending@example.com'))
 
-    const inviteResult = await createTeamInvite({
+    const inviteResult = await createTeamInvites({
       userId: ownerId,
       teamSlug,
-      email: 'pending@example.com',
+      emails: ['pending@example.com'],
       role: 'admin',
     })
     const inviteId = inviteResult.invites.at(0)?.id
@@ -857,10 +1084,10 @@ describe('team settings integration', () => {
         makeUser(wrongUserId, 'wrong-pending@example.com'),
       ])
 
-    const inviteResult = await createTeamInvite({
+    const inviteResult = await createTeamInvites({
       userId: ownerId,
       teamSlug,
-      email: 'pending-other@example.com',
+      emails: ['pending-other@example.com'],
       role: 'member',
     })
     const inviteId = inviteResult.invites.at(0)?.id ?? ''
@@ -871,36 +1098,112 @@ describe('team settings integration', () => {
     ).rejects.toThrow('Sign in with the invited email address to accept.')
   })
 
-  test('does not keep a newly uploaded avatar when a team slug update fails', async () => {
+  test.each(['png', 'jpg'])(
+    'a rejected avatar save preserves the previous %s image and removes only the staged upload',
+    async (extension) => {
+      const { adminId, teamId, teamSlug } = await createTeamWithMembers()
+      const oldKey = `avatars/team_${teamId}.${extension}`
+      const oldBytes = Buffer.from('previous avatar content')
+      const { objects } = mockObjectStore([[oldKey, oldBytes]])
+      const avatarPath = `/uploads/${oldKey}`
+      await db.update(teams).set({ avatarPath }).where(eq(teams.id, teamId))
+      const otherTeamId = makeId('team')
+      const otherTeamSlug = makeSlug(otherTeamId)
+      touchedTeamIds.push(otherTeamId)
+
+      await db.insert(teams).values({
+        id: otherTeamId,
+        name: 'Other team',
+        slug: otherTeamSlug,
+      })
+
+      await expect(
+        updateTeamGeneral({
+          userId: adminId,
+          teamSlug,
+          name: 'Renamed team',
+          slug: otherTeamSlug,
+          avatarDataUrl: makeAvatarDataUrl(),
+        }),
+      ).rejects.toThrow('A team with this slug already exists.')
+
+      const avatarRows = await db
+        .select({ avatarPath: teams.avatarPath })
+        .from(teams)
+        .where(eq(teams.id, teamId))
+
+      expect(avatarRows).toEqual([{ avatarPath }])
+      expect([...objects.keys()]).toEqual([oldKey])
+      expect(objects.get(oldKey)).toEqual(oldBytes)
+    },
+  )
+
+  test('successful avatar replacement commits a new URL before deleting the old object', async () => {
     const { adminId, teamId, teamSlug } = await createTeamWithMembers()
-    const otherTeamId = makeId('team')
-    const otherTeamSlug = makeSlug(otherTeamId)
-    touchedTeamIds.push(otherTeamId)
-
-    await db.insert(teams).values({
-      id: otherTeamId,
-      name: 'Other team',
-      slug: otherTeamSlug,
+    const oldKey = `avatars/team_${teamId}.png`
+    const { objects, remove } = mockObjectStore([
+      [oldKey, Buffer.from('previous')],
+    ])
+    await db
+      .update(teams)
+      .set({ avatarPath: `/uploads/${oldKey}` })
+      .where(eq(teams.id, teamId))
+    const committedPaths: Array<string | null> = []
+    remove.mockImplementation(async (key) => {
+      const row = required(
+        (await db.select().from(teams).where(eq(teams.id, teamId)))[0],
+      )
+      committedPaths.push(row.avatarPath)
+      objects.delete(key)
     })
+    const updated = await updateTeamGeneral({
+      userId: adminId,
+      teamSlug,
+      name: 'Updated avatar',
+      slug: teamSlug,
+      avatarDataUrl: makeAvatarDataUrl(),
+    })
+    expect(updated.image).toMatch(/~[a-f0-9]{32}\.png$/)
+    expect(committedPaths).toEqual([updated.image])
+    expect([...objects.keys()]).toEqual([
+      updated.image!.slice('/uploads/'.length),
+    ])
+    expect(remove).toHaveBeenCalledWith(oldKey)
+  })
 
+  test('losing admin access during upload preserves the old avatar and removes the staged object', async () => {
+    const { adminId, teamId, teamSlug } = await createTeamWithMembers()
+    const oldKey = `avatars/team_${teamId}.png`
+    const { objects, put } = mockObjectStore([
+      [oldKey, Buffer.from('previous')],
+    ])
+    await db
+      .update(teams)
+      .set({ avatarPath: `/uploads/${oldKey}` })
+      .where(eq(teams.id, teamId))
+    put.mockImplementation(async (key, body) => {
+      objects.set(key, Buffer.from(body))
+      await db
+        .update(teamMembers)
+        .set({ role: 'member' })
+        .where(
+          and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, adminId)),
+        )
+    })
     await expect(
       updateTeamGeneral({
         userId: adminId,
         teamSlug,
-        name: 'Renamed team',
-        slug: otherTeamSlug,
+        name: 'Rejected avatar',
+        slug: teamSlug,
         avatarDataUrl: makeAvatarDataUrl(),
       }),
-    ).rejects.toThrow('A team with this slug already exists.')
-
-    const avatarPath = `/uploads/avatars/team_${teamId}.png`
-    const avatarRows = await db
-      .select({ avatarPath: teams.avatarPath })
-      .from(teams)
-      .where(eq(teams.id, teamId))
-
-    expect(avatarRows).toEqual([{ avatarPath: null }])
-    await expectAvatarMissing(avatarPath)
+    ).rejects.toMatchObject({ code: 'SETTINGS_CONFLICT' })
+    expect([...objects.keys()]).toEqual([oldKey])
+    expect(
+      required((await db.select().from(teams).where(eq(teams.id, teamId)))[0])
+        .avatarPath,
+    ).toBe(`/uploads/${oldKey}`)
   })
 
   test('rejects unsupported and oversized team avatars', async () => {
@@ -932,6 +1235,29 @@ describe('team settings integration', () => {
       .where(eq(teams.id, teamId))
 
     expect(avatarRows).toEqual([{ avatarPath: null }])
+  })
+
+  test('unexpected storage failures are not mislabeled as a slug conflict', async () => {
+    const { adminId, teamId, teamSlug } = await createTeamWithMembers()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await db.run(
+      sql.raw(
+        `create trigger reject_team_profile_update before update on teams when new.id = '${teamId}' begin select raise(abort, 'fixture database failure'); end`,
+      ),
+    )
+    try {
+      const operation = updateTeamGeneral({
+        userId: adminId,
+        teamSlug,
+        name: 'Rejected update',
+        slug: teamSlug,
+      })
+      await expect(operation).rejects.toThrow()
+      const error = await operation.catch((cause: unknown) => cause)
+      expect(toPublicError(error).code).toBe('INTERNAL_ERROR')
+    } finally {
+      await db.run(sql`drop trigger reject_team_profile_update`)
+    }
   })
 })
 
@@ -1003,10 +1329,6 @@ async function createTeamWithMembers({
 }
 
 async function cleanupRows() {
-  await Promise.all(
-    touchedAvatarPaths.map((avatarPath) => removePublicFile(avatarPath)),
-  )
-
   if (touchedInviteIds.length > 0) {
     await db
       .delete(teamInvites)
@@ -1039,7 +1361,6 @@ async function cleanupRows() {
   }
 
   touchedInviteIds.length = 0
-  touchedAvatarPaths.length = 0
   touchedTeamIds.length = 0
   touchedUserIds.length = 0
   touchedServerIds.length = 0
@@ -1055,24 +1376,17 @@ async function inviteAndGetToken({
   ownerId: string
   teamSlug: string
 }) {
-  const result = await createTeamInvite({
+  const result = await createTeamInvites({
     userId: ownerId,
     teamSlug,
-    email,
+    emails: [email],
     role: 'member',
   })
   touchedInviteIds.push(...result.invites.map((invite) => invite.id))
 
-  return new URL(result.inviteUrl).pathname.split('/').pop() ?? ''
-}
-
-async function expectAvatarMissing(avatarPath: string) {
-  const { access } = await import('node:fs/promises')
-  const path = await import('node:path')
-
-  await expect(
-    access(path.join(process.cwd(), 'public', avatarPath)),
-  ).rejects.toThrow()
+  expect(result.emailCount).toBe(1)
+  expect(result.inviteUrl).toBeTruthy()
+  return new URL(result.inviteUrl!).pathname.split('/').pop() ?? ''
 }
 
 function makeAvatarDataUrl() {
@@ -1129,7 +1443,7 @@ test('bulk invitations report individual failures and continue with later addres
   expect(result.failedEmails).toEqual([
     {
       email: owner.email,
-      message: `${owner.email} is already a member of this team.`,
+      message: 'This email address is already a member of this team.',
     },
   ])
   expect(rows.map((row) => row.email).sort()).toEqual([
@@ -1155,4 +1469,12 @@ test('bulk email delivery failures still report persisted invitations separately
   expect(result.emailSentCount).toBe(1)
   expect(result.failedEmails).toEqual([])
   expect(rows).toHaveLength(2)
+})
+
+test('a banned member cannot reuse a stale browser session to access a team', async () => {
+  const { ownerId, teamSlug } = await createTeamWithMembers()
+  await db.update(user).set({ status: 'banned' }).where(eq(user.id, ownerId))
+  await expect(requireTeam(ownerId, teamSlug)).rejects.toMatchObject({
+    code: 'TEAM_NOT_FOUND',
+  })
 })

@@ -7,10 +7,12 @@ test('shared and scoped keys can override, but duplicates within a scope cannot'
     { key: 'TOKEN', value: '' },
     { key: 'TOKEN', value: 'scoped', environment: 'e' },
   ]
-  expect(projectEnvVarsSchema.safeParse({ ...base, envVars }).success).toBe(
-    true,
-  )
+  expect(
+    projectEnvVarsSchema.safeParse({ settingsVersion: 1, projectId: 'p', ...base, envVars })
+      .success,
+  ).toBe(true)
   const duplicate = projectEnvVarsSchema.safeParse({
+    settingsVersion: 1, projectId: 'p',
     ...base,
     envVars: [envVars[0], { key: ' TOKEN ', value: '', environment: '' }],
   })
@@ -21,11 +23,13 @@ test('shared and scoped keys can override, but duplicates within a scope cannot'
 test('empty values and removing all variables remain supported', () => {
   expect(
     projectEnvVarsSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
       ...base,
       envVars: [{ key: 'EMPTY', value: '' }],
     }).success,
   ).toBe(true)
-  expect(projectEnvVarsSchema.safeParse({ ...base, envVars: [] }).success).toBe(
-    true,
-  )
+  expect(
+    projectEnvVarsSchema.safeParse({ settingsVersion: 1, projectId: 'p', ...base, envVars: [] })
+      .success,
+  ).toBe(true)
 })

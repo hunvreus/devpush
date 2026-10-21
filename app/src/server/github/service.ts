@@ -1,6 +1,9 @@
+import { readProviderToken } from '@/server/auth/provider-tokens'
 import { and, desc, eq } from 'drizzle-orm'
 import { createPrivateKey } from 'node:crypto'
 import { SignJWT } from 'jose'
+import { isAPIError } from 'better-auth/api'
+import { PublicError } from '@/lib/public-error'
 
 import { config } from '@/server/config'
 import { db } from '@/server/db'
@@ -144,7 +147,9 @@ export async function getGitHubAccount(
 ): Promise<GitHubAccount | null> {
   const accountRows = await db
     .select({
+      id: account.id,
       accessToken: account.accessToken,
+      accessTokenExpiresAt: account.accessTokenExpiresAt,
       login: account.providerAccountUsername,
     })
     .from(account)
@@ -157,18 +162,46 @@ export async function getGitHubAccount(
     return null
   }
 
+  let accessToken = await readProviderToken(githubAccount.accessToken)
+  if (
+    githubAccount.accessTokenExpiresAt &&
+    githubAccount.accessTokenExpiresAt.getTime() - Date.now() < 5_000
+  ) {
+    const { auth } = await import('@/server/auth/better-auth')
+    try {
+      const refreshed = await auth.api.getAccessToken({
+        body: { accountId: githubAccount.id, userId },
+      })
+      if (
+        !refreshed.accessToken ||
+        (refreshed.accessTokenExpiresAt &&
+          new Date(refreshed.accessTokenExpiresAt).getTime() <= Date.now())
+      ) {
+        throw new PublicError('GITHUB_ACCESS_REFRESH_FAILED')
+      }
+      accessToken = refreshed.accessToken
+    } catch (error) {
+      if (
+        isAPIError(error) &&
+        [
+          'FAILED_TO_GET_ACCESS_TOKEN',
+          'PROVIDER_NOT_SUPPORTED',
+          'ACCOUNT_NOT_FOUND',
+        ].includes(error.body?.code ?? '')
+      ) {
+        throw new PublicError('GITHUB_ACCESS_REFRESH_FAILED')
+      }
+      throw error
+    }
+  }
+
   const login =
     githubAccount.login ??
-    (
-      await githubRequest<GitHubUserResponse>(
-        '/user',
-        githubAccount.accessToken,
-      )
-    ).login
+    (await githubRequest<GitHubUserResponse>('/user', accessToken)).login
 
   return {
     login,
-    accessToken: githubAccount.accessToken,
+    accessToken,
   }
 }
 
@@ -204,6 +237,53 @@ export async function listUserInstallations(
   }
 
   return installations
+}
+
+export async function listUserInstallationsPage({
+  accessToken,
+  page,
+  perPage,
+}: {
+  accessToken: string
+  page: number
+  perPage: number
+}) {
+  const data = await githubRequest<GitHubInstallationsResponse>(
+    `/user/installations?per_page=${perPage}&page=${page}`,
+    accessToken,
+  )
+  return {
+    items: data.installations.map((installation) => ({
+      id: installation.id,
+      accountLogin: installation.account.login,
+      accountType: installation.account.type,
+      repositorySelection: installation.repository_selection,
+    })),
+    hasMore: page * perPage < data.total_count,
+  }
+}
+
+export async function listInstallationRepositoriesPage({
+  accessToken,
+  installationId,
+  page,
+  perPage,
+}: {
+  accessToken: string
+  installationId: number
+  page: number
+  perPage: number
+}) {
+  const data = await githubRequest<GitHubRepositoriesResponse>(
+    `/user/installations/${installationId}/repositories?per_page=${perPage}&page=${page}`,
+    accessToken,
+  )
+  return {
+    items: data.repositories.map((repository) =>
+      mapRepository(repository, installationId),
+    ),
+    hasMore: page * perPage < data.total_count,
+  }
 }
 
 export async function listInstallationRepositories({
@@ -388,6 +468,34 @@ export async function listRepositoryBranches({
   }
 
   return branches
+}
+
+export async function listRepositoryBranchesPage({
+  accessToken,
+  repo,
+  page,
+  perPage,
+}: {
+  accessToken: string
+  repo: string
+  page: number
+  perPage: number
+}) {
+  if (
+    config.DEVPUSH_SMOKE_GITHUB_TOKEN &&
+    accessToken === config.DEVPUSH_SMOKE_GITHUB_TOKEN
+  )
+    return { items: page === 1 ? ['main'] : [], hasMore: false }
+  const branches = await githubRequest<GitHubBranchListResponse>(
+    `/repos/${encodeURIComponentRepoName(repo)}/branches?per_page=${perPage}&page=${page}`,
+    accessToken,
+  )
+  // One additional empty page is possible when GitHub returns an exact multiple
+  // of perPage; continuation never loses branches or fetches every page upfront.
+  return {
+    items: branches.map((branch) => branch.name),
+    hasMore: branches.length === perPage,
+  }
 }
 
 export async function getAppInstallation(installationId: number) {

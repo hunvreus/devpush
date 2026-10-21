@@ -153,3 +153,66 @@ func TestRuntimeLogChunksFitByteAndLineLimits(t *testing.T) {
 		t.Fatalf("delivered %d lines", delivered)
 	}
 }
+
+func TestInactiveRuntimeCapturesRetryAndRemoveOnlyAfterAcknowledgment(t *testing.T) {
+	fail := true
+	var delivered []runtimeLogLine
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body runtimeLogsRequest
+		decodeJSON(t, r, &body)
+		if fail {
+			http.Error(w, "unavailable", 503)
+			return
+		}
+		delivered = append(delivered, body.Logs...)
+		writeJSON(t, w, runtimeLogsResponse{OK: true, Accepted: len(body.Logs)})
+	}))
+	defer server.Close()
+	cfg := Config{StateDir: t.TempDir(), AgentID: "server", BaseURL: server.URL, Token: "credential"}
+	runner := NewRunner(cfg, nil)
+	state := pendingRuntimeState("server", "dp_replaced", 1)
+	if err := runner.saveRuntimeLogState(state); err != nil {
+		t.Fatal(err)
+	}
+	empty := pendingRuntimeState("server", "dp_empty", 0)
+	if err := runner.saveRuntimeLogState(empty); err != nil {
+		t.Fatal(err)
+	}
+	runner.reportRuntimeLogs(t.Context(), nil)
+	if _, err := os.Stat(runner.runtimeLogStatePath(empty.RuntimeID)); !os.IsNotExist(err) {
+		t.Fatal("inactive empty cursor remained")
+	}
+	stored, err := runner.loadRuntimeLogState(state.RuntimeID)
+	if err != nil || len(stored.Logs) != 1 {
+		t.Fatal("failed inactive delivery discarded captured logs")
+	}
+	fail = false
+	restarted := NewRunner(cfg, nil)
+	restarted.reportRuntimeLogs(t.Context(), nil)
+	if len(delivered) != 1 || delivered[0] != state.Logs[0] {
+		t.Fatal("inactive retry did not deliver the original capture")
+	}
+	if _, err := os.Stat(runner.runtimeLogStatePath(state.RuntimeID)); !os.IsNotExist(err) {
+		t.Fatal("acknowledged inactive capture remained in queue")
+	}
+}
+
+func TestOutboxScanPreservesActiveAndInvalidEntries(t *testing.T) {
+	runner := NewRunner(Config{StateDir: t.TempDir(), AgentID: "server"}, nil)
+	state := pendingRuntimeState("server", "dp_active", 0)
+	if err := runner.saveRuntimeLogState(state); err != nil {
+		t.Fatal(err)
+	}
+	path := runner.runtimeLogStatePath("dp_invalid")
+	if err := os.WriteFile(path, []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if targets := runner.pendingRuntimeLogTargets(t.Context(), map[string]bool{"dp_active": true}); len(targets) != 0 {
+		t.Fatal("active or invalid entry became an inactive target")
+	}
+	for _, path := range []string{path, runner.runtimeLogStatePath(state.RuntimeID)} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal("outbox scan deleted an active or invalid entry")
+		}
+	}
+}

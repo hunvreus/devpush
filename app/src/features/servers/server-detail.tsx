@@ -1,16 +1,18 @@
+import { useSettingsVersion } from '@/lib/use-settings-version'
+import { showSettingsConflict } from '@/lib/settings-conflict'
+import { CopyButton } from '@/components/copy-button'
 import { useQueryClient } from '@tanstack/react-query'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import { serverNameSchema } from '@/lib/server-name-schema'
-import { afterMutation, copyText } from '@/lib/action-feedback'
+import { afterMutation } from '@/lib/action-feedback'
 import { Link, useRouter } from '@tanstack/react-router'
 import {
   BanIcon,
-  CopyIcon,
   LoaderIcon,
   SquareTerminalIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, lazy, Suspense } from 'react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -28,12 +30,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from '@/components/ui/empty'
+
 import {
   Field,
   FieldDescription,
@@ -45,19 +42,18 @@ import { Input } from '@/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
 import { TeamHeading } from '@/features/teams/team-heading'
 import { ServerAvatar } from '@/features/servers/server-avatar'
-import { ServerMetricChart } from '@/features/servers/server-metric-chart'
-import { getErrorMessage } from '@/lib/error-message'
+import {
+  ServerMetricsPending,
+  ServerMetricsEmpty,
+} from './server-metrics-pending'
+import { formatBytes } from './server-metric-format'
+
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { canManageTeamSettings } from '@/lib/team-role'
 import {
   formatAge,
@@ -81,6 +77,12 @@ import type {
 } from '@/server/servers/service'
 import type { TeamSummary } from '@/server/teams/types'
 
+const ServerMetrics = lazy(() =>
+  import('./server-metrics').then((module) => ({
+    default: module.ServerMetrics,
+  })),
+)
+
 export function ServerDetail({
   server,
   team,
@@ -91,12 +93,22 @@ export function ServerDetail({
   const router = useRouter()
   const queryClient = useQueryClient()
   const [savedName, setSavedName] = useState(server.name)
-  const [saveError, setSaveError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [name, setName] = useState(server.name)
   const [isSaving, setIsSaving] = useState(false)
   const canManageServer = canManageTeamSettings(team.role)
   const hasChanges = name.trim() !== savedName
+
+  const settingsVersion = useSettingsVersion({
+    version: server.settingsVersion,
+    dirty: hasChanges,
+    saving: isSaving,
+    refresh: () => {
+      setName(server.name)
+      setSavedName(server.name)
+      setNameError(null)
+    },
+  })
 
   async function save() {
     if (isSaving || !canManageServer || !hasChanges) return
@@ -109,17 +121,19 @@ export function ServerDetail({
       return
     }
     setNameError(null)
-    setSaveError(null)
+
     setIsSaving(true)
 
     try {
-      await updateServer({
+      const result = await updateServer({
         data: {
           teamSlug: team.slug,
           serverId: server.id,
+          settingsVersion: settingsVersion.current,
           name,
         },
       })
+      settingsVersion.current = result.settingsVersion
       const nextName = name.trim()
       setName(nextName)
       setSavedName(nextName)
@@ -129,14 +143,14 @@ export function ServerDetail({
         await router.invalidate()
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      setSaveError(getErrorMessage(error, 'Unable to save server.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to save server.'))
     } finally {
       setIsSaving(false)
     }
   }
 
   function reset() {
-    setSaveError(null)
     setNameError(null)
     setName(savedName)
   }
@@ -294,19 +308,11 @@ export function ServerDetail({
                     readOnly
                   />
                   <InputGroupAddon align="inline-end">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <InputGroupButton
-                          size="icon-sm"
-                          type="button"
-                          aria-label="Copy server ID"
-                          onClick={() => void copyText(server.id, 'Server ID')}
-                        >
-                          <CopyIcon />
-                        </InputGroupButton>
-                      </TooltipTrigger>
-                      <TooltipContent>Copy server ID</TooltipContent>
-                    </Tooltip>
+                    <CopyButton
+                      value={server.id}
+                      label="Copy server ID"
+                      inputGroup
+                    />
                   </InputGroupAddon>
                 </InputGroup>
                 <FieldDescription>
@@ -314,7 +320,6 @@ export function ServerDetail({
                 </FieldDescription>
               </Field>
             </FieldGroup>
-            <FieldError role="alert">{saveError}</FieldError>
           </form>
         </SettingsSection>
 
@@ -324,6 +329,12 @@ export function ServerDetail({
           description="System information reported by the agent."
         >
           <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
+            <ServerDetailField label="Public IPv4">
+              {server.publicIpv4 ?? 'Not reported'}
+            </ServerDetailField>
+            <ServerDetailField label="Public IPv6">
+              {server.publicIpv6 ?? 'Not reported'}
+            </ServerDetailField>
             <ServerDetailField label="Hostname">
               {server.hostname ?? 'Not reported'}
             </ServerDetailField>
@@ -365,101 +376,19 @@ export function ServerDetail({
           contentClassName="space-y-4"
         >
           {server.monitoring.latestMetrics ? (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <ServerMetricChart
-                  domain={[0, 100]}
-                  label="CPU usage"
-                  latestValue={formatPercent(
-                    server.monitoring.latestMetrics.cpuPercent,
-                  )}
-                  points={server.metricSeries}
-                  formatValue={formatPercent}
-                  series={[
-                    {
-                      key: 'cpu',
-                      label: 'CPU',
-                      color: 'var(--chart-1)',
-                      getValue: (sample) => sample.cpuPercent,
-                    },
-                  ]}
-                  window={server.metricWindow}
+            <Suspense
+              fallback={
+                <ServerMetricsPending
+                  latestMetrics={server.monitoring.latestMetrics}
                 />
-                <ServerMetricChart
-                  domain={[0, 100]}
-                  label="Memory usage"
-                  latestValue={formatByteRatio(
-                    server.monitoring.latestMetrics.memoryUsedBytes,
-                    server.monitoring.latestMetrics.memoryTotalBytes,
-                  )}
-                  points={server.metricSeries}
-                  formatValue={formatPercent}
-                  series={[
-                    {
-                      key: 'memory',
-                      label: 'Memory',
-                      color: 'var(--chart-1)',
-                      getValue: (sample) =>
-                        formatBytePercent(
-                          sample.memoryUsedBytes,
-                          sample.memoryTotalBytes,
-                        ),
-                    },
-                  ]}
-                  window={server.metricWindow}
-                />
-                <ServerMetricChart
-                  domain={[0, 100]}
-                  label="Disk usage"
-                  latestValue={formatByteRatio(
-                    server.monitoring.latestMetrics.diskUsedBytes,
-                    server.monitoring.latestMetrics.diskTotalBytes,
-                  )}
-                  points={server.metricSeries}
-                  formatValue={formatPercent}
-                  series={[
-                    {
-                      key: 'disk',
-                      label: 'Disk',
-                      color: 'var(--chart-1)',
-                      getValue: (sample) =>
-                        formatBytePercent(
-                          sample.diskUsedBytes,
-                          sample.diskTotalBytes,
-                        ),
-                    },
-                  ]}
-                  window={server.metricWindow}
-                />
-                <ServerMetricChart
-                  label="Network traffic"
-                  latestValue={formatNetworkSummary(
-                    server.monitoring.latestMetrics
-                      .networkReceiveBytesPerSecond,
-                    server.monitoring.latestMetrics
-                      .networkTransmitBytesPerSecond,
-                  )}
-                  points={server.metricSeries}
-                  formatValue={formatBytesPerSecond}
-                  series={[
-                    {
-                      key: 'received',
-                      label: 'Received',
-                      color: 'var(--chart-1)',
-                      getValue: (sample) => sample.networkReceiveBytesPerSecond,
-                    },
-                    {
-                      key: 'sent',
-                      label: 'Sent',
-                      color: 'var(--chart-2)',
-                      getValue: (sample) =>
-                        sample.networkTransmitBytesPerSecond,
-                    },
-                  ]}
-                  window={server.metricWindow}
-                />
-              </div>
-            </>
+              }
+            >
+              <ServerMetrics
+                serverId={server.id}
+                teamSlug={team.slug}
+                latestMetrics={server.monitoring.latestMetrics}
+              />
+            </Suspense>
           ) : (
             <ServerMetricsEmpty />
           )}
@@ -482,12 +411,10 @@ export function ServerInstallCallout({
 }) {
   const [installCommand, setInstallCommand] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   async function createCommand() {
     if (isCreating || server.status === 'disabled') return
     setIsCreating(true)
-    setError(null)
 
     try {
       const result: ServerInstallCommand = await createInstallCommand({
@@ -498,7 +425,10 @@ export function ServerInstallCallout({
       })
       setInstallCommand(result.installCommand)
     } catch (cause) {
-      setError(getErrorMessage(cause, 'Unable to create install command.'))
+      if (showSettingsConflict(cause)) return
+      toast.error(
+        getPublicErrorMessage(cause, 'Unable to create install command.'),
+      )
     } finally {
       setIsCreating(false)
     }
@@ -518,7 +448,6 @@ export function ServerInstallCallout({
           <InstallCommand className="mt-2 max-w-xl" command={installCommand} />
         ) : (
           <div className="space-y-3">
-            {error ? <FieldError role="alert">{error}</FieldError> : null}
             <Button
               className="mt-2"
               disabled={isCreating}
@@ -529,7 +458,7 @@ export function ServerInstallCallout({
               {isCreating ? (
                 <LoaderIcon data-icon="inline-start" className="animate-spin" />
               ) : null}
-              {error ? 'Retry' : 'Generate install command'}
+              Generate install command
             </Button>
           </div>
         )}
@@ -561,7 +490,6 @@ export function ServerDangerSection({
   const [isLoadingDeleteDiagnostic, setIsLoadingDeleteDiagnostic] =
     useState(false)
   const diagnosticRequest = useRef(0)
-  const [actionError, setActionError] = useState<string | null>(null)
   const [serverDeleted, setServerDeleted] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const isDisabled = server.status === 'disabled'
@@ -578,7 +506,7 @@ export function ServerDangerSection({
       (!isDisabled && disableConfirmation !== server.name)
     )
       return
-    setActionError(null)
+
     setIsChangingStatus(true)
 
     try {
@@ -603,8 +531,9 @@ export function ServerDangerSection({
         await router.invalidate()
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      setActionError(
-        getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           isDisabled ? 'Unable to enable server.' : 'Unable to disable server.',
         ),
@@ -627,9 +556,10 @@ export function ServerDangerSection({
       if (request !== diagnosticRequest.current) return
       setDeleteDiagnostic(diagnostic)
     } catch (error) {
+      if (showSettingsConflict(error)) return
       if (request !== diagnosticRequest.current) return
       setDeleteDiagnosticError(
-        getErrorMessage(error, 'Unable to inspect server usage.'),
+        getPublicErrorMessage(error, 'Unable to inspect server usage.'),
       )
     } finally {
       if (request === diagnosticRequest.current)
@@ -645,7 +575,7 @@ export function ServerDangerSection({
       deleteConfirmation.trim() !== server.name
     )
       return
-    setActionError(null)
+
     setIsDeleting(true)
 
     try {
@@ -668,7 +598,8 @@ export function ServerDangerSection({
         })
       }, 'The action completed, but opening the next page failed. Please reload.')
     } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to delete server.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to delete server.'))
     } finally {
       setIsDeleting(false)
     }
@@ -677,7 +608,7 @@ export function ServerDangerSection({
   function onDeleteOpenChange(open: boolean) {
     if (isDeleting || isChangingStatus || serverDeleted) return
     diagnosticRequest.current += 1
-    setActionError(null)
+
     setDeleteOpen(open)
 
     if (!open) {
@@ -693,7 +624,7 @@ export function ServerDangerSection({
 
   function onStatusOpenChange(open: boolean) {
     if (isChangingStatus || isDeleting || serverDeleted) return
-    setActionError(null)
+
     setStatusDialogOpen(open)
 
     if (!open) {
@@ -730,7 +661,7 @@ export function ServerDangerSection({
             <AlertDialogDescription>
               {isDisabled
                 ? `${server.name} will accept its existing agent credential again. Reinstallation is not required.`
-                : `This blocks new enrollment commands and agent token use for ${server.name}. Type "${server.name}" to confirm.`}
+                : `This blocks agent communication and new work for ${server.name}. Running apps stay online; queued work waits and active jobs may time out. Type "${server.name}" to confirm.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {!isDisabled ? (
@@ -752,7 +683,6 @@ export function ServerDangerSection({
               />
             </Field>
           ) : null}
-          <FieldError role="alert">{actionError}</FieldError>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isChangingStatus}>
               Cancel
@@ -855,8 +785,6 @@ export function ServerDangerSection({
               />
             </Field>
           </div>
-
-          <FieldError role="alert">{actionError}</FieldError>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting || serverDeleted}>
               Cancel
@@ -898,36 +826,6 @@ function ServerDetailField({
   )
 }
 
-export function formatPercent(value: number | null) {
-  if (value === null) {
-    return 'Not reported'
-  }
-
-  return `${value.toFixed(1)}%`
-}
-
-export function formatByteRatio(used: number | null, total: number | null) {
-  if (used === null || total === null || total <= 0) {
-    return 'Not reported'
-  }
-
-  return `${formatBytes(used)} / ${formatBytes(total)}`
-}
-
-function formatBytesPerSecond(value: number | null) {
-  return value === null ? 'Not reported' : `${formatBytes(value)}/s`
-}
-
-export function formatNetworkSummary(
-  received: number | null,
-  sent: number | null,
-) {
-  if (received === null && sent === null) {
-    return 'Not reported'
-  }
-  return `↓ ${formatBytesPerSecond(received)}  ↑ ${formatBytesPerSecond(sent)}`
-}
-
 function formatDuration(totalSeconds: number) {
   const days = Math.floor(totalSeconds / 86_400)
   const hours = Math.floor((totalSeconds % 86_400) / 3_600)
@@ -939,38 +837,4 @@ function formatDuration(totalSeconds: number) {
     return `${hours}h ${minutes}m`
   }
   return `${minutes}m`
-}
-
-function formatBytePercent(used: number | null, total: number | null) {
-  if (used === null || total === null || total <= 0) {
-    return null
-  }
-
-  return (used / total) * 100
-}
-
-function formatBytes(value: number) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let current = value
-  let unitIndex = 0
-
-  while (current >= 1024 && unitIndex < units.length - 1) {
-    current /= 1024
-    unitIndex += 1
-  }
-
-  return `${current.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
-}
-
-export function ServerMetricsEmpty() {
-  return (
-    <Empty className="min-h-40 border">
-      <EmptyHeader>
-        <EmptyTitle>No metrics reported yet.</EmptyTitle>
-        <EmptyDescription>
-          Metrics will appear after the agent reports host data.
-        </EmptyDescription>
-      </EmptyHeader>
-    </Empty>
-  )
 }

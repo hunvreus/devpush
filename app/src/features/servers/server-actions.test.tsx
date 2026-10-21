@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { act } from 'react'
+import { TeamServers } from './team-servers'
+import { projectContext } from '@/test/project-context'
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
-import { InstallServerDialog, ServerActionsMenu } from './team-servers'
 import {
   ServerDetail,
   ServerInstallCallout,
@@ -12,6 +13,7 @@ import {
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 const mocks = vi.hoisted(() => ({
+  error: vi.fn(),
   update: vi.fn(),
   install: vi.fn(),
   disable: vi.fn(),
@@ -33,29 +35,34 @@ vi.mock('@/server/servers/functions', () => ({
 }))
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ invalidate: mocks.refresh, navigate: mocks.refresh }),
-  Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
-}))
-vi.mock('sonner', () => ({
-  toast: { success: mocks.success, warning: mocks.warning },
-}))
-vi.mock('@/components/ui/dropdown-menu', () => ({
-  DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
-  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
-    <>{children}</>
-  ),
-  DropdownMenuContent: ({ children }: { children: ReactNode }) => (
-    <>{children}</>
-  ),
-  DropdownMenuSeparator: () => null,
-  DropdownMenuItem: ({
+  Link: ({
     children,
-    onSelect,
+    params,
+    to,
+    ...props
   }: {
     children: ReactNode
-    onSelect: () => void
-  }) => <button onClick={onSelect}>{children}</button>,
+    params?: Record<string, string>
+    to?: string
+    'aria-label'?: string
+  }) => (
+    <a
+      {...props}
+      href={to?.replace(/\$([a-zA-Z]+)/g, (_, key) => params?.[key] ?? key)}
+    >
+      {children}
+    </a>
+  ),
 }))
-const server = { id: 's', name: 'host-1', status: 'connected' as const }
+vi.mock('sonner', () => ({
+  toast: { error: mocks.error, success: mocks.success, warning: mocks.warning },
+}))
+const server = {
+  settingsVersion: 1,
+  id: 's',
+  name: 'host-1',
+  status: 'connected' as const,
+}
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
   for (const close of cleanups.splice(0)) await close()
@@ -103,221 +110,131 @@ async function confirmName() {
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
-test.each(['dialog', 'callout'])(
-  '%s install failures wait for explicit retry',
-  async (mode) => {
-    mocks.install.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-    if (mode === 'dialog')
-      await mount(
-        <InstallServerDialog
-          open
-          teamSlug="team"
-          server={server}
-          onOpenChange={mocks.close}
-        />,
-      )
-    else {
-      await mount(<ServerInstallCallout teamSlug="team" server={server} />)
-      await click('Generate install command')
-    }
-    expect(mocks.install).toHaveBeenCalledTimes(1)
-    expect(document.body.textContent).toContain('Unable to connect')
-    let resolve!: (value: { installCommand: string }) => void
-    mocks.install.mockReturnValueOnce(
-      new Promise((done) => {
-        resolve = done
-      }),
-    )
-    await click('Retry')
-    if (mode === 'dialog') {
-      await act(async () =>
-        document.dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-        ),
-      )
-      expect(mocks.close).not.toHaveBeenCalled()
-    }
-    await act(async () => resolve({ installCommand: 'install-test-command' }))
-    expect(mocks.install).toHaveBeenCalledTimes(2)
-    expect(
-      document.querySelector('[role="alert"]')?.textContent ?? '',
-    ).not.toContain('Unable to connect')
-  },
-)
-test.each(['list', 'detail'])(
-  '%s disable requires confirmation and retains errors during retry',
-  async (mode) => {
-    const node = await mount(
-      mode === 'list' ? (
-        <ServerActionsMenu
-          server={server}
-          teamSlug="team"
-          onChanged={mocks.refresh}
-        />
-      ) : (
-        <ServerDangerSection server={server} teamSlug="team" />
-      ),
-    )
-    await click('Disable server', node)
-    await click(
-      'Disable server',
-      document.querySelector('[role="alertdialog"]')!,
-    )
-    expect(mocks.disable).not.toHaveBeenCalled()
-    await confirmName()
-    mocks.disable.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-    await click(
-      'Disable server',
-      document.querySelector('[role="alertdialog"]')!,
-    )
-    expect(
-      document.querySelector('[role="alertdialog"] [role="alert"]')
-        ?.textContent,
-    ).toContain('Unable to connect')
-    let resolve!: () => void
-    mocks.disable.mockReturnValueOnce(
-      new Promise<void>((done) => {
-        resolve = done
-      }),
-    )
-    await click(
-      'Disable server',
-      document.querySelector('[role="alertdialog"]')!,
-    )
-    await act(async () =>
-      document.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      ),
-    )
-    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
-    await act(async () => resolve())
-    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
-  },
-)
-test.each(['list', 'detail'])(
-  '%s deletion loads inspection, retries failed inspection and guards pending deletion',
-  async (mode) => {
-    mocks.inspect.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-    const node = await mount(
-      mode === 'list' ? (
-        <ServerActionsMenu
-          server={server}
-          teamSlug="team"
-          onChanged={mocks.refresh}
-        />
-      ) : (
-        <ServerDangerSection server={server} teamSlug="team" />
-      ),
-    )
-    await click('Delete server', node)
-    expect(mocks.inspect).toHaveBeenCalledTimes(1)
-    mocks.inspect.mockResolvedValueOnce({
-      projectCount: 0,
-      environmentCount: 0,
-    })
-    await click('Retry inspection')
-    expect(mocks.inspect).toHaveBeenCalledTimes(2)
-    await click(
-      'Delete server',
-      document.querySelector('[role="alertdialog"]')!,
-    )
-    expect(mocks.remove).not.toHaveBeenCalled()
-    await confirmName()
-    mocks.remove.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-    await click(
-      'Delete server',
-      document.querySelector('[role="alertdialog"]')!,
-    )
-    expect(
-      document.querySelector('[role="alertdialog"] [role="alert"]')
-        ?.textContent,
-    ).toContain('Unable to connect')
-    let resolve!: () => void
-    mocks.remove.mockReturnValueOnce(
-      new Promise<void>((done) => {
-        resolve = done
-      }),
-    )
-    await click(
-      'Delete server',
-      document.querySelector('[role="alertdialog"]')!,
-    )
-    await act(async () =>
-      document.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      ),
-    )
-    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
-    await act(async () => resolve())
-    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
-  },
-)
+test('callout install failures wait for explicit retry', async () => {
+  mocks.install.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  await mount(<ServerInstallCallout teamSlug="team" server={server} />)
+  await click('Generate install command')
+  expect(mocks.install).toHaveBeenCalledTimes(1)
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
+  let resolve!: (value: { installCommand: string }) => void
+  mocks.install.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done
+    }),
+  )
+  await click('Generate install command')
+  await act(async () => resolve({ installCommand: 'install-test-command' }))
+  expect(mocks.install).toHaveBeenCalledTimes(2)
+  expect(
+    document.querySelector('[role="alert"]')?.textContent ?? '',
+  ).not.toContain('Unable to connect')
+})
+test('detail disable requires confirmation and retains errors during retry', async () => {
+  const node = await mount(
+    <ServerDangerSection server={server} teamSlug="team" />,
+  )
+  await click('Disable server', node)
+  await click('Disable server', document.querySelector('[role="alertdialog"]')!)
+  expect(mocks.disable).not.toHaveBeenCalled()
+  await confirmName()
+  mocks.disable.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  await click('Disable server', document.querySelector('[role="alertdialog"]')!)
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
+  let resolve!: () => void
+  mocks.disable.mockReturnValueOnce(
+    new Promise<void>((done) => {
+      resolve = done
+    }),
+  )
+  await click('Disable server', document.querySelector('[role="alertdialog"]')!)
+  await act(async () =>
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    ),
+  )
+  expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+  await act(async () => resolve())
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
+test('detail deletion loads inspection, retries failed inspection and guards pending deletion', async () => {
+  mocks.inspect.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  const node = await mount(
+    <ServerDangerSection server={server} teamSlug="team" />,
+  )
+  await click('Delete server', node)
+  expect(mocks.inspect).toHaveBeenCalledTimes(1)
+  mocks.inspect.mockResolvedValueOnce({
+    projectCount: 0,
+    environmentCount: 0,
+  })
+  await click('Retry inspection')
+  expect(mocks.inspect).toHaveBeenCalledTimes(2)
+  await click('Delete server', document.querySelector('[role="alertdialog"]')!)
+  expect(mocks.remove).not.toHaveBeenCalled()
+  await confirmName()
+  mocks.remove.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  await click('Delete server', document.querySelector('[role="alertdialog"]')!)
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
+  let resolve!: () => void
+  mocks.remove.mockReturnValueOnce(
+    new Promise<void>((done) => {
+      resolve = done
+    }),
+  )
+  await click('Delete server', document.querySelector('[role="alertdialog"]')!)
+  await act(async () =>
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    ),
+  )
+  expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+  await act(async () => resolve())
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
 
-test.each(['list', 'detail'])(
-  '%s enabling uses the enable action and closes after success',
-  async (mode) => {
-    const disabled = { ...server, status: 'disabled' as const }
-    const node = await mount(
-      mode === 'list' ? (
-        <ServerActionsMenu
-          server={disabled}
-          teamSlug="team"
-          onChanged={mocks.refresh}
-        />
-      ) : (
-        <ServerDangerSection server={disabled} teamSlug="team" />
-      ),
+test('detail enabling uses the enable action and closes after success', async () => {
+  const disabled = { ...server, status: 'disabled' as const }
+  const node = await mount(
+    <ServerDangerSection server={disabled} teamSlug="team" />,
+  )
+  await click('Enable server', node)
+  mocks.enable.mockResolvedValueOnce(undefined)
+  await click('Enable server', document.querySelector('[role="alertdialog"]')!)
+  expect(mocks.enable).toHaveBeenCalledWith({
+    data: { teamSlug: 'team', serverId: 's' },
+  })
+  expect(mocks.disable).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
+test('detail closing and reopening ignores the old inspection response', async () => {
+  let old!: (value: { projectCount: number; environmentCount: number }) => void
+  mocks.inspect
+    .mockReturnValueOnce(
+      new Promise((done) => {
+        old = done
+      }),
     )
-    await click('Enable server', node)
-    mocks.enable.mockResolvedValueOnce(undefined)
-    await click(
-      'Enable server',
-      document.querySelector('[role="alertdialog"]')!,
-    )
-    expect(mocks.enable).toHaveBeenCalledWith({
-      data: { teamSlug: 'team', serverId: 's' },
-    })
-    expect(mocks.disable).not.toHaveBeenCalled()
-    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
-  },
-)
-test.each(['list', 'detail'])(
-  '%s closing and reopening ignores the old inspection response',
-  async (mode) => {
-    let old!: (value: {
-      projectCount: number
-      environmentCount: number
-    }) => void
-    mocks.inspect
-      .mockReturnValueOnce(
-        new Promise((done) => {
-          old = done
-        }),
-      )
-      .mockResolvedValueOnce({ projectCount: 2, environmentCount: 3 })
-    const node = await mount(
-      mode === 'list' ? (
-        <ServerActionsMenu
-          server={server}
-          teamSlug="team"
-          onChanged={mocks.refresh}
-        />
-      ) : (
-        <ServerDangerSection server={server} teamSlug="team" />
-      ),
-    )
-    await click('Delete server', node)
-    await click('Cancel', document.querySelector('[role="alertdialog"]')!)
-    await click('Delete server', node)
-    await act(async () => old({ projectCount: 99, environmentCount: 99 }))
-    expect(
-      document.querySelector('[role="alertdialog"]')?.textContent,
-    ).toContain('2 projects')
-    expect(
-      document.querySelector('[role="alertdialog"]')?.textContent,
-    ).not.toContain('99')
-  },
-)
+    .mockResolvedValueOnce({ projectCount: 2, environmentCount: 3 })
+  const node = await mount(
+    <ServerDangerSection server={server} teamSlug="team" />,
+  )
+  await click('Delete server', node)
+  await click('Cancel', document.querySelector('[role="alertdialog"]')!)
+  await click('Delete server', node)
+  await act(async () => old({ projectCount: 99, environmentCount: 99 }))
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+    '2 projects',
+  )
+  expect(
+    document.querySelector('[role="alertdialog"]')?.textContent,
+  ).not.toContain('99')
+})
 
 test('server name editing validates inline, locks pending edits, and preserves failed submissions', async () => {
   const details = {
@@ -343,11 +260,6 @@ test('server name editing validates inline, locks pending edits, and preserves f
       availabilityWindowMs: 86400000,
       latestMetrics: null,
     },
-    metricSeries: [],
-    metricWindow: {
-      startedAt: new Date().toISOString(),
-      endedAt: new Date().toISOString(),
-    },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -355,6 +267,7 @@ test('server name editing validates inline, locks pending edits, and preserves f
     <ServerDetail
       server={details}
       team={{
+        settingsVersion: 1,
         id: 't',
         slug: 'team',
         name: 'Team',
@@ -403,13 +316,13 @@ test('server name editing validates inline, locks pending edits, and preserves f
     true,
   )
   await act(async () => reject(new TypeError('Failed to fetch')))
-  expect(
-    node.querySelector('#server-general-form [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   expect(node.querySelector<HTMLInputElement>('#server-name')?.value).toBe(
     'new-host',
   )
-  mocks.update.mockResolvedValueOnce(undefined)
+  mocks.update.mockResolvedValueOnce({ settingsVersion: 2 })
   await submit()
   expect(mocks.update).toHaveBeenCalledTimes(2)
   expect(node.querySelector('#server-general-form [role="alert"]')).toBeNull()
@@ -420,3 +333,43 @@ vi.mock('@/lib/resource-cache', () => ({
 }))
 
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
+
+test.each(['owner', 'member'] as const)(
+  'server list shows only the settings action to %s',
+  async (role) => {
+    const node = await mount(
+      <TeamServers
+        team={{ ...projectContext.team, role }}
+        servers={[
+          {
+            ...server,
+            publicAddress: null,
+            lastSeenAt: null,
+            agentVersion: null,
+            agentUpdate: {
+              status: 'current',
+              latestVersion: null,
+              reason: null,
+            },
+            monitoring: {
+              availabilityPercent: null,
+              availabilityWindowMs: 86400000,
+              latestMetrics: null,
+            },
+          },
+        ]}
+      />,
+    )
+    const settings = node.querySelector('a[aria-label="Settings for host-1"]')
+    if (role === 'owner') {
+      expect(settings?.getAttribute('href')).toBe(
+        `/${projectContext.team.slug}/servers/s`,
+      )
+      expect(settings?.getAttribute('data-variant')).toBe('outline')
+      expect(settings?.querySelector('.lucide-settings')).not.toBeNull()
+    } else expect(settings).toBeNull()
+    expect(node.querySelector('[aria-haspopup="menu"]')).toBeNull()
+    expect(node.textContent).not.toContain('Delete server')
+    expect(node.textContent).not.toContain('Disable server')
+  },
+)

@@ -146,7 +146,17 @@ export function ProjectOverview({
                         </p>
                       </div>
                     </div>
-                    <Badge variant={status.variant}>{status.label}</Badge>
+                    <Badge
+                      variant={status.variant}
+                      className={
+                        service.health === 'healthy' &&
+                        service.state === 'running'
+                          ? 'text-success'
+                          : undefined
+                      }
+                    >
+                      {status.label}
+                    </Badge>
                   </li>
                 )
               })
@@ -258,6 +268,6 @@ function getRuntimeServiceStatus(
   }
   return {
     label: service.health === 'healthy' ? 'Healthy' : 'Running',
-    variant: service.health === 'healthy' ? 'default' : 'outline',
+    variant: service.health === 'healthy' ? 'secondary' : 'outline',
   }
 }

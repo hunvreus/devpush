@@ -8,8 +8,8 @@ function getAuthBaseURL() {
 
   return new URL(
     '/api/auth',
-    process.env.BETTER_AUTH_URL ??
-      process.env.DEVPUSH_BASE_URL ??
+    process.env.BETTER_AUTH_URL?.trim() ||
+      process.env.DEVPUSH_BASE_URL?.trim() ||
       'http://localhost:7429',
   ).toString()
 }

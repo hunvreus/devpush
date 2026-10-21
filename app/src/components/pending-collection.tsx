@@ -17,20 +17,20 @@ export function PendingList({
 }) {
   return (
     <div
-      className="overflow-hidden rounded-xl border bg-card text-card-foreground"
+      className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground"
       aria-label={label}
       aria-busy="true"
     >
       {Array.from({ length: rows }, (_, index) => (
         <div
-          className="flex h-11 items-center gap-4 border-b px-4 last:border-b-0"
+          className="flex h-11 min-w-[20rem] items-center gap-4 border-b px-4 last:border-b-0"
           key={index}
         >
           <Skeleton className="size-4 shrink-0 rounded-full" />
           <Skeleton className="h-4 w-20 shrink-0" />
-          <Skeleton className="h-4 min-w-0 flex-1" />
+          <Skeleton className="h-4 w-32 shrink-0" />
           <Skeleton className="h-4 w-20 shrink-0" />
-          <Skeleton className="size-8 shrink-0" />
+          <Skeleton className="-mr-2 size-8 shrink-0" />
         </div>
       ))}
     </div>
@@ -50,7 +50,7 @@ export function PendingTable({
 }) {
   return (
     <div
-      className="overflow-hidden rounded-xl border bg-card text-card-foreground"
+      className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground"
       aria-label={label}
       aria-busy="true"
     >
@@ -58,7 +58,10 @@ export function PendingTable({
         <TableHeader>
           <TableRow>
             {columns.map((column, index) => (
-              <TableHead className={column.className} key={index}>
+              <TableHead
+                className={`${column.className ?? ''} ${column.title ? 'first:pl-4 last:pr-4' : ''}`}
+                key={index}
+              >
                 {column.title || <span className="sr-only">Actions</span>}
               </TableHead>
             ))}
@@ -67,7 +70,10 @@ export function PendingTable({
         <TableBody>
           <TableRow>
             {columns.map((column, index) => (
-              <TableCell key={index}>
+              <TableCell
+                className={column.title ? 'first:pl-4 last:pr-4' : undefined}
+                key={index}
+              >
                 {column.title ? (
                   <div className="flex items-center gap-3">
                     {avatar && index === 0 ? (
@@ -83,7 +89,9 @@ export function PendingTable({
                     )}
                   </div>
                 ) : (
-                  <Skeleton className="ml-auto size-8" />
+                  <div className="ml-auto w-fit">
+                    <Skeleton className="-mr-2 size-8" />
+                  </div>
                 )}
               </TableCell>
             ))}

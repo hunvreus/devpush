@@ -1,19 +1,53 @@
-# Docs
+---
+description: Deploy apps from GitHub to your own servers with Docker Compose.
+---
 
-## Architecture
+# Introduction
 
-- [Root architecture](../ARCHITECTURE.md)
-- [Agent protocol](./api/agent-protocol.md)
+devpush deploys applications from GitHub to your own Linux servers. Connect a
+server, choose a repository with a Docker Compose file, and deploy. Later pushes
+to a configured branch trigger new deployments.
 
-## Features
+Use the dashboard to follow build logs, manage domains and environment variables,
+monitor servers, and back up application data.
 
-- [Administration](./features/administration.md)
-- [Backups](./features/backups.md)
-- [Compose deployments](./features/compose-deployments.md)
-- [Servers](./features/servers.md)
+## Deploy your first app
 
-## Development
+Already have access to a devpush dashboard? Start with
+[Getting started](/docs/getting-started/). You do not need to install the dashboard
+or run devpush from source to use an existing installation.
 
-- [Local setup](./development/local-setup.md)
-- [Cloudflare deployment](./development/cloudflare-deployment.md)
-- [Production operations](./development/production-operations.md)
+Want to run the dashboard yourself? Follow [Self-host devpush](/docs/self-hosting/)
+first. To work on the code locally, use [Local development](/docs/local-setup/).
+
+## How the pieces fit together
+
+- **Dashboard:** where you manage projects, servers and deployments. The dashboard
+  and its backend are called the *control plane* in the operator guides.
+- **Server:** a Linux machine you provide. Its devpush agent receives jobs and runs
+  your application containers using Docker Compose.
+- **Project:** a GitHub repository and its deployment settings.
+- **Environment:** a branch rule, variables and server assignment, such as Production.
+- **Deployment:** an attempt to run one commit in an environment.
+
+The dashboard can run on a different machine from your applications. Hosting the
+dashboard on Cloudflare Workers does not run your applications on Cloudflare.
+
+## Common tasks
+
+| I want to… | Read |
+| --- | --- |
+| Set branches, variables or deployment servers | [Projects and environments](/docs/projects/) |
+| Connect a server or check its connection | [Servers](/docs/servers/) |
+| Configure a Compose app or investigate a failed deploy | [Compose deployments](/docs/compose-deployments/) |
+| Use my own domain and HTTPS | [Domains and HTTPS](/docs/domains/) |
+| Back up or restore application data | [Backups](/docs/backups/) |
+| Invite teammates and manage permissions | [Accounts and teams](/docs/accounts-and-teams/) |
+| Automate deployments or connect an AI assistant | [API keys and AI assistants](/docs/api-and-mcp/) |
+
+## What is supported
+
+Applications use Docker Compose. A service can build from a Dockerfile, but a
+Dockerfile alone is not a devpush project. Docker Swarm is not supported.
+Deployments update an environment in place; zero downtime is not guaranteed.
+Rollback changes application code and settings, not database or volume contents.

@@ -1,9 +1,9 @@
+import { PublicError } from '@/lib/public-error'
 import { leaveMembership } from '@/server/teams/membership'
-import { and, asc, desc, eq, lte, sql } from 'drizzle-orm'
-import { decodeJwt } from 'jose'
+import { and, asc, desc, eq, inArray, lte, or, sql } from 'drizzle-orm'
 
-import { authMethods } from '@/lib/auth'
-import { getGitHubOAuthCredentials } from '@/lib/auth/config'
+import { authMethods } from '@/server/auth/better-auth'
+import { getGitHubOAuthCredentials } from '@/server/auth/auth-methods'
 import type { TeamRole } from '@/lib/team-role'
 import { deleteUserState, cleanupDeletedUserState } from './deletion-state'
 import type { UserCleanupJobPayload } from './deletion-state'
@@ -17,7 +17,7 @@ import {
 } from '@/server/db/schema'
 import { getResourceColor } from '@/server/resources/color'
 import { assertOtherOwner } from '@/server/teams/service'
-import { removePublicFile, resolveAvatarUpdate } from '@/server/uploads/avatar'
+import { removeOwnedAvatar, resolveAvatarUpdate } from '@/server/uploads/avatar'
 
 export type AuthAccountSummary = {
   id: string
@@ -40,58 +40,40 @@ export type UserTeamSummary = {
   color: ReturnType<typeof getResourceColor>
 }
 
-type AuthAccountRow = Omit<AuthAccountSummary, 'managementUrl'> & {
-  accessToken?: string | null
-  refreshToken?: string | null
-  idToken?: string | null
-}
-
-type ProviderIdentity = {
-  name?: string | null
-  email?: string | null
-  username?: string | null
-  image?: string | null
-}
-
-type GitHubProfile = {
-  id: number | string
-  login?: string | null
-  name?: string | null
-  email?: string | null
-  avatar_url?: string | null
-}
-
-type GitHubEmail = {
-  email: string
-  primary: boolean
-  verified: boolean
-}
+type AuthAccountRow = Omit<AuthAccountSummary, 'managementUrl'>
 
 export async function updateUserGeneral({
+  settingsVersion,
   userId,
   name,
   username,
   avatarDataUrl,
   deleteAvatar,
+  confirmProfile = false,
 }: {
+  settingsVersion?: number
   userId: string
   name: string
   username: string
   avatarDataUrl?: string | null
   deleteAvatar?: boolean
+  confirmProfile?: boolean
 }) {
   const rows = await db.select().from(user).where(eq(user.id, userId)).limit(1)
   const currentUser = rows.at(0)
 
   if (!currentUser || currentUser.status !== 'active') {
-    throw new Error('User not found.')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   }
 
+  const expectedVersion = settingsVersion ?? currentUser.settingsVersion
+  if (expectedVersion !== currentUser.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
   const normalizedName = name.trim()
   const normalizedUsername = validateUsername(username)
 
   if (!normalizedName) {
-    throw new Error('Name is required.')
+    throw new PublicError('ACCOUNT_NAME_REQUIRED')
   }
 
   const usernameRows = await db
@@ -107,7 +89,7 @@ export async function updateUserGeneral({
     .limit(1)
 
   if (usernameRows.length > 0) {
-    throw new Error('Username is already taken.')
+    throw new PublicError('ACCOUNT_USERNAME_CONFLICT')
   }
 
   const image = await resolveAvatarUpdate({
@@ -119,24 +101,42 @@ export async function updateUserGeneral({
   })
 
   try {
-    await db
+    const changed = await db
       .update(user)
       .set({
+        ...(confirmProfile ? { profileConfirmedAt: new Date() } : {}),
         name: normalizedName,
         username: normalizedUsername,
         image,
+        settingsVersion: sql`${user.settingsVersion} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(user.id, userId))
+      .where(
+        and(
+          eq(user.id, userId),
+          eq(user.status, 'active'),
+          eq(user.settingsVersion, expectedVersion),
+          sql`${user.image} is ${currentUser.image}`,
+        ),
+      )
+      .returning({ id: user.id })
+    if (!changed.length) throw new PublicError('SETTINGS_CONFLICT')
   } catch (error) {
     if (image && image !== currentUser.image) {
-      await removePublicFile(image)
+      await removeOwnedAvatar(image, { filePrefix: 'user', resourceId: userId })
     }
 
     throw error
   }
 
+  if (currentUser.image !== image) {
+    await removeOwnedAvatar(currentUser.image, {
+      filePrefix: 'user',
+      resourceId: userId,
+    })
+  }
   return {
+    settingsVersion: expectedVersion + 1,
     id: userId,
     name: normalizedName,
     username: normalizedUsername,
@@ -151,41 +151,6 @@ export async function listAuthAccounts(
   const rows = await listAuthAccountRows(userId, { validateUser })
 
   return rows.map(mapAuthAccountSummary)
-}
-
-export async function backfillAuthAccountIdentities({
-  userId,
-  fetcher = fetch,
-}: {
-  userId: string
-  fetcher?: typeof fetch
-}): Promise<Array<AuthAccountSummary>> {
-  const rows = await listAuthAccountRows(userId)
-  const accountsToUpdate = rows.filter(shouldBackfillAuthAccount)
-
-  for (const row of accountsToUpdate) {
-    const identity = await getProviderIdentityForBackfill(row, fetcher)
-
-    if (!identity) {
-      continue
-    }
-
-    await db
-      .update(account)
-      .set({
-        providerAccountName: row.providerAccountName ?? identity.name ?? null,
-        providerAccountEmail:
-          row.providerAccountEmail ?? identity.email ?? null,
-        providerAccountUsername:
-          row.providerAccountUsername ?? identity.username ?? null,
-        providerAccountImage:
-          row.providerAccountImage ?? identity.image ?? null,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(account.id, row.id), eq(account.userId, userId)))
-  }
-
-  return listAuthAccounts(userId)
 }
 
 async function listAuthAccountRows(
@@ -205,9 +170,6 @@ async function listAuthAccountRows(
       providerAccountEmail: account.providerAccountEmail,
       providerAccountUsername: account.providerAccountUsername,
       providerAccountImage: account.providerAccountImage,
-      accessToken: account.accessToken,
-      refreshToken: account.refreshToken,
-      idToken: account.idToken,
     })
     .from(account)
     .where(eq(account.userId, userId))
@@ -225,7 +187,7 @@ export async function assertActiveUser(userId: string) {
   const currentUser = rows.at(0)
 
   if (!currentUser || currentUser.status !== 'active') {
-    throw new Error('User not found.')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   }
 }
 
@@ -260,104 +222,6 @@ function getProviderManagementUrl(providerId: string) {
   return null
 }
 
-function shouldBackfillAuthAccount(row: AuthAccountRow) {
-  return (
-    !row.providerAccountName ||
-    !row.providerAccountEmail ||
-    !row.providerAccountUsername ||
-    !row.providerAccountImage
-  )
-}
-
-async function getProviderIdentityForBackfill(
-  row: AuthAccountRow,
-  fetcher: typeof fetch,
-): Promise<ProviderIdentity | null> {
-  if (row.providerId === 'github') {
-    return getGitHubIdentityForBackfill(row.accessToken, fetcher)
-  }
-
-  if (row.providerId === 'google') {
-    return getGoogleIdentityForBackfill(row.idToken)
-  }
-
-  return null
-}
-
-async function getGitHubIdentityForBackfill(
-  accessToken: string | null | undefined,
-  fetcher: typeof fetch,
-): Promise<ProviderIdentity | null> {
-  if (!accessToken) {
-    return null
-  }
-
-  const userResponse = await fetcher('https://api.github.com/user', {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${accessToken}`,
-      'User-Agent': 'devpush',
-    },
-  })
-
-  if (!userResponse.ok) {
-    return null
-  }
-
-  const profile = (await userResponse.json()) as GitHubProfile
-  let email = profile.email ?? null
-
-  const emailsResponse = await fetcher('https://api.github.com/user/emails', {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${accessToken}`,
-      'User-Agent': 'devpush',
-    },
-  })
-
-  if (emailsResponse.ok) {
-    const emails = (await emailsResponse.json()) as Array<GitHubEmail>
-    const primaryEmail =
-      emails.find((candidate) => candidate.primary && candidate.verified) ??
-      emails.find((candidate) => candidate.primary) ??
-      emails.at(0)
-    email = email ?? primaryEmail?.email ?? null
-  }
-
-  return {
-    name: profile.name ?? profile.login ?? null,
-    email,
-    username: profile.login ?? null,
-    image: profile.avatar_url ?? null,
-  }
-}
-
-function getGoogleIdentityForBackfill(
-  idToken: string | null | undefined,
-): ProviderIdentity | null {
-  if (!idToken) {
-    return null
-  }
-
-  try {
-    const claims = decodeJwt(idToken)
-    const email = getStringClaim(claims.email)
-
-    return {
-      name: getStringClaim(claims.name) ?? email ?? null,
-      email: email ?? null,
-      username: email ?? null,
-      image: getStringClaim(claims.picture) ?? null,
-    }
-  } catch {
-    return null
-  }
-}
-
-function getStringClaim(value: unknown) {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
 export async function disconnectAuthAccount({
   userId,
   providerId,
@@ -375,13 +239,11 @@ export async function disconnectAuthAccount({
   )
 
   if (!selectedAccount) {
-    throw new Error('Account not found.')
+    throw new PublicError('AUTH_ACCOUNT_NOT_FOUND')
   }
 
   if (!authMethods.email && accounts.length <= 1) {
-    throw new Error(
-      'Connect another sign-in method before disconnecting this account.',
-    )
+    throw new PublicError('ACCOUNT_LAST_SIGN_IN_METHOD')
   }
 
   await db
@@ -439,29 +301,50 @@ export async function leaveTeam({
     .where(eq(user.id, userId))
     .limit(1)
   if (!currentUser || currentUser.status !== 'active')
-    throw new Error('User not found.')
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   if (currentUser.defaultTeamId === teamId)
-    throw new Error('You cannot leave your default team.')
+    throw new PublicError('ACCOUNT_DEFAULT_TEAM_LEAVE_FORBIDDEN')
   const [membership] = await db
     .select()
     .from(teamMembers)
     .where(and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, teamId)))
     .limit(1)
-  if (!membership) throw new Error('Team membership not found.')
+  if (!membership) throw new PublicError('ACCOUNT_MEMBERSHIP_NOT_FOUND')
   if (membership.role === 'owner') await assertOtherOwner(db, teamId, userId)
   if (!(await leaveMembership(db, { userId, teamId }))) {
-    throw new Error('Team membership changed. Try again.')
+    throw new PublicError('TEAM_MEMBERSHIP_CHANGED')
   }
 
   return listUserTeams(userId)
 }
 
-export async function deleteUserAccount({
+export async function deleteUserAccount(input: {
+  userId: string
+  confirmationName?: string
+}) {
+  return queueUserDeletion({
+    userId: input.userId,
+    confirmationName: input.confirmationName,
+  })
+}
+
+// Admin deletion has a distinct authorization guard; it does not impersonate
+// the target user's self-service email confirmation.
+export async function deleteUserAccountAsAdmin(input: {
+  userId: string
+  adminActorUserId: string
+}) {
+  return queueUserDeletion(input)
+}
+
+async function queueUserDeletion({
   userId,
   confirmationName,
+  adminActorUserId,
 }: {
   userId: string
   confirmationName?: string
+  adminActorUserId?: string
 }) {
   const rows = await db
     .select({ email: user.email, image: user.image, status: user.status })
@@ -470,19 +353,36 @@ export async function deleteUserAccount({
     .limit(1)
   const currentUser = rows.at(0)
 
-  if (!currentUser || currentUser.status !== 'active') {
-    throw new Error('User not found.')
+  if (
+    !currentUser ||
+    !(
+      currentUser.status === 'active' ||
+      (adminActorUserId && currentUser.status === 'banned')
+    )
+  ) {
+    throw new PublicError('ACCOUNT_NOT_FOUND')
   }
 
-  if (confirmationName !== currentUser.email) {
-    throw new Error('Type the account email to confirm deletion.')
+  if (!adminActorUserId && confirmationName !== currentUser.email) {
+    throw new PublicError('ACCOUNT_DELETE_CONFIRMATION')
   }
 
   const soleMemberOwnedTeams = await db
     .select({ id: teams.id })
     .from(teams)
     .innerJoin(teamMembers, eq(teamMembers.teamId, teams.id))
-    .where(eq(teams.status, 'active'))
+    .where(
+      and(
+        eq(teams.status, 'active'),
+        inArray(
+          teams.id,
+          db
+            .select({ id: teamMembers.teamId })
+            .from(teamMembers)
+            .where(eq(teamMembers.userId, userId)),
+        ),
+      ),
+    )
     .groupBy(teams.id)
     .having(
       sql`count(${teamMembers.id}) = 1 and max(case when ${teamMembers.userId} = ${userId} and ${teamMembers.role} = 'owner' then 1 else 0 end) = 1`,
@@ -509,13 +409,8 @@ export async function deleteUserAccount({
     try {
       await assertOtherOwner(db, membership.teamId, userId)
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === 'There must be at least one owner.'
-      ) {
-        throw new Error(
-          `Transfer ownership of "${membership.teamName}" before deleting your account.`,
-        )
+      if (error instanceof PublicError && error.code === 'TEAM_LAST_OWNER') {
+        throw new PublicError('ACCOUNT_OWNERSHIP_TRANSFER_REQUIRED')
       }
 
       throw error
@@ -527,9 +422,10 @@ export async function deleteUserAccount({
       userId,
       email: currentUser.email,
       now: new Date(),
+      adminActorUserId,
     }))
   )
-    throw new Error('Account or team ownership changed. Try again.')
+    throw new PublicError('ACCOUNT_STATE_CHANGED')
 }
 
 export async function runQueuedUserCleanupJobs({
@@ -539,6 +435,16 @@ export async function runQueuedUserCleanupJobs({
   limit?: number
   now?: Date
 } = {}) {
+  const eligible = or(
+    and(
+      eq(userCleanupJobs.status, 'queued'),
+      lte(userCleanupJobs.availableAt, now),
+    ),
+    and(
+      eq(userCleanupJobs.status, 'running'),
+      sql`coalesce(${userCleanupJobs.claimedAt}, ${userCleanupJobs.updatedAt}) <= ${now.getTime() - 10 * 60_000}`,
+    ),
+  )
   const rows = await db
     .select({
       id: userCleanupJobs.id,
@@ -547,12 +453,7 @@ export async function runQueuedUserCleanupJobs({
       payload: userCleanupJobs.payload,
     })
     .from(userCleanupJobs)
-    .where(
-      and(
-        eq(userCleanupJobs.status, 'queued'),
-        lte(userCleanupJobs.availableAt, now),
-      ),
-    )
+    .where(eligible)
     .orderBy(asc(userCleanupJobs.availableAt))
     .limit(limit)
 
@@ -562,6 +463,27 @@ export async function runQueuedUserCleanupJobs({
   }> = []
 
   for (const row of rows) {
+    if (row.attempt >= row.maxAttempts) {
+      const failed = await db
+        .update(userCleanupJobs)
+        .set({
+          status: 'failed',
+          errorMessage:
+            'Cleanup retry limit reached after an interrupted attempt.',
+          finishedAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(userCleanupJobs.id, row.id),
+            eq(userCleanupJobs.attempt, row.attempt),
+            eligible,
+          ),
+        )
+        .returning({ id: userCleanupJobs.id })
+      if (failed.length) results.push({ id: row.id, status: 'failed' })
+      continue
+    }
     const claimedRows = await db
       .update(userCleanupJobs)
       .set({
@@ -573,7 +495,8 @@ export async function runQueuedUserCleanupJobs({
       .where(
         and(
           eq(userCleanupJobs.id, row.id),
-          eq(userCleanupJobs.status, 'queued'),
+          eq(userCleanupJobs.attempt, row.attempt),
+          eligible,
         ),
       )
       .returning({
@@ -587,14 +510,34 @@ export async function runQueuedUserCleanupJobs({
     if (!claimed) {
       continue
     }
+    const ownsClaim = and(
+      eq(userCleanupJobs.id, claimed.id),
+      eq(userCleanupJobs.status, 'running'),
+      eq(userCleanupJobs.attempt, claimed.attempt),
+      eq(userCleanupJobs.claimedAt, now),
+    )
 
     try {
+      const payload = parseUserCleanupJobPayload(claimed.payload)
       const avatarPaths = await cleanupDeletedUserResources({
-        payload: parseUserCleanupJobPayload(claimed.payload),
+        payload,
         now,
+        claim: { id: claimed.id, attempt: claimed.attempt },
       })
 
-      await db
+      await Promise.all(
+        avatarPaths.map((avatarPath) =>
+          removeOwnedAvatar(
+            avatarPath,
+            {
+              filePrefix: 'user',
+              resourceId: payload.userId,
+            },
+            { strict: true },
+          ),
+        ),
+      )
+      const finished = await db
         .update(userCleanupJobs)
         .set({
           status: 'succeeded',
@@ -602,18 +545,14 @@ export async function runQueuedUserCleanupJobs({
           finishedAt: now,
           updatedAt: now,
         })
-        .where(eq(userCleanupJobs.id, claimed.id))
-
-      await Promise.all(
-        avatarPaths.map((avatarPath) => removePublicFile(avatarPath)),
-      )
-
-      results.push({ id: claimed.id, status: 'succeeded' })
+        .where(ownsClaim)
+        .returning({ id: userCleanupJobs.id })
+      if (finished.length) results.push({ id: claimed.id, status: 'succeeded' })
     } catch (error) {
       const canRetry = claimed.attempt < claimed.maxAttempts
       const nextAvailableAt = new Date(now.getTime() + 60_000)
 
-      await db
+      const retried = await db
         .update(userCleanupJobs)
         .set({
           status: canRetry ? 'queued' : 'failed',
@@ -623,9 +562,11 @@ export async function runQueuedUserCleanupJobs({
           finishedAt: canRetry ? null : now,
           updatedAt: now,
         })
-        .where(eq(userCleanupJobs.id, claimed.id))
+        .where(ownsClaim)
+        .returning({ id: userCleanupJobs.id })
 
-      results.push({ id: claimed.id, status: canRetry ? 'queued' : 'failed' })
+      if (retried.length)
+        results.push({ id: claimed.id, status: canRetry ? 'queued' : 'failed' })
     }
   }
 
@@ -635,11 +576,13 @@ export async function runQueuedUserCleanupJobs({
 async function cleanupDeletedUserResources({
   payload,
   now,
+  claim,
 }: {
   payload: UserCleanupJobPayload
   now: Date
+  claim: { id: string; attempt: number }
 }) {
-  await cleanupDeletedUserState(db, { payload, now })
+  await cleanupDeletedUserState(db, { payload, now, claim })
 
   return payload.avatarPath ? [payload.avatarPath] : []
 }
@@ -675,17 +618,15 @@ function validateUsername(value: string) {
   const normalizedUsername = value.trim()
 
   if (!normalizedUsername) {
-    throw new Error('Username is required.')
+    throw new PublicError('ACCOUNT_USERNAME_REQUIRED')
   }
 
   if (normalizedUsername.length > 50) {
-    throw new Error('Username must be 50 characters or fewer.')
+    throw new PublicError('ACCOUNT_USERNAME_TOO_LONG')
   }
 
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/.test(normalizedUsername)) {
-    throw new Error(
-      'Username must start and end with a letter or number and only use letters, numbers, dots, underscores hyphens.',
-    )
+    throw new PublicError('ACCOUNT_USERNAME_INVALID')
   }
 
   return normalizedUsername

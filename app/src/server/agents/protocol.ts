@@ -22,6 +22,9 @@ const maxRuntimeLogContentLength = 17 * 1024
 const agentVersionSchema = z.string().trim().min(1).max(128)
 
 export const agentMetadataSchema = z.object({
+  routingAddress: z.union([z.ipv4(), z.ipv6()]).optional(),
+  publicIpv4: z.ipv4().optional(),
+  publicIpv6: z.ipv6().optional(),
   agentVersion: agentVersionSchema.nullable().optional(),
   protocolVersion: z.number().int().positive().optional(),
   capabilities: z.array(z.string().trim().min(1).max(128)).max(100).optional(),
@@ -93,6 +96,7 @@ const completeDeploymentJobSchema = agentCredentialsSchema.extend({
 const completeCleanupJobSchema = agentCredentialsSchema.extend({
   type: z.enum(['deprovision', 'purge']),
   jobId: z.string().min(1),
+  attempt: z.number().int().positive(),
   status: completionStatusSchema,
   message: z.string().optional().nullable(),
 })
@@ -140,6 +144,8 @@ export const completeAgentJobSchema = z.union([
   completeBackupCleanupJobSchema,
   completeRestoreJobSchema,
 ])
+
+export type CompleteAgentJobPayload = z.infer<typeof completeAgentJobSchema>
 
 export const rotateAgentCredentialSchema =
   agentCredentialsSchema.merge(agentMetadataSchema)
@@ -243,6 +249,7 @@ export type AgentDeployJob = {
 }
 
 export type AgentCleanupJob = {
+  attempt: number
   type: 'deprovision' | 'purge'
   id: string
   cleanup: Omit<DeprovisionJobPayload, 'schemaVersion'>
@@ -283,6 +290,7 @@ export type AgentJobCompletion = {
 }
 
 export type AgentCleanupCompletion = {
+  attempt: number
   jobId: string
   status: 'succeeded' | 'failed' | 'canceled'
   message?: string | null
@@ -330,7 +338,7 @@ export type AgentJobStatus = {
 
 export class AgentRequestError extends Error {
   constructor(
-    readonly status: 401 | 403 | 404 | 409,
+    readonly status: 401 | 403 | 404 | 409 | 503,
     message: string,
   ) {
     super(message)
@@ -343,13 +351,14 @@ export async function handleAgentRequest<T>(
   schema: z.ZodType<T>,
   handler: (payload: T) => unknown | Promise<unknown>,
   failureMessage: string,
+  maxBytes = maxAgentRequestBytes,
 ) {
   try {
-    const body = await readRequestText(request, maxAgentRequestBytes)
+    const body = await readRequestText(request, maxBytes)
     const payload = schema.parse(JSON.parse(body))
     const result = await handler(payload)
     await notifyAgentMutation(new URL(request.url).pathname, payload, result)
-    return Response.json(result)
+    return result instanceof Response ? result : Response.json(result)
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return Response.json(

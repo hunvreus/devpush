@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { AtomicStore } from '@/server/db/atomic'
 import { teamDeletionStatements } from '@/server/teams/deletion-state'
+import { installationAdminPredicate } from '@/server/admin/access'
 
 export type UserCleanupJobPayload = {
   schemaVersion: 1
@@ -16,11 +17,17 @@ export async function deleteUserState(
     userId: string
     email: string
     now: Date
+    adminActorUserId?: string
   },
 ) {
   const now = input.now.getTime()
   const jobId = crypto.randomUUID()
-  const guard = sql`u.id = ${input.userId} and u.status = 'active' and u.email = ${input.email}
+  const guard = sql`u.id = ${input.userId} and u.email = ${input.email}
+    and ${
+      input.adminActorUserId
+        ? sql`u.status in ('active', 'banned') and u.id <> ${input.adminActorUserId} and ${installationAdminPredicate(input.adminActorUserId)}`
+        : sql`u.status = 'active'`
+    }
     and not exists(select 1 from team_members owner join teams t on t.id = owner.team_id
       where owner.user_id = ${input.userId} and owner.role = 'owner' and t.status = 'active'
         and exists(select 1 from team_members other where other.team_id = t.id and other.user_id <> ${input.userId})
@@ -36,6 +43,9 @@ export async function deleteUserState(
             where t.status = 'active' and sole.user_id = ${input.userId} and sole.role = 'owner'
             and not exists(select 1 from team_members other where other.team_id = t.id and other.user_id <> ${input.userId}) order by t.id)))),
         ${now}, ${now}, ${now} from user u where ${guard} returning id`),
+    store.run(sql`delete from team_invites where team_id in (
+      select value from user_cleanup_jobs as cleanup, json_each(cleanup.payload, '$.soleMemberOwnedTeamIds')
+      where cleanup.id = ${jobId}) and ${queued}`),
     store.run(
       sql`delete from session where user_id = ${input.userId} and ${queued}`,
     ),
@@ -53,13 +63,16 @@ export async function cleanupDeletedUserState(
   input: {
     payload: UserCleanupJobPayload
     now: Date
+    claim: { id: string; attempt: number }
   },
 ) {
   const p = input.payload
-  const guard = sql`exists(select 1 from user where id = ${p.userId} and status = 'deleted')`
+  const guard = sql`exists(select 1 from user where id = ${p.userId} and status = 'deleted') and exists(select 1 from user_cleanup_jobs where id = ${input.claim.id} and user_id = ${p.userId} and status = 'running' and attempt = ${input.claim.attempt} and claimed_at = ${input.now.getTime()})`
   const statements = teamDeletionStatements({
     teamIds: sql`select id from teams where status = 'active'
-      and id in (select value from json_each(${JSON.stringify(p.soleMemberOwnedTeamIds)}))`,
+      and id in (select value from json_each(${JSON.stringify(p.soleMemberOwnedTeamIds)}))
+      and exists(select 1 from team_members sole where sole.team_id = teams.id and sole.user_id = ${p.userId} and sole.role = 'owner')
+      and not exists(select 1 from team_members other where other.team_id = teams.id and other.user_id <> ${p.userId})`,
     guard,
     reason: 'Team deleted because the owning user was deleted.',
     message: 'Canceled because the owning user was deleted.',
@@ -67,9 +80,7 @@ export async function cleanupDeletedUserState(
     clearDefaults: true,
   })
   const [found] = await store.batch([
-    store.all(
-      sql`select id from user where id = ${p.userId} and status = 'deleted'`,
-    ),
+    store.all(sql`select id from user where id = ${p.userId} and ${guard}`),
     ...statements.map((query) => store.run(query)),
     store.run(
       sql`delete from team_invites where (inviter_id = ${p.userId} or lower(email) = ${p.email.toLowerCase()}) and ${guard}`,

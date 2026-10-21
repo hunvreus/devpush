@@ -1,3 +1,4 @@
+import { SignInMessage } from './sign-in-message'
 import { LoaderCircle } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
@@ -12,7 +13,7 @@ import {
   InputOTPSlot,
 } from '@/components/ui/input-otp'
 import { authClient } from '@/lib/auth/client'
-import type { AuthMethods } from '@/lib/auth/config'
+import type { AuthMethods } from '@/server/auth/auth-methods'
 import { getErrorMessage } from '@/lib/error-message'
 import { isValidEmail } from '@/lib/validation'
 
@@ -21,9 +22,11 @@ type PendingAction = null | 'email' | 'otp' | 'redirect' | 'github' | 'google'
 export function LoginForm({
   authMethods,
   redirectPath,
+  signInMessage = '',
 }: {
   authMethods: AuthMethods
   redirectPath: string
+  signInMessage?: string
 }) {
   const [email, setEmail] = useState('')
   const [otp, setOtp] = useState('')
@@ -145,6 +148,7 @@ export function LoginForm({
             <h1 className="text-center leading-snug font-medium">
               Sign in to devpush
             </h1>
+            <SignInMessage message={signInMessage} />
             {step === 'email' ? (
               <EmailStep
                 busy={busy}

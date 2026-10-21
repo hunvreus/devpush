@@ -22,6 +22,7 @@ test.each([
 ])('rejects invalid environment fields %j', (patch) => {
   expect(
     projectEnvironmentsSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
       ...base,
       environments: [{ ...row, ...patch }],
     }).success,
@@ -30,11 +31,13 @@ test.each([
 test('production is required and duplicate identifiers target the duplicated row', () => {
   expect(
     projectEnvironmentsSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
       ...base,
       environments: [{ ...row, slug: 'staging' }],
     }).success,
   ).toBe(false)
   const result = projectEnvironmentsSchema.safeParse({
+    settingsVersion: 1, projectId: 'p',
     ...base,
     environments: [row, { ...row, id: 'e2', slug: ' production ' }],
   })
@@ -45,6 +48,7 @@ test('production is required and duplicate identifiers target the duplicated row
 test('wildcard branch rules remain supported', () => {
   expect(
     projectEnvironmentsSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
       ...base,
       environments: [{ ...row, branch: 'release/*' }],
     }).success,
@@ -52,6 +56,7 @@ test('wildcard branch rules remain supported', () => {
 })
 test('definition saves do not include stale server assignments', () => {
   const parsed = projectEnvironmentsSchema.parse({
+    settingsVersion: 1, projectId: 'p',
     ...base,
     environments: [{ ...row, serverId: 'stale-server' }],
   })

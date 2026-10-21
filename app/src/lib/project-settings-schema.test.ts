@@ -5,9 +5,12 @@ import {
   projectValidationErrors,
 } from './project-settings-schema'
 import { formErrors } from './form-errors'
-import { createComposeRuntimeConfig } from '@/server/projects/runtime-config'
+import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
 
 const input = {
+  section: 'general',
+  settingsVersion: 1,
+  projectId: 'p',
   teamSlug: 'team',
   currentProjectName: 'project',
   projectName: 'project',

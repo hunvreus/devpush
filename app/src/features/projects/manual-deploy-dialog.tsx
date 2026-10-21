@@ -1,3 +1,4 @@
+import { manualDeployOptionsQueryOptions } from '@/lib/manual-deploy-options-query'
 import { afterMutation } from '@/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -44,11 +45,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
-import {
-  deployProject,
-  getProjectDeployOptions,
-} from '@/server/projects/functions'
-import { getErrorMessage } from '@/lib/error-message'
+import { deployProject } from '@/server/projects/functions'
+import type { getProjectDeployOptions } from '@/server/projects/functions'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { invalidateProjectContext } from '@/lib/project-context-query'
 import type { ProjectEnvironmentConfig } from '@/server/projects/types'
 
@@ -80,6 +79,7 @@ export function ManualDeployDialog({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const [selectedBranch, setSelectedBranch] = useState<string | undefined>()
   const [options, setOptions] = useState<DeployOptions | null>(null)
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(
     () => environments.at(0)?.id ?? '',
@@ -108,26 +108,53 @@ export function ManualDeployDialog({
     }
 
     let canceled = false
-    setIsLoading(true)
+    const queryOptions = manualDeployOptionsQueryOptions({
+      environmentId,
+      branch: selectedBranch,
+      teamSlug,
+      projectName,
+    })
+    const cached = queryClient.getQueryData(queryOptions.queryKey)
+    setIsLoading(!cached)
     setLoadError(null)
     setSubmitError(null)
-    setOptions(null)
-    setSelectedCommitKey(null)
-    getProjectDeployOptions({
-      data: {
-        environmentId,
-        teamSlug,
-        projectName,
-      },
-    })
+    setOptions(
+      (current) =>
+        cached ?? (current?.environment.id === environmentId ? current : null),
+    )
+    setSelectedCommitKey((current) =>
+      cached?.commits.some((commit) => getCommitKey(commit) === current)
+        ? current
+        : cached?.commits[0]
+          ? getCommitKey(cached.commits[0])
+          : null,
+    )
+    queryClient
+      .fetchQuery(queryOptions)
       .then((nextOptions) => {
         if (canceled) {
           return
         }
 
         setOptions(nextOptions)
-        const firstCommit = nextOptions.commits[0]
-        setSelectedCommitKey(firstCommit ? getCommitKey(firstCommit) : null)
+        if (nextOptions.selectedBranch) {
+          queryClient.setQueryData(
+            manualDeployOptionsQueryOptions({
+              environmentId,
+              teamSlug,
+              projectName,
+              branch: nextOptions.selectedBranch,
+            }).queryKey,
+            nextOptions,
+          )
+        }
+        setSelectedCommitKey((current) =>
+          nextOptions.commits.some((commit) => getCommitKey(commit) === current)
+            ? current
+            : nextOptions.commits[0]
+              ? getCommitKey(nextOptions.commits[0])
+              : null,
+        )
       })
       .catch((error) => {
         if (canceled) {
@@ -135,7 +162,7 @@ export function ManualDeployDialog({
         }
 
         setLoadError(
-          getErrorMessage(
+          getPublicErrorMessage(
             error,
             'Unable to load deploy options. Please try again.',
           ),
@@ -149,16 +176,28 @@ export function ManualDeployDialog({
 
     return () => {
       canceled = true
+      void queryClient.cancelQueries({
+        queryKey: queryOptions.queryKey,
+        exact: true,
+      })
     }
-  }, [open, projectName, environmentId, teamSlug, loadAttempt])
+  }, [
+    open,
+    projectName,
+    environmentId,
+    teamSlug,
+    loadAttempt,
+    queryClient,
+    selectedBranch,
+  ])
+
+  const selectionMatches =
+    options?.environment.id === environmentId &&
+    (selectedBranch === undefined || options.selectedBranch === selectedBranch)
 
   async function submit(confirmed = false) {
-    if (isDeploying || isLoading || disabled) return
-    if (
-      !selectedCommit ||
-      !selectedEnvironment ||
-      options?.environment.id !== selectedEnvironment.id
-    ) {
+    if (isDeploying || isLoading || loadError || disabled) return
+    if (!selectedCommit || !selectedEnvironment || !selectionMatches) {
       setSubmitError('Select a commit to deploy.')
       return
     }
@@ -207,7 +246,7 @@ export function ManualDeployDialog({
       )
     } catch (error) {
       setSubmitError(
-        getErrorMessage(error, 'Unable to deploy. Please try again.'),
+        getPublicErrorMessage(error, 'Unable to deploy. Please try again.'),
       )
     } finally {
       setIsDeploying(false)
@@ -228,16 +267,37 @@ export function ManualDeployDialog({
         <DialogTrigger asChild disabled={disabled || isDeploying}>
           {children}
         </DialogTrigger>
-        <DialogContent className="gap-4 sm:max-w-xl">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto grid-cols-1 gap-4 sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="text-base">{title ?? 'Deploy'}</DialogTitle>
             <DialogDescription>
-              Select an environment to deploy to, and the commit you want to
-              deploy.
+              Select an environment, branch and commit to deploy.
             </DialogDescription>
           </DialogHeader>
 
-          <fieldset disabled={isDeploying}>
+          <fieldset className="min-w-0 space-y-3" disabled={isDeploying}>
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedEnvironment ? (
+                <EnvironmentSelect
+                  environments={environments}
+                  value={selectedEnvironment.id}
+                  onChange={(value) => {
+                    setSelectedBranch(undefined)
+                    setSelectedEnvironmentId(value)
+                  }}
+                />
+              ) : (
+                <Skeleton className="h-7 w-36" />
+              )}
+              {options?.environment.id === environmentId &&
+              options.branches.length ? (
+                <BranchSelect
+                  branches={options.branches}
+                  value={selectedBranch ?? options.selectedBranch ?? ''}
+                  onChange={setSelectedBranch}
+                />
+              ) : null}
+            </div>
             {!environmentId ? (
               <FieldError>
                 No environments are available for deployment.
@@ -255,18 +315,9 @@ export function ManualDeployDialog({
               </div>
             ) : isLoading || !options ? (
               <div className="space-y-3">
-                {selectedEnvironment ? (
-                  <EnvironmentSelect
-                    environments={environments}
-                    value={selectedEnvironment.id}
-                    onChange={setSelectedEnvironmentId}
-                  />
-                ) : (
-                  <Skeleton className="h-7 w-36" />
-                )}
-                <div className="h-60 overflow-y-auto scrollbar">
+                <div className="max-h-[calc(5*2.75rem+2px)] overflow-y-auto scrollbar">
                   <section className="overflow-hidden rounded-lg border">
-                    {Array.from({ length: 6 }).map((_, index) => (
+                    {Array.from({ length: 5 }).map((_, index) => (
                       <label
                         key={index}
                         className="flex h-11 items-center gap-x-3 border-b px-4 text-sm last:border-b-0"
@@ -297,13 +348,7 @@ export function ManualDeployDialog({
               </div>
             ) : (
               <div className="space-y-3">
-                <EnvironmentSelect
-                  environments={environments}
-                  value={selectedEnvironment?.id ?? options.environment.id}
-                  onChange={setSelectedEnvironmentId}
-                />
-
-                <div className="h-60 overflow-y-auto scrollbar">
+                <div className="max-h-[calc(5*2.75rem+2px)] overflow-y-auto scrollbar">
                   {options.commits.length > 0 ? (
                     <section className="overflow-hidden rounded-lg border">
                       {options.commits.map((commit) => (
@@ -325,7 +370,7 @@ export function ManualDeployDialog({
                           </span>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <span className="flex min-w-0 shrink-0 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50 dark:[&>svg]:opacity-60">
+                              <span className="flex min-w-0 max-w-1/4 shrink items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50 dark:[&>svg]:opacity-60">
                                 <GitBranchIcon />
                                 <span className="truncate">
                                   {commit.branch}
@@ -377,8 +422,7 @@ export function ManualDeployDialog({
                       <div className="max-w-sm text-center">
                         <h2 className="font-semibold">No commits</h2>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          This environment does not have any matching commits
-                          yet.
+                          This branch does not have any commits yet.
                         </p>
                       </div>
                     </section>
@@ -401,7 +445,8 @@ export function ManualDeployDialog({
                 isDeploying ||
                 isLoading ||
                 selectedCommit === null ||
-                options?.environment.id !== environmentId
+                loadError !== null ||
+                !selectionMatches
               }
               onClick={() => void submit()}
             >
@@ -475,6 +520,36 @@ function EnvironmentSelect({
               <EnvironmentDot color={environment.color} />
               {environment.name}
             </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function BranchSelect({
+  branches,
+  value,
+  onChange,
+}: {
+  branches: string[]
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger
+        aria-label="Deployment branch"
+        size="sm"
+        className="w-fit max-w-full"
+      >
+        <GitBranchIcon />
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {branches.map((branch) => (
+          <SelectItem key={branch} value={branch}>
+            {branch}
           </SelectItem>
         ))}
       </SelectContent>

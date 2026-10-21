@@ -1,3 +1,4 @@
+import { recordServerMetrics } from '@/test/server-metrics'
 import { createClient } from '@libsql/client'
 import { migrateLibsql } from '@/server/db/migrate-libsql'
 import { openLibsql } from '@/server/db/libsql-connection'
@@ -20,7 +21,6 @@ import {
   listServerMetricSeries,
   listServerMonitoringSummaries,
   recordServerHeartbeat,
-  recordServerMetrics,
   pruneServerMonitoring,
 } from '@/server/servers/monitoring'
 
@@ -50,14 +50,12 @@ describe('server monitoring integration', () => {
       await store
         .insert(teams)
         .values({ id: 'metric-team', slug: 'metric-team', name: 'Metric team' })
-      await store
-        .insert(servers)
-        .values({
-          id: 'metric-server',
-          teamId: 'metric-team',
-          name: 'Metric server',
-          handle: 'metric-server',
-        })
+      await store.insert(servers).values({
+        id: 'metric-server',
+        teamId: 'metric-team',
+        name: 'Metric server',
+        handle: 'metric-server',
+      })
       const now = new Date()
       const samples = Array.from({ length: 240 }, (_, index) => ({
         id: index.toString(16).padStart(32, '0'),

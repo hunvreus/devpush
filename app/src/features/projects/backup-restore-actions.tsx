@@ -1,25 +1,24 @@
+import { useState } from 'react'
+import type { ReactNode } from 'react'
+import { LoaderIcon } from 'lucide-react'
 import {
   databaseArtifactTarget,
   backupDatabaseEngines,
 } from '@/lib/backup-database'
 import { backupRestoreArtifactSchema } from '@/lib/backup-restore-schema'
-import { formErrors } from '@/lib/form-errors'
-import type { FormErrors } from '@/lib/form-errors'
-import { getErrorMessage } from '@/lib/error-message'
-import {
-  ArchiveIcon,
-  ArrowDownIcon,
-  TriangleAlertIcon,
-  CopyIcon,
-  HardDriveIcon,
-  LoaderIcon,
-  RotateCcwIcon,
-} from 'lucide-react'
-import { copyText } from '@/lib/action-feedback'
-import { useState } from 'react'
-
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { Button } from '@/components/ui/button'
+import { BackupTimestamp } from './backup-timestamp'
+import { EnvironmentDot } from './environment-dot'
+import { ServerAvatar } from '@/features/servers/server-avatar'
+import type { ServerStatus } from '@/server/servers/status'
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip'
+import { BackupStatusIcon } from './backup-status-icon'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -28,117 +27,122 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FieldError } from '@/components/ui/field'
 import type {
   ProjectBackupArtifact,
+  ProjectBackupRestore,
   ProjectBackupRun,
 } from '@/server/projects/types'
 import {
   formatBytes,
-  formatBackupDate,
+  formatBackupStatus,
   getComposeArtifactName,
+  getComposeVolumeName,
 } from './project-backup-utils'
+import type { z } from 'zod'
+
+export type BackupRestoreSelection = z.infer<typeof backupRestoreArtifactSchema>
+type Restore = (input: {
+  run: ProjectBackupRun
+  artifacts: BackupRestoreSelection[]
+}) => Promise<void>
+
+function restoreContents(
+  artifacts: ProjectBackupArtifact[],
+  run: ProjectBackupRun,
+  projectId: string,
+) {
+  const contents = new Map<
+    string,
+    {
+      artifact: ProjectBackupArtifact
+      name: string
+      database?: ReturnType<typeof databaseArtifactTarget>
+    }
+  >()
+  for (const artifact of artifacts) {
+    if (
+      run.localRecoveryAvailable &&
+      run.status !== 'succeeded' &&
+      artifact.storage !== 'local'
+    )
+      continue
+    const database =
+      artifact.type === 'database'
+        ? databaseArtifactTarget(artifact.objectKey, run.databaseTargets ?? [])
+        : undefined
+    if (
+      artifact.type !== 'volume' &&
+      (!database || database.engine === 'needs_configuration')
+    )
+      continue
+    const name = getComposeArtifactName(artifact, projectId, run.environmentId)
+    // Local and remote copies share the same generated filename. Keep one target,
+    // preferring the recorded local copy; remote-only contents remain restorable.
+    const key = `${artifact.type}:${artifact.objectKey.split('/').at(-1)}`
+    const current = contents.get(key)
+    if (!current || artifact.storage === 'local')
+      contents.set(key, { artifact, name, database })
+  }
+  return [...contents.values()]
+}
 
 export function BackupRunRestoreActions({
   projectId,
+  policyName,
   targetServerName,
+  targetServerStatus,
   artifacts,
-  composeServices,
-  composeVolumes,
   disabled,
-  restoringArtifactId,
+  restoringRunId,
   run,
   onRestore,
 }: {
   projectId: string
+  policyName?: string
   targetServerName?: string
-  artifacts: Array<ProjectBackupArtifact>
-  composeServices: Array<string>
-  composeVolumes: Array<string>
+  targetServerStatus?: ServerStatus
+  artifacts: ProjectBackupArtifact[]
   disabled: boolean
-  restoringArtifactId: string | null
+  restoringRunId: string | null
   run: ProjectBackupRun
-  onRestore: (input: {
-    artifact: ProjectBackupArtifact
-    run: ProjectBackupRun
-    targetService?: string
-    targetVolume?: string
-  }) => Promise<void>
+  onRestore: Restore
 }) {
-  const restorableArtifacts = artifacts.filter(
-    (artifact) =>
-      artifact.type === 'volume' ||
-      (artifact.type === 'database' &&
-        databaseArtifactTarget(artifact.objectKey, run.databaseTargets ?? [])
-          ?.engine !== 'needs_configuration' &&
-        Boolean(
-          databaseArtifactTarget(artifact.objectKey, run.databaseTargets ?? []),
-        )),
-  )
-  const [selectedArtifact, setSelectedArtifact] =
-    useState<ProjectBackupArtifact | null>(null)
-
-  if (
-    (run.status !== 'succeeded' && !run.localRecoveryAvailable) ||
-    (restorableArtifacts.length === 0 &&
-      !artifacts.some((a) => a.type === 'database'))
-  ) {
-    return <span />
-  }
-
-  if (restorableArtifacts.length === 0)
-    return (
+  const [open, setOpen] = useState(false)
+  const contents = restoreContents(artifacts, run, projectId)
+  if (run.status !== 'succeeded' && !run.localRecoveryAvailable) return <span />
+  if (!contents.length)
+    return artifacts.some((a) => a.type === 'database') ? (
       <span
         className="text-xs text-muted-foreground"
         title="This backup has no supported engine metadata. Restore the file manually."
       >
         Manual restore required
       </span>
+    ) : (
+      <span />
     )
-
   return (
     <>
       <Button
         type="button"
         variant="outline"
         size="sm"
+        aria-label="Restore"
         disabled={disabled}
-        onClick={() => setSelectedArtifact(restorableArtifacts[0] ?? null)}
+        onClick={() => setOpen(true)}
       >
-        <RotateCcwIcon data-icon="inline-start" />
         Restore
       </Button>
-      {selectedArtifact ? (
-        <RestoreArtifactDialog
-          key={selectedArtifact.id}
-          artifact={selectedArtifact}
-          artifacts={restorableArtifacts}
-          projectId={projectId}
+      {open ? (
+        <RestoreBackupDialog
+          contents={contents}
+          policyName={policyName}
           targetServerName={targetServerName}
-          onArtifactSelect={setSelectedArtifact}
-          composeServices={composeServices}
-          composeVolumes={composeVolumes}
-          isRestoring={restoringArtifactId === selectedArtifact.id}
-          open
+          targetServerStatus={targetServerStatus}
           run={run}
-          onOpenChange={(open) => {
-            if (!open) {
-              setSelectedArtifact(null)
-            }
-          }}
+          isRestoring={restoringRunId === run.id}
+          onClose={() => setOpen(false)}
           onRestore={onRestore}
         />
       ) : null}
@@ -146,349 +150,159 @@ export function BackupRunRestoreActions({
   )
 }
 
-function RestoreArtifactDialog({
+function RestoreBackupDialog({
+  contents,
+  policyName,
   targetServerName,
-  artifacts,
-  projectId,
-  onArtifactSelect,
-  artifact,
-  composeServices,
-  composeVolumes,
-  isRestoring,
-  open,
+  targetServerStatus,
   run,
-  onOpenChange,
+  isRestoring,
+  onClose,
   onRestore,
 }: {
+  contents: ReturnType<typeof restoreContents>
+  policyName?: string
   targetServerName?: string
-  artifacts: Array<ProjectBackupArtifact>
-  projectId: string
-  onArtifactSelect: (artifact: ProjectBackupArtifact) => void
-  artifact: ProjectBackupArtifact
-  composeServices: Array<string>
-  composeVolumes: Array<string>
-  isRestoring: boolean
-  open: boolean
+  targetServerStatus?: ServerStatus
   run: ProjectBackupRun
-  onOpenChange: (open: boolean) => void
-  onRestore: (input: {
-    artifact: ProjectBackupArtifact
-    run: ProjectBackupRun
-    targetService?: string
-    targetVolume?: string
-  }) => Promise<void>
+  isRestoring: boolean
+  onClose: () => void
+  onRestore: Restore
 }) {
+  const [selected, setSelected] = useState(
+    () => new Set(contents.map((item) => item.artifact.id)),
+  )
   const [pending, setPending] = useState(false)
-  const [errors, setErrors] = useState<FormErrors>({})
+  const [error, setError] = useState<string | null>(null)
   const busy = pending || isRestoring
-  const artifactName = getComposeArtifactName(
-    artifact,
-    projectId,
-    run.environmentId,
-  )
-  const [targetVolume, setTargetVolume] = useState(
-    artifact.type === 'volume'
-      ? (composeVolumes.find((volume) => volume === artifactName) ??
-          artifactName)
-      : '',
-  )
-  const [targetService, setTargetService] = useState(
-    artifact.type === 'database'
-      ? (composeServices.find((service) => service === artifactName) ??
-          artifactName)
-      : '',
-  )
-  const databaseTarget = databaseArtifactTarget(
-    artifact.objectKey,
-    run.databaseTargets ?? [],
-  )
   async function submit() {
-    if (busy) return
-    const parsed = backupRestoreArtifactSchema.safeParse({
-      artifactId: artifact.id,
-      type: artifact.type,
-      targetVolume,
-      targetService,
-    })
-    if (!parsed.success) {
-      setErrors(formErrors(parsed.error.issues))
-      return
-    }
-    setErrors({})
+    if (busy || !selected.size) return
+    setError(null)
     setPending(true)
     try {
-      await onRestore({ artifact, run, ...parsed.data })
-      onOpenChange(false)
+      const artifacts = contents
+        .filter((item) => selected.has(item.artifact.id))
+        .map(({ artifact, name, database }) =>
+          backupRestoreArtifactSchema.parse(
+            artifact.type === 'volume'
+              ? {
+                  artifactId: artifact.id,
+                  type: 'volume',
+                  targetVolume: name,
+                }
+              : {
+                  artifactId: artifact.id,
+                  type: 'database',
+                  targetService: database!.service,
+                },
+          ),
+        )
+      await onRestore({ run, artifacts })
+      onClose()
     } catch (cause) {
-      setErrors({
-        form: getErrorMessage(
+      setError(
+        getPublicErrorMessage(
           cause,
           'Unable to queue restore. Please try again.',
         ),
-      })
+      )
     } finally {
       setPending(false)
     }
   }
-
   return (
     <Dialog
-      open={open}
+      open
       onOpenChange={(next) => {
-        if (!busy) onOpenChange(next)
+        if (!next && !busy) onClose()
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Restore backup</DialogTitle>
           <DialogDescription>
-            Review the source backup and where its data will be restored.
+            Select the volumes and databases to restore from this backup.
+            Selected data will be replaced. The application stops during volume
+            restoration.
           </DialogDescription>
         </DialogHeader>
+        <BackupRestoreSummary
+          policyName={policyName}
+          run={run}
+          serverName={targetServerName}
+          serverStatus={targetServerStatus}
+        />
         <form
           id="backup-restore-form"
-          noValidate
           onSubmit={(event) => {
             event.preventDefault()
             void submit()
           }}
         >
-          <fieldset disabled={busy}>
-            <div className="grid gap-3">
-              <section
-                aria-label="Source backup"
-                className="min-w-0 space-y-4 rounded-lg border bg-muted/20 p-4"
-              >
-                <h3 className="flex items-center gap-2 font-medium">
-                  <ArchiveIcon className="size-4 shrink-0 text-muted-foreground" />
-                  Source
-                </h3>
-                {artifacts.length > 1 ? (
-                  <Field>
-                    <FieldLabel>Backup file</FieldLabel>
-                    <Select
-                      value={artifact.id}
-                      onValueChange={(id) => {
-                        const next = artifacts.find((item) => item.id === id)
-                        if (next) onArtifactSelect(next)
-                      }}
-                    >
-                      <SelectTrigger
-                        className="w-full"
-                        aria-label="Backup file"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {artifacts.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {getComposeArtifactName(
-                              item,
-                              projectId,
-                              run.environmentId,
-                            )}{' '}
-                            · {item.storage === 'local' ? 'Local' : 'Remote'} ·{' '}
-                            {formatBytes(item.sizeBytes)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                ) : null}
-                <dl className="space-y-3">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">
-                      {artifact.type === 'volume'
-                        ? 'Volume'
-                        : 'Database service'}
-                    </dt>
-                    <dd className="mt-1 font-mono text-[13px]">
-                      {artifactName}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">File</dt>
-                    <dd className="mt-1 flex items-start gap-2">
-                      <span
-                        className="min-w-0 flex-1 break-all font-mono text-[13px]"
-                        title={artifact.objectKey}
-                      >
-                        {artifact.objectKey.split('/').at(-1)}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={
-                          artifact.storage === 'local'
-                            ? 'Copy full server path'
-                            : 'Copy S3 object key'
-                        }
-                        title={artifact.objectKey}
-                        onClick={() =>
-                          void copyText(artifact.objectKey, 'Backup location')
-                        }
-                      >
-                        <CopyIcon />
-                      </Button>
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Created</dt>
-                      <dd className="mt-1">
-                        {formatBackupDate(artifact.createdAt)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Size</dt>
-                      <dd className="mt-1">
-                        {formatBytes(artifact.sizeBytes)}
-                      </dd>
-                    </div>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Storage</dt>
-                    <dd className="mt-1">
-                      {artifact.storage === 'local'
-                        ? `On ${run.serverName ?? 'the source server'}`
-                        : 'S3-compatible storage'}
-                    </dd>
-                  </div>
-                </dl>
-              </section>
-              <ArrowDownIcon
-                aria-hidden="true"
-                className="size-5 shrink-0 justify-self-center text-muted-foreground"
-              />
-              <section
-                aria-label="Restore target"
-                className="min-w-0 space-y-4 rounded-lg border bg-muted/20 p-4"
-              >
-                <h3 className="flex items-center gap-2 font-medium">
-                  <HardDriveIcon className="size-4 shrink-0 text-muted-foreground" />
-                  Target
-                </h3>
-                <dl className="space-y-3">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">
-                      Environment
-                    </dt>
-                    <dd className="mt-1">{run.environmentName}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Server</dt>
-                    <dd className="mt-1">
-                      {targetServerName ?? run.serverName ?? 'Unknown server'}
-                    </dd>
-                  </div>
-                </dl>
-                <FieldGroup>
-                  {artifact.type === 'volume' ? (
-                    <Field>
-                      <FieldLabel htmlFor="restore-volume">
-                        Compose volume (required)
-                      </FieldLabel>
-                      <Select
-                        value={targetVolume}
-                        onValueChange={setTargetVolume}
-                      >
-                        <SelectTrigger
-                          id="restore-volume"
-                          aria-invalid={Boolean(errors.targetVolume)}
-                          aria-describedby={
-                            errors.targetVolume
-                              ? 'restore-volume-error'
-                              : undefined
-                          }
-                          className="w-full"
-                        >
-                          <SelectValue placeholder="Select volume" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from(
-                            new Set([artifactName, ...composeVolumes]),
-                          )
-                            .filter(Boolean)
-                            .map((volume) => (
-                              <SelectItem key={volume} value={volume}>
-                                {volume}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                      <FieldError id="restore-volume-error">
-                        {errors.targetVolume}
-                      </FieldError>
-                    </Field>
-                  ) : (
-                    <>
-                      <Field>
-                        <FieldLabel htmlFor="restore-service">
-                          Compose service (required)
-                        </FieldLabel>
-                        <Select
-                          value={targetService}
-                          onValueChange={(value) => {
-                            setTargetService(value)
-                          }}
-                        >
-                          <SelectTrigger
-                            id="restore-service"
-                            aria-invalid={Boolean(errors.targetService)}
-                            aria-describedby={
-                              errors.targetService
-                                ? 'restore-service-error'
-                                : undefined
-                            }
-                            className="w-full"
+          <fieldset disabled={busy} className="space-y-4">
+            {(['volume', 'database'] as const).map((type) => {
+              const items = contents.filter(
+                (item) => item.artifact.type === type,
+              )
+              return (
+                <BackupRestoreSection
+                  key={type}
+                  title={type === 'volume' ? 'Volumes' : 'Databases'}
+                >
+                  <ul>
+                    {items.length ? (
+                      items.map(({ artifact, name, database }) => {
+                        const engine = database
+                          ? backupDatabaseEngines.find(
+                              (item) => item.value === database.engine,
+                            )?.label
+                          : undefined
+                        return (
+                          <li
+                            key={artifact.id}
+                            className="border-b last:border-b-0"
                           >
-                            <SelectValue placeholder="Select service" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from(
-                              new Set([artifactName, ...composeServices]),
-                            )
-                              .filter(Boolean)
-                              .map((service) => (
-                                <SelectItem key={service} value={service}>
-                                  {service}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        <FieldError id="restore-service-error">
-                          {errors.targetService}
-                        </FieldError>
-                      </Field>
-                      <Field>
-                        <FieldLabel>Database</FieldLabel>
-                        <p className="text-sm">
-                          {backupDatabaseEngines.find(
-                            (engine) => engine.value === databaseTarget?.engine,
-                          )?.label ?? 'Unknown engine'}{' '}
-                          · {databaseTarget?.database || 'All databases'}
-                        </p>
-                        <FieldDescription>
-                          The database engine and scope come from this backup.
-                          Restoration imports its data into the selected service
-                          and may replace existing data.
-                        </FieldDescription>
-                      </Field>
-                    </>
-                  )}
-                </FieldGroup>
-              </section>
-            </div>
-            <Alert role="note" variant="destructive" className="mt-4">
-              <TriangleAlertIcon />
-              <AlertDescription>
-                {artifact.type === 'volume'
-                  ? 'The current files in this volume will be replaced. The application stops during restoration.'
-                  : 'The restore command may replace existing database data.'}
-              </AlertDescription>
-            </Alert>
-            <FieldError>{errors.form}</FieldError>
+                            <label className="flex min-w-0 cursor-pointer items-start gap-2 px-4 py-2 hover:bg-muted/50">
+                              <Checkbox
+                                className="mt-0.5"
+                                checked={selected.has(artifact.id)}
+                                disabled={busy}
+                                aria-label={`Restore ${type} ${name}${database ? ` (${database.database || 'all databases'})` : ''}`}
+                                onCheckedChange={(checked) =>
+                                  setSelected((previous) => {
+                                    const next = new Set(previous)
+                                    if (checked === true) next.add(artifact.id)
+                                    else next.delete(artifact.id)
+                                    return next
+                                  })
+                                }
+                              />
+                              <span className="min-w-0 break-words">
+                                {name}
+                                <span className="ml-2 text-muted-foreground">
+                                  {formatBytes(artifact.sizeBytes)}
+                                </span>
+                                {database ? (
+                                  <span className="ml-2 text-muted-foreground">
+                                    {database.database || 'All databases'} ·{' '}
+                                    {engine}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </label>
+                          </li>
+                        )
+                      })
+                    ) : (
+                      <li className="px-4 py-2 text-muted-foreground">
+                        {type === 'volume' ? 'No volumes' : 'No databases'}
+                      </li>
+                    )}
+                  </ul>
+                </BackupRestoreSection>
+              )
+            })}
+            <FieldError>{error}</FieldError>
           </fieldset>
         </form>
         <DialogFooter>
@@ -496,11 +310,15 @@ function RestoreArtifactDialog({
             type="button"
             variant="ghost"
             disabled={busy}
-            onClick={() => onOpenChange(false)}
+            onClick={onClose}
           >
             Cancel
           </Button>
-          <Button type="submit" form="backup-restore-form" disabled={busy}>
+          <Button
+            type="submit"
+            form="backup-restore-form"
+            disabled={busy || !selected.size}
+          >
             {busy ? (
               <LoaderIcon data-icon="inline-start" className="animate-spin" />
             ) : null}
@@ -509,5 +327,251 @@ function RestoreArtifactDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function BackupRestoreSummary({
+  policyName,
+  run,
+  serverName,
+  serverStatus,
+}: {
+  policyName?: string
+  run: ProjectBackupRun
+  serverName?: string
+  serverStatus?: ServerStatus
+}) {
+  return (
+    <BackupRestoreSection title="Backup">
+      <dl className="divide-y">
+        <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+          <dt className="text-muted-foreground">Created</dt>
+          <dd>
+            <BackupTimestamp
+              value={run.startedAt ?? run.createdAt}
+              className="text-foreground"
+            />
+          </dd>
+        </div>
+        <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+          <dt className="text-muted-foreground">Policy</dt>
+          <dd
+            className={`min-w-0 break-words${policyName ? '' : ' text-muted-foreground'}`}
+          >
+            {policyName ?? 'Deleted policy'}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+          <dt className="text-muted-foreground">Environment</dt>
+          <dd className="flex min-w-0 items-center gap-2">
+            <EnvironmentDot color={run.environmentColor} />
+            {run.environmentName}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+          <dt className="text-muted-foreground">Server</dt>
+          <dd className="flex min-w-0 items-center gap-2">
+            {serverStatus ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ServerAvatar
+                    name={serverName ?? run.serverName ?? 'Server'}
+                    status={serverStatus}
+                    size="sm"
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {serverStatus.charAt(0).toUpperCase() + serverStatus.slice(1)}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+            <span className="min-w-0 break-words">
+              {serverName ?? run.serverName ?? 'Unknown server'}
+            </span>
+          </dd>
+        </div>
+      </dl>
+    </BackupRestoreSection>
+  )
+}
+
+export function BackupRestoreDetails({
+  run,
+  restore,
+  policyName,
+  projectId,
+  serverStatus,
+  onClose,
+}: {
+  run?: ProjectBackupRun
+  restore: ProjectBackupRestore
+  policyName?: string
+  projectId: string
+  serverStatus?: ServerStatus
+  onClose: () => void
+}) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Restore details</DialogTitle>
+          <DialogDescription>
+            Restore status, source backup, and data selected for recovery.
+          </DialogDescription>
+        </DialogHeader>
+        <BackupRestoreSection title="Restore">
+          <dl className="divide-y">
+            <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+              <dt className="text-muted-foreground">Started</dt>
+              <dd>
+                {restore.startedAt ? (
+                  <BackupTimestamp
+                    value={restore.startedAt}
+                    className="text-foreground"
+                  />
+                ) : (
+                  <span className="text-muted-foreground">
+                    {restore.status === 'queued'
+                      ? 'Not started'
+                      : 'Not recorded'}
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+              <dt className="text-muted-foreground">Status</dt>
+              <dd
+                className={`flex items-center gap-2 ${restore.status === 'succeeded' ? 'text-success' : restore.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
+                <BackupStatusIcon status={restore.status} />
+                {formatBackupStatus(restore.status)}
+              </dd>
+            </div>
+            {restore.errorMessage ? (
+              <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+                <dt className="text-muted-foreground">Message</dt>
+                <dd className="min-w-0 whitespace-pre-wrap break-words text-foreground">
+                  {restore.errorMessage}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </BackupRestoreSection>{' '}
+        {run ? (
+          <BackupRestoreSummary
+            policyName={policyName}
+            run={run}
+            serverName={restore.serverName ?? undefined}
+            serverStatus={serverStatus}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Source backup no longer available.
+          </p>
+        )}
+        {restore.artifacts ? (
+          <div className="space-y-4" aria-label="Restored contents">
+            {(['volume', 'database'] as const).map((type) => {
+              const items = restore.artifacts!.filter(
+                (item) => item.type === type,
+              )
+              return (
+                <BackupRestoreSection
+                  key={type}
+                  title={type === 'volume' ? 'Volumes' : 'Databases'}
+                >
+                  {items.length ? (
+                    <ul className="divide-y">
+                      {items.map((item) => {
+                        const artifact = run?.artifacts.find(
+                          (a) => a.id === item.artifactId,
+                        )
+                        const database =
+                          artifact && type === 'database'
+                            ? databaseArtifactTarget(
+                                artifact.objectKey,
+                                run?.databaseTargets ?? [],
+                              )
+                            : undefined
+                        const name =
+                          type === 'volume'
+                            ? item.targetVolume
+                              ? getComposeVolumeName(
+                                  item.targetVolume,
+                                  projectId,
+                                  restore.environmentId,
+                                )
+                              : undefined
+                            : item.targetService
+                        return (
+                          <li
+                            key={item.artifactId}
+                            className="min-w-0 break-words px-4 py-2"
+                          >
+                            {name ??
+                              (artifact && run
+                                ? getComposeArtifactName(
+                                    artifact,
+                                    projectId,
+                                    run.environmentId,
+                                  )
+                                : 'Unknown target')}
+                            {artifact ? (
+                              <span className="ml-2 text-muted-foreground">
+                                {formatBytes(artifact.sizeBytes)}
+                              </span>
+                            ) : null}
+                            {database ? (
+                              <span className="ml-2 text-muted-foreground">
+                                {database.database || 'All databases'}
+                              </span>
+                            ) : null}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="px-4 py-2 text-muted-foreground">
+                      {type === 'volume' ? 'No volumes' : 'No databases'}
+                    </p>
+                  )}
+                </BackupRestoreSection>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Recorded contents are unavailable.
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function BackupRestoreSection({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <section className="space-y-2" aria-label={title}>
+      <h3 className="text-sm font-medium">{title}</h3>
+      <div className="overflow-hidden rounded-xl border bg-card text-card-foreground text-sm">
+        {children}
+      </div>
+    </section>
   )
 }

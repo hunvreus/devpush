@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useRouter } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { authClient } from '@/lib/auth/client'
@@ -8,6 +9,7 @@ import { getErrorMessage } from '@/lib/error-message'
 
 export function SignOutMenuItem() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [pending, setPending] = useState(false)
   return (
     <DropdownMenuItem
@@ -20,6 +22,7 @@ export function SignOutMenuItem() {
         try {
           const result = await authClient.signOut()
           if (result.error) throw result.error
+          queryClient.clear()
           await afterMutation(
             () => router.navigate({ to: '/auth/login' }),
             'You signed out, but opening the login page failed. Please reload.',

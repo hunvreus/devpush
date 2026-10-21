@@ -1,6 +1,7 @@
+import { settingsVersionSchema } from '@/lib/settings-version'
 import { z } from 'zod'
-import { avatarDataUrlSchema } from '@/server/uploads/avatar-schema'
-import { projectRuntimeConfigSchema } from '@/server/projects/runtime-config'
+import { avatarDataUrlSchema } from '@/lib/avatar-schema'
+import { projectRuntimeConfigSchema } from '@/lib/project-runtime-config'
 import { formErrors } from './form-errors'
 import type { FormErrors } from './form-errors'
 
@@ -15,6 +16,9 @@ export const projectMachineNameSchema = z
   )
 
 export const projectSettingsSchema = z.object({
+  settingsVersion: settingsVersionSchema,
+  projectId: z.string().min(1),
+  section: z.enum(['general', 'build']),
   teamSlug: z.string().min(1),
   currentProjectName: z.string().min(1),
   projectName: projectMachineNameSchema,

@@ -1,3 +1,5 @@
+import { isValidCron } from '@/lib/backup-cron'
+import { showSettingsConflict } from '@/lib/settings-conflict'
 import { BackupTargetList } from './backup-target-list'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { canManageTeamSettings } from '@/lib/team-role'
@@ -55,9 +57,12 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
 import { ProjectHeading } from './project-heading'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
-import { saveProjectBackupConfigs } from '@/server/projects/functions'
+import {
+  saveProjectBackupPolicyAction,
+  deleteProjectBackupPolicyAction,
+} from '@/server/projects/functions'
 import type {
   ProjectBackupConfig,
   ProjectContext,
@@ -68,7 +73,6 @@ import {
   backupDetailSections,
   getDatabaseServiceOptions,
   getSchedulePresetValue,
-  isCronSchedule,
 } from './project-backup-utils'
 import {
   BackupPolicySaveActions,
@@ -147,19 +151,19 @@ export function ProjectBackupDetails({
     section: BackupPolicyErrorSection
   } | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const deleteSettingsVersion = useRef(backup?.settingsVersion)
   const [isSaving, setIsSaving] = useState(false)
   const [schemaErrors, setSchemaErrors] = useState<FormErrors>({})
-  const [formError, setFormError] = useState<string | null>(null)
   const previousBackup = useRef(backup)
+  const draftRevision = useRef(backup?.settingsVersion)
   const refreshSavedDraft = useRef(false)
   useEffect(() => {
-    if (formError) document.getElementById('backup-policy-form-error')?.focus()
-    else if (fieldError)
+    if (fieldError)
       document
         .getElementById(fieldError.section)
         ?.querySelector<HTMLElement>('[aria-invalid="true"]')
         ?.focus()
-  }, [formError, fieldError])
+  }, [fieldError])
   const isCustomSchedule = schedulePresetValue === 'custom'
   const missingComposeFile = context.project.runtimeConfig.path === null
   const composeServices =
@@ -195,6 +199,7 @@ export function ProjectBackupDetails({
     )
       return
     refreshSavedDraft.current = false
+    draftRevision.current = backup.settingsVersion
     setName(backup.name)
     setEnvironmentId(backup.environmentId)
     setEnabled(backup.enabled)
@@ -264,7 +269,7 @@ export function ProjectBackupDetails({
 
   function resetDraft() {
     setSchemaErrors({})
-    setFormError(null)
+
     setName(currentBackup.name)
     setEnvironmentId(currentBackup.environmentId)
     setEnabled(currentBackup.enabled)
@@ -291,7 +296,7 @@ export function ProjectBackupDetails({
 
   async function save() {
     if (!canManage || isSaving || !hasChanges) return
-    setFormError(null)
+
     setSchemaErrors({})
     setFieldError(null)
     const trimmedName = name.trim()
@@ -340,7 +345,7 @@ export function ProjectBackupDetails({
       return
     }
 
-    if (!isCronSchedule(trimmedCron)) {
+    if (!isValidCron(trimmedCron)) {
       setFieldError({
         field: 'schedule',
         message: 'Use a five-field cron schedule, e.g. 0 2 * * *.',
@@ -361,20 +366,11 @@ export function ProjectBackupDetails({
       return
     }
 
-    if (volumeMode === 'selected' && volumeOptions.length === 0) {
-      setFieldError({
-        field: 'volumes',
-        message: 'No named Compose volumes were detected for this project.',
-        section: 'targets',
-      })
-      return
-    }
-
     if (volumeMode === 'selected' && selectedVolumeNames.length === 0) {
       setFieldError({
         field: 'volumes',
         message: 'Select at least one named volume or choose no volumes.',
-        section: 'targets',
+        section: 'volumes',
       })
       return
     }
@@ -405,6 +401,7 @@ export function ProjectBackupDetails({
     const parsed = backupConfigSchema.safeParse(candidate)
     if (!parsed.success) {
       const errors = formErrors(parsed.error.issues)
+      if (errors.form) toast.error(errors.form)
       setSchemaErrors(errors)
       const firstField = Object.keys(errors)[0]
       document
@@ -415,11 +412,13 @@ export function ProjectBackupDetails({
     setIsSaving(true)
 
     try {
-      const nextContext = await saveProjectBackupConfigs({
+      const nextContext = await saveProjectBackupPolicyAction({
         data: {
+          projectId: context.project.id,
+          settingsVersion: draftRevision.current!,
           teamSlug,
           projectName,
-          backupConfigs: nextConfigs,
+          policy: parsed.data,
         },
       })
       await setProjectContextQueryData(queryClient, nextContext, 'backups')
@@ -428,8 +427,9 @@ export function ProjectBackupDetails({
       toast.success('Backup policy saved.')
       setFieldError(null)
     } catch (error) {
-      setFormError(
-        getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to save backup policy. Please try again.',
         ),
@@ -442,16 +442,15 @@ export function ProjectBackupDetails({
   async function deletePolicy() {
     if (isSaving) return
     setIsSaving(true)
-    const nextConfigs = backupConfigs.filter(
-      (item) => item.id !== backupIdValue,
-    )
 
     try {
-      const nextContext = await saveProjectBackupConfigs({
+      const nextContext = await deleteProjectBackupPolicyAction({
         data: {
+          projectId: context.project.id,
+          settingsVersion: deleteSettingsVersion.current!,
           teamSlug,
           projectName,
-          backupConfigs: nextConfigs,
+          policyId: backupIdValue,
         },
       })
       await setProjectContextQueryData(queryClient, nextContext, 'backups')
@@ -523,7 +522,7 @@ export function ProjectBackupDetails({
         noValidate
         onChangeCapture={() => {
           setSchemaErrors({})
-          setFormError(null)
+
           setFieldError(null)
         }}
         onSubmit={(event) => {
@@ -531,9 +530,6 @@ export function ProjectBackupDetails({
           void save()
         }}
       >
-        <FieldError id="backup-policy-form-error" tabIndex={-1}>
-          {formError}
-        </FieldError>
         <fieldset disabled={isSaving || !canManage}>
           <SettingsLayout
             navigation={backupDetailSections
@@ -560,22 +556,15 @@ export function ProjectBackupDetails({
               }
             >
               <FieldGroup>
-                <Field orientation="horizontal" className="justify-between">
-                  <div className="space-y-1">
-                    <FieldLabel htmlFor={`backup-policy-enabled-${backup.id}`}>
-                      Status
-                    </FieldLabel>
-                    <FieldDescription>
-                      Enabled policies are eligible for scheduled backup jobs.
-                      Paused policies keep their configuration but do not
-                      enqueue backups.
-                    </FieldDescription>
-                  </div>
+                <Field orientation="horizontal">
                   <Switch
                     id={`backup-policy-enabled-${backup.id}`}
                     checked={enabled}
                     onCheckedChange={setEnabled}
                   />
+                  <FieldLabel htmlFor={`backup-policy-enabled-${backup.id}`}>
+                    Enabled
+                  </FieldLabel>
                 </Field>
 
                 <Field
@@ -836,43 +825,51 @@ export function ProjectBackupDetails({
               </div>
             </BackupPolicySection>
 
-            <BackupPolicySection
-              id="targets"
-              title="Backup targets"
-              description="Choose the volumes and databases to back up. Each target produces a separate file."
-              footer={
-                missingComposeFile ? undefined : (
-                  <BackupPolicySaveActions
-                    canManage={canManage}
-                    hasChanges={hasChanges}
-                    isSaving={isSaving}
-                    onCancel={resetDraft}
-                    onSave={save}
-                    form="backup-policy-form"
+            {(['volumes', 'databases'] as const).map((kind) => (
+              <BackupPolicySection
+                key={kind}
+                id={kind}
+                title={kind === 'volumes' ? 'Volumes' : 'Databases'}
+                description={
+                  kind === 'volumes'
+                    ? 'Archive files from named Compose volumes. Use database backups for running databases.'
+                    : 'Create engine-specific dumps from services. Leave Database blank to include all databases in that service. Credentials come from the service’s database environment variables.'
+                }
+                footer={
+                  missingComposeFile ? undefined : (
+                    <BackupPolicySaveActions
+                      canManage={canManage}
+                      hasChanges={hasChanges}
+                      isSaving={isSaving}
+                      onCancel={resetDraft}
+                      onSave={save}
+                      form="backup-policy-form"
+                    />
+                  )
+                }
+              >
+                {missingComposeFile ? (
+                  <ComposeRequiredEmpty />
+                ) : (
+                  <BackupTargetList
+                    kind={kind}
+                    volumes={{ mode: volumeMode, names: volumeNames }}
+                    dumps={databaseDumps}
+                    volumeOptions={volumeOptions}
+                    serviceOptions={databaseServiceOptions}
+                    onVolumesChange={(value) => {
+                      setVolumeMode(value.mode)
+                      setVolumeNames(value.names)
+                    }}
+                    onDumpsChange={setDatabaseDumps}
+                    errors={schemaErrors}
                   />
-                )
-              }
-            >
-              {missingComposeFile ? (
-                <ComposeRequiredEmpty />
-              ) : (
-                <BackupTargetList
-                  volumes={{ mode: volumeMode, names: volumeNames }}
-                  dumps={databaseDumps}
-                  volumeOptions={volumeOptions}
-                  serviceOptions={databaseServiceOptions}
-                  onVolumesChange={(value) => {
-                    setVolumeMode(value.mode)
-                    setVolumeNames(value.names)
-                  }}
-                  onDumpsChange={setDatabaseDumps}
-                  errors={schemaErrors}
-                />
-              )}
-              {fieldError?.section === 'targets' ? (
-                <FieldError>{fieldError.message}</FieldError>
-              ) : null}
-            </BackupPolicySection>
+                )}
+                {fieldError?.section === kind ? (
+                  <FieldError>{fieldError.message}</FieldError>
+                ) : null}
+              </BackupPolicySection>
+            ))}
 
             {canManage ? (
               <BackupPolicySection
@@ -883,7 +880,11 @@ export function ProjectBackupDetails({
                 <Button
                   type="button"
                   variant="destructive"
-                  onClick={() => setDeleteOpen(true)}
+                  onClick={() => {
+                    deleteSettingsVersion.current =
+                      currentBackup.settingsVersion
+                    setDeleteOpen(true)
+                  }}
                   disabled={isSaving}
                 >
                   <TrashIcon data-icon="inline-start" />
@@ -892,7 +893,12 @@ export function ProjectBackupDetails({
                 <BackupPolicyDeleteDialog
                   name={backup.name}
                   open={deleteOpen}
-                  onOpenChange={setDeleteOpen}
+                  onOpenChange={(open) => {
+                    if (open)
+                      deleteSettingsVersion.current =
+                        currentBackup.settingsVersion
+                    setDeleteOpen(open)
+                  }}
                   onDelete={deletePolicy}
                 />
                 {fieldError?.section === 'danger' ? (

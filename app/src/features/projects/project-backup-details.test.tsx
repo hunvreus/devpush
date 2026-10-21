@@ -7,10 +7,16 @@ import { ProjectBackupDetails } from './project-backup-details'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { projectContext } from '@/test/project-context'
 import type { ProjectBackupConfig } from '@/server/projects/types'
+import { PublicError } from '@/lib/public-error'
 
-const mocks = vi.hoisted(() => ({ save: vi.fn(), navigate: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  save: vi.fn(),
+  error: vi.fn(),
+  navigate: vi.fn(),
+}))
 vi.mock('@/server/projects/functions', () => ({
-  saveProjectBackupConfigs: mocks.save,
+  saveProjectBackupPolicyAction: mocks.save,
+  deleteProjectBackupPolicyAction: mocks.save,
 }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
 vi.mock('@tanstack/react-router', () => ({
@@ -27,7 +33,9 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@/lib/project-context-query', () => ({
   setProjectContextQueryData: vi.fn(),
 }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn() } }))
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), warning: vi.fn(), error: mocks.error },
+}))
 vi.mock('./project-heading', () => ({ ProjectHeading: () => null }))
 vi.mock('@/components/settings-layout', () => ({
   SettingsLayout: ({ children }: { children: ReactNode }) => (
@@ -37,6 +45,7 @@ vi.mock('@/components/settings-layout', () => ({
   ),
 }))
 const backup: ProjectBackupConfig = {
+  settingsVersion: 1,
   id: 'b',
   name: 'Nightly',
   environmentId: 'e',
@@ -73,6 +82,7 @@ async function mount(
   policy: ProjectBackupConfig = backup,
 ) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  HTMLElement.prototype.scrollIntoView = vi.fn()
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -88,15 +98,16 @@ async function mount(
     await act(async () => root.unmount())
     node.remove()
   })
-  const render = async () =>
+  const render = async (revision = backup.settingsVersion) =>
     act(async () =>
       root.render(
         <ProjectBackupDetails
           backupId="b"
           context={{
             ...context,
+
             team: { ...context.team, role },
-            backupConfigs: [{ ...policy, volumes }],
+            backupConfigs: [{ ...policy, settingsVersion: revision, volumes }],
           }}
         />,
       ),
@@ -128,6 +139,21 @@ test('context refresh preserves an unfinished backup edit', async () => {
     node.querySelector<HTMLInputElement>('#backup-policy-name-b')!.value,
   ).toBe('Edited')
 })
+
+test('dirty policy keeps its original revision after polling and retains input on conflict', async () => {
+  const { node, render } = await mount()
+  await fill(node.querySelector('#backup-policy-name-b')!, 'My pending edit')
+  await render(2)
+  mocks.save.mockRejectedValueOnce(new PublicError('SETTINGS_CONFLICT'))
+  await save(node)
+  expect(mocks.save.mock.calls[0]?.[0].data.settingsVersion).toBe(
+    backup.settingsVersion,
+  )
+  expect(
+    node.querySelector<HTMLInputElement>('#backup-policy-name-b')!.value,
+  ).toBe('My pending edit')
+  expect(document.querySelector('#backup-policy-form-error')).toBeNull()
+})
 test('retention maximum is rejected inline before sending', async () => {
   const { node } = await mount()
   await fill(node.querySelector('#retention input[type="number"]')!, '10001')
@@ -135,7 +161,7 @@ test('retention maximum is rejected inline before sending', async () => {
   expect(mocks.save).not.toHaveBeenCalled()
   expect(node.querySelector('#retention')?.textContent).toContain('10,000')
 })
-test('failed saves are form errors and pending fields stay locked', async () => {
+test('failed saves use Sonner and pending fields stay locked', async () => {
   let reject!: (error: Error) => void
   mocks.save.mockImplementationOnce(
     () =>
@@ -150,9 +176,7 @@ test('failed saves are form errors and pending fields stay locked', async () => 
     node.querySelector('#backup-policy-name-b')?.matches(':disabled'),
   ).toBe(true)
   await act(async () => reject(new Error('HTTPError')))
-  expect(
-    node.querySelector('#backup-policy-form-error')?.textContent,
-  ).toContain('Unable to save backup policy.')
+  expect(mocks.error).toHaveBeenLastCalledWith(expect.stringContaining('Unable to save backup policy.'))
   expect(
     node.querySelector<HTMLInputElement>('#backup-policy-name-b')!.value,
   ).toBe('Edited')
@@ -208,19 +232,35 @@ test('removing a volume target preserves database dump targets on save', async (
     ],
   }
   const { node } = await mount('owner', { mode: 'allNamed', names: [] }, policy)
+  const databases = node.querySelector('#databases')!
+  for (const label of ['Service', 'Engine', 'Database']) {
+    expect(
+      [...databases.querySelectorAll('span')].some(
+        (span) => span.textContent === label,
+      ),
+    ).toBe(true)
+  }
+  expect(databases.querySelector('p.text-muted-foreground')).toBeNull()
   await act(async () =>
     node
-      .querySelector<HTMLButtonElement>('[aria-label="Remove volume target"]')!
+      .querySelector('[aria-label="Volumes to back up"]')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+      ),
+  )
+  await act(async () =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((option) => option.textContent === 'No volumes')!
       .click(),
   )
   mocks.save.mockResolvedValueOnce(context)
   await save(node)
-  const saved = mocks.save.mock.calls[0]![0].data.backupConfigs[0]
+  const saved = mocks.save.mock.calls[0]![0].data.policy
   expect(saved.volumes).toEqual({ mode: 'none', names: [] })
   expect(saved.databaseDumps).toEqual(policy.databaseDumps)
 })
 
-test('detail deletion confirms and reports failures inside its dialog', async () => {
+test('detail deletion confirms and reports failures through Sonner', async () => {
   mocks.save.mockRejectedValueOnce(new Error('HTTPError'))
   const { node } = await mount()
   await act(async () =>
@@ -238,9 +278,7 @@ test('detail deletion confirms and reports failures inside its dialog', async ()
       .find((button) => button.textContent === 'Delete policy')!
       .click(),
   )
-  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
-    'Unable to delete backup policy.',
-  )
+  expect(mocks.error).toHaveBeenLastCalledWith(expect.stringContaining('Unable to delete backup policy.'))
 })
 
 test('members see disabled backup configuration without save or delete controls', async () => {
@@ -255,9 +293,9 @@ test('members see disabled backup configuration without save or delete controls'
 })
 test('preserves all-named volume selection when repository metadata has no volumes', async () => {
   const { node } = await mount('owner', { mode: 'allNamed', names: [] })
-  expect(node.querySelector('#targets')?.textContent).toContain(
-    'All named volumes',
-  )
+  expect(
+    node.querySelector('[aria-label="Volumes to back up"]')?.textContent,
+  ).toBe('All named volumes')
 })
 
 test('policy uses a workspace destination without exposing credential fields', async () => {
@@ -274,6 +312,7 @@ test('policy uses a workspace destination without exposing credential fields', a
   const withStorage = Object.assign(context, {
     backupStorage: [
       {
+        settingsVersion: 1,
         id: 's',
         name: 'Shared storage',
         bucket: 'shared-bucket',
@@ -307,11 +346,44 @@ test('policy uses a workspace destination without exposing credential fields', a
     await fill(node.querySelector('#backup-policy-name-b')!, 'Updated policy')
     mocks.save.mockResolvedValue(withStorage)
     await save(node)
-    expect(
-      mocks.save.mock.calls[0]![0].data.backupConfigs[0].destination,
-    ).toEqual({ storageId: 's', prefix: 'project-folder' })
+    expect(mocks.save.mock.calls[0]![0].data.policy.destination).toEqual({
+      storageId: 's',
+      prefix: 'project-folder',
+    })
   } finally {
     context.backupConfigs = [backup]
     withStorage.backupStorage = []
   }
+})
+
+test('selected volumes are chips and retain custom names absent from metadata', async () => {
+  const { node } = await mount('owner', {
+    mode: 'selected',
+    names: ['manual_data'],
+  })
+  expect(
+    node.querySelector('[aria-label="Volume manual_data"]')?.textContent,
+  ).toContain('manual_data')
+  expect(node.querySelectorAll('#volumes [role=combobox]input')).toHaveLength(1)
+  expect(node.querySelector('[aria-label="Compose volumes"]')).not.toBeNull()
+})
+
+test('saves service and volume names for a future deployment without Compose metadata', async () => {
+  const policy = {
+    ...backup,
+    databaseDumps: [
+      { service: 'future_db', engine: 'postgres' as const, database: 'app' },
+    ],
+  }
+  const { node } = await mount(
+    'owner',
+    { mode: 'selected', names: ['future_data'] },
+    policy,
+  )
+  await fill(node.querySelector('#backup-policy-name-b')!, 'Future backup')
+  mocks.save.mockResolvedValueOnce(context)
+  await save(node)
+  const saved = mocks.save.mock.calls[0]![0].data.policy
+  expect(saved.volumes).toEqual({ mode: 'selected', names: ['future_data'] })
+  expect(saved.databaseDumps).toEqual(policy.databaseDumps)
 })

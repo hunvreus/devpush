@@ -1,90 +1,99 @@
-import { required } from '@/test/required'
-import { like } from 'drizzle-orm'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
-
-import { closeDb, db } from '@/server/db'
+import { describe, expect, test } from 'vitest'
+import { eq, sql } from 'drizzle-orm'
+import { db } from '@/server/db'
 import { rateLimits } from '@/server/db/schema'
-import { cleanupExpiredRateLimits, enforceRateLimit } from './rate-limit'
+import { enforceRateLimit } from './rate-limit'
 
-const scope = `integration:${crypto.randomUUID()}`
-
-afterEach(async () => {
-  await db.delete(rateLimits).where(like(rateLimits.key, `${scope}:%`))
-})
-
-afterAll(async () => {
-  await closeDb()
-})
-
-describe('persistent rate limiting', () => {
-  test('allows requests up to the limit and rejects the next request', async () => {
-    expect(await check()).toBeNull()
-    expect(await check()).toBeNull()
-
-    const response = await check()
-
-    expect(response?.status).toBe(429)
-    expect(Number(response?.headers.get('retry-after'))).toBeGreaterThan(0)
-  })
-
-  test('starts a new window after the previous window expires', async () => {
-    expect(await check()).toBeNull()
-    await db
-      .update(rateLimits)
-      .set({ resetAt: new Date(Date.now() - 1_000) })
-      .where(like(rateLimits.key, `${scope}:%`))
-
-    expect(await check()).toBeNull()
-
-    const [state] = await db
-      .select({ count: rateLimits.count })
-      .from(rateLimits)
-      .where(like(rateLimits.key, `${scope}:%`))
-    expect(required(state).count).toBe(1)
-  })
-
-  test('removes expired counters', async () => {
-    expect(await check()).toBeNull()
-    await db
-      .update(rateLimits)
-      .set({ resetAt: new Date(Date.now() - 1_000) })
-      .where(like(rateLimits.key, `${scope}:%`))
-
-    await cleanupExpiredRateLimits()
-
-    const rows = await db
-      .select({ key: rateLimits.key })
-      .from(rateLimits)
-      .where(like(rateLimits.key, `${scope}:%`))
-    expect(rows).toEqual([])
-  })
-
-  test('uses the direct peer address instead of the user agent', async () => {
-    expect(await check({ ip: '192.0.2.10', userAgent: 'first' })).toBeNull()
-    expect(await check({ ip: '192.0.2.10', userAgent: 'second' })).toBeNull()
-    expect(await check({ ip: '192.0.2.10', userAgent: 'third' })).toMatchObject(
-      { status: 429 },
-    )
-    expect(await check({ ip: '192.0.2.11', userAgent: 'first' })).toBeNull()
-  })
-})
-
-function check({
-  ip = '203.0.113.10',
-  userAgent = 'devpush-test',
-}: {
-  ip?: string
-  userAgent?: string
-} = {}) {
-  const request = new Request('https://devpush.example.test', {
-    headers: { 'user-agent': userAgent },
-  })
-  Object.defineProperty(request, 'ip', { value: ip })
-
-  return enforceRateLimit({
-    limit: 2,
-    request,
-    scope,
-    windowMs: 60_000,
-  })
+function request(path: string, ip: string) {
+  const value = new Request(`https://devpush.example${path}`)
+  Object.defineProperty(value, 'ip', { value: ip })
+  return value
 }
+
+describe('shared principal rate limits', () => {
+  test('a principal budget follows the actor across transports and IP addresses', async () => {
+    const identity = crypto.randomUUID()
+    const scope = `principal-test-${crypto.randomUUID()}`
+    const options = { identity, scope, limit: 2, windowMs: 60000 }
+    expect(
+      await enforceRateLimit({
+        ...options,
+        request: request('/api/v1/projects', '203.0.113.1'),
+      }),
+    ).toBeNull()
+    expect(
+      await enforceRateLimit({
+        ...options,
+        request: request('/mcp', '203.0.113.2'),
+      }),
+    ).toBeNull()
+    const limited = await enforceRateLimit({
+      ...options,
+      request: request('/mcp', '203.0.113.3'),
+    })
+    expect(limited?.status).toBe(429)
+    expect(Number(limited?.headers.get('retry-after'))).toBeGreaterThan(0)
+    expect(
+      await enforceRateLimit({ ...options, identity: crypto.randomUUID() }),
+    ).toBeNull()
+  })
+
+  test('concurrent requests share one atomic counter rather than overrunning the limit', async () => {
+    const options = {
+      identity: crypto.randomUUID(),
+      scope: `principal-test-${crypto.randomUUID()}`,
+      limit: 3,
+      windowMs: 60000,
+    }
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => enforceRateLimit(options)),
+    )
+    expect(results.filter((response) => response === null)).toHaveLength(3)
+    expect(results.filter((response) => response?.status === 429)).toHaveLength(
+      7,
+    )
+    const [state] = await db
+      .select()
+      .from(rateLimits)
+      .where(sql`${rateLimits.key} like ${`${options.scope}:%`}`)
+    expect(state?.count).toBe(10)
+    await db
+      .update(rateLimits)
+      .set({ resetAt: new Date(0) })
+      .where(eq(rateLimits.key, state!.key))
+    expect(await enforceRateLimit(options)).toBeNull()
+    const [reset] = await db
+      .select()
+      .from(rateLimits)
+      .where(eq(rateLimits.key, state!.key))
+    expect(reset?.count).toBe(1)
+  })
+
+  test('unauthenticated IP budgets still distinguish callers without an explicit identity', async () => {
+    const options = {
+      scope: `transport-test-${crypto.randomUUID()}`,
+      limit: 1,
+      windowMs: 60000,
+    }
+    expect(
+      await enforceRateLimit({
+        ...options,
+        request: request('/mcp', '203.0.113.1'),
+      }),
+    ).toBeNull()
+    expect(
+      (
+        await enforceRateLimit({
+          ...options,
+          request: request('/api/v1/projects', '203.0.113.1'),
+        })
+      )?.status,
+    ).toBe(429)
+    expect(
+      await enforceRateLimit({
+        ...options,
+        request: request('/mcp', '203.0.113.2'),
+      }),
+    ).toBeNull()
+  })
+})

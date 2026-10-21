@@ -1,69 +1,135 @@
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, sql, or, count } from 'drizzle-orm'
 import {
   allowlistRuleSchema,
   allowlistImportSchema,
   parseAllowlistEmails,
 } from '@/lib/allowlist-schema'
 
+import { adminSearchSchema } from '@/lib/admin-search-schema'
 import { db } from '@/server/db'
 import { allowlist, session, user } from '@/server/db/schema'
 import { getInstallationInfo } from '@/server/admin/installation'
-import { deleteUserAccount } from '@/server/users/service'
+import { deleteUserAccountAsAdmin } from '@/server/users/service'
 import {
   requireInstallationAdmin,
   requireInstallationAdminById,
+  installationAdminPredicate,
 } from '@/server/admin/access'
 
 export type AdminOverview = Awaited<ReturnType<typeof getAdminOverview>>
 export type AllowlistRuleType = 'email' | 'domain' | 'pattern'
 
-export async function getAdminOverview(actor: { id: string; email: string }) {
+export async function getAdminOverview(
+  actor: { id: string; email: string },
+  search: {
+    allowlistQuery?: string
+    allowlistPage?: number
+    userQuery?: string
+    userPage?: number
+  } = {},
+) {
   await requireInstallationAdmin(actor)
   const [users, allowlistEntries, installation] = await Promise.all([
-    db
-      .select({
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        emailVerified: user.emailVerified,
-        status: user.status,
-        image: user.image,
-        createdAt: user.createdAt,
-      })
-      .from(user)
-      .orderBy(desc(user.createdAt))
-      .limit(50),
-    db
-      .select({
-        id: allowlist.id,
-        type: allowlist.type,
-        value: allowlist.value,
-        createdAt: allowlist.createdAt,
-      })
-      .from(allowlist)
-      .orderBy(desc(allowlist.createdAt)),
+    getAdminUsers(actor, search),
+    getAdminAllowlist(actor, search),
     getInstallationInfo({ includeLatest: false }),
   ])
 
   return {
     installation,
-    users: users.map((item) => ({
-      id: item.id,
-      name: item.name,
-      username: item.username,
-      email: item.email,
-      emailVerified: item.emailVerified,
-      status: item.status,
-      image: item.image,
-      createdAt: item.createdAt.toISOString(),
+    users: users.items,
+    userPagination: users.pagination,
+    allowlist: allowlistEntries.items,
+    allowlistPagination: allowlistEntries.pagination,
+  }
+}
+
+export async function getAdminUsers(
+  actor: { id: string; email: string },
+  search: { userQuery?: string; userPage?: number } = {},
+) {
+  await requireInstallationAdmin(actor)
+  const { userQuery: query, userPage: requestedPage } =
+    adminSearchSchema.parse(search)
+  const escaped = query.replace(/[\\%_]/g, '\\$&')
+  const where = query
+    ? or(
+        ...[user.name, user.username, user.email, user.status].map(
+          (column) => sql`${column} like ${`%${escaped}%`} escape '\\'`,
+        ),
+      )
+    : undefined
+  const [totalRow] = await db.select({ total: count() }).from(user).where(where)
+  const total = totalRow?.total ?? 0
+  const pageSize = 25
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(requestedPage, pageCount)
+  const entries = await db
+    .select({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      email: user.email,
+      emailVerified: user.emailVerified,
+      status: user.status,
+      image: user.image,
+      createdAt: user.createdAt,
+    })
+    .from(user)
+    .where(where)
+    .orderBy(desc(user.createdAt), desc(user.id))
+    .limit(pageSize)
+    .offset((page - 1) * pageSize)
+  return {
+    items: entries.map((entry) => ({
+      ...entry,
+      createdAt: entry.createdAt.toISOString(),
     })),
-    allowlist: allowlistEntries.map((item) => ({
-      id: item.id,
-      type: item.type,
-      value: item.value,
-      createdAt: item.createdAt.toISOString(),
+    pagination: { query, page, pageCount, total, pageSize },
+  }
+}
+
+export async function getAdminAllowlist(
+  actor: { id: string; email: string },
+  search: { allowlistQuery?: string; allowlistPage?: number } = {},
+) {
+  await requireInstallationAdmin(actor)
+  const { allowlistQuery: query, allowlistPage: requestedPage } =
+    adminSearchSchema.parse(search)
+  // Treat SQL wildcard characters as literal search text.
+  const escaped = query.replace(/[\\%_]/g, '\\$&')
+  const where = query
+    ? or(
+        sql`${allowlist.value} like ${`%${escaped}%`} escape '\\'`,
+        sql`${allowlist.type} like ${`%${escaped}%`} escape '\\'`,
+      )
+    : undefined
+  const [totalRow] = await db
+    .select({ total: count() })
+    .from(allowlist)
+    .where(where)
+  const total = totalRow?.total ?? 0
+  const pageSize = 25
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(requestedPage, pageCount)
+  const entries = await db
+    .select({
+      id: allowlist.id,
+      type: allowlist.type,
+      value: allowlist.value,
+      createdAt: allowlist.createdAt,
+    })
+    .from(allowlist)
+    .where(where)
+    .orderBy(desc(allowlist.createdAt), desc(allowlist.id))
+    .limit(pageSize)
+    .offset((page - 1) * pageSize)
+  return {
+    items: entries.map((entry) => ({
+      ...entry,
+      createdAt: entry.createdAt.toISOString(),
     })),
+    pagination: { query, page, pageCount, total, pageSize },
   }
 }
 
@@ -133,11 +199,24 @@ export async function banUser({
   }
 
   await db.batch([
-    db.delete(session).where(eq(session.userId, targetUserId)),
+    db
+      .delete(session)
+      .where(
+        and(
+          eq(session.userId, targetUserId),
+          installationAdminPredicate(actorUserId),
+        ),
+      ),
     db
       .update(user)
-      .set({ status: 'banned', defaultTeamId: null, updatedAt: new Date() })
-      .where(eq(user.id, targetUserId)),
+      .set({ status: 'banned', updatedAt: new Date() })
+      .where(
+        and(
+          eq(user.id, targetUserId),
+          eq(user.status, 'active'),
+          installationAdminPredicate(actorUserId),
+        ),
+      ),
   ])
 }
 
@@ -156,7 +235,13 @@ export async function unbanUser({
   await db
     .update(user)
     .set({ status: 'active', updatedAt: new Date() })
-    .where(eq(user.id, targetUserId))
+    .where(
+      and(
+        eq(user.id, targetUserId),
+        eq(user.status, 'banned'),
+        installationAdminPredicate(actorUserId),
+      ),
+    )
 }
 
 export async function deleteAdminUser({
@@ -171,5 +256,8 @@ export async function deleteAdminUser({
     throw new Error('You cannot delete yourself from admin.')
   }
 
-  await deleteUserAccount({ userId: targetUserId })
+  await deleteUserAccountAsAdmin({
+    userId: targetUserId,
+    adminActorUserId: actorUserId,
+  })
 }

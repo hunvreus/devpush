@@ -3,6 +3,7 @@ import { useParams, useRouter } from '@tanstack/react-router'
 import {
   CircleCheckIcon,
   CircleXIcon,
+  CircleAlertIcon,
   Clock3Icon,
   CloudUploadIcon,
   LoaderIcon,
@@ -79,11 +80,20 @@ export function DeploymentsPage({
         <header>
           <DeploymentFilters context={context} filters={filters} />
         </header>
-        {context.deployments.length > 0 ? (
+        {filteredDeployments.length > 0 ? (
           <DeploymentList
             deployments={filteredDeployments}
             teamSlug={context.team.slug}
           />
+        ) : context.deployments.length > 0 ? (
+          <Empty className="min-h-60 border bg-card text-card-foreground">
+            <EmptyHeader>
+              <EmptyTitle>No matching deployments.</EmptyTitle>
+              <EmptyDescription>
+                Change or reset the filters to see other deployments.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <Empty className="min-h-60 border bg-card text-card-foreground">
             <EmptyHeader>
@@ -317,47 +327,24 @@ function StatusFilterLabel({
 
 function StatusFilterIcon({ status }: { status: string }) {
   if (status === 'succeeded') {
-    return (
-      <CircleCheckIcon
-        className="size-4 shrink-0 text-green-500"
-        data-preserve-color
-      />
-    )
+    return <CircleCheckIcon className="size-4 shrink-0 text-success" />
   }
 
   if (status === 'failed') {
-    return (
-      <CircleXIcon
-        className="size-4 shrink-0 text-red-500"
-        data-preserve-color
-      />
-    )
+    return <CircleAlertIcon className="size-4 shrink-0 text-destructive" />
   }
 
   if (status === 'canceled') {
-    return (
-      <CircleXIcon
-        className="size-4 shrink-0 text-amber-500"
-        data-preserve-color
-      />
-    )
+    return <CircleXIcon className="size-4 shrink-0 text-muted-foreground" />
   }
 
   if (status === 'queued') {
-    return (
-      <Clock3Icon
-        className="size-4 shrink-0 text-muted-foreground"
-        data-preserve-color
-      />
-    )
+    return <Clock3Icon className="size-4 shrink-0 text-muted-foreground" />
   }
 
   if (status === 'running') {
     return (
-      <LoaderIcon
-        className="size-4 shrink-0 animate-spin text-muted-foreground"
-        data-preserve-color
-      />
+      <LoaderIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
     )
   }
 

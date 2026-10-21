@@ -20,16 +20,38 @@ test.each([
   { port: 1.5 },
   { path: 'missing-slash' },
   { path: '/bad path' },
+  { path: '/one,two', stripPrefix: true },
+  { path: '/health?ready=1' },
+  { path: '/health#ready' },
 ])('rejects invalid route fields %j', (change) => {
   expect(
     projectRoutesSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
       ...base,
       routes: [{ ...route, ...change }],
     }).success,
   ).toBe(false)
 })
+
+test('literal dollars and unstripped comma paths remain supported', () => {
+  expect(
+    projectRoutesSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
+      ...base,
+      routes: [{ ...route, path: '/$PREFIX' }],
+    }).success,
+  ).toBe(true)
+  expect(
+    projectRoutesSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
+      ...base,
+      routes: [{ ...route, path: '/one,two', stripPrefix: false }],
+    }).success,
+  ).toBe(true)
+})
 test('route duplicates are rejected within scope, while environment overrides remain valid', () => {
   const result = projectRoutesSchema.safeParse({
+    settingsVersion: 1, projectId: 'p',
     ...base,
     routes: [route, { ...route, path: ' / ' }],
   })
@@ -38,6 +60,7 @@ test('route duplicates are rejected within scope, while environment overrides re
     expect(result.error.issues[0]?.path).toEqual(['routes', 1, 'path'])
   expect(
     projectRoutesSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
       ...base,
       routes: [route, { ...route, environmentId: 'e' }],
     }).success,
@@ -53,12 +76,16 @@ test.each([
   `${'a'.repeat(64)}.com`,
 ])('rejects invalid domain %s', (host) => {
   expect(
-    projectDomainsSchema.safeParse({ ...base, domains: [{ ...domain, host }] })
-      .success,
+    projectDomainsSchema.safeParse({
+      settingsVersion: 1, projectId: 'p',
+      ...base,
+      domains: [{ ...domain, host }],
+    }).success,
   ).toBe(false)
 })
 test('domain duplicates are case-insensitive and report the duplicated row', () => {
   const result = projectDomainsSchema.safeParse({
+    settingsVersion: 1, projectId: 'p',
     ...base,
     domains: [domain, { ...domain, host: ' EXAMPLE.COM ' }],
   })
@@ -67,10 +94,12 @@ test('domain duplicates are case-insensitive and report the duplicated row', () 
     expect(result.error.issues[0]?.path).toEqual(['domains', 1, 'host'])
 })
 test('empty collections permit removing all routes and domains', () => {
-  expect(projectRoutesSchema.safeParse({ ...base, routes: [] }).success).toBe(
-    true,
-  )
-  expect(projectDomainsSchema.safeParse({ ...base, domains: [] }).success).toBe(
-    true,
-  )
+  expect(
+    projectRoutesSchema.safeParse({ settingsVersion: 1, projectId: 'p', ...base, routes: [] })
+      .success,
+  ).toBe(true)
+  expect(
+    projectDomainsSchema.safeParse({ settingsVersion: 1, projectId: 'p', ...base, domains: [] })
+      .success,
+  ).toBe(true)
 })

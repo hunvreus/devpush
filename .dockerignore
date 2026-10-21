@@ -3,6 +3,24 @@
 .tanstack
 .DS_Store
 
+# Local credentials and generated installation configuration must never enter
+# the build context, including the app-builder's COPY app step.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/*.local
+**/.cloudflare-secrets.json
+**/.cloudflare-database.env
+app/wrangler.jsonc
+app/wrangler.pending.jsonc
+**/.wrangler
+**/.data
+.claude
+.vscode
+.pnpm-store
+.version.json
+
 **/node_modules
 **/.output
 **/.nitro
@@ -13,6 +31,5 @@
 bin
 data
 logs
+app/public/uploads
 backups
-
-legacy

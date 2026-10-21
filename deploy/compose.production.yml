@@ -1,6 +1,6 @@
 services:
   app:
-    image: devpush-app:local
+    image: ${DEVPUSH_PRODUCTION_IMAGE:-devpush-app:local}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.app
@@ -25,9 +25,12 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       DEVPUSH_BASE_URL: ${DEVPUSH_BASE_URL:?DEVPUSH_BASE_URL is required}
       DEVPUSH_TRUST_PROXY: ${DEVPUSH_TRUST_PROXY:-false}
+      DEVPUSH_CLIENT_IP_HEADER: ${DEVPUSH_CLIENT_IP_HEADER:-x-forwarded-for}
       DEVPUSH_MONITORING_RETENTION_DAYS: ${DEVPUSH_MONITORING_RETENTION_DAYS:-7}
       DEVPUSH_ADMIN_EMAIL: ${DEVPUSH_ADMIN_EMAIL:-}
+      DEVPUSH_SIGN_IN_MESSAGE: ${DEVPUSH_SIGN_IN_MESSAGE:-}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-}
+      DEVPUSH_MCP_URL: ${DEVPUSH_MCP_URL:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -51,14 +54,14 @@ services:
       DEVPUSH_STORAGE_SECRET_ACCESS_KEY: ${DEVPUSH_STORAGE_SECRET_ACCESS_KEY:-}
     healthcheck:
       test:
-        ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null"]
+        ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 30s
 
   migrate:
-    image: devpush-app:local
+    image: ${DEVPUSH_PRODUCTION_IMAGE:-devpush-app:local}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.app
@@ -87,7 +90,7 @@ services:
     restart: "no"
 
   scheduler:
-    image: devpush-app:local
+    image: ${DEVPUSH_PRODUCTION_IMAGE:-devpush-app:local}
     restart: unless-stopped
     depends_on:
       app:
@@ -99,19 +102,27 @@ services:
       - /bin/sh
       - -ec
       - |
+        last_maintenance_hour=''
         while true; do
           now=$$(date +%s)
           sleep $$((60 - now % 60))
+          current_hour=$$(date -u +%Y-%m-%dT%H)
           if [ "$$DEVPUSH_BACKUPS_ENABLED" = "true" ]; then
-            curl --fail --silent --show-error --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/backups
+            if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 45 --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/backups; then
+              echo 'Backup scheduling failed; retrying on the next minute tick.' >&2
+            fi
           fi
-          if [ "$$(date -u +%M)" = "00" ]; then
-            curl --fail --silent --show-error --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/maintenance
+          if [ "$$last_maintenance_hour" != "$$current_hour" ]; then
+            if curl --fail --silent --show-error --connect-timeout 5 --max-time 45 --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/maintenance; then
+              last_maintenance_hour=$$current_hour
+            else
+              echo 'Maintenance failed; retrying on the next minute tick.' >&2
+            fi
           fi
         done
 
   db-backup:
-    image: devpush-app:local
+    image: ${DEVPUSH_PRODUCTION_IMAGE:-devpush-app:local}
     profiles: ["backups"]
     restart: unless-stopped
     depends_on:

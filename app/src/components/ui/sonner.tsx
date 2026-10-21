@@ -6,7 +6,7 @@ import {
   CircleCheckIcon,
   InfoIcon,
   TriangleAlertIcon,
-  OctagonXIcon,
+  CircleAlertIcon,
   Loader2Icon,
 } from 'lucide-react'
 
@@ -18,10 +18,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={theme as ToasterProps['theme']}
       className="toaster group"
       icons={{
-        success: <CircleCheckIcon className="size-4 shrink-0" />,
+        success: <CircleCheckIcon className="size-4 shrink-0 text-success" />,
         info: <InfoIcon className="size-4 shrink-0" />,
         warning: <TriangleAlertIcon className="size-4 shrink-0" />,
-        error: <OctagonXIcon className="size-4 shrink-0" />,
+        error: <CircleAlertIcon className="size-4 shrink-0 text-destructive" />,
         loading: <Loader2Icon className="size-4 shrink-0 animate-spin" />,
       }}
       style={
@@ -30,7 +30,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--normal-text': 'var(--popover-foreground)',
           '--normal-border': 'var(--border)',
           '--border-radius': 'var(--radius)',
-        } as React.CSSProperties
+        } as ToasterProps['style']
       }
       toastOptions={{
         classNames: {
@@ -43,3 +43,5 @@ const Toaster = ({ ...props }: ToasterProps) => {
 }
 
 export { Toaster }
+
+export { toast } from 'sonner'

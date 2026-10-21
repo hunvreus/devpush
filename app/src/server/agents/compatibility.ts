@@ -2,13 +2,14 @@ export const currentAgentProtocolVersion = 1
 
 export const currentAgentCapabilities = [
   'jobs.compose.deploy.v1',
-  'jobs.compose.cleanup.v1',
+  'jobs.compose.cleanup.v2',
   'jobs.backup.v1',
   'jobs.backup.archive.v1',
   'jobs.backup.cleanup.v1',
   'jobs.restore.v1',
   'runtime.logs.v1',
   'metrics.history.v1',
+  'ingress.certificates.v1',
 ] as const
 
 export type AgentCapability = (typeof currentAgentCapabilities)[number]
@@ -38,6 +39,14 @@ export function getAgentUpdate({
       latestVersion,
       reason:
         'This agent can connect, but it cannot run the current deployment protocol.',
+    }
+  }
+
+  if (!capabilities?.includes('jobs.compose.cleanup.v2')) {
+    return {
+      status: 'required',
+      latestVersion,
+      reason: 'Update this agent to run cleanup jobs with attempt protection.',
     }
   }
 

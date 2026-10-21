@@ -1,6 +1,6 @@
 import { getRequest } from '@tanstack/react-start/server'
 
-import { auth } from '@/lib/auth'
+import { auth } from '@/server/auth/better-auth'
 
 export async function getAuthSession() {
   const request = getRequest()

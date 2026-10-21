@@ -1,3 +1,5 @@
+import { toast } from 'sonner'
+import { showSettingsConflict } from '@/lib/settings-conflict'
 import { useState } from 'react'
 import {
   AlertDialog,
@@ -9,8 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { FieldError } from '@/components/ui/field'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 
 export function BackupPolicyDeleteDialog({
   name,
@@ -24,17 +25,17 @@ export function BackupPolicyDeleteDialog({
   onDelete: () => Promise<void>
 }) {
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   async function submit() {
     if (pending) return
     setPending(true)
-    setError(null)
+
     try {
       await onDelete()
       onOpenChange(false)
     } catch (cause) {
-      setError(
-        getErrorMessage(
+      if (showSettingsConflict(cause)) return
+      toast.error(
+        getPublicErrorMessage(
           cause,
           'Unable to delete backup policy. Please try again.',
         ),
@@ -48,7 +49,6 @@ export function BackupPolicyDeleteDialog({
       open={open}
       onOpenChange={(next) => {
         if (!pending) {
-          setError(null)
           onOpenChange(next)
         }
       }}
@@ -61,7 +61,6 @@ export function BackupPolicyDeleteDialog({
             Existing backup runs are kept.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <FieldError>{error}</FieldError>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction

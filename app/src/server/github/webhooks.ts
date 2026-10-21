@@ -7,6 +7,9 @@ export type GitHubPushWebhookPayload = {
   head_commit?: {
     id?: string
     message?: string
+    author?: { name?: string }
+    timestamp?: string
+    url?: string
   } | null
   installation?: {
     id?: number
@@ -109,13 +112,24 @@ export function parseGitHubPushPayload(body: string): GitHubPushWebhookPayload {
   return payload
 }
 
+export class InvalidGitHubInstallationPayloadError extends Error {
+  constructor() {
+    super('Invalid GitHub installation webhook payload.')
+  }
+}
+
 export function parseGitHubInstallationWebhookPayload(
   body: string,
 ): GitHubInstallationWebhookPayload {
-  const payload: unknown = JSON.parse(body)
+  let payload: unknown
+  try {
+    payload = JSON.parse(body)
+  } catch {
+    throw new InvalidGitHubInstallationPayloadError()
+  }
 
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('Invalid GitHub installation webhook payload.')
+    throw new InvalidGitHubInstallationPayloadError()
   }
 
   const record = payload as Record<string, unknown>
@@ -127,7 +141,7 @@ export function parseGitHubInstallationWebhookPayload(
     typeof installation !== 'object' ||
     Array.isArray(installation)
   ) {
-    throw new Error('Invalid GitHub installation webhook payload.')
+    throw new InvalidGitHubInstallationPayloadError()
   }
 
   const installationId = (installation as Record<string, unknown>).id
@@ -136,7 +150,7 @@ export function parseGitHubInstallationWebhookPayload(
     typeof installationId !== 'number' ||
     !Number.isSafeInteger(installationId)
   ) {
-    throw new Error('Invalid GitHub installation webhook payload.')
+    throw new InvalidGitHubInstallationPayloadError()
   }
 
   return { action: record.action, installationId }

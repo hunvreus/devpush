@@ -28,7 +28,7 @@ describe('agent install script', () => {
     const script = buildTokenizedAgentInstallScript({
       autoUpdate: true,
       baseUrl: 'https://devpush.example',
-      token: "token-with-'quote",
+      token: `dps_${'a'.repeat(43)}`,
       traefikEmail: 'ops@devpush.example',
     })
 
@@ -36,12 +36,30 @@ describe('agent install script', () => {
       "export DEVPUSH_BASE_URL='https://devpush.example'",
     )
     expect(script).toContain(
-      "export DEVPUSH_AGENT_TOKEN='token-with-'\\''quote'",
+      `export DEVPUSH_AGENT_TOKEN='dps_${'a'.repeat(43)}'`,
     )
     expect(script).toContain("export DEVPUSH_AGENT_AUTO_UPDATE='true'")
     expect(script).toContain(
       "export DEVPUSH_TRAEFIK_EMAIL='ops@devpush.example'",
     )
+  })
+
+  test.each(['x";echo injected;"', 'dps_token\nINJECTED=1', 'dps_short'])(
+    'rejects malformed enrollment token %s before generating an installer',
+    (token) => {
+      expect(() =>
+        buildTokenizedAgentInstallScript({
+          autoUpdate: true,
+          baseUrl: 'https://devpush.example',
+          token,
+        }),
+      ).toThrow('Invalid agent enrollment token.')
+    },
+  )
+
+  test('update helper reads control-plane data without executing the environment file', () => {
+    expect(AGENT_INSTALL_SCRIPT).not.toContain('source /etc/devpush/agent.env')
+    expect(AGENT_INSTALL_SCRIPT).toContain("sed -n 's/^DEVPUSH_BASE_URL=")
   })
 
   test('writes staged agent files and starts the service', () => {
@@ -134,21 +152,31 @@ exit 0
 `,
     )
 
-    const output = execFileSync('bash', [script], {
-      env: {
-        ...process.env,
-        DEVPUSH_AGENT_TOKEN: 'dps_test_token',
-        DEVPUSH_AGENT_AUTO_UPDATE: 'true',
-        DEVPUSH_INSTALL_ROOT: root,
-        DEVPUSH_BASE_URL: 'https://devpush.example',
-        DEVPUSH_TRAEFIK_EMAIL: 'ops@devpush.example',
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
-      },
+    const installEnv = {
+      ...process.env,
+      DEVPUSH_AGENT_TOKEN: 'dps_test_token',
+      DEVPUSH_AGENT_AUTO_UPDATE: 'true',
+      DEVPUSH_INSTALL_ROOT: root,
+      DEVPUSH_BASE_URL: 'https://devpush.example',
+      DEVPUSH_TRAEFIK_EMAIL: 'ops@devpush.example',
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+    }
+    const output = execFileSync('bash', [script, '--address', '192.168.64.7'], {
+      env: installEnv,
       encoding: 'utf8',
     })
 
     expect(output).toContain('██╗██████╗ ███████╗')
     expect(output).toContain('Installation summary')
+    expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
+      'DEVPUSH_ROUTING_ADDRESS="192.168.64.7"',
+    )
+    const reinstallEnv = { ...installEnv }
+    delete (reinstallEnv as Record<string, unknown>).DEVPUSH_TRAEFIK_EMAIL
+    execFileSync('bash', [script], { env: reinstallEnv, encoding: 'utf8' })
+    expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
+      'DEVPUSH_TRAEFIK_EMAIL="ops@devpush.example"',
+    )
     expect(output).toContain('Verifying agent checksum')
     expect(output).toContain('devpush agent installation complete')
     expect(output).toContain('devpush-agent-test')
@@ -185,7 +213,7 @@ exit 0
       readFileSync(join(root, 'usr/local/bin/devpush-agent'), 'utf8'),
     ).toContain('devpush-agent')
     expect(readFileSync(systemctlLog, 'utf8')).toContain(
-      'enable --now devpush-agent',
+      'restart devpush-agent',
     )
     expect(
       readFileSync(join(root, 'usr/local/lib/devpush/update-agent'), 'utf8'),
@@ -199,7 +227,15 @@ exit 0
     expect(readFileSync(systemctlLog, 'utf8')).toContain(
       'enable --now devpush-agent-update.timer',
     )
-  })
+    execFileSync('bash', [script], { env: installEnv })
+    expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
+      'DEVPUSH_ROUTING_ADDRESS="192.168.64.7"',
+    )
+    execFileSync('bash', [script, '--address', 'auto'], { env: installEnv })
+    expect(readFileSync(join(root, 'etc/devpush/agent.env'), 'utf8')).toContain(
+      'DEVPUSH_ROUTING_ADDRESS=""',
+    )
+  }, 15_000)
 
   test('fails without a base URL', () => {
     const tempDir = createTempDir()
@@ -211,7 +247,7 @@ exit 0
     writeFakeCommand(bin, 'id', '#!/usr/bin/env bash\necho 0\n')
 
     expect(() =>
-      execFileSync('bash', [script], {
+      execFileSync('bash', [script, '--address', '192.168.64.7'], {
         env: {
           ...process.env,
           DEVPUSH_AGENT_TOKEN: 'dps_test_token',
@@ -270,7 +306,7 @@ esac
     writeFakeCommand(bin, 'systemctl', '#!/usr/bin/env bash\nexit 0\n')
 
     expect(() =>
-      execFileSync('bash', [script], {
+      execFileSync('bash', [script, '--address', '192.168.64.7'], {
         env: {
           ...process.env,
           DEVPUSH_AGENT_TOKEN: 'dps_test_token',
@@ -382,7 +418,7 @@ exit 0
     )
     writeFakeCommand(bin, 'systemctl', '#!/usr/bin/env bash\nexit 0\n')
 
-    execFileSync('bash', [script], {
+    execFileSync('bash', [script, '--address', '192.168.64.7'], {
       env: {
         ...process.env,
         DEVPUSH_AGENT_TOKEN: 'dps_test_token',

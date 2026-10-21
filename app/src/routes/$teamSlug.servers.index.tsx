@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
@@ -9,6 +10,14 @@ import {
 } from '@/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug/servers/')({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { addServer?: boolean } => ({
+    addServer:
+      search.addServer === '1' ||
+      search.addServer === 1 ||
+      search.addServer === true,
+  }),
   loader: ({ context, params }) =>
     context.queryClient.fetchQuery(
       teamSectionQueryOptions({
@@ -20,10 +29,12 @@ export const Route = createFileRoute('/$teamSlug/servers/')({
   pendingMinMs: 200,
   pendingComponent: TeamServersPending,
   component: TeamServersRoute,
+  head: ({ params }) => pageHead('Servers', params.teamSlug),
 })
 
 function TeamServersRoute() {
   const params = Route.useParams()
+  const search = Route.useSearch()
   const { data: shell } = useSuspenseQuery(
     teamShellQueryOptions({ teamSlug: params.teamSlug }),
   )
@@ -40,6 +51,7 @@ function TeamServersRoute() {
 
   return (
     <TeamServers
+      initialAddServerOpen={search.addServer}
       team={shell.team}
       servers={section.servers}
       serverInstall={section.serverInstall}

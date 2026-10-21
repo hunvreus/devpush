@@ -266,10 +266,10 @@ function ProjectRows({
   projects: Array<ProjectSummary>
 }) {
   return (
-    <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
+    <ul className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground">
       {projects.map((project) => (
         <li
-          className="flex h-11 min-w-0 items-center gap-x-8 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50"
+          className="flex h-11 min-w-[24rem] items-center gap-4 border-b px-4 text-sm whitespace-nowrap sm:gap-x-8 last:border-b-0 hover:bg-muted/50"
           key={project.id}
         >
           <Tooltip>
@@ -277,7 +277,7 @@ function ProjectRows({
               <Link
                 to="/$teamSlug/projects/$projectName"
                 params={{ teamSlug, projectName: project.name }}
-                className="flex min-w-0 items-center gap-x-2 font-medium"
+                className="flex min-w-0 max-w-64 items-center gap-x-2 font-medium"
               >
                 <ResourceAvatar
                   name={project.name}
@@ -319,7 +319,7 @@ function ProjectRows({
           <Tooltip>
             <TooltipTrigger asChild>
               <a
-                className="flex min-w-0 items-center gap-x-2 text-muted-foreground transition-colors hover:text-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
+                className="hidden min-w-0 max-w-64 items-center gap-x-2 text-muted-foreground transition-colors hover:text-foreground md:flex [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
                 href={`https://github.com/${project.githubRepo}`}
                 target="_blank"
                 rel="noreferrer"
@@ -331,21 +331,23 @@ function ProjectRows({
             <TooltipContent>GitHub</TooltipContent>
           </Tooltip>
 
-          <div className="ml-auto flex items-center">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button asChild variant="ghost" size="icon-sm">
-                  <Link
-                    to="/$teamSlug/projects/$projectName/settings"
-                    params={{ teamSlug, projectName: project.name }}
-                    aria-label="Settings"
-                  >
-                    <SettingsIcon />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Settings</TooltipContent>
-            </Tooltip>
+          <div className="ml-auto shrink-0">
+            <div className="-mr-2 flex items-center">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button asChild variant="outline" size="icon-sm">
+                    <Link
+                      to="/$teamSlug/projects/$projectName/settings"
+                      params={{ teamSlug, projectName: project.name }}
+                      aria-label="Settings"
+                    >
+                      <SettingsIcon />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Settings</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
         </li>
       ))}

@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
+	RoutingAddress       string
 	AgentID              string
 	BaseURL              string
 	Token                string
@@ -70,6 +73,7 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	cfg := Config{
+		RoutingAddress:       firstNonEmpty(os.Getenv("DEVPUSH_ROUTING_ADDRESS"), values["DEVPUSH_ROUTING_ADDRESS"]),
 		AgentID:              firstNonEmpty(os.Getenv("DEVPUSH_AGENT_ID"), values["DEVPUSH_AGENT_ID"]),
 		BaseURL:              firstNonEmpty(os.Getenv("DEVPUSH_BASE_URL"), values["DEVPUSH_BASE_URL"]),
 		Token:                firstNonEmpty(os.Getenv("DEVPUSH_AGENT_TOKEN"), values["DEVPUSH_AGENT_TOKEN"]),
@@ -82,14 +86,44 @@ func LoadConfig(path string) (Config, error) {
 		RuntimeLogQueueBytes: queueBytes,
 	}
 
+	if cfg.RoutingAddress != "" {
+		ip := net.ParseIP(cfg.RoutingAddress)
+		if ip == nil || !ip.IsGlobalUnicast() {
+			return Config{}, errors.New("DEVPUSH_ROUTING_ADDRESS must be a unicast IPv4 or IPv6 address")
+		}
+		cfg.RoutingAddress = ip.String()
+	}
+
 	if cfg.BaseURL == "" {
 		return Config{}, errors.New("DEVPUSH_BASE_URL is required")
 	}
 	if cfg.Token == "" {
 		return Config{}, errors.New("DEVPUSH_AGENT_TOKEN is required")
 	}
+	if err := validateControlPlaneURL(cfg.BaseURL); err != nil {
+		return Config{}, err
+	}
 
 	return cfg, nil
+}
+
+func validateControlPlaneURL(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		(parsed.Path != "" && parsed.Path != "/") ||
+		strings.ContainsAny(value, "?#") {
+		return errors.New("DEVPUSH_BASE_URL must be an HTTP(S) origin without credentials, path, query or fragment")
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	local := host == "localhost" || strings.HasSuffix(host, ".localhost") || host == "host.lima.internal"
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		local = true
+	}
+	if parsed.Scheme == "http" && !local {
+		return errors.New("DEVPUSH_BASE_URL must use HTTPS except for local development hosts")
+	}
+	return nil
 }
 
 func parsePort(value string, fallback int) (int, error) {

@@ -1,13 +1,10 @@
 import { LogoMark } from '@/components/logo-mark'
-import { CircleQuestionMarkIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import packageJson from '../../../package.json'
 
@@ -16,27 +13,28 @@ const links = [
   {
     label: 'Documentation',
     href: 'https://devpu.sh/docs',
-    text: 'Documentation',
+    text: 'devpu.sh/docs',
   },
+  { label: 'Discord', href: 'https://devpu.sh/chat', text: 'devpu.sh/chat' },
   {
     label: 'GitHub',
     href: 'https://github.com/hunvreus/devpush',
     text: 'hunvreus/devpush',
   },
-  { label: 'Community', href: 'https://devpu.sh/chat', text: 'devpu.sh/chat' },
 ]
 
-export function HelpDialog() {
+export function HelpDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label="Help">
-          <CircleQuestionMarkIcon />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-sm">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[22rem]">
         <DialogHeader className="items-center gap-3 text-center sm:text-center">
-          <div className="flex size-15 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-black">
+          <div className="flex size-15 shrink-0 items-center justify-center rounded-lg bg-orange-600 text-white">
             <LogoMark className="size-9 shrink-0" />
           </div>
           <DialogTitle>devpush</DialogTitle>

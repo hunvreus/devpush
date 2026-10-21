@@ -203,11 +203,11 @@ func TestSwitchFailedHeartbeatRollsBackOriginAndSource(t *testing.T) {
 	if err := os.WriteFile(tokenPath, []byte("dps_enrollment"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	factory := func(c Config) Runner {
+	factory := func(c Config) *Runner {
 		c.BaseURL = server.URL
 		runner := NewRunner(c, nil)
 		runner.httpClient = server.Client()
-		return runner
+		return &runner
 	}
 	actions := []string{}
 	service := func(_ context.Context, action string) error { actions = append(actions, action); return nil }

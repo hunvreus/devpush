@@ -5,6 +5,7 @@ import type { ServerMonitoringSummary } from '@/server/servers/monitoring'
 import type { ServerStatus } from '@/server/servers/status'
 
 export type TeamSummary = {
+  settingsVersion: number
   id: string
   slug: string
   name: string
@@ -26,6 +27,8 @@ export type ProjectSummary = {
 export type ServerSummary = {
   id: string
   name: string
+  publicIpv4?: string | null
+  publicIpv6?: string | null
   publicAddress: string | null
   status: ServerStatus
   agentVersion: string | null
@@ -82,6 +85,8 @@ export type UserTeamInviteSummary = {
 
 export type UserContext = {
   user: {
+    profileConfirmedAt?: number | null
+    settingsVersion: number
     id: string
     name: string
     username: string

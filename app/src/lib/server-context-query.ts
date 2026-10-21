@@ -2,7 +2,10 @@ import { workspacePollInterval } from './workspace-updates'
 import { queryOptions } from '@tanstack/react-query'
 import { redirect } from '@tanstack/react-router'
 
-import { getTeamServerContext } from '@/server/auth/context'
+import {
+  getTeamServerContext,
+  getTeamServerMetricHistory,
+} from '@/server/servers/functions'
 
 export function serverContextQueryOptions(params: {
   serverId: string
@@ -17,6 +20,24 @@ export function serverContextQueryOptions(params: {
       const context = await getTeamServerContext({ data: params })
       if (!context) throw redirect({ to: '/auth/login' })
       return context
+    },
+  })
+}
+
+export function serverMetricHistoryQueryOptions(params: {
+  serverId: string
+  teamSlug: string
+}) {
+  return queryOptions({
+    queryKey: ['server-metrics', params.teamSlug, params.serverId],
+    staleTime: 30_000,
+    refetchInterval: () => workspacePollInterval(params.teamSlug, 30_000),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const history = await getTeamServerMetricHistory({ data: params })
+      if (!history) throw redirect({ to: '/auth/login' })
+      return history
     },
   })
 }

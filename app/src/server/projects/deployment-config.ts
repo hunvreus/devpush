@@ -7,7 +7,7 @@ import {
 import { z } from 'zod'
 
 import { config } from '@/server/config'
-import { projectRuntimeConfigSchema } from './runtime-config'
+import { projectRuntimeConfigSchema } from '@/lib/project-runtime-config'
 
 const deploymentRouteSchema = z.strictObject({
   host: z.string().min(1),
@@ -44,16 +44,6 @@ export type DeploymentCommitMeta = {
 }
 
 export type DeploymentConfig = z.infer<typeof deploymentConfigSchema>
-
-export function buildRuntimeId({
-  environmentId,
-  projectId,
-}: {
-  environmentId: string
-  projectId: string
-}) {
-  return `dp_${shortRuntimeId(projectId)}_${shortRuntimeId(environmentId)}`
-}
 
 export function encryptDeploymentEnvVars(envVars: Array<DeploymentEnvVar>) {
   return encryptJson(envVars)
@@ -141,14 +131,4 @@ function decryptJson(payload: string): unknown {
 
 function encryptionKey() {
   return createHash('sha256').update(config.BETTER_AUTH_SECRET).digest()
-}
-
-function shortRuntimeId(value: string) {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, '')
-
-  if (normalized.length >= 10) {
-    return normalized.slice(0, 10)
-  }
-
-  return normalized.padEnd(10, '0')
 }

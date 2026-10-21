@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 
@@ -13,6 +14,7 @@ export const Route = createFileRoute('/$teamSlug/projects')({
     )
   },
   component: TeamProjectsRoute,
+  head: ({ params }) => pageHead('Projects', params.teamSlug),
 })
 
 function TeamProjectsRoute() {

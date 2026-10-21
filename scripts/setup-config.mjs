@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { parse, printParseErrorCode } from "jsonc-parser";
+import { parseEnv } from "node:util";
+import { updateEnvSource } from "./env-file.mjs";
 
 export const cloudflareTemplatePath = "app/wrangler.template.jsonc";
 export const cloudflareConfigPath = "app/wrangler.jsonc";
@@ -181,33 +183,12 @@ export function readJsonConfig(filePath) {
 export function readEnv(filePath) {
   if (!existsSync(filePath)) return {};
 
-  const values = {};
-  for (const line of readFileSync(filePath, "utf8").split(/\r?\n/u)) {
-    const match = line.match(/^([A-Z][A-Z0-9_]*)=(.*)$/u);
-    if (!match) continue;
-    values[match[1]] = decodeEnvValue(match[2]);
-  }
-  return values;
+  return parseEnv(readFileSync(filePath, "utf8"));
 }
 
 export function upsertEnv(filePath, values) {
-  const lines = existsSync(filePath)
-    ? readFileSync(filePath, "utf8").split(/\r?\n/u)
-    : [];
-
-  for (const [key, value] of Object.entries(values)) {
-    if (value === undefined) continue;
-    const line = `${key}=${encodeEnvValue(String(value))}`;
-    const index = lines.findIndex((current) => current.startsWith(`${key}=`));
-    if (index >= 0) lines[index] = line;
-    else lines.push(line);
-  }
-
-  writeFileAtomic(
-    filePath,
-    `${lines.join("\n").replace(/\n+$/gu, "")}\n`,
-    0o600,
-  );
+  const source = existsSync(filePath) ? readFileSync(filePath, "utf8") : "";
+  writeFileAtomic(filePath, updateEnvSource(source, values), 0o600);
 }
 
 export function writeFileAtomic(filePath, content, mode = 0o600) {
@@ -227,27 +208,66 @@ export function writeFileAtomic(filePath, content, mode = 0o600) {
   }
 }
 
+export function validateMcpUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return "Enter a full MCP endpoint URL.";
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.pathname !== "/mcp" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.href.includes("?") ||
+    url.href.includes("#")
+  )
+    return "Use the full HTTP(S) /mcp endpoint without credentials, query or fragment.";
+  const host = url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  const local = isLocalDevelopmentHostname(host);
+  if (url.protocol === "http:" && !local)
+    return "Use HTTPS for a public MCP endpoint; HTTP is only allowed for local development hosts.";
+}
+
+function isLocalDevelopmentHostname(host) {
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "host.lima.internal" ||
+    host === "::1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(host)
+  );
+}
+
 export function validateUrl(value) {
   try {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return "Use an http:// or https:// URL.";
     }
-    if (url.pathname !== "/" || url.search || url.hash) {
+    if (
+      url.pathname !== "/" ||
+      url.href.includes("?") ||
+      url.href.includes("#")
+    ) {
       return "Use an origin without a path, query, or fragment.";
     }
+    if (url.username || url.password)
+      return "Use an origin without embedded credentials.";
+    const host = url.hostname
+      .toLowerCase()
+      .replace(/^\[|\]$/g, "")
+      .replace(/\.$/, "");
+    if (url.protocol === "http:" && !isLocalDevelopmentHostname(host))
+      return "Use HTTPS except for local development hosts.";
     return undefined;
   } catch {
     return "Enter a valid URL.";
   }
-}
-
-function encodeEnvValue(value) {
-  if (!/[\s#"']/u.test(value)) return value;
-  return `"${value.replace(/\r\n/gu, "\n").replace(/\n/gu, "\\n").replace(/"/gu, '\\"')}"`;
-}
-
-function decodeEnvValue(value) {
-  if (!value.startsWith('"') || !value.endsWith('"')) return value;
-  return value.slice(1, -1).replace(/\\n/gu, "\n").replace(/\\"/gu, '"');
 }

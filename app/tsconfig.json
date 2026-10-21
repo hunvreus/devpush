@@ -12,6 +12,9 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "paths": {
+      "#devpush/deployment/ui": ["./src/deployment/default.ui.tsx"],
+      "#devpush/deployment/server": ["./src/deployment/default.server.ts"],
+      "#devpush/deployment/contract": ["./src/deployment/contract.ts"],
       "#/*": ["./src/*"],
       "@/*": ["./src/*"]
     },

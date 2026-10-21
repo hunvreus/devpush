@@ -7,7 +7,7 @@ import { EnvironmentServersSettingsSection } from './project-environment-setting
 import { projectContext } from '@/test/project-context'
 import type { ProjectContext } from '@/server/projects/types'
 
-const mocks = vi.hoisted(() => ({ save: vi.fn() }))
+const mocks = vi.hoisted(() => ({ save: vi.fn(), error: vi.fn() }))
 vi.mock('@/server/projects/functions', () => ({
   saveProjectEnvironmentServers: mocks.save,
 }))
@@ -19,7 +19,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@/lib/project-context-query', () => ({
   setProjectContextQueryData: vi.fn(),
 }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: mocks.error } }))
 vi.mock('@/components/settings-layout', () => ({
   SettingsSection: ({
     children,
@@ -157,7 +157,9 @@ test('failed assignment save retains selection and pending submission locks cont
   )
   expect(mocks.save).toHaveBeenCalledTimes(1)
   await act(async () => reject(new Error('HTTPError')))
-  expect(node.textContent).toContain('Unable to save servers.')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to save servers.'),
+  )
   expect(
     node.querySelector<HTMLSelectElement>('[aria-label="Default server"]')!
       .value,

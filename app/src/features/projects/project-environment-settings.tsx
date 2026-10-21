@@ -1,3 +1,5 @@
+import { useSettingsVersion } from '@/lib/use-settings-version'
+import { showSettingsConflict } from '@/lib/settings-conflict'
 import { projectEnvironmentsSchema } from '@/lib/project-environments-schema'
 import { projectEnvVarsSchema } from '@/lib/project-env-schema'
 import { formErrors } from '@/lib/form-errors'
@@ -54,7 +56,7 @@ import {
   getEnvironmentColor,
 } from './environment-dot'
 import { ServerAvatar } from '@/features/servers/server-avatar'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
 import {
   saveProjectEnvironments,
@@ -72,7 +74,11 @@ import {
 } from './project-settings-section'
 import { SettingsSection } from '@/components/settings-layout'
 import { EnvironmentOptionLabel } from './project-routing-settings'
-import { isEnvFilePaste, parseEnvFile } from './project-settings-utils'
+import {
+  EnvFileValidationError,
+  isEnvFilePaste,
+  parseEnvFile,
+} from './project-settings-utils'
 
 export function EnvironmentSettingsSection({
   context,
@@ -87,6 +93,17 @@ export function EnvironmentSettingsSection({
   const [errors, setErrors] = useState<FormErrors>({})
   const productionId = savedItems.find((item) => item.slug === 'production')?.id
   const hasChanges = JSON.stringify(items) !== JSON.stringify(savedItems)
+
+  const settingsVersion = useSettingsVersion({
+    version: context.project.settingsVersion,
+    dirty: hasChanges,
+    saving: isSaving,
+    refresh: () => {
+      setItems(context.environments)
+      setSavedItems(context.environments)
+      setErrors({})
+    },
+  })
 
   function update(
     id: string,
@@ -136,6 +153,8 @@ export function EnvironmentSettingsSection({
   async function save() {
     if (isSaving || !hasChanges) return
     const parsed = projectEnvironmentsSchema.safeParse({
+      projectId: context.project.id,
+      settingsVersion: settingsVersion.current,
       teamSlug: params.teamSlug,
       projectName: context.project.name,
       environments: items,
@@ -146,6 +165,7 @@ export function EnvironmentSettingsSection({
         nextErrors.form = nextErrors.environments
         delete nextErrors.environments
       }
+      if (nextErrors.form) toast.error(nextErrors.form)
       setErrors(nextErrors)
       const firstField = Object.keys(nextErrors)[0]
       if (firstField) document.getElementById(firstField)?.focus()
@@ -157,22 +177,26 @@ export function EnvironmentSettingsSection({
     try {
       const nextContext = await saveProjectEnvironments({
         data: {
+          projectId: context.project.id,
+          settingsVersion: settingsVersion.current,
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: context.project.name,
           environments: parsed.data.environments,
         },
       })
+      settingsVersion.current = nextContext.project.settingsVersion
       await setProjectContextQueryData(queryClient, nextContext, 'settings')
       setItems(nextContext.environments)
       setSavedItems(nextContext.environments)
       toast.success('Environments saved.')
     } catch (error) {
-      setErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to save environments. Please try again.',
         ),
-      })
+      )
     } finally {
       setIsSaving(false)
     }
@@ -213,7 +237,7 @@ export function EnvironmentSettingsSection({
           </div>
           {items.map((environment, index) => (
             <div
-              className="grid min-h-12 grid-cols-[repeat(3,minmax(0,1fr))_2rem] items-center gap-x-2 border-b py-2 text-sm"
+              className="grid min-h-12 grid-cols-[repeat(3,minmax(0,1fr))_2rem] items-start gap-x-2 border-b py-2 text-sm"
               key={environment.id}
             >
               <Field className="gap-0">
@@ -316,7 +340,6 @@ export function EnvironmentSettingsSection({
             <PlusIcon data-icon="inline-start" />
             Add environment
           </Button>
-          <FieldError>{errors.form}</FieldError>
         </fieldset>
       </form>
     </SettingsSection>
@@ -343,7 +366,6 @@ export function EnvironmentServersSettingsSection({
   const [items, setItems] = useState(initialItems)
   const [savedItems, setSavedItems] = useState(initialItems)
   const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const previousContext = useRef({
     environments: context.environments,
     defaultServerId: context.project.defaultServerId,
@@ -386,9 +408,21 @@ export function EnvironmentServersSettingsSection({
     defaultServerId !== savedDefaultServerId ||
     JSON.stringify(items) !== JSON.stringify(savedItems)
 
+  const settingsVersion = useSettingsVersion({
+    version: context.project.settingsVersion,
+    dirty: hasChanges,
+    saving: isSaving,
+    refresh: () => {
+      setItems(initialItems)
+      setSavedItems(initialItems)
+      setDefaultServerId(context.project.defaultServerId)
+      setSavedDefaultServerId(context.project.defaultServerId)
+    },
+  })
+
   function update(environmentId: string, serverId: string | null) {
     if (isSaving) return
-    setError(null)
+
     setItems((current) =>
       current.map((item) =>
         item.environmentId === environmentId ? { ...item, serverId } : item,
@@ -398,18 +432,21 @@ export function EnvironmentServersSettingsSection({
 
   async function save() {
     if (isSaving || !hasChanges) return
-    setError(null)
+
     setIsSaving(true)
 
     try {
       const nextContext = await saveProjectEnvironmentServers({
         data: {
+          projectId: context.project.id,
+          settingsVersion: settingsVersion.current,
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: context.project.name,
           defaultServerId,
           environmentServers: items,
         },
       })
+      settingsVersion.current = nextContext.project.settingsVersion
       await setProjectContextQueryData(queryClient, nextContext, 'settings')
       const nextItems = nextContext.environments.map((environment) => ({
         environmentId: environment.id,
@@ -421,8 +458,12 @@ export function EnvironmentServersSettingsSection({
       setSavedDefaultServerId(nextContext.project.defaultServerId)
       toast.success('Servers saved.')
     } catch (cause) {
-      setError(
-        getErrorMessage(cause, 'Unable to save servers. Please try again.'),
+      if (showSettingsConflict(cause)) return
+      toast.error(
+        getPublicErrorMessage(
+          cause,
+          'Unable to save servers. Please try again.',
+        ),
       )
     } finally {
       setIsSaving(false)
@@ -439,7 +480,6 @@ export function EnvironmentServersSettingsSection({
           hasChanges={hasChanges}
           isSaving={isSaving}
           onCancel={() => {
-            setError(null)
             setDefaultServerId(savedDefaultServerId)
             setItems(savedItems)
           }}
@@ -461,7 +501,7 @@ export function EnvironmentServersSettingsSection({
             <span>Scope</span>
             <span>Server</span>
           </div>
-          <div className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 border-b py-2 text-sm">
+          <div className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-x-2 border-b py-2 text-sm">
             <span>Default</span>
             <ServerAssignmentControl
               ariaLabel="Default server"
@@ -469,7 +509,6 @@ export function EnvironmentServersSettingsSection({
               serverId={defaultServerId}
               onChange={(value) => {
                 setDefaultServerId(value)
-                setError(null)
               }}
             />
           </div>
@@ -480,7 +519,7 @@ export function EnvironmentServersSettingsSection({
 
             return (
               <div
-                className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 border-b py-2 text-sm"
+                className="grid min-h-12 w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-x-2 border-b py-2 text-sm"
                 key={environment.id}
               >
                 <EnvironmentOptionLabel
@@ -497,7 +536,6 @@ export function EnvironmentServersSettingsSection({
               </div>
             )
           })}
-          <FieldError>{error}</FieldError>
         </fieldset>
       </form>
     </SettingsSection>
@@ -606,6 +644,17 @@ export function EnvironmentVariablesSettingsSection({
   const [errors, setErrors] = useState<FormErrors>({})
   const hasChanges = JSON.stringify(items) !== JSON.stringify(savedItems)
 
+  const settingsVersion = useSettingsVersion({
+    version: context.project.settingsVersion,
+    dirty: hasChanges,
+    saving: isSaving,
+    refresh: () => {
+      setItems(context.envVars)
+      setSavedItems(context.envVars)
+      setErrors({})
+    },
+  })
+
   function add() {
     if (isSaving) return
     setErrors({})
@@ -618,7 +667,9 @@ export function EnvironmentVariablesSettingsSection({
     const parsed = parseEnvFile(envFile)
 
     if (parsed.length === 0) {
-      throw new Error('Enter at least one KEY=value assignment.')
+      throw new EnvFileValidationError(
+        'Enter at least one KEY=value assignment.',
+      )
     }
 
     setItems((current) => [
@@ -651,6 +702,8 @@ export function EnvironmentVariablesSettingsSection({
   async function save() {
     if (isSaving || !hasChanges) return
     const parsed = projectEnvVarsSchema.safeParse({
+      projectId: context.project.id,
+      settingsVersion: settingsVersion.current,
       teamSlug: params.teamSlug,
       projectName: context.project.name,
       envVars: items,
@@ -666,6 +719,7 @@ export function EnvironmentVariablesSettingsSection({
         nextErrors[`envVars.${index}.environment`] =
           'Select a valid environment.'
     })
+    if (nextErrors.form) toast.error(nextErrors.form)
     setErrors(nextErrors)
     if (!parsed.success || Object.keys(nextErrors).length) {
       const firstField = Object.keys(nextErrors)[0]
@@ -677,22 +731,26 @@ export function EnvironmentVariablesSettingsSection({
     try {
       const nextContext = await saveProjectEnvVars({
         data: {
+          projectId: context.project.id,
+          settingsVersion: settingsVersion.current,
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: context.project.name,
           envVars: parsed.data.envVars,
         },
       })
+      settingsVersion.current = nextContext.project.settingsVersion
       await setProjectContextQueryData(queryClient, nextContext, 'settings')
       setItems(nextContext.envVars)
       setSavedItems(nextContext.envVars)
       toast.success('Environment variables saved.')
     } catch (error) {
-      setErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to save environment variables. Please try again.',
         ),
-      })
+      )
     } finally {
       setIsSaving(false)
     }
@@ -863,7 +921,6 @@ export function EnvironmentVariablesSettingsSection({
               />
             </div>
           ) : null}
-          <FieldError>{errors.form}</FieldError>
         </fieldset>
       </form>
     </SettingsSection>
@@ -945,7 +1002,12 @@ function PasteEnvFileDialog({
       setError(null)
       setOpen(false)
     } catch (cause) {
-      setError(getErrorMessage(cause, 'Unable to import these variables.'))
+      if (showSettingsConflict(cause)) return
+      setError(
+        cause instanceof EnvFileValidationError
+          ? cause.message
+          : 'Unable to import these variables.',
+      )
     }
   }
 

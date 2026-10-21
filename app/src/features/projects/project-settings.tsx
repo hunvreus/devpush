@@ -1,3 +1,5 @@
+import { showSettingsConflict } from '@/lib/settings-conflict'
+import { CopyButton } from '@/components/copy-button'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import {
   projectRoutesSchema,
@@ -10,18 +12,18 @@ import {
 } from '@/lib/project-settings-schema'
 import type { FormErrors } from '@/lib/form-errors'
 import { useAvatarInput } from '@/lib/use-avatar-input'
-import { afterMutation, copyText } from '@/lib/action-feedback'
+import { afterMutation } from '@/lib/action-feedback'
 import { useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUpRightIcon,
   ChevronsUpDownIcon,
-  CopyIcon,
   LoaderIcon,
   Trash2Icon,
   UploadIcon,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { useSettingsVersion } from '@/lib/use-settings-version'
 import { toast } from 'sonner'
 
 import {
@@ -50,7 +52,6 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
 import {
@@ -60,7 +61,7 @@ import {
 } from '@/components/ui/tooltip'
 import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
 import { ResourceAvatar } from '@/components/resource-avatar'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
 import { canManageTeamSettings } from '@/lib/team-role'
 import {
@@ -180,7 +181,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
   const [isDeletingProject, setIsDeletingProject] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [projectDeleted, setProjectDeleted] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteProjectConfirmation, setDeleteProjectConfirmation] = useState('')
   const [removeProjectDeployments, setRemoveProjectDeployments] = useState(true)
   const hasGeneralChanges =
@@ -200,6 +200,68 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
   const hasRouteChanges = JSON.stringify(routes) !== JSON.stringify(savedRoutes)
   const hasDomainChanges =
     JSON.stringify(domains) !== JSON.stringify(savedDomains)
+
+  const generalVersion = useSettingsVersion({
+    version: project.settingsVersion,
+    dirty: hasGeneralChanges || isReadingAvatar,
+    saving: isSaving,
+    refresh: () => {
+      const repo = {
+        fullName: project.githubRepo,
+        id: project.githubRepoId,
+        installationId: project.githubInstallationId,
+      }
+      setProjectName(project.name)
+      setSelectedRepo(repo)
+      setSavedRepo(repo)
+      setSavedAvatarUrl(project.avatarUrl)
+      setSavedSettings((current) => ({ ...current, projectName: project.name }))
+      setGeneralErrors({})
+    },
+  })
+  const buildVersion = useSettingsVersion({
+    version: project.settingsVersion,
+    dirty: hasBuildChanges,
+    saving: isSaving,
+    refresh: () => {
+      const build = {
+        composePath: runtimeConfig.path ?? '',
+        releaseCommand: runtimeConfig.releaseCommand ?? '',
+        releaseService: runtimeConfig.releaseService ?? '',
+        readinessPath: runtimeConfig.readinessPath ?? '',
+        deployCommand: runtimeConfig.deployCommand ?? '',
+        rollbackCommand: runtimeConfig.rollbackCommand ?? '',
+        deployTimeoutSeconds: String(runtimeConfig.timeoutSeconds),
+      }
+      setComposePath(build.composePath)
+      setReleaseCommand(build.releaseCommand)
+      setReleaseService(build.releaseService)
+      setReadinessPath(build.readinessPath)
+      setDeployCommand(build.deployCommand)
+      setRollbackCommand(build.rollbackCommand)
+      setDeployTimeoutSeconds(build.deployTimeoutSeconds)
+      setSavedSettings((current) => ({ ...current, ...build }))
+      setBuildErrors({})
+    },
+  })
+  const routesVersion = useSettingsVersion({
+    version: project.settingsVersion,
+    dirty: hasRouteChanges,
+    saving: isSaving,
+    refresh: () => {
+      setRoutes(initialRoutes)
+      setSavedRoutes(initialRoutes)
+    },
+  })
+  const domainsVersion = useSettingsVersion({
+    version: project.settingsVersion,
+    dirty: hasDomainChanges,
+    saving: isSaving,
+    refresh: () => {
+      setDomains(initialDomains)
+      setSavedDomains(initialDomains)
+    },
+  })
 
   function resetGeneralSettings() {
     setGeneralErrors({})
@@ -278,6 +340,10 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       const repo = includeGeneralChanges ? selectedRepo : savedRepo
 
       const parsed = projectSettingsSchema.safeParse({
+        projectId: project.id,
+        section: includeGeneralChanges ? 'general' : 'build',
+        settingsVersion: (includeGeneralChanges ? generalVersion : buildVersion)
+          .current,
         teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
         currentProjectName: project.name,
         projectName: settings.projectName,
@@ -301,6 +367,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       })
       if (!parsed.success) {
         const errors = projectValidationErrors(parsed.error.issues)
+        if (errors.form) toast.error(errors.form)
         setErrors(errors)
         const id = projectSettingsFieldIds[Object.keys(errors)[0] ?? '']
         if (id) document.getElementById(id)?.focus()
@@ -309,20 +376,24 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       setIsSaving(true)
       const result = await saveProjectSettings({ data: parsed.data })
       if (result.fieldErrors) {
+        if (result.fieldErrors.form) toast.error(result.fieldErrors.form)
         setErrors(result.fieldErrors)
         return
       }
       const nextContext = result.context
+      const savedVersion = includeGeneralChanges ? generalVersion : buildVersion
+      savedVersion.current = nextContext.project.settingsVersion
       await setProjectContextQueryData(queryClient, nextContext, 'settings')
       await onSuccess?.(nextContext)
       toast.success(message)
     } catch (error) {
-      setErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to save settings. Please try again.',
         ),
-      })
+      )
     } finally {
       setIsSaving(false)
     }
@@ -402,7 +473,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       !['owner', 'admin'].includes(context.team.role)
     )
       return
-    setDeleteError(null)
+
     const teamSlug = typeof params.teamSlug === 'string' ? params.teamSlug : ''
     setIsDeletingProject(true)
 
@@ -428,8 +499,12 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
         'The action completed, but opening the next page failed. Please reload.',
       )
     } catch (error) {
-      setDeleteError(
-        getErrorMessage(error, 'Unable to delete project. Please try again.'),
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
+          error,
+          'Unable to delete project. Please try again.',
+        ),
       )
     } finally {
       setIsDeletingProject(false)
@@ -480,6 +555,8 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
   async function saveRoutes() {
     if (isSaving || verifyingDomainId || !hasRouteChanges) return
     const parsed = projectRoutesSchema.safeParse({
+      projectId: project.id,
+      settingsVersion: routesVersion.current,
       teamSlug: params.teamSlug,
       projectName: project.name,
       routes,
@@ -494,6 +571,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       )
         errors[`routes.${index}.environmentId`] = 'Select a valid environment.'
     })
+    if (errors.form) toast.error(errors.form)
     setRouteErrors(errors)
     if (!parsed.success || Object.keys(errors).length) {
       const firstField = Object.keys(errors)[0]
@@ -505,11 +583,14 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     try {
       const nextContext = await saveProjectRoutes({
         data: {
+          projectId: project.id,
+          settingsVersion: routesVersion.current,
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: project.name,
           routes: parsed.data.routes,
         },
       })
+      routesVersion.current = nextContext.project.settingsVersion
       await setProjectContextQueryData(queryClient, nextContext, 'settings')
       const aliases = nextContext.domains.map(mapProjectDomainAlias)
       setSavedRoutes(nextContext.routes)
@@ -522,12 +603,13 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       )
       toast.success('Routes saved.')
     } catch (error) {
-      setRouteErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to save routes. Please try again.',
         ),
-      })
+      )
     } finally {
       setIsSaving(false)
     }
@@ -537,6 +619,8 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     if (isSaving || verifyingDomainId || !hasDomainChanges) return
     const nextDomains = normalizeDomainsForRoutes(domains, savedRoutes)
     const parsed = projectDomainsSchema.safeParse({
+      projectId: project.id,
+      settingsVersion: domainsVersion.current,
       teamSlug: params.teamSlug,
       projectName: project.name,
       domains: nextDomains.map((domain) => ({
@@ -553,6 +637,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       if (!context.environments.some((env) => env.id === domain.environment))
         errors[`domains.${index}.environmentId`] = 'Select a valid environment.'
     })
+    if (errors.form) toast.error(errors.form)
     setDomainErrors(errors)
     if (!parsed.success || Object.keys(errors).length) {
       const firstField = Object.keys(errors)[0]
@@ -564,23 +649,27 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
     try {
       const nextContext = await saveProjectDomains({
         data: {
+          projectId: project.id,
+          settingsVersion: domainsVersion.current,
           teamSlug: typeof params.teamSlug === 'string' ? params.teamSlug : '',
           projectName: project.name,
           domains: parsed.data.domains,
         },
       })
+      domainsVersion.current = nextContext.project.settingsVersion
       await setProjectContextQueryData(queryClient, nextContext, 'settings')
       const aliases = nextContext.domains.map(mapProjectDomainAlias)
       setSavedDomains(aliases)
       setDomains(aliases)
       toast.success('Domains saved.')
     } catch (error) {
-      setDomainErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to save domains. Please try again.',
         ),
-      })
+      )
     } finally {
       setIsSaving(false)
     }
@@ -607,17 +696,16 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
       if (result.verified) {
         toast.success('Domain verified.')
       } else {
-        setDomainErrors({
-          form: result.message ?? 'Domain verification failed.',
-        })
+        toast.error(result.message ?? 'Domain verification failed.')
       }
     } catch (error) {
-      setDomainErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to verify domain. Please try again.',
         ),
-      })
+      )
     } finally {
       setVerifyingDomainId(null)
     }
@@ -831,23 +919,17 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                     readOnly
                   />
                   <InputGroupAddon align="inline-end">
-                    <IconActionTooltip label="Copy project ID">
-                      <InputGroupButton
-                        size="icon-sm"
-                        type="button"
-                        aria-label="Copy project ID"
-                        onClick={() => void copyText(project.id, 'Project ID')}
-                      >
-                        <CopyIcon />
-                      </InputGroupButton>
-                    </IconActionTooltip>
+                    <CopyButton
+                      value={project.id}
+                      label="Copy project ID"
+                      inputGroup
+                    />
                   </InputGroupAddon>
                 </InputGroup>
                 <FieldDescription>
                   A unique identifier used in API, environment variables, etc.
                 </FieldDescription>
               </Field>
-              <FieldError role="alert">{generalErrors.form}</FieldError>
             </fieldset>
           </form>
         </SettingsSection>
@@ -1116,7 +1198,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                   </FieldDescription>
                 </Field>
               </FieldGroup>
-              <FieldError role="alert">{buildErrors.form}</FieldError>
             </fieldset>
           </form>
         </SettingsSection>
@@ -1157,6 +1238,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                 warnings={context.composeMetadata?.warnings ?? []}
               />
               <RouteSettingsTable
+                services={context.composeMetadata?.services ?? []}
                 routes={routes}
                 environments={context.environments}
                 errors={routeErrors}
@@ -1165,7 +1247,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                   setRouteErrors({})
                 }}
               />
-              <FieldError>{routeErrors.form}</FieldError>
             </fieldset>
           </form>
         </SettingsSection>
@@ -1197,6 +1278,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
               className="space-y-4"
             >
               <DomainSettingsTable
+                servers={context.servers}
                 domains={domains}
                 environments={context.environments}
                 routes={savedRoutes}
@@ -1209,7 +1291,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                 verifyingDomainId={verifyingDomainId}
                 verificationDisabled={hasDomainChanges || isSaving}
               />
-              <FieldError>{domainErrors.form}</FieldError>
             </fieldset>
           </form>
         </SettingsSection>
@@ -1225,7 +1306,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
               onOpenChange={(next) => {
                 if (!isDeletingProject && !projectDeleted) {
                   setDeleteOpen(next)
-                  setDeleteError(null)
                 }
               }}
             >
@@ -1278,7 +1358,8 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                       <FieldDescription>
                         Persistent volumes are retained for 7 days. If
                         unchecked, deployments may keep running on connected
-                        servers, but devpush will stop managing them.
+                        servers, but devpush will stop managing them. Their
+                        hostnames remain reserved.
                       </FieldDescription>
                     </FieldContent>
                   </Field>
@@ -1306,7 +1387,6 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                     />
                   </Field>
                 </div>
-                <FieldError>{deleteError}</FieldError>
                 <AlertDialogFooter>
                   <AlertDialogCancel
                     disabled={isDeletingProject || projectDeleted}

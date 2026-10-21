@@ -1,10 +1,10 @@
+import { PublicError } from '@/lib/public-error'
 import { isIP } from 'node:net'
 import { and, eq, ne } from 'drizzle-orm'
 
 import { config } from '@/server/config'
 import { db } from '@/server/db'
 import { aliases, domains } from '@/server/db/schema'
-import type { DeploymentConfig } from './deployment-config'
 
 function slugify(value: string) {
   const slug = value
@@ -118,7 +118,10 @@ export function buildBranchAliasHostname({
   })
 }
 
-function disambiguateNipHostname(hostname: string, uniquenessKey: string) {
+function disambiguateGeneratedHostname(
+  hostname: string,
+  uniquenessKey: string,
+) {
   const ipv6 = /^([a-z0-9-]+)\.([a-f0-9-]+)\.nip\.io$/.exec(hostname)
   if (ipv6 && isIP(ipv6[2]!.replaceAll('-', ':')) === 6) {
     return `${toNipPrefix(`${ipv6[1]}-${stableHostHash(uniquenessKey)}`, 63)}.${ipv6[2]}.nip.io`
@@ -126,7 +129,13 @@ function disambiguateNipHostname(hostname: string, uniquenessKey: string) {
   const match = /^(.*)-(\d{1,3}(?:-\d{1,3}){3})\.nip\.io$/.exec(hostname)
 
   if (!match) {
-    throw new Error(`Generated alias "${hostname}" is not a nip.io hostname.`)
+    const [label, ...suffix] = hostname.split('.')
+    if (!label || !suffix.length) throw new Error('Invalid generated hostname.')
+    const domain = suffix.join('.')
+    const maxLabelLength = Math.min(63, 253 - domain.length - 1)
+    if (maxLabelLength < 12)
+      throw new Error('Generated hostname has no room for a collision suffix.')
+    return `${toNipPrefix(`${label}-${stableHostHash(uniquenessKey)}`, maxLabelLength)}.${domain}`
   }
 
   const [, prefix = 'app', address = '127-0-0-1'] = match
@@ -173,51 +182,13 @@ export async function resolveAvailableAliasHostname({
       return candidate
     }
 
-    candidate = disambiguateNipHostname(hostname, `${uniquenessKey}:${attempt}`)
+    candidate = disambiguateGeneratedHostname(
+      hostname,
+      `${uniquenessKey}:${attempt}`,
+    )
   }
 
-  throw new Error('Could not generate an available nip.io hostname.')
-}
-
-export function replaceDeploymentAliasRoutes({
-  config: deploymentConfig,
-  hostname,
-  https,
-  previousHostnames,
-}: {
-  config: DeploymentConfig
-  hostname: string
-  https: boolean
-  previousHostnames: Array<string>
-}): DeploymentConfig {
-  const previous = new Set(previousHostnames)
-  const stableRoutes = deploymentConfig.routes.filter(
-    (route) => !previous.has(route.host),
-  )
-  const routeShapes = new Map<
-    string,
-    Omit<DeploymentConfig['routes'][number], 'host' | 'https'>
-  >()
-
-  for (const route of stableRoutes.length > 0
-    ? stableRoutes
-    : deploymentConfig.routes) {
-    const { host: _host, https: _https, ...shape } = route
-    const key = `${shape.service}:${shape.port}:${shape.path}:${shape.stripPrefix}`
-    routeShapes.set(key, shape)
-  }
-
-  return {
-    ...deploymentConfig,
-    routes: [
-      ...stableRoutes,
-      ...Array.from(routeShapes.values(), (route) => ({
-        ...route,
-        host: hostname,
-        https,
-      })),
-    ],
-  }
+  throw new Error('Could not generate an available hostname.')
 }
 
 function resolveRoutingAddress(value: string | null) {
@@ -231,23 +202,7 @@ function resolveRoutingAddress(value: string | null) {
     return '127.0.0.1'
   }
 
-  throw new Error(
-    'The assigned server has no valid IP address for generating its nip.io URL.',
-  )
-}
-
-export function isIpv4Address(value: string) {
-  const octets = value.split('.').map((part) => Number.parseInt(part, 10))
-
-  return (
-    octets.length === 4 &&
-    octets.every(
-      (octet, index) =>
-        /^\d{1,3}$/.test(value.split('.')[index] ?? '') &&
-        octet >= 0 &&
-        octet <= 255,
-    )
-  )
+  throw new PublicError('PROJECT_SERVER_ADDRESS_INVALID')
 }
 
 export function generatedAliasUsesHttps(serverPublicAddress: string | null) {

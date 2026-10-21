@@ -47,7 +47,11 @@ const envSchema = z
     BETTER_AUTH_SECRET: z.string().min(1).default('dev-secret-change-me'),
     DEVPUSH_BASE_URL: z.string().url().default('http://localhost:7429'),
     BETTER_AUTH_URL: optionalUrl,
+    DEVPUSH_MCP_URL: optionalUrl,
     DEVPUSH_ADMIN_EMAIL: optionalEmail,
+    DEVPUSH_SIGN_IN_MESSAGE: z
+      .preprocess(normalizeOptional, z.string().trim().max(1000).optional())
+      .transform((value) => value ?? ''),
     EMAIL_FROM: optionalString,
     RESEND_API_KEY: optionalString,
     GOOGLE_CLIENT_ID: optionalString,
@@ -71,6 +75,9 @@ const envSchema = z
     DEVPUSH_BACKUPS_ENABLED: envBoolean.default(false),
     DEVPUSH_AGENT_AUTO_UPDATE: envBoolean.default(false),
     DEVPUSH_TRUST_PROXY: envBoolean.default(false),
+    DEVPUSH_CLIENT_IP_HEADER: z
+      .enum(['x-forwarded-for', 'x-real-ip'])
+      .default('x-forwarded-for'),
     DEVPUSH_MONITORING_RETENTION_DAYS: z.coerce
       .number()
       .int()
@@ -81,6 +88,73 @@ const envSchema = z
     DEVPUSH_TRAEFIK_EMAIL: optionalEmail,
   })
   .superRefine((value, context) => {
+    for (const key of ['DEVPUSH_BASE_URL', 'BETTER_AUTH_URL'] as const) {
+      const raw = value[key]
+      if (!raw) continue
+      let url: URL
+      try {
+        url = new URL(raw)
+      } catch {
+        continue // The field schema reports malformed URLs.
+      }
+      if (
+        !['http:', 'https:'].includes(url.protocol) ||
+        url.username ||
+        url.password ||
+        url.pathname !== '/' ||
+        raw.includes('?') ||
+        raw.includes('#')
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} must be an HTTP(S) origin without credentials, path, query or fragment.`,
+        })
+      }
+      if (url.protocol === 'http:' && !isLocalMcpHostname(url.hostname)) {
+        context.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} must use HTTPS except for local development hosts.`,
+        })
+      }
+    }
+    let mcpUrl: URL
+    try {
+      mcpUrl = new URL(value.DEVPUSH_MCP_URL ?? '/mcp', value.DEVPUSH_BASE_URL)
+    } catch {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEVPUSH_MCP_URL'],
+        message: 'DEVPUSH_MCP_URL requires a valid full endpoint and base URL.',
+      })
+      return
+    }
+    if (
+      mcpUrl.username ||
+      mcpUrl.password ||
+      mcpUrl.search ||
+      mcpUrl.hash ||
+      mcpUrl.href.includes('?') ||
+      mcpUrl.href.includes('#') ||
+      mcpUrl.pathname !== '/mcp' ||
+      !['http:', 'https:'].includes(mcpUrl.protocol)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEVPUSH_MCP_URL'],
+        message:
+          'DEVPUSH_MCP_URL must be the full HTTP(S) /mcp endpoint without credentials, query or fragment.',
+      })
+    }
+    if (mcpUrl.protocol === 'http:' && !isLocalMcpHostname(mcpUrl.hostname)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['DEVPUSH_MCP_URL'],
+        message:
+          'DEVPUSH_MCP_URL must use HTTPS except for local development hosts.',
+      })
+    }
     const storageValues = [
       value.DEVPUSH_STORAGE_ENDPOINT,
       value.DEVPUSH_STORAGE_BUCKET,
@@ -100,20 +174,36 @@ const envSchema = z
   .transform((value) => ({
     ...value,
     BETTER_AUTH_URL: value.BETTER_AUTH_URL ?? value.DEVPUSH_BASE_URL,
+    DEVPUSH_MCP_URL: new URL(
+      value.DEVPUSH_MCP_URL ?? '/mcp',
+      value.DEVPUSH_BASE_URL,
+    ).toString(),
   }))
 
 export function parseConfig(env: NodeJS.ProcessEnv) {
   return envSchema.parse(env)
 }
 
+function isLocalMcpHostname(hostname: string) {
+  const host = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === 'host.lima.internal' ||
+    host === '::1' ||
+    /^127(?:\.\d{1,3}){3}$/.test(host)
+  )
+}
+
 export function assertRuntimeSecurity(value: ReturnType<typeof parseConfig>) {
-  const hostname = new URL(value.DEVPUSH_BASE_URL).hostname
-  const isLocal =
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '::1' ||
-    hostname === 'host.lima.internal' ||
-    hostname.endsWith('.localhost')
+  const isLocal = [
+    value.DEVPUSH_BASE_URL,
+    value.BETTER_AUTH_URL,
+    value.DEVPUSH_MCP_URL,
+  ].every((url) => isLocalMcpHostname(new URL(url).hostname))
 
   if (isLocal) {
     return

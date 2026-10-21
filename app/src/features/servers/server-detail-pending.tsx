@@ -1,4 +1,10 @@
 import {
+  formatPercent,
+  formatByteRatio,
+  formatNetworkSummary,
+} from './server-metric-format'
+import { CopyButton } from '@/components/copy-button'
+import {
   getRouteApi,
   Link,
   useParams,
@@ -10,14 +16,12 @@ import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
 import { TeamHeading } from '@/features/teams/team-heading'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { BanIcon, CopyIcon, Trash2Icon } from 'lucide-react'
-import { ServerMetricChartPending } from './server-metric-chart'
-import { copyText } from '@/lib/action-feedback'
+import { BanIcon, Trash2Icon } from 'lucide-react'
+import { ServerMetricChartPending } from './server-metric-chart-pending'
 import {
   InputGroup,
   InputGroupInput,
   InputGroupAddon,
-  InputGroupButton,
 } from '@/components/ui/input-group'
 import {
   Field,
@@ -26,17 +30,11 @@ import {
   FieldDescription,
 } from '@/components/ui/field'
 import { ServerAvatar } from './server-avatar'
-import {
-  ServerDetail,
-  ServerInstallCallout,
-  formatPercent,
-  formatByteRatio,
-  formatNetworkSummary,
-} from './server-detail'
+import { ServerDetail, ServerInstallCallout } from './server-detail'
 import { formatServerStatus, formatAge } from './team-servers'
 import { canManageTeamSettings } from '@/lib/team-role'
 import type { ServerSummary } from '@/server/teams/types'
-import type { getTeamServerContext } from '@/server/auth/context'
+import type { getTeamServerContext } from '@/server/servers/functions'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getCachedTeamContexts } from '@/lib/team-context-query'
 import { displayNameFromSlug } from '@/lib/display-name'
@@ -263,14 +261,7 @@ function ServerGeneralPending({
               readOnly
             />
             <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                size="icon-sm"
-                type="button"
-                aria-label="Copy server ID"
-                onClick={() => void copyText(serverId, 'Server ID')}
-              >
-                <CopyIcon />
-              </InputGroupButton>
+              <CopyButton value={serverId} label="Copy server ID" inputGroup />
             </InputGroupAddon>
           </InputGroup>
           <FieldDescription>
@@ -291,6 +282,8 @@ function ServerHostPending({ server }: { server?: ServerSummary }) {
     >
       <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
         {[
+          'Public IPv4',
+          'Public IPv6',
           'Hostname',
           'Operating system',
           'CPU',

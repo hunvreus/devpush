@@ -13,7 +13,7 @@ const emailSchema = z
   .min(1, 'Enter an email address.')
   .email('Enter a valid email address.')
   .max(320, 'Email addresses must be 320 characters or fewer.')
-export const inviteSchema = z.object({
+const inviteSchema = z.object({
   teamSlug: z.string().min(1),
   email: emailSchema,
   role: z.enum(['admin', 'member']),
@@ -24,7 +24,7 @@ export function parseInviteEmails(value: string) {
       value
         .split(/[\s,]+/)
         .map((email) => email.trim().toLowerCase())
-        .filter(Boolean),
+        .filter((email) => emailSchema.safeParse(email).success),
     ),
   ]
 }
@@ -39,15 +39,7 @@ export const bulkInviteSchema = inviteSchema.omit({ email: true }).extend({
       if (!emails.length)
         ctx.addIssue({
           code: 'custom',
-          message: 'Enter at least one email address.',
-        })
-      const invalid = emails.find(
-        (email) => !emailSchema.safeParse(email).success,
-      )
-      if (invalid)
-        ctx.addIssue({
-          code: 'custom',
-          message: `Invalid email address: ${invalid}.`,
+          message: 'Enter at least one valid email address.',
         })
     }),
 })

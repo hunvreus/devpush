@@ -133,10 +133,8 @@ test.each([true, false])(
       </QueryClientProvider>,
     )
     client.clear()
-    expect(html).toContain('Add member')
-    expect(html).toMatch(
-      /<button[^>]*disabled=""[^>]*aria-label="More member actions"/,
-    )
+    expect(html).toContain('Add members')
+    expect(html).not.toContain('More member actions')
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Save<\/button>/)
     if (known) {
       expect(html).toContain('aria-label="Copy team ID"')

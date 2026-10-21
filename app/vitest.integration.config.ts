@@ -10,6 +10,7 @@ const config = mergeConfig(
       fileParallelism: false,
       setupFiles: ['src/test/setup-sqlite.ts'],
       env: {
+        DEVPUSH_BACKUPS_ENABLED: 'true',
         DEVPUSH_SECRET_ENCRYPTION_KEY:
           'devpush-integration-encryption-key-32-characters',
       },

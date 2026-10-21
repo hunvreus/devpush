@@ -12,6 +12,10 @@ import { ServerDetailPending } from './server-detail-pending'
 import { ServerDetail as ServerDetailView } from './server-detail'
 import type { ServerSummary } from '@/server/teams/types'
 
+vi.mock('@/server/servers/functions', () => ({
+  getTeamServerMetricHistory: vi.fn(() => new Promise(() => {})),
+}))
+
 const hydration = vi.hoisted(() => ({ ready: true }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -36,6 +40,7 @@ const server: ServerSummary = {
   },
 }
 const emptyDetail: ServerDetail = {
+  settingsVersion: 1,
   ...server,
   agentProtocolVersion: null,
   agentCapabilities: null,
@@ -45,11 +50,6 @@ const emptyDetail: ServerDetail = {
   architecture: null,
   cpuCoreCount: null,
   hostUptimeSeconds: null,
-  metricSeries: [],
-  metricWindow: {
-    startedAt: '2026-10-07T12:00:00Z',
-    endedAt: '2026-10-07T12:00:00Z',
-  },
   createdAt: '2026-10-07T12:00:00Z',
   updatedAt: '2026-10-07T12:00:00Z',
 }
@@ -278,10 +278,6 @@ test('cold → shell → detail never paints an empty metrics state', async () =
         ...emptyDetail,
         status: 'connected',
         monitoring: { ...server.monitoring, latestMetrics: sample },
-        metricSeries: [
-          sample,
-          { ...sample, observedAt: '2026-10-07T12:01:00Z' },
-        ],
       },
     })
     await paint()

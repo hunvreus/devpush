@@ -1,13 +1,7 @@
 import { afterMutation } from '@/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  ArrowUpRightIcon,
-  GitBranchIcon,
-  GitCommitHorizontalIcon,
-  Redo2Icon,
-  Undo2Icon,
-} from 'lucide-react'
+import { ArrowUpRightIcon, Redo2Icon, Undo2Icon } from 'lucide-react'
 import { useState } from 'react'
 import { FieldError } from '@/components/ui/field'
 
@@ -278,30 +272,19 @@ function DeploymentActionSummary({
   const hasCommit = deployment.gitSha !== 'pending'
 
   return (
-    <div className="min-w-0 space-y-4">
-      <div className="space-y-2">
-        <h3 className="text-sm font-medium">Deploy to</h3>
-        <div className="flex h-12 min-w-0 items-center gap-x-2 rounded-lg border px-3 text-sm">
+    <dl className="divide-y rounded-lg border text-sm">
+      <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+        <dt className="text-muted-foreground">Environment</dt>
+        <dd className="flex min-w-0 items-center gap-2">
           <EnvironmentDot color={deployment.environmentColor} />
-          {deployment.environmentName}
-        </div>
+          <span className="break-words">{deployment.environmentName}</span>
+        </dd>
       </div>
-
-      <div className="space-y-2">
-        <h3 className="text-sm font-medium">Commit</h3>
-        <div className="grid h-12 min-w-0 grid-cols-[auto_minmax(0,auto)_minmax(0,1fr)_auto] items-center gap-x-4 overflow-hidden rounded-lg border px-3 text-sm">
-          <span className="shrink-0 font-mono font-medium">
+      <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+        <dt className="text-muted-foreground">Commit</dt>
+        <dd className="flex min-w-0 items-center gap-2">
+          <span className="font-mono font-medium">
             {deployment.gitSha.slice(0, 7)}
-          </span>
-          <span className="flex min-w-0 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
-            <GitBranchIcon />
-            <span className="truncate">{deployment.gitBranch}</span>
-          </span>
-          <span className="flex min-w-0 flex-1 items-center gap-x-2 text-muted-foreground [&>svg]:shrink-0 [&>svg]:opacity-50">
-            <GitCommitHorizontalIcon className="size-5 shrink-0" />
-            <span className="truncate">
-              {deployment.commitMessage ?? 'Commit message unavailable'}
-            </span>
           </span>
           {hasCommit ? (
             <a
@@ -314,8 +297,18 @@ function DeploymentActionSummary({
               <ArrowUpRightIcon className="size-4 shrink-0" />
             </a>
           ) : null}
-        </div>
+        </dd>
       </div>
-    </div>
+      <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+        <dt className="text-muted-foreground">Branch</dt>
+        <dd className="min-w-0 break-words">{deployment.gitBranch}</dd>
+      </div>
+      <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 px-4 py-2">
+        <dt className="text-muted-foreground">Message</dt>
+        <dd className="min-w-0 break-words">
+          {deployment.commitMessage ?? 'Commit message unavailable'}
+        </dd>
+      </div>
+    </dl>
   )
 }

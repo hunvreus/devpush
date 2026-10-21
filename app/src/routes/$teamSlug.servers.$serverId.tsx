@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
@@ -12,6 +13,8 @@ export const Route = createFileRoute('/$teamSlug/servers/$serverId')({
   pendingMinMs: 200,
   pendingComponent: ServerDetailPending,
   component: TeamServerRoute,
+  head: ({ loaderData, params }) =>
+    pageHead(loaderData?.server.name ?? 'Server', params.teamSlug),
 })
 
 function TeamServerRoute() {
@@ -19,5 +22,11 @@ function TeamServerRoute() {
     serverContextQueryOptions(Route.useParams()),
   )
 
-  return <ServerDetail team={context.team} server={context.server} />
+  return (
+    <ServerDetail
+      key={context.server.id}
+      team={context.team}
+      server={context.server}
+    />
+  )
 }

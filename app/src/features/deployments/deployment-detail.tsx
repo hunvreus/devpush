@@ -1,3 +1,4 @@
+import { DeploymentAliasBadge } from './deployment-alias-badge'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowRightIcon,
@@ -9,8 +10,7 @@ import {
   Link2Icon,
   LoaderIcon,
   MoreHorizontalIcon,
-  SparkleIcon,
-  XIcon,
+  CircleAlertIcon,
   TriangleAlertIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -286,16 +286,7 @@ export function DeploymentMetadata({
           </Tooltip>
         </li>
         <li className="h-5 min-w-20">
-          {deploymentAlias === 'current' ? (
-            <span className="inline-flex h-5 items-center gap-x-1 rounded-md bg-secondary px-2 text-xs font-medium text-secondary-foreground">
-              <SparkleIcon className="size-3 shrink-0" />
-              Current
-            </span>
-          ) : deploymentAlias === 'previous' ? (
-            <span className="inline-flex h-5 items-center rounded-md bg-secondary px-2 text-xs font-medium text-muted-foreground">
-              Previous
-            </span>
-          ) : null}
+          <DeploymentAliasBadge alias={deploymentAlias} />
         </li>
       </ul>
 
@@ -430,7 +421,7 @@ function DeploymentStatus({
 }) {
   if (status === 'succeeded') {
     return (
-      <span className="flex items-center gap-2 text-green-500">
+      <span className="flex items-center gap-2 text-success">
         <CircleCheckIcon className="size-4 shrink-0" />
         Succeeded
       </span>
@@ -439,8 +430,8 @@ function DeploymentStatus({
 
   if (status === 'failed') {
     return (
-      <span className="flex items-center gap-2 text-red-500">
-        <CircleXIcon className="size-4 shrink-0" />
+      <span className="flex items-center gap-2 text-destructive">
+        <CircleAlertIcon className="size-4 shrink-0" />
         Failed
       </span>
     )
@@ -449,7 +440,7 @@ function DeploymentStatus({
   if (status === 'canceled') {
     return (
       <span className="flex items-center gap-2 text-muted-foreground">
-        <XIcon className="size-4 shrink-0" />
+        <CircleXIcon className="size-4 shrink-0" />
         Canceled
       </span>
     )

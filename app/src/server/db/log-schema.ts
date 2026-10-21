@@ -84,3 +84,17 @@ export const runtimeLogs = sqliteTable(
     index('runtime_logs_observed_at_idx').on(table.observedAt),
   ],
 )
+
+export const operationLogs = sqliteTable(
+  'operation_logs',
+  {
+    jobId: text('job_id').notNull(),
+    offset: integer('offset').notNull(),
+    content: text('content').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('operation_logs_job_offset_idx').on(table.jobId, table.offset),
+    index('operation_logs_time_idx').on(table.createdAt),
+  ],
+)

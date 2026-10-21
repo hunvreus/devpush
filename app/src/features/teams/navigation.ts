@@ -1,6 +1,6 @@
 import type { SectionNavigationItem } from '@/components/section-navigation'
 
-const backupsEnabled = import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED === 'true'
+import { backupsEnabled } from '@/lib/backup-feature'
 
 export const teamSettingsNavigationItems: Array<SectionNavigationItem> = [
   { href: '#general', label: 'General' },

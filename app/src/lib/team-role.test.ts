@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest'
 
 import {
   canDeleteTeam,
-  canInviteTeamMembers,
   canManageTeamMembers,
   canManageTeamSettings,
 } from './team-role'
@@ -13,7 +12,6 @@ describe('team role policy', () => {
     'allows %s to manage general team settings and invites',
     (role) => {
       expect(canManageTeamSettings(role)).toBe(true)
-      expect(canInviteTeamMembers(role)).toBe(true)
     },
   )
 
@@ -34,7 +32,6 @@ describe('team role policy', () => {
 
   test('does not allow members to manage team settings', () => {
     expect(canManageTeamSettings('member')).toBe(false)
-    expect(canInviteTeamMembers('member')).toBe(false)
     expect(canManageTeamMembers('member')).toBe(false)
   })
 })

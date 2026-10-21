@@ -72,6 +72,7 @@ export async function failRunningDeployments(
     phase: string
     now: Date
     startedBefore?: Date
+    heartbeatBefore?: Date
   },
 ) {
   const failedIds: string[] = []
@@ -82,7 +83,13 @@ export async function failRunningDeployments(
       sql`, `,
     )})
       and ${deployments.status} = 'running'
-      ${input.startedBefore ? sql`and ${deployments.startedAt} < ${input.startedBefore.getTime()}` : sql``}`
+      ${input.startedBefore ? sql`and ${deployments.startedAt} < ${input.startedBefore.getTime()}` : sql``}
+      ${
+        input.heartbeatBefore
+          ? sql`and exists(select 1 from servers where servers.id = ${deployments.serverId}
+        and (servers.last_seen_at is null or servers.last_seen_at < ${input.heartbeatBefore.getTime()}))`
+          : sql``
+      }`
     const [, changed] = await store.batch([
       store.run(sql`insert into ${deploymentEvents} (deployment_id, stream, seq, content, search_content, created_at)
         select ${deployments.id}, 'control', coalesce((select max(event.seq) from ${deploymentEvents} as event

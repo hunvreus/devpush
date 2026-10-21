@@ -32,6 +32,8 @@ export function getEffectiveProjectRoutes(
   return Array.from(effective.values())
 }
 
+export class EnvFileValidationError extends Error {}
+
 export function parseEnvFile(envFile: string) {
   const lines = envFile.replace(/\r\n?/g, '\n').split('\n')
   const rows: Array<{ key: string; value: string }> = []
@@ -43,7 +45,9 @@ export function parseEnvFile(envFile: string) {
       line,
     )
     if (!match?.[1])
-      throw new Error(`Line ${lineNumber}: enter a valid KEY=value assignment.`)
+      throw new EnvFileValidationError(
+        `Line ${lineNumber}: enter a valid KEY=value assignment.`,
+      )
     let value = match[2] ?? ''
     const quote = value[0]
     if (quote === '"' || quote === "'" || quote === '`') {
@@ -53,10 +57,12 @@ export function parseEnvFile(envFile: string) {
         end = closingQuote(value, quote)
       }
       if (end < 0)
-        throw new Error(`Line ${lineNumber}: close the quoted value.`)
+        throw new EnvFileValidationError(
+          `Line ${lineNumber}: close the quoted value.`,
+        )
       const suffix = value.slice(end + 1).trim()
       if (suffix && !suffix.startsWith('#'))
-        throw new Error(
+        throw new EnvFileValidationError(
           `Line ${lineNumber}: unexpected text after the quoted value.`,
         )
       value = value.slice(1, end)

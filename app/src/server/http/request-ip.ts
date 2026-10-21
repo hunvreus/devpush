@@ -4,6 +4,7 @@ import { isCloudflareRuntime } from '@/server/runtime/platform-env'
 type AddressTrust = {
   cloudflare: boolean
   proxy: boolean
+  header?: 'x-forwarded-for' | 'x-real-ip'
 }
 
 export function getRequestPublicAddress(
@@ -27,20 +28,13 @@ export function getRequestPublicAddress(
       : null
   }
 
-  const realIp = request.headers.get('x-real-ip')?.trim()
-
-  if (realIp) {
-    return stripPort(realIp)
-  }
-
-  const forwardedFor = request.headers.get('x-forwarded-for')
-  const firstForwardedAddress = forwardedFor?.split(',').at(0)?.trim()
-
-  if (firstForwardedAddress) {
-    return stripPort(firstForwardedAddress)
-  }
-
-  return null
+  // Trust one configured header only. Never fall back to another header the
+  // proxy may have passed through unchanged from an untrusted client.
+  const header = trust.header ?? config.DEVPUSH_CLIENT_IP_HEADER
+  const value = request.headers.get(header)?.trim()
+  const address =
+    header === 'x-forwarded-for' ? value?.split(',').at(-1)?.trim() : value
+  return address ? stripPort(address) : null
 }
 
 function stripPort(value: string) {

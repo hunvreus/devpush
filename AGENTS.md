@@ -28,7 +28,8 @@
 
 - Add focused tests for behavior changes; run the narrowest useful checks first.
 - From the repo root:
-  - Cross-cutting app changes: `pnpm typecheck`, `pnpm test`, `pnpm build`.
+  - Documentation changes: `pnpm docs:check`.
+  - Cross-cutting app changes: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`.
   - Go agent changes: `pnpm agent:test`.
   - Schema, migration, query or persistence changes: `pnpm test:integration`.
   - App + agent changes: both sets.
@@ -37,5 +38,5 @@
 
 - Update `CHANGELOG.md` (Keep a Changelog) for user-visible changes, docs when documented behavior/config/API/architecture changes, and `TODO.md` when backlog items are added or completed. Sentence-case headings.
 - `README.md`: overview, setup, commands. `ARCHITECTURE.md`: mechanics, data flow, invariants, non-obvious decisions. `TODO.md`: the only backlog.
-- `docs/index.md` is the entrypoint; `docs/features/`: product behavior; `docs/api/`: external/agent-facing contracts (no private route catalogs); `docs/development/`: dev workflows.
+- `docs/index.md` is the entrypoint. Keep all documentation pages flat under `docs/`; use groups in `docs/docs.json` for product guides, operations, reference and developer workflows. Plain Markdown keeps content portable to ReallySimpleDocs. No private route catalogs.
 - No placeholder docs or unvalidated OpenAPI specs. Transient notes go in `.tmp/`.

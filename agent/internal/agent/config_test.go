@@ -45,3 +45,41 @@ func TestLoadConfigRuntimeLogQueueLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigRequiresSecureCanonicalControlPlaneOrigin(t *testing.T) {
+	t.Setenv("DEVPUSH_AGENT_TOKEN", "agent-token")
+	for _, value := range []string{"http://devpush.example", "http://192.168.1.2:7429", "ftp://devpush.example", "https://user:secret@devpush.example", "https://devpush.example/path", "https://devpush.example?", "https://devpush.example#"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("DEVPUSH_BASE_URL", value)
+			if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.env")); err == nil {
+				t.Fatal("accepted unsafe control-plane origin")
+			}
+		})
+	}
+	for _, value := range []string{"https://devpush.example", "http://localhost:7429", "http://app.localhost:7429", "http://127.0.0.2:7429", "http://[::1]:7429", "http://host.lima.internal:7429"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("DEVPUSH_BASE_URL", value)
+			if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.env")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRoutingAddressConfig(t *testing.T) {
+	t.Setenv("DEVPUSH_BASE_URL", "https://devpush.example")
+	t.Setenv("DEVPUSH_AGENT_TOKEN", "token")
+	for _, address := range []string{"192.168.64.7", "2001:db8::7", "", "auto", "localhost", "0.0.0.0", "127.0.0.1", "224.0.0.1", "1.2.3.4:80"} {
+		t.Run(address, func(t *testing.T) {
+			t.Setenv("DEVPUSH_ROUTING_ADDRESS", address)
+			cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing"))
+			valid := address == "" || address == "192.168.64.7" || address == "2001:db8::7"
+			if valid && (err != nil || cfg.RoutingAddress != address) {
+				t.Fatalf("config=%+v err=%v", cfg, err)
+			}
+			if !valid && err == nil {
+				t.Fatalf("accepted %s", address)
+			}
+		})
+	}
+}

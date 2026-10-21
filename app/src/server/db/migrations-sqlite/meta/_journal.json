@@ -5,57 +5,29 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1790755264917,
-      "tag": "0000_married_gwen_stacy",
+      "when": 1792031595690,
+      "tag": "0000_initial",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "6",
-      "when": 1790756623298,
-      "tag": "0001_known_gorilla_man",
+      "when": 1792211522840,
+      "tag": "0001_installation_settings",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "6",
-      "when": 1790757263420,
-      "tag": "0002_woozy_dazzler",
+      "when": 1792283508210,
+      "tag": "0002_remove_installation_settings",
       "breakpoints": true
     },
     {
       "idx": 3,
       "version": "6",
-      "when": 1791425165624,
-      "tag": "0003_fuzzy_spiral",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1791425349033,
-      "tag": "0004_nervous_starfox",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1791454202338,
-      "tag": "0005_backup_storage_guards",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1791593756785,
-      "tag": "0006_backup_database_engines",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1791593756786,
-      "tag": "0007_legacy_postgres_restore",
+      "when": 1792550541722,
+      "tag": "0003_puzzling_jane_foster",
       "breakpoints": true
     }
   ]

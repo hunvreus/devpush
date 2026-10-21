@@ -1,3 +1,4 @@
+import { buildRuntimeId } from '@/lib/runtime-id'
 import { randomUUID } from 'node:crypto'
 
 import { eq } from 'drizzle-orm'
@@ -30,12 +31,9 @@ import {
   createDeploymentsForGitHubPush,
   createManualDeployment,
 } from '@/server/projects/deployments'
-import {
-  buildRuntimeId,
-  encryptDeploymentEnvVars,
-} from '@/server/projects/deployment-config'
+import { encryptDeploymentEnvVars } from '@/server/projects/deployment-config'
 import { encryptProjectEnvVars } from '@/server/projects/project-env-vars'
-import { createComposeRuntimeConfig } from '@/server/projects/runtime-config'
+import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
 import {
   createPendingServer,
   recordAgentHeartbeat,

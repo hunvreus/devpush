@@ -4,6 +4,15 @@ import { dirname } from 'node:path'
 import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
 
+// Documented validation, authorization and capacity rejections precede creation.
+// Service errors, unknown codes and unreadable responses remain ambiguous.
+const creationRejectionCodes = new Set([
+  'json_error', 'unauthorized', 'forbidden', 'maintenance',
+  'resource_limit_exceeded', 'not_found', 'method_not_allowed',
+  'uniqueness_error', 'deprecated_api_endpoint', 'resource_unavailable',
+  'invalid_input', 'unsupported_error', 'protected', 'rate_limit_exceeded',
+])
+
 export function parseOptions(args) {
   return parseArgs({ args: args[0] === '--' ? args.slice(1) : args, options: {
     help: { type: 'boolean' }, list: { type: 'boolean' },
@@ -44,6 +53,8 @@ export function createApi(token, request = fetch) {
     if (!response.ok) {
       const error = new Error(`Hetzner HTTP ${response.status}: ${data.error?.code || 'request_failed'}`)
       error.status = response.status
+      error.creationRejected = response.status >= 400 && response.status < 500
+        && creationRejectionCodes.has(data.error?.code)
       throw error
     }
     return data
@@ -92,7 +103,13 @@ export async function destroy(options, api, output) {
     }
   }
   for (const id of state.ipIds) {
-    const current = await getOrMissing(api, `/primary_ips/${id}`)
+    let current = await getOrMissing(api, `/primary_ips/${id}`)
+    // Server disappearance can precede Primary IP detachment/auto-deletion.
+    for (let attempt = 0; current?.primary_ip.assignee_id === state.serverId; attempt++) {
+      if (attempt >= 30) throw new Error(`IP ${id} detachment is still pending. Rerun --destroy --yes to resume.`)
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      current = await getOrMissing(api, `/primary_ips/${id}`)
+    }
     if (!current) continue
     if (current.primary_ip.assignee_id) throw new Error(`IP ${id} is still assigned; refusing deletion.`)
     try { await api(`/primary_ips/${id}`, undefined, 'DELETE') } catch (error) {
@@ -168,7 +185,13 @@ export async function run(options, api, output = console.log) {
   await mkdir(dirname(path), { recursive: true })
   // Reserve before the paid request so a second invocation cannot overwrite ownership.
   await writeFile(path, JSON.stringify({ version: 1, name: body.name, pending: true }), { flag: 'wx', mode: 0o600 })
-  const { server } = await api('/servers', body)
+  let server
+  try {
+    ;({ server } = await api('/servers', body))
+  } catch (error) {
+    if (error.creationRejected === true) await unlink(path)
+    throw error
+  }
   output(`Created server ${server.id} (${server.name}). Startup installation is still pending.`)
   const ipIds = [server.public_net?.ipv4?.id, server.public_net?.ipv6?.id].filter(id => Number.isSafeInteger(id) && id > 0)
   await saveState(path, { version: 1, name: server.name, serverId: server.id, ipIds })

@@ -1,3 +1,12 @@
+import {
+  AccountEmailPreferences,
+  accountSettingsNavigation,
+} from '#devpush/deployment/ui'
+import { ProfilePicture } from './profile-picture'
+import { useSettingsVersion } from '@/lib/use-settings-version'
+import { showSettingsConflict } from '@/lib/settings-conflict'
+import { ConnectedAppsSettings } from './connected-apps-settings'
+import { ApiKeysSettings } from './api-keys-settings'
 import { useQueryClient } from '@tanstack/react-query'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import { useAvatarInput } from '@/lib/use-avatar-input'
@@ -16,9 +25,8 @@ import {
   LogOutIcon,
   MailIcon,
   Trash2Icon,
-  UploadIcon,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -56,6 +64,12 @@ import {
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field'
+import {
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+  EmptyDescription,
+} from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import {
   Table,
@@ -71,7 +85,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { authClient } from '@/lib/auth/client'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { ResourceAvatar } from '@/components/resource-avatar'
 import { StandaloneSettingsLayout } from '@/components/settings-layout'
 import type { AuthUserContext } from '@/server/auth/context'
@@ -102,8 +116,9 @@ type SocialProvider = 'github' | 'google'
 export function UserSettings({ context }: { context: UserSettingsContext }) {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const { accounts, defaultTeam, teams, user } = context
+  const [savedGeneral, setSavedGeneral] = useState(user)
+  const [savedEmail, setSavedEmail] = useState(user.email)
   const [generalErrors, setGeneralErrors] = useState<AccountSettingsErrors>({})
   const [name, setName] = useState(user.name)
   const [username, setUsername] = useState(user.username)
@@ -118,16 +133,10 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
   const [newEmail, setNewEmail] = useState(user.email)
   const [isSavingGeneral, setIsSavingGeneral] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
-  const [emailRequestError, setEmailRequestError] = useState<string | null>(
-    null,
-  )
   const [isSavingEmail, setIsSavingEmail] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [accountDeleted, setAccountDeleted] = useState(false)
   const [leavingTeamId, setLeavingTeamId] = useState<string | null>(null)
-  const [accountActionError, setAccountActionError] = useState<string | null>(
-    null,
-  )
   const [isDeletingAccount, setIsDeletingAccount] = useState(false)
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -140,11 +149,32 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
   const avatarUrl = deleteAvatar ? null : (avatarDataUrl ?? user.image)
   const generalDirty =
     isReadingAvatar ||
-    name.trim() !== user.name ||
-    username.trim() !== user.username ||
+    name.trim() !== savedGeneral.name ||
+    username.trim() !== savedGeneral.username ||
     Boolean(avatarDataUrl) ||
     deleteAvatar
-  const emailDirty = newEmail.trim().toLowerCase() !== user.email.toLowerCase()
+  const emailDirty = newEmail.trim().toLowerCase() !== savedEmail.toLowerCase()
+  const generalVersion = useSettingsVersion({
+    version: user.settingsVersion,
+    dirty: generalDirty,
+    saving: isSavingGeneral,
+    refresh: () => {
+      setName(user.name)
+      setUsername(user.username)
+      setSavedGeneral(user)
+      setGeneralErrors({})
+    },
+  })
+  const emailVersion = useSettingsVersion({
+    version: user.settingsVersion,
+    dirty: emailDirty,
+    saving: isSavingEmail,
+    refresh: () => {
+      setNewEmail(user.email)
+      setSavedEmail(user.email)
+      setEmailError(null)
+    },
+  })
   const socialProviders = ['github', 'google'] as const
   const accountsByProvider = new Map(
     accounts.map((account) => [account.providerId, account]),
@@ -188,6 +218,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
   async function saveGeneral() {
     if (isSavingGeneral || isReadingAvatar || !generalDirty) return
     const parsed = accountSettingsSchema.safeParse({
+      settingsVersion: generalVersion.current,
       name,
       username,
       avatarDataUrl,
@@ -195,6 +226,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
     })
     if (!parsed.success) {
       const errors = accountValidationErrors(parsed.error.issues)
+      if (errors.form) toast.error(errors.form)
       setGeneralErrors(errors)
       const field = errors.name
         ? 'name'
@@ -210,9 +242,14 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
     try {
       const result = await updateUserGeneralAction({ data: parsed.data })
       if (result.fieldErrors) {
+        if (result.fieldErrors.form) toast.error(result.fieldErrors.form)
         setGeneralErrors(result.fieldErrors)
         return
       }
+      generalVersion.current = result.user.settingsVersion
+      setSavedGeneral((current) => ({ ...current, ...result.user }))
+      setName(result.user.name)
+      setUsername(result.user.username)
       setAvatarDataUrl(null)
       setDeleteAvatar(false)
       toast.success('Account settings saved.')
@@ -221,12 +258,13 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
         await router.invalidate()
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      setGeneralErrors({
-        form: getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to save account. Please try again.',
         ),
-      })
+      )
     } finally {
       setIsSavingGeneral(false)
     }
@@ -234,7 +272,10 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
 
   async function requestEmailChange() {
     if (isSavingEmail || !emailDirty) return
-    const parsed = accountEmailSchema.safeParse({ newEmail })
+    const parsed = accountEmailSchema.safeParse({
+      newEmail,
+      settingsVersion: emailVersion.current,
+    })
     if (!parsed.success) {
       setEmailError(
         parsed.error.issues[0]?.message ?? 'Enter a valid email address.',
@@ -243,16 +284,22 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       return
     }
     setEmailError(null)
-    setEmailRequestError(null)
+
     setIsSavingEmail(true)
 
     try {
-      await requestEmailChangeAction({ data: parsed.data })
+      const result = await requestEmailChangeAction({ data: parsed.data })
+      emailVersion.current = result.settingsVersion
       toast.success('Verification email sent.')
       setNewEmail(user.email)
+      await afterMutation(async () => {
+        await invalidateResourceQueries(queryClient)
+        await router.invalidate()
+      }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      setEmailRequestError(
-        getErrorMessage(
+      if (showSettingsConflict(error)) return
+      toast.error(
+        getPublicErrorMessage(
           error,
           'Unable to send the verification email. Please try again.',
         ),
@@ -264,7 +311,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
 
   async function disconnectAccount(account: AuthAccountSummary) {
     if (busyId) return
-    setAccountActionError(null)
+
     setBusyId(account.id)
 
     try {
@@ -281,9 +328,8 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
         await router.invalidate()
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      setAccountActionError(
-        getErrorMessage(error, 'Unable to disconnect account.'),
-      )
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to disconnect account.'))
     } finally {
       setBusyId(null)
     }
@@ -300,7 +346,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
 
       if (result.error) {
         toast.error(
-          getErrorMessage(result.error, `Unable to connect ${provider}.`),
+          getPublicErrorMessage(result.error, `Unable to connect ${provider}.`),
         )
         setPendingProvider(null)
       }
@@ -312,7 +358,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
 
   async function leave(teamId: string) {
     if (busyId) return
-    setAccountActionError(null)
+
     setBusyId(teamId)
 
     try {
@@ -324,7 +370,8 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
         await router.invalidate()
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
-      setAccountActionError(getErrorMessage(error, 'Unable to leave team.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to leave team.'))
     } finally {
       setBusyId(null)
     }
@@ -337,7 +384,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       deleteAccountConfirmation !== user.email
     )
       return
-    setAccountActionError(null)
+
     setIsDeletingAccount(true)
 
     try {
@@ -346,14 +393,15 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       })
       setAccountDeleted(true)
       setDeleteDialogOpen(false)
+      queryClient.clear()
       await authClient.signOut().catch(() => {})
       toast.success('Account deleted.')
       await afterMutation(async () => {
-        await invalidateResourceQueries(queryClient)
         await router.navigate({ to: '/auth/login' })
       }, 'The action completed, but opening the next page failed. Please reload.')
     } catch (error) {
-      setAccountActionError(getErrorMessage(error, 'Unable to delete account.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to delete account.'))
     } finally {
       setIsDeletingAccount(false)
     }
@@ -361,11 +409,14 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
 
   return (
     <StandaloneSettingsLayout
-      title="Account settings"
+      title="Account"
       navigation={[
         { href: '#general', label: 'General' },
         { href: '#email', label: 'Email' },
+        ...accountSettingsNavigation,
         { href: '#authentication', label: 'Authentication' },
+        { href: '#api-keys', label: 'API keys' },
+        { href: '#connected-apps', label: 'Connected apps' },
         { href: '#teams', label: 'Teams' },
         { href: '#danger', label: 'Danger', destructive: true },
       ]}
@@ -385,77 +436,47 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
             }}
           >
             <FieldGroup>
-              <Field data-invalid={Boolean(generalErrors.avatarDataUrl)}>
-                <FieldLabel>Avatar</FieldLabel>
-                <div className="flex items-center gap-2">
-                  <ResourceAvatar
-                    name={name || username || user.email}
-                    src={avatarUrl ?? undefined}
-                    size="md"
-                    className="rounded-full"
-                  />
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    disabled={isSavingGeneral}
-                    aria-label="Avatar image"
-                    aria-invalid={Boolean(generalErrors.avatarDataUrl)}
-                    aria-describedby="account-avatar-error"
-                    accept="image/png,image/jpeg,image/webp"
-                    className="hidden"
-                    onChange={(event) => {
-                      void chooseAvatar(event.target.files?.[0])
-                      event.target.value = ''
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    id="account-avatar-button"
-                    disabled={isSavingGeneral}
-                    aria-describedby="account-avatar-error"
-                    aria-invalid={Boolean(generalErrors.avatarDataUrl)}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <UploadIcon data-icon="inline-start" />
-                    Upload image
-                  </Button>
-                  {avatarUrl ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="destructive"
-                          size="icon-sm"
-                          type="button"
-                          aria-label="Remove image"
-                          disabled={isSavingGeneral}
-                          onClick={() => {
-                            setAvatarDataUrl(null)
-                            setDeleteAvatar(true)
-                            setGeneralErrors((current) => ({
-                              ...current,
-                              avatarDataUrl: undefined,
-                            }))
-                          }}
-                        >
-                          <Trash2Icon />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Remove image</TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                </div>
+              <Field
+                orientation="horizontal"
+                className="grid items-center gap-3 sm:grid-cols-2"
+                data-invalid={Boolean(generalErrors.avatarDataUrl)}
+              >
+                <FieldLabel htmlFor="account-avatar-button">Picture</FieldLabel>
+                <ProfilePicture
+                  key={savedGeneral.settingsVersion}
+                  id="account-avatar-button"
+                  image={avatarUrl}
+                  name={name || username}
+                  email={user.email}
+                  disabled={isSavingGeneral}
+                  processing={isReadingAvatar}
+                  onFile={chooseAvatar}
+                  onChange={(value) => {
+                    setAvatarDataUrl(value === user.image ? null : value)
+                    setDeleteAvatar(value === null)
+                    setGeneralErrors((current) => ({
+                      ...current,
+                      avatarDataUrl: undefined,
+                    }))
+                  }}
+                />
                 {isReadingAvatar ? (
                   <p role="status" className="text-sm text-muted-foreground">
                     Reading image…
                   </p>
                 ) : null}
-                <FieldError id="account-avatar-error">
+                <FieldError
+                  className="sm:col-start-2"
+                  id="account-avatar-error"
+                >
                   {generalErrors.avatarDataUrl}
                 </FieldError>
               </Field>
-              <Field data-invalid={Boolean(generalErrors.name)}>
+              <Field
+                orientation="horizontal"
+                className="grid items-center gap-3 sm:grid-cols-2"
+                data-invalid={Boolean(generalErrors.name)}
+              >
                 <FieldLabel htmlFor="account-name">
                   Name <span className="text-muted-foreground">(required)</span>
                 </FieldLabel>
@@ -474,11 +495,15 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                     }))
                   }}
                 />
-                <FieldError id="account-name-error">
+                <FieldError className="sm:col-start-2" id="account-name-error">
                   {generalErrors.name}
                 </FieldError>
               </Field>
-              <Field data-invalid={Boolean(generalErrors.username)}>
+              <Field
+                orientation="horizontal"
+                className="grid items-center gap-3 sm:grid-cols-2"
+                data-invalid={Boolean(generalErrors.username)}
+              >
                 <FieldLabel htmlFor="account-username">
                   Username{' '}
                   <span className="text-muted-foreground">(required)</span>
@@ -498,11 +523,13 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                     }))
                   }}
                 />
-                <FieldError id="account-username-error">
+                <FieldError
+                  className="sm:col-start-2"
+                  id="account-username-error"
+                >
                   {generalErrors.username}
                 </FieldError>
               </Field>
-              <FieldError role="alert">{generalErrors.form}</FieldError>
             </FieldGroup>
           </form>
         </CardContent>
@@ -512,6 +539,8 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
             disabled={!generalDirty || isSavingGeneral}
             onClick={() => {
               setGeneralErrors({})
+              generalVersion.current = user.settingsVersion
+              setSavedGeneral(user)
               setName(user.name)
               setUsername(user.username)
               setAvatarDataUrl(null)
@@ -564,7 +593,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                 onChange={(event) => {
                   setNewEmail(event.target.value)
                   setEmailError(null)
-                  setEmailRequestError(null)
                 }}
               />
               <FieldDescription>
@@ -573,7 +601,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
               </FieldDescription>
               <FieldError id="account-email-error">{emailError}</FieldError>
             </Field>
-            <FieldError role="alert">{emailRequestError}</FieldError>
           </form>
         </CardContent>
         <CardFooter className="justify-end gap-2">
@@ -583,7 +610,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
             onClick={() => {
               setNewEmail(user.email)
               setEmailError(null)
-              setEmailRequestError(null)
             }}
           >
             Cancel
@@ -601,6 +627,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
         </CardFooter>
       </Card>
 
+      <AccountEmailPreferences userId={user.id} />
       <Card id="authentication" className="scroll-mt-8">
         <CardHeader className="border-b">
           <CardTitle>Authentication</CardTitle>
@@ -681,7 +708,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                         <DropdownMenuItem
                           variant="destructive"
                           onSelect={() => {
-                            setAccountActionError(null)
                             setAccountToDisconnect(account)
                           }}
                         >
@@ -714,7 +740,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
             onOpenChange={(open) => {
               if (!open && !busyId) {
                 setAccountToDisconnect(null)
-                setAccountActionError(null)
               }
             }}
           >
@@ -728,7 +753,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                   unless you connect it again.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <FieldError role="alert">{accountActionError}</FieldError>
               <AlertDialogFooter>
                 <AlertDialogCancel
                   disabled={busyId === accountToDisconnect?.id}
@@ -756,6 +780,9 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
         </CardContent>
       </Card>
 
+      <ApiKeysSettings userId={user.id} />
+      <ConnectedAppsSettings userId={user.id} />
+
       <Card id="teams" className="scroll-mt-8">
         <CardHeader className="border-b">
           <CardTitle>Teams</CardTitle>
@@ -764,111 +791,120 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="w-10">
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {teams.map((team) => (
-                  <TableRow key={team.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <ResourceAvatar
-                          name={team.name}
-                          src={team.image ?? undefined}
-                          color={team.color}
-                          size="sm"
-                        />
-                        <Link
-                          to="/$teamSlug"
-                          params={{ teamSlug: team.slug }}
-                          className="font-medium"
+          {teams.length === 0 ? (
+            <Empty className="min-h-40">
+              <EmptyHeader>
+                <EmptyTitle>No teams.</EmptyTitle>
+                <EmptyDescription>
+                  Join or create a team to collaborate on projects.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <div className="overflow-hidden rounded-xl border bg-card text-card-foreground">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-4">Name</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="w-10">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {teams.map((team) => (
+                    <TableRow key={team.id}>
+                      <TableCell className="pl-4">
+                        <div className="flex items-center gap-3">
+                          <ResourceAvatar
+                            name={team.name}
+                            src={team.image ?? undefined}
+                            color={team.color}
+                            size="sm"
+                          />
+                          <Link
+                            to="/$teamSlug"
+                            params={{ teamSlug: team.slug }}
+                            className="font-medium"
+                          >
+                            {team.name}
+                          </Link>
+                          {team.id === defaultTeam.id ? (
+                            <Badge variant="secondary">Default</Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="capitalize text-muted-foreground">
+                        {team.role}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <AlertDialog
+                          open={leavingTeamId === team.id}
+                          onOpenChange={(open) => {
+                            if (!busyId) {
+                              setLeavingTeamId(open ? team.id : null)
+                            }
+                          }}
                         >
-                          {team.name}
-                        </Link>
-                        {team.id === defaultTeam.id ? (
-                          <Badge variant="secondary">Default</Badge>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="capitalize text-muted-foreground">
-                      {team.role}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <AlertDialog
-                        open={leavingTeamId === team.id}
-                        onOpenChange={(open) => {
-                          if (!busyId) {
-                            setAccountActionError(null)
-                            setLeavingTeamId(open ? team.id : null)
-                          }
-                        }}
-                      >
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled={team.isDefault || busyId === team.id}
-                                aria-label={`Leave ${team.name}`}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={
+                                    team.isDefault || busyId === team.id
+                                  }
+                                  aria-label={`Leave ${team.name}`}
+                                >
+                                  {busyId === team.id ? (
+                                    <LoaderIcon className="animate-spin" />
+                                  ) : (
+                                    <LogOutIcon />
+                                  )}
+                                </Button>
+                              </AlertDialogTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent>Leave team</TooltipContent>
+                          </Tooltip>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Leave {team.name}?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                You will lose access to this team and its
+                                projects.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel disabled={busyId === team.id}>
+                                Cancel
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                disabled={busyId === team.id}
+                                onClick={(event) => {
+                                  event.preventDefault()
+                                  void leave(team.id)
+                                }}
                               >
                                 {busyId === team.id ? (
                                   <LoaderIcon className="animate-spin" />
-                                ) : (
-                                  <LogOutIcon />
-                                )}
-                              </Button>
-                            </AlertDialogTrigger>
-                          </TooltipTrigger>
-                          <TooltipContent>Leave team</TooltipContent>
-                        </Tooltip>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Leave {team.name}?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              You will lose access to this team and its
-                              projects.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <FieldError role="alert">
-                            {accountActionError}
-                          </FieldError>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel disabled={busyId === team.id}>
-                              Cancel
-                            </AlertDialogCancel>
-                            <AlertDialogAction
-                              variant="destructive"
-                              disabled={busyId === team.id}
-                              onClick={(event) => {
-                                event.preventDefault()
-                                void leave(team.id)
-                              }}
-                            >
-                              {busyId === team.id ? (
-                                <LoaderIcon className="animate-spin" />
-                              ) : null}
-                              Leave team
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                                ) : null}
+                                Leave team
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -885,7 +921,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
             open={deleteDialogOpen}
             onOpenChange={(open) => {
               if (!isDeletingAccount && !accountDeleted) {
-                setAccountActionError(null)
                 setDeleteDialogOpen(open)
               }
             }}
@@ -940,7 +975,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                   }}
                 />
               </Field>
-              <FieldError role="alert">{accountActionError}</FieldError>
               <AlertDialogFooter>
                 <AlertDialogCancel
                   disabled={isDeletingAccount || accountDeleted}

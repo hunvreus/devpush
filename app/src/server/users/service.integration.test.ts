@@ -1,9 +1,11 @@
+import { pruneDeletedResources } from '@/server/deleted-resources'
 import { required } from '@/test/required'
+import { mockObjectStore } from '@/test/object-store'
 import { eq, inArray } from 'drizzle-orm'
 import { SignJWT } from 'jose'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
-import { auth, authMethods } from '@/lib/auth'
+import { auth, authMethods } from '@/server/auth/better-auth'
 import { config } from '@/server/config'
 import { closeDb, db } from '@/server/db'
 import {
@@ -22,7 +24,6 @@ import {
   userCleanupJobs,
 } from '@/server/db/schema'
 import {
-  backfillAuthAccountIdentities,
   deleteUserAccount,
   disconnectAuthAccount,
   leaveTeam,
@@ -44,6 +45,7 @@ const touchedUserIds: Array<string> = []
 const touchedTeamIds: Array<string> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await cleanupRows()
 })
 
@@ -52,6 +54,88 @@ afterAll(async () => {
 })
 
 describe('deleteUserAccount integration', () => {
+  test.each([
+    { attempt: 1, age: 11, expected: 'succeeded' },
+    { attempt: 1, age: 1, expected: 'running' },
+    { attempt: 5, age: 11, expected: 'failed' },
+  ])(
+    'interrupted cleanup attempt $attempt aged $age minutes becomes $expected',
+    async ({ attempt, age, expected }) => {
+      const { userId } = await createUserWithTeams({
+        activeTeamCount: 1,
+        deletedTeamCount: 1,
+      })
+      await deleteUserAccount({
+        userId,
+        confirmationName: `${userId}@example.com`,
+      })
+      const now = new Date()
+      const [job] = await db
+        .select()
+        .from(userCleanupJobs)
+        .where(eq(userCleanupJobs.userId, userId))
+      touchedCleanupJobIds.push(required(job).id)
+      await db
+        .update(userCleanupJobs)
+        .set({
+          status: 'running',
+          attempt,
+          claimedAt: new Date(now.getTime() - age * 60_000),
+        })
+        .where(eq(userCleanupJobs.id, required(job).id))
+      await runQueuedUserCleanupJobs({ now })
+      const [saved] = await db
+        .select()
+        .from(userCleanupJobs)
+        .where(eq(userCleanupJobs.id, required(job).id))
+      expect(saved?.status).toBe(expected)
+      expect(saved?.attempt).toBe(
+        expected === 'succeeded' ? attempt + 1 : attempt,
+      )
+    },
+  )
+
+  test('an older cleanup worker cannot overwrite a reclaimed attempt', async () => {
+    const { userId } = await createUserWithTeams({
+      activeTeamCount: 1,
+      deletedTeamCount: 1,
+    })
+    await db
+      .update(user)
+      .set({ image: `/uploads/avatars/user_${userId}.png` })
+      .where(eq(user.id, userId))
+    const { remove } = mockObjectStore()
+    let unblock!: () => void
+    remove.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          unblock = resolve
+        }),
+    )
+    await deleteUserAccount({
+      userId,
+      confirmationName: `${userId}@example.com`,
+    })
+    const [job] = await db
+      .select()
+      .from(userCleanupJobs)
+      .where(eq(userCleanupJobs.userId, userId))
+    touchedCleanupJobIds.push(required(job).id)
+    const now = new Date()
+    const older = runQueuedUserCleanupJobs({ now })
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledOnce())
+    await runQueuedUserCleanupJobs({
+      now: new Date(now.getTime() + 11 * 60_000),
+    })
+    unblock()
+    expect(await older).toEqual([])
+    const [saved] = await db
+      .select()
+      .from(userCleanupJobs)
+      .where(eq(userCleanupJobs.id, required(job).id))
+    expect(saved).toMatchObject({ status: 'succeeded', attempt: 2 })
+  })
+
   test('ignores already-deleted teams when deleting sole-owned active teams', async () => {
     const { activeTeamId, deletedTeamId, userId } = await createUserWithTeams({
       activeTeamCount: 1,
@@ -217,7 +301,7 @@ describe('deleteUserAccount integration', () => {
         confirmationName: `${userId}@example.com`,
       }),
     ).rejects.toThrow(
-      'Transfer ownership of "Needs transfer" before deleting your account.',
+      'Transfer ownership of teams where you are the only owner before deleting your account.',
     )
 
     const [userRows, teamRows, memberRows] = await Promise.all([
@@ -284,7 +368,7 @@ describe('deleteUserAccount integration', () => {
         confirmationName: `${userId}@example.com`,
       }),
     ).rejects.toThrow(
-      'Transfer ownership of "Owned with members" before deleting your account.',
+      'Transfer ownership of teams where you are the only owner before deleting your account.',
     )
 
     const [userRows, teamRows, memberRows] = await Promise.all([
@@ -423,6 +507,10 @@ describe('deleteUserAccount integration', () => {
       userId,
       confirmationName: `${userId}@example.com`,
     })
+    // The recipient must lose the invitation before the asynchronous worker runs.
+    expect(
+      await db.select().from(teamInvites).where(eq(teamInvites.id, inviteId)),
+    ).toEqual([])
     await runQueuedUserCleanupJobs()
 
     const [
@@ -507,7 +595,21 @@ describe('deleteUserAccount integration', () => {
         errorMessage: 'Canceled because the owning user was deleted.',
       },
     ])
-    expect(hostnameRows).toEqual([])
+    expect(hostnameRows).toEqual([{ id: hostnameId }])
+    await pruneDeletedResources()
+    expect(
+      await db.select().from(aliases).where(eq(aliases.id, hostnameId)),
+    ).toHaveLength(1)
+    await db
+      .update(agentJobs)
+      .set({ status: 'succeeded' })
+      .where(
+        eq(agentJobs.id, jobRows.find((job) => job.type === 'deprovision')!.id),
+      )
+    await pruneDeletedResources()
+    expect(
+      await db.select().from(aliases).where(eq(aliases.id, hostnameId)),
+    ).toEqual([])
     expect(inviteRows).toEqual([])
     expect(accountRows).toEqual([])
     expect(sessionRows).toEqual([])
@@ -764,165 +866,6 @@ describe('disconnectAuthAccount integration', () => {
   })
 })
 
-describe('backfillAuthAccountIdentities integration', () => {
-  test('backfills missing GitHub provider identity from account tokens', async () => {
-    const userId = makeId('user')
-    const accountId = makeId('account')
-    touchedUserIds.push(userId)
-    touchedAccountIds.push(accountId)
-
-    await db.insert(user).values(makeUser(userId, `${userId}@example.com`))
-    await db.insert(account).values({
-      id: accountId,
-      accountId: 'github-account',
-      accessToken: 'github-token',
-      providerId: 'github',
-      userId,
-    })
-
-    const fetchedUrls: Array<string> = []
-    const accounts = await backfillAuthAccountIdentities({
-      userId,
-      fetcher: async (input) => {
-        const url = input.toString()
-        fetchedUrls.push(url)
-
-        if (url === 'https://api.github.com/user') {
-          return Response.json({
-            id: 123,
-            login: 'octocat',
-            name: 'Octo Cat',
-            email: null,
-            avatar_url: 'https://avatars.example/octocat.png',
-          })
-        }
-
-        if (url === 'https://api.github.com/user/emails') {
-          return Response.json([
-            {
-              email: 'backup@example.com',
-              primary: false,
-              verified: true,
-            },
-            {
-              email: 'octocat@example.com',
-              primary: true,
-              verified: true,
-            },
-          ])
-        }
-
-        return new Response(null, { status: 404 })
-      },
-    })
-
-    expect(fetchedUrls).toEqual([
-      'https://api.github.com/user',
-      'https://api.github.com/user/emails',
-    ])
-    expect(accounts).toEqual([
-      {
-        id: accountId,
-        accountId: 'github-account',
-        providerId: 'github',
-        managementUrl: null,
-        providerAccountName: 'Octo Cat',
-        providerAccountEmail: 'octocat@example.com',
-        providerAccountUsername: 'octocat',
-        providerAccountImage: 'https://avatars.example/octocat.png',
-      },
-    ])
-    expect(accounts[0]).not.toHaveProperty('accessToken')
-  })
-
-  test('preserves existing provider identity fields when backfilling', async () => {
-    const userId = makeId('user')
-    const accountId = makeId('account')
-    touchedUserIds.push(userId)
-    touchedAccountIds.push(accountId)
-
-    await db.insert(user).values(makeUser(userId, `${userId}@example.com`))
-    await db.insert(account).values({
-      id: accountId,
-      accountId: 'github-account',
-      accessToken: 'github-token',
-      providerAccountName: 'Existing Name',
-      providerId: 'github',
-      userId,
-    })
-
-    const accounts = await backfillAuthAccountIdentities({
-      userId,
-      fetcher: async (input) => {
-        if (input.toString() === 'https://api.github.com/user') {
-          return Response.json({
-            id: 123,
-            login: 'new-login',
-            name: 'New Name',
-            email: 'new@example.com',
-            avatar_url: 'https://avatars.example/new.png',
-          })
-        }
-
-        return Response.json([])
-      },
-    })
-
-    expect(accounts).toEqual([
-      {
-        id: accountId,
-        accountId: 'github-account',
-        providerId: 'github',
-        managementUrl: null,
-        providerAccountName: 'Existing Name',
-        providerAccountEmail: 'new@example.com',
-        providerAccountUsername: 'new-login',
-        providerAccountImage: 'https://avatars.example/new.png',
-      },
-    ])
-  })
-
-  test('backfills missing Google provider identity from the id token', async () => {
-    const userId = makeId('user')
-    const accountId = makeId('account')
-    touchedUserIds.push(userId)
-    touchedAccountIds.push(accountId)
-
-    await db.insert(user).values(makeUser(userId, `${userId}@example.com`))
-    await db.insert(account).values({
-      id: accountId,
-      accountId: 'google-account',
-      idToken: makeJwt({
-        email: 'ronan@example.com',
-        name: 'Ronan Berder',
-        picture: 'https://accounts.example/ronan.png',
-      }),
-      providerId: 'google',
-      userId,
-    })
-
-    const accounts = await backfillAuthAccountIdentities({
-      userId,
-      fetcher: async () => {
-        throw new Error('Google backfill should not fetch provider APIs.')
-      },
-    })
-
-    expect(accounts).toEqual([
-      {
-        id: accountId,
-        accountId: 'google-account',
-        providerId: 'google',
-        managementUrl: 'https://myaccount.google.com/connections',
-        providerAccountName: 'Ronan Berder',
-        providerAccountEmail: 'ronan@example.com',
-        providerAccountUsername: 'ronan@example.com',
-        providerAccountImage: 'https://accounts.example/ronan.png',
-      },
-    ])
-  })
-})
-
 describe('email change integration', () => {
   test('verifies a pending email change token', async () => {
     const userId = makeId('user')
@@ -954,6 +897,48 @@ describe('email change integration', () => {
 })
 
 describe('updateUserGeneral integration', () => {
+  test('removing an injected foreign avatar path cannot delete another resource’s object', async () => {
+    const userId = makeId('user')
+    touchedUserIds.push(userId)
+    const victimKey = 'avatars/team_victim.png'
+    const { objects, remove } = mockObjectStore([
+      [victimKey, Buffer.from('victim avatar')],
+    ])
+    await db.insert(user).values({
+      ...makeUser(userId, `${userId}@example.com`, 'avatar-owner'),
+      image: `/uploads/${victimKey}`,
+    })
+    await updateUserGeneral({
+      userId,
+      name: 'Avatar owner',
+      username: 'avatar-owner',
+      deleteAvatar: true,
+    })
+    expect(
+      required((await db.select().from(user).where(eq(user.id, userId)))[0])
+        .image,
+    ).toBeNull()
+    expect(objects.has(victimKey)).toBe(true)
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  test('deleted-account cleanup preserves an injected foreign avatar object', async () => {
+    const userId = makeId('user')
+    const email = `${userId}@example.com`
+    touchedUserIds.push(userId)
+    const victimKey = 'avatars/project_victim.png'
+    const { objects, remove } = mockObjectStore([
+      [victimKey, Buffer.from('victim avatar')],
+    ])
+    await db.insert(user).values({
+      ...makeUser(userId, email, 'avatar-owner'),
+      image: `/uploads/${victimKey}`,
+    })
+    await deleteUserAccount({ userId, confirmationName: email })
+    await runQueuedUserCleanupJobs()
+    expect(objects.has(victimKey)).toBe(true)
+    expect(remove).not.toHaveBeenCalled()
+  })
   test('updates name and username', async () => {
     const userId = makeId('user')
     touchedUserIds.push(userId)
@@ -1196,14 +1181,6 @@ function makeUsername(id: string) {
   return id.replaceAll('_', '-').toLowerCase().slice(0, 50)
 }
 
-function makeJwt(claims: Record<string, unknown>) {
-  return [
-    Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url'),
-    Buffer.from(JSON.stringify(claims)).toString('base64url'),
-    '',
-  ].join('.')
-}
-
 async function createEmailVerificationToken(
   payload: Record<string, unknown> & { email: string; updateTo?: string },
 ) {
@@ -1217,3 +1194,37 @@ async function createEmailVerificationToken(
     .setExpirationTime(Math.floor(Date.now() / 1000) + 3600)
     .sign(new TextEncoder().encode(config.BETTER_AUTH_SECRET))
 }
+
+test('profile confirmation is persisted with optimistic concurrency and ordinary settings saves do not confirm onboarding', async () => {
+  const id = crypto.randomUUID()
+  touchedUserIds.push(id)
+  await db.insert(user).values(makeUser(id, `${id}@example.com`))
+  const [before] = await db.select().from(user).where(eq(user.id, id))
+  expect(before!.profileConfirmedAt).toBeNull()
+  const saved = await updateUserGeneral({
+    userId: id,
+    settingsVersion: before!.settingsVersion,
+    name: before!.name,
+    username: before!.username,
+  })
+  const [ordinary] = await db.select().from(user).where(eq(user.id, id))
+  expect(ordinary!.profileConfirmedAt).toBeNull()
+  await expect(
+    updateUserGeneral({
+      userId: id,
+      settingsVersion: before!.settingsVersion,
+      name: before!.name,
+      username: before!.username,
+      confirmProfile: true,
+    }),
+  ).rejects.toThrow()
+  await updateUserGeneral({
+    userId: id,
+    settingsVersion: saved.settingsVersion,
+    name: before!.name,
+    username: before!.username,
+    confirmProfile: true,
+  })
+  const [confirmed] = await db.select().from(user).where(eq(user.id, id))
+  expect(confirmed!.profileConfirmedAt).toBeInstanceOf(Date)
+})

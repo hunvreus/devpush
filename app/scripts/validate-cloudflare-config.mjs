@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { parse, printParseErrorCode } from 'jsonc-parser'
 
 import { getD1Bindings } from '../../scripts/d1-config.mjs'
+import { validateMcpUrl } from '../../scripts/setup-config.mjs'
 
 const configPath = resolve(
   process.cwd(),
@@ -94,6 +95,10 @@ for (const key of ['DEVPUSH_BASE_URL', 'BETTER_AUTH_URL']) {
   ) {
     throw new Error(`${key} must be an HTTP(S) origin without a path.`)
   }
+}
+if (values.DEVPUSH_MCP_URL !== undefined && values.DEVPUSH_MCP_URL !== '') {
+  const error = validateMcpUrl(values.DEVPUSH_MCP_URL)
+  if (error) throw new Error(`DEVPUSH_MCP_URL: ${error}`)
 }
 
 if (

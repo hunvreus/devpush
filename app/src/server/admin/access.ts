@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import { config } from '@/server/config'
 import { db } from '@/server/db'
@@ -10,23 +10,24 @@ type AdminCandidate = {
 }
 
 export async function isInstallationAdmin(candidate: AdminCandidate) {
-  const configuredEmail = config.DEVPUSH_ADMIN_EMAIL?.trim().toLowerCase()
-
-  if (configuredEmail) {
-    return matchesInstallationAdmin({ candidate, configuredEmail })
-  }
-
-  const firstUser = await db
+  const [current] = await db
     .select({ id: user.id })
     .from(user)
-    .orderBy(asc(user.createdAt), asc(user.id))
+    .where(
+      and(eq(user.id, candidate.id), installationAdminPredicate(candidate.id)),
+    )
     .limit(1)
+  return Boolean(current)
+}
 
-  return matchesInstallationAdmin({
-    candidate,
-    configuredEmail,
-    firstUserId: firstUser.at(0)?.id,
-  })
+export function installationAdminPredicate(userId: string) {
+  const email = config.DEVPUSH_ADMIN_EMAIL?.trim().toLowerCase()
+  return sql`exists(select 1 from user as admin_actor where admin_actor.id = ${userId}
+    and admin_actor.status = 'active' and ${
+      email
+        ? sql`lower(trim(admin_actor.email)) = ${email}`
+        : sql`admin_actor.id = (select id from user order by created_at, id limit 1)`
+    })`
 }
 
 export function matchesInstallationAdmin({

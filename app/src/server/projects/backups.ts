@@ -1,110 +1,101 @@
-import { backupStorageReferenceSchema } from '@/lib/backup-storage-schema'
-import { resolveBackupDestination } from '@/server/backups/storage'
-import { eq } from 'drizzle-orm'
+import { requireBackupsEnabled } from '@/server/backups/feature'
+import { getProjectSettingsContext } from './settings-context'
+import { PublicError } from '@/lib/public-error'
+import { prepareBackupPolicy } from '@/server/backups/policy-validation'
 
 import { canManageTeamSettings } from '@/lib/team-role'
 import type { TeamRole } from '@/lib/team-role'
 import { db } from '@/server/db'
-import { backupConfigs } from '@/server/db/schema'
+import {
+  saveProjectBackupPolicyState,
+  deleteProjectBackupPolicyState,
+} from './backup-policy-state'
 import {
   queueBackupRestoreJob,
   queueEnvironmentBackup,
 } from '@/server/backups/service'
 import { getProjectContext } from './context'
-import { normalizeBackupVolumes, parseBackupSchedule } from './mappers'
 import type { BackupDestinationInput, ProjectBackupConfig } from './types'
 
-export async function updateProjectBackupConfigs({
+export async function saveProjectBackupPolicy({
+  projectId,
   userId,
   teamSlug,
   projectName,
-  backupConfigs: nextBackupConfigs,
+  policy,
+  settingsVersion,
 }: {
+  projectId?: string
   userId: string
   teamSlug: string
   projectName: string
-  backupConfigs: Array<
-    Omit<ProjectBackupConfig, 'destination'> & {
-      destination: BackupDestinationInput
-    }
-  >
+  settingsVersion: number | null
+  policy: Omit<ProjectBackupConfig, 'settingsVersion' | 'destination'> & {
+    destination: BackupDestinationInput
+  }
 }) {
-  const context = await getProjectContext({
+  requireBackupsEnabled()
+  const context = await getProjectSettingsContext({
+    projectId,
+    reloadSection: 'backups',
     userId,
     teamSlug,
     projectName,
     scope: 'shell',
   })
   requireBackupManagement(context.team.role)
-  const environmentIds = new Set(context.environments.map((item) => item.id))
-  const normalizedConfigs = nextBackupConfigs
-    .filter((item) => item.environmentId.trim() !== '')
-    .map((item) => ({
-      id: item.id.trim() || crypto.randomUUID(),
-      name: item.name.trim(),
-      environmentId: item.environmentId,
-      enabled: item.enabled,
-      schedule: parseBackupSchedule(item.schedule),
-      destination: backupStorageReferenceSchema.parse(item.destination),
-      retention: item.retention,
-      volumes: normalizeBackupVolumes(item.volumes),
-      databaseDumps: item.databaseDumps.map((dump) => ({
-        service: dump.service.trim(),
-        engine: dump.engine,
-        database: dump.database.trim(),
-      })),
-    }))
+  const normalized = await prepareBackupPolicy({
+    teamId: context.team.id,
+    projectId: context.project.id,
+    policy,
+  })
+  const changed = await saveProjectBackupPolicyState(db, {
+    projectId: context.project.id,
+    teamId: context.team.id,
+    userId,
+    settingsVersion,
+    policy: normalized,
+    now: new Date(),
+  })
+  if (!changed) throw new PublicError('SETTINGS_CONFLICT')
+  return getProjectContext({ userId, teamSlug, projectName, scope: 'backups' })
+}
 
-  for (const backupConfig of normalizedConfigs) {
-    if (!backupConfig.name) {
-      throw new Error('Backup name is required.')
-    }
-
-    if (!environmentIds.has(backupConfig.environmentId)) {
-      throw new Error('Select a valid backup environment.')
-    }
-
-    if (
-      backupConfig.destination.storageId ||
-      backupConfig.retention.remote.enabled
-    ) {
-      await resolveBackupDestination(context.team.id, backupConfig.destination)
-    }
-  }
-
-  const now = new Date()
-
-  const values: Array<typeof backupConfigs.$inferInsert> =
-    normalizedConfigs.map((backupConfig) => ({
-      id: backupConfig.id,
-      name: backupConfig.name,
+export async function deleteProjectBackupPolicy({
+  projectId,
+  userId,
+  teamSlug,
+  projectName,
+  policyId,
+  settingsVersion,
+}: {
+  projectId?: string
+  userId: string
+  teamSlug: string
+  projectName: string
+  policyId: string
+  settingsVersion: number
+}) {
+  requireBackupsEnabled()
+  const context = await getProjectSettingsContext({
+    projectId,
+    reloadSection: 'backups',
+    userId,
+    teamSlug,
+    projectName,
+    scope: 'shell',
+  })
+  requireBackupManagement(context.team.role)
+  if (
+    !(await deleteProjectBackupPolicyState(db, {
       projectId: context.project.id,
-      environmentId: backupConfig.environmentId,
-      enabled: backupConfig.enabled,
-      destinationType: 's3',
-      schedule: backupConfig.schedule,
-      destination: backupConfig.destination,
-      retention: backupConfig.retention,
-      volumes: backupConfig.volumes,
-      databaseDumps: backupConfig.databaseDumps,
-      createdAt: now,
-      updatedAt: now,
+      teamId: context.team.id,
+      userId,
+      policyId,
+      settingsVersion,
     }))
-  const inserts = []
-  // Fourteen columns per config: six rows keep each statement below D1's
-  // parameter limit while the entire replacement stays atomic.
-  for (let offset = 0; offset < values.length; offset += 6) {
-    inserts.push(
-      db.insert(backupConfigs).values(values.slice(offset, offset + 6)),
-    )
-  }
-  await db.batch([
-    db
-      .delete(backupConfigs)
-      .where(eq(backupConfigs.projectId, context.project.id)),
-    ...inserts,
-  ])
-
+  )
+    throw new PublicError('SETTINGS_CONFLICT')
   return getProjectContext({ userId, teamSlug, projectName, scope: 'backups' })
 }
 
@@ -119,6 +110,7 @@ export async function createManualBackupRun({
   teamSlug: string
   projectName: string
 }) {
+  requireBackupsEnabled()
   const context = await getProjectContext({
     userId,
     teamSlug,
@@ -130,7 +122,7 @@ export async function createManualBackupRun({
   )
 
   if (!backupConfig) {
-    throw new Error('Backup policy not found.')
+    throw new PublicError('BACKUP_POLICY_NOT_FOUND')
   }
 
   requireBackupManagement(context.team.role)
@@ -145,9 +137,7 @@ export async function createManualBackupRun({
     },
   })
   if (!queued) {
-    throw new Error(
-      'A backup is already queued or running for this environment.',
-    )
+    throw new PublicError('BACKUP_ALREADY_ACTIVE')
   }
 
   return getProjectContext({ userId, teamSlug, projectName, scope: 'backups' })
@@ -177,6 +167,7 @@ export async function createBackupRestoreJob({
       }
   >
 }) {
+  requireBackupsEnabled()
   const context = await getProjectContext({
     userId,
     teamSlug,
@@ -196,8 +187,6 @@ export async function createBackupRestoreJob({
 
 function requireBackupManagement(role: TeamRole) {
   if (!canManageTeamSettings(role)) {
-    throw new Error(
-      'Only team owners and admins can configure backups or restore data.',
-    )
+    throw new PublicError('BACKUP_MANAGEMENT_FORBIDDEN')
   }
 }

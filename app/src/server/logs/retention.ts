@@ -1,7 +1,7 @@
-import { inArray, lt } from 'drizzle-orm'
+import { inArray, lt, sql } from 'drizzle-orm'
 
 import { logsDb } from '@/server/db'
-import { runtimeLogs } from '@/server/db/log-schema'
+import { runtimeLogs, operationLogs } from '@/server/db/log-schema'
 
 export const runtimeLogRetentionMs = 24 * 60 * 60 * 1000
 export const runtimeLogPruneBatchSize = 1_000
@@ -29,5 +29,11 @@ export async function pruneExpiredRuntimeLogs(now = new Date()) {
     deleted += rows.length
     if (rows.length < runtimeLogPruneBatchSize) break
   }
+  // Operation diagnostics share this existing scheduled log-maintenance pass.
+  await logsDb
+    .delete(operationLogs)
+    .where(
+      sql`rowid in (select rowid from ${operationLogs} where ${operationLogs.createdAt} < ${now.getTime() - 14 * 24 * 60 * 60 * 1000} order by ${operationLogs.createdAt} limit 1000)`,
+    )
   return { deleted }
 }

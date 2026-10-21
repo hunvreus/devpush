@@ -34,11 +34,35 @@ describe('getRequestPublicAddress', () => {
     ).toBe('192.0.2.44')
   })
 
-  test('uses headers from an explicitly trusted reverse proxy', () => {
+  test('ignores spoofed alternate headers and the client-supplied XFF prefix', () => {
     const request = new Request('https://devpush.example', { headers })
 
     expect(
       getRequestPublicAddress(request, { cloudflare: false, proxy: true }),
+    ).toBe('192.0.2.1')
+  })
+
+  test('trusts X-Real-IP only when that header is explicitly selected', () => {
+    const request = new Request('https://devpush.example', { headers })
+    expect(
+      getRequestPublicAddress(request, {
+        cloudflare: false,
+        proxy: true,
+        header: 'x-real-ip',
+      }),
     ).toBe('203.0.113.3')
+  })
+
+  test('does not fall back to client-supplied headers when the selected header is absent', () => {
+    const request = new Request('https://devpush.example', {
+      headers: { 'x-real-ip': '203.0.113.99' },
+    })
+    expect(
+      getRequestPublicAddress(request, {
+        cloudflare: false,
+        proxy: true,
+        header: 'x-forwarded-for',
+      }),
+    ).toBeNull()
   })
 })

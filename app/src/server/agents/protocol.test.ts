@@ -222,4 +222,36 @@ describe('agent protocol', () => {
       error: 'Request payload is too large.',
     })
   })
+  test('preserves provider polling responses and enforces endpoint-specific body limits', async () => {
+    const request = (token: string) =>
+      new Request('https://devpush.test/api/agents/certificates', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      })
+    const polling = Response.json(
+      { status: 'pending' },
+      { status: 202, headers: { 'Retry-After': '12' } },
+    )
+    const response = await handleAgentRequest(
+      request('secret'),
+      z.object({ token: z.string() }),
+      () => polling,
+      'Failed.',
+      64,
+    )
+    expect(response).toBe(polling)
+    expect(response.headers.get('Retry-After')).toBe('12')
+    let called = false
+    const oversized = await handleAgentRequest(
+      request('x'.repeat(65)),
+      z.unknown(),
+      () => {
+        called = true
+      },
+      'Failed.',
+      64,
+    )
+    expect(oversized.status).toBe(413)
+    expect(called).toBe(false)
+  })
 })

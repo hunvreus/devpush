@@ -66,9 +66,10 @@ fi
 
 node - "$proof_env" "$DEVPUSH_BASE_URL" <<'EOF'
 const { readFileSync } = require('node:fs')
+const { parseEnv } = require('node:util')
 
 const [, , envPath, expectedBaseUrl] = process.argv
-const fileEnv = parseEnvFile(readFileSync(envPath, 'utf8'))
+const fileEnv = parseEnv(readFileSync(envPath, 'utf8'))
 const env = { ...fileEnv, ...process.env }
 const configuredBaseUrl = env.DEVPUSH_BASE_URL
 
@@ -97,31 +98,6 @@ if (configuredOrigin !== expectedOrigin) {
   process.exit(2)
 }
 
-function parseEnvFile(content) {
-  const values = {}
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue
-    }
-
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
-    if (!match) {
-      continue
-    }
-
-    let value = match[2].trim()
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1)
-    }
-    values[match[1]] = value
-  }
-
-  return values
-}
 EOF
 
 step "Validating remote production config"

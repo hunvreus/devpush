@@ -14,6 +14,9 @@ const auth = betterAuth({
   database: drizzleAdapter(db, { provider: 'sqlite', schema }),
   logger: { disabled: true },
   user: {
+    additionalFields: {
+      username: { type: 'string', required: false, input: false },
+    },
     changeEmail: { enabled: true, sendChangeEmailConfirmation: sendChange },
   },
   emailVerification: { sendVerificationEmail: sendChange },
@@ -96,15 +99,13 @@ describe('OTP send acknowledgement', () => {
 })
 
 test('email changes report provider rejection instead of false success', async () => {
-  await db
-    .insert(schema.user)
-    .values({
-      id: 'email-change-test',
-      username: 'email-change-test',
-      name: 'Test',
-      email: 'change@example.com',
-      emailVerified: true,
-    })
+  await db.insert(schema.user).values({
+    id: 'email-change-test',
+    username: 'email-change-test',
+    name: 'Test',
+    email: 'change@example.com',
+    emailVerified: true,
+  })
   send.mockResolvedValueOnce(undefined)
   await request('change@example.com')
   const signIn = await auth.handler(

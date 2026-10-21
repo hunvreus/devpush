@@ -19,6 +19,7 @@ export async function failStaleAgentJob(
   store: AtomicStore,
   input: {
     job: typeof agentJobs.$inferSelect
+    payloadSnapshot: string
     now: Date
     timeoutMs: number
     message: string
@@ -28,15 +29,17 @@ export async function failStaleAgentJob(
 ) {
   const now = input.now.getTime()
   const guard = sql`id = ${input.job.id} and server_id = ${input.job.serverId}
-    and type = ${input.job.type} and payload = ${JSON.stringify(input.job.payload)} and status = 'running'
-    and (claimed_at is null or claimed_at < ${now - input.timeoutMs})`
+    and type = ${input.job.type} and payload = ${input.payloadSnapshot} and status = ${input.job.status}
+    and attempt = ${input.job.attempt} and updated_at = ${input.job.updatedAt.getTime()}
+    and ((status = 'running' and (claimed_at is null or claimed_at < ${now - input.timeoutMs}))
+      or (status = 'queued' and available_at < ${now - input.timeoutMs}))`
   const eligible = sql`exists(select 1 from ${agentJobs} where ${guard})`
   const effects = []
   if (input.backupRunId) {
     effects.push(
       store.run(sql`update ${backupRuns} set status = 'failed', error_message = ${input.message},
       finished_at = ${now}, updated_at = ${now} where id = ${input.backupRunId}
-      and server_id = ${input.job.serverId} and status = 'running' and ${eligible}`),
+      and server_id = ${input.job.serverId} and status = ${input.job.status} and ${eligible}`),
     )
   }
   for (let offset = 0; offset < input.cleanupRunIds.length; offset += 80) {
@@ -166,4 +169,38 @@ export async function finishBackupCleanup(
   const results = await store.batch([first, ...rest, finish])
   const completed = results.at(-1)
   return Array.isArray(completed) && completed.length === 1
+}
+
+export async function failClaimedAgentJob(
+  store: AtomicStore,
+  input: {
+    job: typeof agentJobs.$inferSelect
+    now: Date
+    message: string
+    backupRunId: string | null
+    cleanupRunIds: string[]
+  },
+) {
+  const job = input.job,
+    now = input.now.getTime()
+  const guard = sql`id = ${job.id} and server_id = ${job.serverId} and type = ${job.type} and status = 'running'
+    and attempt = ${job.attempt} and claimed_at is ${job.claimedAt?.getTime() ?? null} and updated_at = ${job.updatedAt.getTime()}`
+  const eligible = sql`exists(select 1 from agent_jobs where ${guard})`
+  const effects = []
+  if (input.backupRunId)
+    effects.push(
+      store.run(sql`update backup_runs set status = 'failed', error_message = ${input.message}, finished_at = ${now}, updated_at = ${now}
+    where id = ${input.backupRunId} and project_id = ${job.projectId} and server_id = ${job.serverId} and status = 'running' and ${eligible}`),
+    )
+  if (input.cleanupRunIds.length)
+    effects.push(
+      store.run(sql`update backup_runs set cleanup_queued_at = null, cleanup_error_message = ${input.message}, updated_at = ${now}
+    where id in (select value from json_each(${JSON.stringify(input.cleanupRunIds)})) and project_id = ${job.projectId} and server_id = ${job.serverId} and ${eligible}`),
+    )
+  const finish = store.run(
+    sql`update agent_jobs set status = 'failed', error_message = ${input.message}, finished_at = ${now}, updated_at = ${now} where ${guard}`,
+  )
+  const [first, ...rest] = effects
+  if (first) await store.batch([first, ...rest, finish])
+  else await finish
 }

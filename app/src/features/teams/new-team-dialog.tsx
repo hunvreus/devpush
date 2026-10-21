@@ -1,9 +1,10 @@
+import { hasPlanOnboarding } from '#devpush/deployment/ui'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { LoaderIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { createTeamSchema } from '@/lib/team-forms-schema'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { afterMutation } from '@/lib/action-feedback'
 import { createTeamAction } from '@/server/teams/functions'
 import { Button } from '@/components/ui/button'
@@ -48,12 +49,18 @@ export function NewTeamDialogLauncher({
       setName('')
       setOpen(false)
       toast.success('Team created.')
+      if (hasPlanOnboarding()) {
+        window.location.assign(
+          `/onboarding/plans?team=${encodeURIComponent(team.slug)}`,
+        )
+        return
+      }
       await afterMutation(
         () => onCreated(team.slug),
         'Team created, but opening it failed. Please reload.',
       )
     } catch (error) {
-      setFormError(getErrorMessage(error, 'Unable to create team.'))
+      setFormError(getPublicErrorMessage(error, 'Unable to create team.'))
     } finally {
       setIsCreating(false)
     }

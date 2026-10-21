@@ -15,6 +15,26 @@ export default [
     },
   },
   {
+    files: ['src/lib/**/*.{ts,tsx}'],
+    ignores: ['src/lib/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex:
+                '^(@/|([.]{1,2}/)+)server/(?![^/]+/functions$)',
+              allowTypeImports: true,
+              message:
+                'Keep runtime-independent code in lib. Only type imports and compiled server-function entrypoints may cross into server.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['src/components/ui/**/*.{ts,tsx}', 'src/lib/utils.ts'],
     rules: {
       'import/consistent-type-specifier-style': 'off',

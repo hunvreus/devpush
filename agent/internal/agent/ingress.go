@@ -2,16 +2,22 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
 const (
-	dockerSocketProxyImage = "ghcr.io/tecnativa/docker-socket-proxy:v0.5.0"
-	traefikImage           = "traefik:v3.7.12"
+	dockerSocketProxyImage = "ghcr.io/tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459"
+	traefikImage           = "traefik:v3.7.12@sha256:9c2a54d87f76f5c2f5f2682c68394af92fb12c0a2686798d6462a3f84bd78eaf"
 )
 
 func (runner *Runner) ensureTraefik(ctx context.Context, logs *[]string) error {
+	if err := os.MkdirAll(filepath.Join(runner.certificateDirectory(), "dynamic"), 0700); err != nil {
+		return fmt.Errorf("create certificate directory: %w", err)
+	}
 	if err := runner.runCommand(ctx, "", logs, "docker", "network", "inspect", "devpush-proxy"); err != nil {
 		if err := runner.runCommand(ctx, "", logs, "docker", "network", "create", "devpush-proxy"); err != nil {
 			return fmt.Errorf("create Docker network devpush-proxy: %w", err)
@@ -39,7 +45,10 @@ func (runner *Runner) ensureTraefik(ctx context.Context, logs *[]string) error {
 			return err
 		}
 		if !configured {
-			*logs = append(*logs, "Replacing devpush-traefik to use the devpush Docker socket proxy.")
+			if err := runner.runCommand(ctx, "", logs, "docker", "pull", traefikImage); err != nil {
+				return fmt.Errorf("pull replacement Traefik image: %w", err)
+			}
+			*logs = append(*logs, "Replacing devpush-traefik to apply managed ingress configuration.")
 			if err := runner.runCommand(ctx, "", logs, "docker", "rm", "-f", "devpush-traefik"); err != nil {
 				return fmt.Errorf("replace devpush-traefik container: %w", err)
 			}
@@ -65,6 +74,7 @@ func (runner *Runner) ensureTraefik(ctx context.Context, logs *[]string) error {
 		"-d",
 		"--name",
 		"devpush-traefik",
+		"--label", "devpush.ingress-config=" + runner.ingressConfigFingerprint(),
 		"--restart",
 		"unless-stopped",
 		"--network",
@@ -75,9 +85,12 @@ func (runner *Runner) ensureTraefik(ctx context.Context, logs *[]string) error {
 		fmt.Sprintf("%d:443", runner.traefikHTTPSPort()),
 		"-v",
 		"devpush-traefik-acme:/letsencrypt",
+		"-v", runner.certificateDirectory() + ":/etc/devpush-certificates:ro",
 		"--security-opt",
 		"no-new-privileges:true",
 		traefikImage,
+		"--providers.file.directory=/etc/devpush-certificates/dynamic",
+		"--providers.file.watch=true",
 		"--providers.docker=true",
 		"--providers.docker.endpoint=tcp://devpush-docker-socket-proxy:2375",
 		"--providers.docker.exposedbydefault=false",
@@ -119,6 +132,15 @@ func (runner *Runner) traefikHTTPSPort() int {
 }
 
 func (runner *Runner) traefikUsesSocketProxy(ctx context.Context) (bool, error) {
+	expected := traefikImage + "|" + runner.ingressConfigFingerprint()
+	actual, err := runner.commandOutput(ctx, "", "docker", "inspect", "-f", `{{.Config.Image}}|{{index .Config.Labels "devpush.ingress-config"}}`, "devpush-traefik")
+	if err != nil {
+		return false, fmt.Errorf("inspect managed ingress configuration: %w", err)
+	}
+	if strings.TrimSpace(actual) != expected {
+		return false, nil
+	}
+
 	command, err := runner.commandOutput(ctx, "", "docker", "inspect", "-f", "{{json .Config.Cmd}}", "devpush-traefik")
 	if err != nil {
 		return false, fmt.Errorf("inspect devpush-traefik container command: %w", err)
@@ -154,6 +176,9 @@ func (runner *Runner) ensureDockerSocketProxy(ctx context.Context, logs *[]strin
 			return err
 		}
 		if !configured {
+			if err := runner.runCommand(ctx, "", logs, "docker", "pull", dockerSocketProxyImage); err != nil {
+				return fmt.Errorf("pull replacement socket proxy image: %w", err)
+			}
 			*logs = append(*logs, "Replacing devpush-docker-socket-proxy to expose Docker events.")
 			if err := runner.runCommand(ctx, "", logs, "docker", "rm", "-f", "devpush-docker-socket-proxy"); err != nil {
 				return fmt.Errorf("replace devpush-docker-socket-proxy container: %w", err)
@@ -209,6 +234,14 @@ func (runner *Runner) ensureDockerSocketProxy(ctx context.Context, logs *[]strin
 }
 
 func (runner *Runner) dockerSocketProxySupportsEvents(ctx context.Context) (bool, error) {
+	image, err := runner.commandOutput(ctx, "", "docker", "inspect", "-f", "{{.Config.Image}}", "devpush-docker-socket-proxy")
+	if err != nil {
+		return false, fmt.Errorf("inspect Docker socket proxy image: %w", err)
+	}
+	if strings.TrimSpace(image) != dockerSocketProxyImage {
+		return false, nil
+	}
+
 	env, err := runner.commandOutput(ctx, "", "docker", "inspect", "-f", "{{json .Config.Env}}", "devpush-docker-socket-proxy")
 	if err != nil {
 		return false, fmt.Errorf("inspect devpush-docker-socket-proxy environment: %w", err)
@@ -222,4 +255,8 @@ func (runner *Runner) dockerSocketProxySupportsEvents(ctx context.Context) (bool
 	return strings.Contains(env, "EVENTS=1") &&
 		strings.Contains(networks, "devpush-docker-api") &&
 		!strings.Contains(networks, "devpush-proxy"), nil
+}
+
+func (runner *Runner) ingressConfigFingerprint() string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d|%s|file-v1|%s", traefikImage, runner.traefikHTTPPort(), runner.traefikHTTPSPort(), runner.cfg.TraefikEmail, runner.certificateDirectory()))))
 }

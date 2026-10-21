@@ -11,21 +11,28 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { acceptTeamInviteAction } from '@/server/teams/functions'
-import { getErrorMessage } from '@/lib/error-message'
+import {
+  acceptTeamInviteAction,
+  declineTeamInviteAction,
+} from '@/server/teams/functions'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { afterMutation } from '@/lib/action-feedback'
 
 export function TeamInvite({ token }: { token: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
+  const [pendingAction, setPendingAction] = useState<
+    'accept' | 'decline' | null
+  >(null)
+  const pending = pendingAction !== null
 
   const [accepted, setAccepted] = useState(false)
+  const [declined, setDeclined] = useState(false)
 
   async function accept() {
-    if (pending || accepted) return
-    setPending(true)
+    if (pending || accepted || declined) return
+    setPendingAction('accept')
     setError(null)
 
     try {
@@ -37,9 +44,31 @@ export function TeamInvite({ token }: { token: string }) {
         'Invitation accepted, but opening the team failed. Please reload.',
       )
     } catch (cause) {
-      setError(getErrorMessage(cause, 'The invitation could not be accepted.'))
+      setError(
+        getPublicErrorMessage(cause, 'The invitation could not be accepted.'),
+      )
     } finally {
-      setPending(false)
+      setPendingAction(null)
+    }
+  }
+
+  async function decline() {
+    if (pending || accepted || declined) return
+    setPendingAction('decline')
+    setError(null)
+    try {
+      await declineTeamInviteAction({ data: { token } })
+      setDeclined(true)
+      await afterMutation(async () => {
+        await invalidateResourceQueries(queryClient)
+        await navigate({ to: '/settings', hash: 'teams' })
+      }, 'Invitation declined, but opening Account failed. Please reload.')
+    } catch (cause) {
+      setError(
+        getPublicErrorMessage(cause, 'The invitation could not be declined.'),
+      )
+    } finally {
+      setPendingAction(null)
     }
   }
 
@@ -57,7 +86,7 @@ export function TeamInvite({ token }: { token: string }) {
             {error}
           </CardContent>
         ) : null}
-        <CardFooter className="justify-end gap-2">
+        <CardFooter className="flex-col items-stretch gap-2 sm:flex-row sm:justify-end">
           {pending ? (
             <Button variant="ghost" disabled>
               Cancel
@@ -65,16 +94,27 @@ export function TeamInvite({ token }: { token: string }) {
           ) : (
             <Button asChild variant="ghost">
               <Link to="/settings" hash="teams">
-                {accepted ? 'Account settings' : 'Cancel'}
+                {accepted || declined ? 'Account' : 'Cancel'}
               </Link>
             </Button>
           )}
           <Button
+            variant="outline"
+            disabled={pending || accepted || declined}
+            onClick={() => void decline()}
+          >
+            {pendingAction === 'decline'
+              ? 'Declining…'
+              : declined
+                ? 'Invitation declined'
+                : 'Decline invitation'}
+          </Button>
+          <Button
             data-accept-invite
-            disabled={pending || accepted}
+            disabled={pending || accepted || declined}
             onClick={() => void accept()}
           >
-            {pending
+            {pendingAction === 'accept'
               ? 'Accepting…'
               : accepted
                 ? 'Invitation accepted'
@@ -100,9 +140,12 @@ export function TeamInvitePending() {
             Accept the invitation to add this team to your devpush account.
           </CardDescription>
         </CardHeader>
-        <CardFooter className="justify-end gap-2">
+        <CardFooter className="flex-col items-stretch gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" disabled>
             Cancel
+          </Button>
+          <Button variant="outline" disabled>
+            Decline invitation
           </Button>
           <Button disabled>Accept invitation</Button>
         </CardFooter>

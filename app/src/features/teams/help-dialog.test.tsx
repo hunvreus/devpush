@@ -10,9 +10,8 @@ test('help opens a dialog with the installed version and external resources', as
   document.body.append(node)
   const root = createRoot(node)
   try {
-    await act(async () => root.render(<HelpDialog />))
     await act(async () =>
-      node.querySelector<HTMLButtonElement>('button')!.click(),
+      root.render(<HelpDialog open onOpenChange={() => {}} />),
     )
     const dialog = document.querySelector('[role="dialog"]')!
     expect(dialog.textContent).toContain(packageJson.version)

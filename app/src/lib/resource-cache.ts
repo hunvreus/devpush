@@ -3,6 +3,9 @@ import type { QueryClient } from '@tanstack/react-query'
 const resourceFamilies = new Set([
   'team-context',
   'server-context',
+  'server-metrics',
+  'manual-deploy-options',
+  'operation-logs',
   'repository-selection',
   'project-context',
   'project-logs',

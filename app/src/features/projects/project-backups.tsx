@@ -1,38 +1,48 @@
+import { backupConfigSchema } from '@/lib/backup-policy-schema'
+import { showSettingsConflict } from '@/lib/settings-conflict'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
+import { BackupJobLogs } from './backup-job-logs'
 import { navigateFilters } from '@/lib/action-feedback'
 import { canManageTeamSettings } from '@/lib/team-role'
-import { BackupPolicyDeleteDialog } from './backup-policy-delete-dialog'
 import { Link, useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  BanIcon,
-  CircleCheckIcon,
+  ArrowDownIcon,
+  Undo2Icon,
+  EllipsisVerticalIcon,
   ClockIcon,
-  CircleXIcon,
-  LoaderIcon,
-  MoreHorizontalIcon,
   PlusIcon,
-  PlayIcon,
-  PauseIcon,
-  TrashIcon,
   TriangleAlertIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ButtonGroup } from '@/components/ui/button-group'
+import { Switch } from '@/components/ui/switch'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+
 import {
   Empty,
   EmptyContent,
@@ -48,31 +58,37 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { BackupStatusIcon } from './backup-status-icon'
+import { BackupTimestamp } from './backup-timestamp'
+import { ServerAvatar } from '@/features/servers/server-avatar'
 import { EnvironmentDot } from '@/features/projects/environment-dot'
-import { getErrorMessage } from '@/lib/error-message'
+import { getPublicErrorMessage } from '@/lib/public-error'
 import { setProjectContextQueryData } from '@/lib/project-context-query'
 import {
   runProjectBackup,
   restoreProjectBackup,
-  saveProjectBackupConfigs,
+  saveProjectBackupPolicyAction,
+  deleteProjectBackupPolicyAction,
 } from '@/server/projects/functions'
 import type {
   ProjectBackupConfig,
-  ProjectBackupArtifact,
   ProjectBackupRun,
+  ProjectBackupRestore,
   ProjectContext,
 } from '@/server/projects/types'
 
 import {
-  filterBackupRuns,
-  formatBackupArtifacts,
-  formatBackupDate as formatDate,
+  getBackupActivity,
+  getLatestBackupRuns,
   formatBackupSchedule as formatSchedule,
   formatBackupStatus as formatStatus,
-  inferArtifactName,
 } from './project-backup-utils'
 import type { BackupFilters } from './project-backup-utils'
-import { BackupRunRestoreActions } from './backup-restore-actions'
+import {
+  BackupRestoreDetails,
+  BackupRunRestoreActions,
+} from './backup-restore-actions'
+import type { BackupRestoreSelection } from './backup-restore-actions'
 import { BackupPolicyDialog } from './project-backup-policy'
 
 export function ProjectBackups({
@@ -89,18 +105,23 @@ export function ProjectBackups({
   const [backupConfigs, setBackupConfigs] = useState(context.backupConfigs)
   const [backupRuns, setBackupRuns] = useState(context.backupRuns)
   const [savingPolicyId, setSavingPolicyId] = useState<string | null>(null)
+  const [runConfirmation, setRunConfirmation] =
+    useState<ProjectBackupConfig | null>(null)
+  const [logOperation, setLogOperation] = useState<{
+    type: 'backup' | 'restore'
+    id: string
+    errorMessage: string | null
+  } | null>(null)
+  const [detailsRestore, setDetailsRestore] =
+    useState<ProjectBackupRestore | null>(null)
   const [runningBackupId, setRunningBackupId] = useState<string | null>(null)
-  const [restoringArtifactId, setRestoringArtifactId] = useState<string | null>(
-    null,
-  )
-  const [deleteTarget, setDeleteTarget] = useState<ProjectBackupConfig | null>(
-    null,
-  )
+  const [restoringRunId, setRestoringRunId] = useState<string | null>(null)
   const actionBusy =
     savingPolicyId !== null ||
     runningBackupId !== null ||
-    restoringArtifactId !== null
-  const runs = filterBackupRuns(backupRuns, filters)
+    restoringRunId !== null
+  const latestBackupRuns = getLatestBackupRuns(backupRuns)
+  const runs = getBackupActivity(backupRuns, context.backupRestores, filters)
   const teamSlug =
     typeof params.teamSlug === 'string' ? params.teamSlug : context.team.slug
   const projectName =
@@ -132,6 +153,16 @@ export function ProjectBackups({
     )
   }
 
+  function resetFilters() {
+    void navigateFilters(() =>
+      router.navigate({
+        to: '/$teamSlug/projects/$projectName/backups',
+        params: { teamSlug, projectName },
+        search: {},
+      }),
+    )
+  }
+
   async function updateBackupConfigs(
     nextConfigs: Array<ProjectBackupConfig>,
     message: string,
@@ -142,13 +173,27 @@ export function ProjectBackups({
     }
 
     try {
-      const nextContext = await saveProjectBackupConfigs({
-        data: {
-          teamSlug,
-          projectName,
-          backupConfigs: nextConfigs,
-        },
-      })
+      const policy = nextConfigs.find((item) => item.id === policyId)
+      const original = backupConfigs.find((item) => item.id === policyId)!
+      const nextContext = policy
+        ? await saveProjectBackupPolicyAction({
+            data: {
+              projectId: context.project.id,
+              teamSlug,
+              projectName,
+              settingsVersion: original.settingsVersion,
+              policy: backupConfigSchema.parse(policy),
+            },
+          })
+        : await deleteProjectBackupPolicyAction({
+            data: {
+              projectId: context.project.id,
+              teamSlug,
+              projectName,
+              settingsVersion: original.settingsVersion,
+              policyId: original.id,
+            },
+          })
       await setProjectContextQueryData(queryClient, nextContext, 'backups')
       setBackupConfigs(nextContext.backupConfigs)
       setBackupRuns(nextContext.backupRuns)
@@ -171,22 +216,18 @@ export function ProjectBackups({
     try {
       await updateBackupConfigs(
         nextConfigs,
-        enabled ? 'Backup policy resumed.' : 'Backup policy paused.',
+        `${backup.name} ${enabled ? 'enabled' : 'disabled'}.`,
         backup.id,
       )
     } catch (cause) {
+      if (showSettingsConflict(cause)) return
       toast.error(
-        getErrorMessage(
+        getPublicErrorMessage(
           cause,
           'Unable to save backup policy. Please try again.',
         ),
       )
     }
-  }
-
-  async function deletePolicy(backup: ProjectBackupConfig) {
-    const nextConfigs = backupConfigs.filter((item) => item.id !== backup.id)
-    await updateBackupConfigs(nextConfigs, 'Backup policy deleted.', backup.id)
   }
 
   async function runBackup(backup: ProjectBackupConfig) {
@@ -205,48 +246,30 @@ export function ProjectBackups({
       setBackupConfigs(nextContext.backupConfigs)
       setBackupRuns(nextContext.backupRuns)
       toast.success('Backup queued.')
+      setRunConfirmation(null)
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Unable to queue backup.'))
+      if (showSettingsConflict(error)) return
+      toast.error(getPublicErrorMessage(error, 'Unable to queue backup.'))
     } finally {
       setRunningBackupId(null)
     }
   }
 
-  async function restoreArtifact({
-    artifact,
+  async function restoreBackup({
     run,
-    targetService,
-    targetVolume,
+    artifacts,
   }: {
-    artifact: ProjectBackupArtifact
     run: ProjectBackupRun
-    targetService?: string
-    targetVolume?: string
+    artifacts: BackupRestoreSelection[]
   }) {
-    setRestoringArtifactId(artifact.id)
-
+    setRestoringRunId(run.id)
     try {
       const nextContext = await restoreProjectBackup({
         data: {
           teamSlug,
           projectName,
           backupRunId: run.id,
-          artifacts:
-            artifact.type === 'volume'
-              ? [
-                  {
-                    artifactId: artifact.id,
-                    type: 'volume',
-                    targetVolume: targetVolume ?? inferArtifactName(artifact),
-                  },
-                ]
-              : [
-                  {
-                    artifactId: artifact.id,
-                    type: 'database',
-                    targetService: targetService ?? '',
-                  },
-                ],
+          artifacts,
         },
       })
       await setProjectContextQueryData(queryClient, nextContext, 'backups')
@@ -254,17 +277,78 @@ export function ProjectBackups({
       setBackupRuns(nextContext.backupRuns)
       toast.success('Restore queued.')
     } finally {
-      setRestoringArtifactId(null)
+      setRestoringRunId(null)
     }
   }
 
   return (
     <>
+      {detailsRestore ? (
+        <BackupRestoreDetails
+          projectId={context.project.id}
+          restore={
+            context.backupRestores.find(
+              (item) => item.id === detailsRestore.id,
+            ) ?? detailsRestore
+          }
+          run={backupRuns.find((run) => run.id === detailsRestore.backupRunId)}
+          policyName={
+            backupConfigs.find(
+              (config) =>
+                config.id ===
+                backupRuns.find((run) => run.id === detailsRestore.backupRunId)
+                  ?.configId,
+            )?.name
+          }
+          serverStatus={
+            context.servers.find(
+              (server) => server.id === detailsRestore.serverId,
+            )?.status
+          }
+          onClose={() => setDetailsRestore(null)}
+        />
+      ) : null}
       <ProjectHeading
         teamSlug={teamSlug}
         project={context.project}
         crumbs={[<span className="truncate">Backups</span>]}
       />
+      <AlertDialog
+        open={runConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open && !runningBackupId) {
+            setRunConfirmation(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run {runConfirmation?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Queue a backup now for{' '}
+              {context.environments.find(
+                (environment) =>
+                  environment.id === runConfirmation?.environmentId,
+              )?.name ?? 'this environment'}{' '}
+              using this policy’s saved configuration.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={runningBackupId !== null}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={runningBackupId !== null}
+              onClick={(event) => {
+                event.preventDefault()
+                if (runConfirmation) void runBackup(runConfirmation)
+              }}
+            >
+              {runningBackupId ? 'Queuing…' : 'Run backup'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {backupConfigs.length === 0 ? (
         <Empty className="min-h-60 border bg-card text-card-foreground">
@@ -313,35 +397,35 @@ export function ProjectBackups({
                 </BackupPolicyDialog>
               ) : null}
             </header>
-            <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
+            <ul className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground">
               {backupConfigs.map((backup) => {
                 const environment = context.environments.find(
                   (item) => item.id === backup.environmentId,
                 )
-                const latestRun =
-                  backupRuns.find((run) => run.configId === backup.id) ?? null
+                const latestRun = latestBackupRuns.get(backup.id) ?? null
 
                 return (
                   <li
                     key={backup.id}
                     className="border-b text-sm last:border-b-0"
                   >
-                    <div className="flex h-11 items-center gap-4 px-4 hover:bg-muted/50">
-                      <BackupStatusIcon
-                        enabled={backup.enabled}
-                        status={latestRun?.status ?? null}
+                    <div className="flex h-11 min-w-[30rem] items-center gap-4 px-4 whitespace-nowrap hover:bg-muted/50">
+                      <Switch
+                        id={`policy-enabled-${backup.id}`}
+                        aria-label={`Enable ${backup.name}`}
+                        checked={backup.enabled}
+                        disabled={!canManage || actionBusy}
+                        onCheckedChange={(value) =>
+                          void setPolicyEnabled(backup, value)
+                        }
                       />
                       <Link
                         to="/$teamSlug/projects/$projectName/backups/$backupId"
                         params={{ teamSlug, projectName, backupId: backup.id }}
-                        className="min-w-0 max-w-80 truncate font-medium hover:underline"
+                        className={`min-w-0 max-w-80 truncate font-medium ${backup.enabled ? '' : 'text-muted-foreground'}`}
                       >
                         {backup.name}
                       </Link>
-                      <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
-                        <ClockIcon />
-                        <span>{formatSchedule(backup.schedule)}</span>
-                      </span>
                       {environment ? (
                         <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground">
                           <EnvironmentDot color={environment.color} />
@@ -352,19 +436,66 @@ export function ProjectBackups({
                           Unknown environment
                         </span>
                       )}
-                      {canManage ? (
-                        <div className="ml-auto flex shrink-0 items-center">
-                          <BackupPolicyActions
-                            disabled={actionBusy}
-                            enabled={backup.enabled}
-                            onDelete={() => setDeleteTarget(backup)}
-                            onRun={() => void runBackup(backup)}
-                            onToggle={() =>
-                              void setPolicyEnabled(backup, !backup.enabled)
-                            }
-                          />
-                        </div>
-                      ) : null}
+                      <span className="hidden shrink-0 items-center gap-2 whitespace-nowrap text-muted-foreground sm:flex [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
+                        <ClockIcon />
+                        <span>{formatSchedule(backup.schedule)}</span>
+                      </span>
+                      <div className="ml-auto shrink-0">
+                        <ButtonGroup
+                          className="-mr-2"
+                          aria-label="Backup policy actions"
+                        >
+                          {canManage ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={actionBusy}
+                              onClick={() => {
+                                setRunConfirmation(backup)
+                              }}
+                            >
+                              Run
+                            </Button>
+                          ) : null}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon-sm"
+                                aria-label={`Actions for ${backup.name}`}
+                              >
+                                <EllipsisVerticalIcon />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link
+                                  to="/$teamSlug/projects/$projectName/backups"
+                                  params={{ teamSlug, projectName }}
+                                  search={{ policy: backup.id }}
+                                  hash="activity"
+                                >
+                                  View activity
+                                </Link>
+                              </DropdownMenuItem>
+                              {canManage ? (
+                                <DropdownMenuItem asChild>
+                                  <Link
+                                    to="/$teamSlug/projects/$projectName/backups/$backupId"
+                                    params={{
+                                      teamSlug,
+                                      projectName,
+                                      backupId: backup.id,
+                                    }}
+                                  >
+                                    Settings
+                                  </Link>
+                                </DropdownMenuItem>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </ButtonGroup>
+                      </div>
                     </div>
                     {latestRun?.status === 'failed' ? (
                       <Alert variant="destructive" className="mx-4 mb-3 w-auto">
@@ -382,161 +513,285 @@ export function ProjectBackups({
               })}
             </ul>
           </section>
+        </>
+      )}
+      <section id="activity" className="space-y-4 scroll-mt-28">
+        <header className="flex h-8 items-center justify-between gap-x-4">
+          <h2 className="text-base font-medium">Activity</h2>
+        </header>
 
-          <section className="space-y-4">
-            <header className="flex h-8 items-center justify-between gap-x-4">
-              <h2 className="text-base font-medium">Runs</h2>
-            </header>
-
-            {backupRuns.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={filters.environment ?? 'all'}
-                  onValueChange={(value) => setFilter('environment', value)}
-                >
-                  <SelectTrigger className="w-44">
-                    <SelectValue placeholder="All environments" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All environments</SelectItem>
-                    {context.environments.map((environment) => (
-                      <SelectItem key={environment.id} value={environment.id}>
-                        {environment.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={filters.status ?? 'all'}
-                  onValueChange={(value) => setFilter('status', value)}
-                >
-                  <SelectTrigger className="w-36">
-                    <SelectValue placeholder="All statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="queued">Queued</SelectItem>
-                    <SelectItem value="running">Running</SelectItem>
-                    <SelectItem value="succeeded">Succeeded</SelectItem>
-                    <SelectItem value="failed">Failed</SelectItem>
-                    <SelectItem value="canceled">Canceled</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={filters.server ?? 'all'}
-                  onValueChange={(value) => setFilter('server', value)}
-                >
-                  <SelectTrigger className="w-36">
-                    <SelectValue placeholder="All servers" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All servers</SelectItem>
-                    {context.servers.map((server) => (
-                      <SelectItem key={server.id} value={server.id}>
-                        {server.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={filters.time ?? 'all'}
-                  onValueChange={(value) => setFilter('time', value)}
-                >
-                  <SelectTrigger className="w-36">
-                    <SelectValue placeholder="All dates" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All dates</SelectItem>
-                    <SelectItem value="24h">Last 24 hours</SelectItem>
-                    <SelectItem value="7d">Last 7 days</SelectItem>
-                    <SelectItem value="30d">Last 30 days</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+        {backupRuns.length > 0 || context.backupRestores.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={filters.policy ?? 'all'}
+              onValueChange={(value) => setFilter('policy', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All policies" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All policies</SelectItem>
+                {backupConfigs.map((policy) => (
+                  <SelectItem key={policy.id} value={policy.id}>
+                    {policy.name}
+                  </SelectItem>
+                ))}
+                {filters.policy &&
+                !backupConfigs.some(
+                  (policy) => policy.id === filters.policy,
+                ) ? (
+                  <SelectItem value={filters.policy}>Deleted policy</SelectItem>
+                ) : null}
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.type ?? 'all'}
+              onValueChange={(value) => setFilter('type', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                <SelectItem value="backup">
+                  <ArrowDownIcon />
+                  Backup
+                </SelectItem>
+                <SelectItem value="restore">
+                  <Undo2Icon />
+                  Restore
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.environment ?? 'all'}
+              onValueChange={(value) => setFilter('environment', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All environments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All environments</SelectItem>
+                {context.environments.map((environment) => (
+                  <SelectItem key={environment.id} value={environment.id}>
+                    <EnvironmentDot color={environment.color} />
+                    {environment.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.status ?? 'all'}
+              onValueChange={(value) => setFilter('status', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="queued">
+                  <BackupStatusIcon status="queued" />
+                  Queued
+                </SelectItem>
+                <SelectItem value="running">
+                  <BackupStatusIcon status="running" />
+                  Running
+                </SelectItem>
+                <SelectItem value="succeeded">
+                  <BackupStatusIcon status="succeeded" />
+                  Succeeded
+                </SelectItem>
+                <SelectItem value="failed">
+                  <BackupStatusIcon status="failed" />
+                  Failed
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.server ?? 'all'}
+              onValueChange={(value) => setFilter('server', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All servers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All servers</SelectItem>
+                {context.servers.map((server) => (
+                  <SelectItem key={server.id} value={server.id}>
+                    <ServerAvatar
+                      name={server.name}
+                      status={server.status}
+                      size="sm"
+                    />
+                    {server.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.time ?? 'all'}
+              onValueChange={(value) => setFilter('time', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All dates" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All dates</SelectItem>
+                <SelectItem value="24h">Last 24 hours</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
+              </SelectContent>
+            </Select>
+            {Object.values(filters).some(
+              (value) => value && value !== 'all',
+            ) ? (
+              <Button variant="ghost" onClick={resetFilters}>
+                Reset filters
+              </Button>
             ) : null}
+          </div>
+        ) : null}
 
-            {runs.length > 0 ? (
-              <div className="overflow-x-auto rounded-xl border bg-card text-card-foreground">
-                <div className="grid min-h-12 min-w-256 grid-cols-[.8fr_1fr_1fr_1fr_1.4fr_1fr_6rem] gap-x-4 items-center border-b px-4 py-2 text-sm font-medium">
-                  <span>Status</span>
-                  <span>Environment</span>
-                  <span>Server</span>
-                  <span>Artifacts</span>
-                  <span>Started</span>
-                  <span>Latest restore</span>
-                  <span />
-                </div>
-                {runs.map((run) => {
-                  const restore = context.backupRestores.find(
-                    (item) => item.backupRunId === run.id,
-                  )
-                  return (
-                    <div
-                      key={run.id}
-                      className="grid min-h-12 min-w-256 grid-cols-[.8fr_1fr_1fr_1fr_1.4fr_1fr_6rem] gap-x-4 items-center border-b px-4 py-2 text-sm last:border-b-0"
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <BackupStatusIcon status={run.status} />
-                        {formatStatus(run.status)}
+        {runs.length > 0 ? (
+          <ul
+            className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground"
+            aria-label="Backup activity"
+          >
+            {runs.map(({ type, record, source }) => {
+              const run = source
+              const policy = backupConfigs.find(
+                (config) => config.id === run?.configId,
+              )
+              const environment = context.environments.find(
+                (item) => item.id === record.environmentId,
+              )
+              const started = record.startedAt ?? record.createdAt
+              return (
+                <li
+                  key={`${type}:${record.id}`}
+                  data-backup-activity={type}
+                  className="flex h-11 min-w-[36rem] items-center gap-4 border-b px-4 text-sm whitespace-nowrap last:border-b-0 hover:bg-muted/50 md:min-w-[52rem]"
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        role="status"
+                        aria-label={`${type === 'backup' ? 'Backup' : 'Restore'} ${record.status}`}
+                        className="inline-flex w-fit"
+                      >
+                        <BackupStatusIcon status={record.status} />
                       </span>
-                      <span className="inline-flex items-center gap-2 text-muted-foreground">
-                        <EnvironmentDot color={run.environmentColor} />
-                        {run.environmentName}
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {formatStatus(record.status)}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="secondary">
+                        {type === 'backup' ? (
+                          <ArrowDownIcon data-icon="inline-start" />
+                        ) : (
+                          <Undo2Icon data-icon="inline-start" />
+                        )}
+                        {type === 'backup' ? 'Backup' : 'Restore'}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>Type</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="shrink-0 font-mono text-[13px] font-medium">
+                        {record.id.slice(0, 7)}
                       </span>
-                      <span className="truncate text-muted-foreground">
-                        {run.serverName ?? 'Unknown server'}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {formatBackupArtifacts(run.artifacts)}
-                      </span>
-                      <span className="whitespace-nowrap text-muted-foreground">
-                        {formatDate(run.startedAt ?? run.createdAt)}
-                      </span>
-                      {restore ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              role="status"
-                              tabIndex={0}
-                              aria-label={`Restore ${restore.status}`}
-                              className="inline-flex w-fit items-center gap-2 whitespace-nowrap"
-                            >
-                              <BackupStatusIcon status={restore.status} />
-                              {formatStatus(restore.status)}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {formatDate(
-                              restore.finishedAt ??
-                                restore.startedAt ??
-                                restore.createdAt,
-                            )}
-                          </TooltipContent>
-                        </Tooltip>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {type === 'backup' ? 'Backup ID' : 'Restore ID'}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {policy ? (
+                        <Link
+                          to="/$teamSlug/projects/$projectName/backups"
+                          params={{ teamSlug, projectName }}
+                          search={{ ...filters, policy: policy.id }}
+                          hash="activity"
+                          className="min-w-20 max-w-48 truncate text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {policy.name}
+                        </Link>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="min-w-20 max-w-48 truncate text-muted-foreground">
+                          Deleted policy
+                        </span>
                       )}
-                      {canManage ? (
+                    </TooltipTrigger>
+                    <TooltipContent>Policy</TooltipContent>
+                  </Tooltip>
+                  <BackupTimestamp value={started} />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        to="/$teamSlug/projects/$projectName/backups"
+                        params={{ teamSlug, projectName }}
+                        search={{
+                          ...filters,
+                          environment: record.environmentId,
+                        }}
+                        aria-label="Filter history by environment"
+                        className="inline-flex min-w-16 max-w-32 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <EnvironmentDot
+                          color={
+                            environment?.color ??
+                            run?.environmentColor ??
+                            'neutral'
+                          }
+                        />
+                        <span className="truncate">
+                          {environment?.name ??
+                            run?.environmentName ??
+                            'Unknown environment'}
+                        </span>
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>Environment</TooltipContent>
+                  </Tooltip>
+                  {type === 'backup' &&
+                  run?.configId &&
+                  latestBackupRuns.get(run.configId)?.id === run.id ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="secondary">Latest</Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Latest backup for this policy
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                  <div className="ml-auto shrink-0">
+                    <ButtonGroup
+                      className="-mr-2 shrink-0"
+                      aria-label="Operation actions"
+                    >
+                      {canManage && type === 'backup' && run ? (
                         <BackupRunRestoreActions
                           projectId={context.project.id}
+                          policyName={policy?.name}
                           targetServerName={
                             context.servers.find(
                               (server) =>
-                                server.id ===
-                                context.environments.find(
-                                  (environment) =>
-                                    environment.id === run.environmentId,
-                                )?.effectiveServerId,
+                                server.id === environment?.effectiveServerId,
                             )?.name ?? 'No server assigned'
                           }
+                          targetServerStatus={
+                            context.servers.find(
+                              (server) =>
+                                server.id === environment?.effectiveServerId,
+                            )?.status
+                          }
                           artifacts={run.artifacts}
-                          composeServices={
-                            context.composeMetadata?.services ??
-                            context.routes.map((route) => route.service)
-                          }
-                          composeVolumes={
-                            context.composeMetadata?.volumes ?? []
-                          }
                           disabled={
                             actionBusy ||
                             context.backupRestores.some(
@@ -545,167 +800,73 @@ export function ProjectBackups({
                                 ['queued', 'running'].includes(restore.status),
                             )
                           }
-                          restoringArtifactId={restoringArtifactId}
+                          restoringRunId={restoringRunId}
                           run={run}
-                          onRestore={restoreArtifact}
-                        />
-                      ) : (
-                        <span />
-                      )}
-                      {restore?.status === 'failed' ? (
-                        <BackupFailureAlert
-                          title="Restore failed"
-                          message={restore.errorMessage}
-                          className="col-span-full my-2"
+                          onRestore={restoreBackup}
                         />
                       ) : null}
-                      {run.status === 'failed' ? (
-                        <BackupFailureAlert
-                          className="col-span-full my-2"
-                          title={
-                            run.localRecoveryAvailable
-                              ? 'Remote upload failed'
-                              : 'Backup failed'
-                          }
-                          message={run.errorMessage}
-                          description={
-                            run.localRecoveryAvailable
-                              ? 'Local backup available for restoration. Check the storage connection and run this policy again.'
-                              : undefined
-                          }
-                        />
-                      ) : null}
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <Empty className="min-h-60 border bg-card text-card-foreground">
-                <EmptyHeader>
-                  <EmptyTitle>No backup runs yet.</EmptyTitle>
-                  <EmptyDescription>
-                    Use Run in a policy’s actions menu or wait for its next
-                    scheduled run.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </section>
-        </>
-      )}
-      {deleteTarget ? (
-        <BackupPolicyDeleteDialog
-          name={deleteTarget.name}
-          open
-          onOpenChange={(open) => {
-            if (!open) setDeleteTarget(null)
-          }}
-          onDelete={() => deletePolicy(deleteTarget)}
-        />
-      ) : null}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label={
+                              type === 'backup'
+                                ? 'Backup actions'
+                                : 'Restore actions'
+                            }
+                          >
+                            <EllipsisVerticalIcon />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {type === 'restore' ? (
+                            <DropdownMenuItem
+                              onSelect={() => setDetailsRestore(record)}
+                            >
+                              Details
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              setLogOperation({
+                                type,
+                                id: record.id,
+                                errorMessage: record.errorMessage,
+                              })
+                            }
+                          >
+                            {type === 'backup' ? 'Backup logs' : 'Restore logs'}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </ButtonGroup>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <Empty className="min-h-60 border bg-card text-card-foreground">
+            <EmptyHeader>
+              <EmptyTitle>
+                {backupRuns.length || context.backupRestores.length
+                  ? 'No matching activity.'
+                  : 'No backup history yet.'}
+              </EmptyTitle>
+              <EmptyDescription>
+                Run a policy or wait for its next scheduled backup. Clear
+                filters to see other activity.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </section>
+      <BackupJobLogs
+        operation={logOperation}
+        teamSlug={teamSlug}
+        onClose={() => setLogOperation(null)}
+      />
     </>
   )
-}
-
-function BackupFailureAlert({
-  title,
-  message,
-  description,
-  className,
-}: {
-  title: string
-  message: string | null
-  description?: string
-  className?: string
-}) {
-  return (
-    <Alert variant="destructive" className={className}>
-      <TriangleAlertIcon />
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>
-        {description ? <p>{description}</p> : null}
-        {message ? (
-          <details>
-            <summary className="cursor-pointer">Error details</summary>
-            <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-xs">
-              {message}
-            </p>
-          </details>
-        ) : null}
-      </AlertDescription>
-    </Alert>
-  )
-}
-
-function BackupPolicyActions({
-  disabled,
-  enabled,
-  onDelete,
-  onRun,
-  onToggle,
-}: {
-  disabled?: boolean
-  enabled: boolean
-  onDelete: () => void
-  onRun: () => void
-  onToggle: () => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          disabled={disabled}
-          aria-label="Backup policy actions"
-        >
-          <MoreHorizontalIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuItem disabled={disabled} onSelect={onRun}>
-          <PlayIcon />
-          Run
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={disabled} onSelect={onToggle}>
-          {enabled ? <PauseIcon /> : <PlayIcon />}
-          {enabled ? 'Pause' : 'Resume'}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          disabled={disabled}
-          variant="destructive"
-          onSelect={onDelete}
-        >
-          <TrashIcon />
-          Delete
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function BackupStatusIcon({
-  enabled = true,
-  status,
-}: {
-  enabled?: boolean
-  status: ProjectBackupRun['status'] | null
-}) {
-  if (!enabled) {
-    return <PauseIcon className="size-4 shrink-0 text-muted-foreground" />
-  }
-  if (status === 'succeeded') {
-    return <CircleCheckIcon className="size-4 shrink-0 text-green-500" />
-  }
-  if (status === 'failed' || status === 'canceled') {
-    return <CircleXIcon className="size-4 shrink-0 text-destructive" />
-  }
-  if (status === 'running' || status === 'queued') {
-    return (
-      <LoaderIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
-    )
-  }
-  return <BanIcon className="size-4 shrink-0 text-muted-foreground" />
 }

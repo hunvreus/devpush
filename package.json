@@ -2,14 +2,10 @@
   "name": "devpush-root",
   "private": true,
   "packageManager": "pnpm@10.17.1",
-  "knip": {
-    "ignoreBinaries": [
-      "go",
-      "xdg-open"
-    ]
-  },
   "scripts": {
+    "docs:check": "node scripts/validate-docs.mjs",
     "configure": "node scripts/setup.mjs",
+    "secrets:pull": "node scripts/local-secrets.mjs",
     "dev": "pnpm --dir app dev",
     "dev:start": "scripts/local-start.sh",
     "dev:stop": "scripts/local-stop.sh",
@@ -18,9 +14,10 @@
     "audit:dependencies": "pnpm audit --audit-level=high",
     "typecheck": "pnpm --dir app typecheck",
     "lint": "pnpm --dir app lint",
-    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs scripts/setup-hetzner.test.mjs app/scripts/github-app.test.mjs",
+    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs scripts/setup-hetzner.test.mjs scripts/local-stop.test.mjs scripts/local-secrets.test.mjs scripts/local-vm.test.mjs scripts/scheduler.test.mjs scripts/production-compose.test.mjs app/scripts/github-app.test.mjs",
     "test:integration": "pnpm --dir app test:integration",
     "smoke:deploy": "pnpm --dir app smoke:deploy",
+    "smoke:node": "pnpm --dir app smoke:node",
     "smoke:agent": "GOCACHE=$PWD/.tmp/go-build-cache DEVPUSH_RUN_DOCKER_SMOKE=1 go test ./agent/internal/agent -run 'TestRunDeploymentJob(RunsRealDockerCompose|RoutesThroughRealTraefik)' -count=1 -v",
     "validate:local": "scripts/validate-local.sh",
     "validate:config": "node scripts/validate-config.mjs",
@@ -36,7 +33,13 @@
     "deploy:cloudflare": "pnpm --dir app validate:cloudflare:config && pnpm --dir app db:migrate:cloudflare && pnpm agent:build:linux && pnpm publish:agents:cloudflare && pnpm --dir app deploy:cloudflare:worker",
     "agent:test": "GOCACHE=$PWD/.tmp/go-build-cache go test ./agent/...",
     "setup:github-app": "node app/scripts/setup-github-app.mjs",
-    "setup:hetzner": "node scripts/setup-hetzner.mjs"
+    "setup:hetzner": "node scripts/setup-hetzner.mjs",
+    "vm:install": "scripts/local-vm.sh install",
+    "vm:setup": "scripts/local-vm.sh setup",
+    "vm:test": "scripts/local-vm.sh test",
+    "vm:stop": "scripts/local-vm.sh stop",
+    "vm:destroy": "scripts/local-vm.sh destroy",
+    "cleanup:recover": "pnpm --dir app cleanup:recover"
   },
   "devDependencies": {
     "@clack/prompts": "^1.7.0",
@@ -44,11 +47,14 @@
   },
   "pnpm": {
     "overrides": {
+      "seroval": "1.6.9",
+      "source-map-js": "1.2.2",
+      "sharp": "0.35.5",
       "browserslist": "4.28.7",
       "esbuild": "0.28.1",
-      "fast-uri": "3.1.7",
+      "fast-uri": "3.1.8",
       "qs": "6.16.0",
-      "minimatch>brace-expansion": "5.0.11",
+      "minimatch>brace-expansion": "5.0.12",
       "xmlbuilder2>js-yaml": "4.3.2"
     }
   }

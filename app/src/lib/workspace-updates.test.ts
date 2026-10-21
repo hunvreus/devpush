@@ -45,4 +45,8 @@ test('notifications refresh relevant snapshots without touching settings or othe
   expect(
     matchesWorkspaceUpdate(['server-context', 'a', 's'], 'a', 'servers'),
   ).toBe(true)
+  expect(
+    matchesWorkspaceUpdate(['server-metrics', 'a', 's'], 'a', 'servers'),
+  ).toBe(false)
+  expect(matchesWorkspaceUpdate(['server-metrics', 'a', 's'], 'a')).toBe(true)
 })

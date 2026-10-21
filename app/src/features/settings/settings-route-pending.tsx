@@ -1,13 +1,24 @@
+import {
+  accountSettingsNavigation,
+  AccountEmailPreferencesPending,
+} from '#devpush/deployment/ui'
+import { Fragment } from 'react'
+import type { ReactNode } from 'react'
 import { getRouteApi, useHydrated } from '@tanstack/react-router'
 import { AdminSettings } from '@/features/admin/admin-settings'
 import { UserSettings } from '@/features/users/user-settings'
-import { ChevronDownIcon, PlusIcon, SearchIcon, UploadIcon } from 'lucide-react'
+import { ChevronDownIcon, PlusIcon, SearchIcon } from 'lucide-react'
 import {
   Field,
   FieldLabel,
   FieldDescription,
   FieldGroup,
 } from '@/components/ui/field'
+import { ApiKeysPending } from '@/features/users/api-keys-settings'
+import {
+  ConnectedAppsDescription,
+  ConnectedAppsPending,
+} from '@/features/users/connected-apps-settings'
 import { ButtonGroup } from '@/components/ui/button-group'
 import {
   InputGroup,
@@ -32,13 +43,16 @@ const adminItems: Array<SectionNavigationItem> = [
 const userItems: Array<SectionNavigationItem> = [
   { href: '#general', label: 'General' },
   { href: '#email', label: 'Email' },
+  ...accountSettingsNavigation,
   { href: '#authentication', label: 'Authentication' },
+  { href: '#api-keys', label: 'API keys' },
+  { href: '#connected-apps', label: 'Connected apps' },
   { href: '#teams', label: 'Teams' },
   { href: '#danger', label: 'Danger', destructive: true },
 ]
 
 type PendingSection = {
-  description: string
+  description: ReactNode
   footer?: boolean
   kind: 'collection' | 'fields' | 'installation' | 'single-action'
   title: string
@@ -46,6 +60,7 @@ type PendingSection = {
 
 export function AdminSettingsPending() {
   const route = getRouteApi('/admin')
+  const navigate = route.useNavigate()
   const routeContext = route.useLoaderData()
   const context = useHydrated() ? routeContext : undefined
   if (context)
@@ -53,6 +68,13 @@ export function AdminSettingsPending() {
       <AdminSettings
         currentUserId={context.userContext.user.id}
         overview={context.adminOverview}
+        onSearchChange={(search) => {
+          void navigate({
+            search: (previous) => ({ ...previous, ...search }),
+            replace: true,
+            resetScroll: false,
+          })
+        }}
       />
     )
   return (
@@ -78,7 +100,7 @@ export function AdminSettingsPending() {
           title: 'Allowlist',
         },
       ]}
-      title="Admin settings"
+      title="Admin"
     />
   )
 }
@@ -112,6 +134,17 @@ export function UserSettingsPending() {
           title: 'Authentication',
         },
         {
+          description:
+            'Create keys for scripts, integrations and AI assistants using the API or MCP.',
+          kind: 'collection',
+          title: 'API keys',
+        },
+        {
+          description: <ConnectedAppsDescription />,
+          kind: 'collection',
+          title: 'Connected apps',
+        },
+        {
           description: 'Manage the teams you are a member of.',
           kind: 'collection',
           title: 'Teams',
@@ -123,7 +156,7 @@ export function UserSettingsPending() {
           title: 'Danger',
         },
       ]}
-      title="Account settings"
+      title="Account"
     />
   )
 }
@@ -147,7 +180,12 @@ function SettingsPagePending({
       title={title}
     >
       {sections.map((section) => (
-        <PendingSettingsCard key={section.title} section={section} />
+        <Fragment key={section.title}>
+          <PendingSettingsCard section={section} />
+          {title === 'Account' && section.title === 'Email' ? (
+            <AccountEmailPreferencesPending />
+          ) : null}
+        </Fragment>
       ))}
     </StandaloneSettingsLayout>
   )
@@ -156,7 +194,7 @@ function SettingsPagePending({
 function PendingSettingsCard({ section }: { section: PendingSection }) {
   return (
     <SettingsSection
-      id={section.title.toLowerCase()}
+      id={section.title.toLowerCase().replaceAll(' ', '-')}
       title={section.title}
       description={section.description}
       contentClassName={
@@ -186,6 +224,17 @@ function PendingCardContent({
   title: string
 }) {
   if (kind === 'collection') {
+    if (title === 'API keys')
+      return (
+        <div className="space-y-4">
+          <Button variant="outline" disabled>
+            <PlusIcon />
+            Create API key
+          </Button>
+          <ApiKeysPending />
+        </div>
+      )
+    if (title === 'Connected apps') return <ConnectedAppsPending />
     if (title === 'Authentication')
       return (
         <p role="status" className="text-sm text-muted-foreground">
@@ -207,12 +256,21 @@ function PendingCardContent({
     if (title === 'Users')
       return (
         <div className="space-y-4">
-          <InputGroup className="mr-auto max-w-72">
-            <InputGroupAddon>
-              <SearchIcon />
-            </InputGroupAddon>
-            <InputGroupInput placeholder="Search..." disabled />
-          </InputGroup>
+          <div className="flex items-center gap-2">
+            <InputGroup className="mr-auto max-w-72">
+              <InputGroupAddon>
+                <SearchIcon />
+              </InputGroupAddon>
+              <InputGroupInput
+                aria-label="Search users"
+                placeholder="Search users..."
+                disabled
+              />
+            </InputGroup>
+            <Button variant="outline" disabled>
+              Search
+            </Button>
+          </div>
           <PendingTable
             label="Users loading"
             avatar
@@ -228,7 +286,22 @@ function PendingCardContent({
       )
     return (
       <div className="space-y-4">
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <InputGroup className="max-w-72">
+              <InputGroupAddon>
+                <SearchIcon />
+              </InputGroupAddon>
+              <InputGroupInput
+                aria-label="Search allowlist"
+                placeholder="Search rules..."
+                disabled
+              />
+            </InputGroup>
+            <Button variant="outline" disabled>
+              Search
+            </Button>
+          </div>
           <ButtonGroup>
             <Button variant="outline" disabled>
               <PlusIcon data-icon="inline-start" />
@@ -281,18 +354,23 @@ function PendingCardContent({
   if (title === 'General') {
     return (
       <FieldGroup>
-        <Field>
-          <FieldLabel>Avatar</FieldLabel>
-          <div className="flex items-center gap-2">
-            <Skeleton className="size-10 rounded-full" />
-            <Button variant="outline" size="sm" disabled>
-              <UploadIcon data-icon="inline-start" />
-              Upload image
-            </Button>
-          </div>
+        <Field
+          orientation="horizontal"
+          className="grid items-center gap-3 sm:grid-cols-2"
+        >
+          <FieldLabel>Picture</FieldLabel>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 rounded-full"
+            disabled
+            aria-label="Upload profile picture"
+          >
+            <Skeleton className="size-9 rounded-full" />
+          </Button>
         </Field>
-        <PendingField label="Name (required)" />
-        <PendingField label="Username (required)" />
+        <PendingField label="Name (required)" horizontal />
+        <PendingField label="Username (required)" horizontal />
       </FieldGroup>
     )
   }
@@ -308,12 +386,19 @@ function PendingCardContent({
 function PendingField({
   description,
   label,
+  horizontal = false,
 }: {
   description?: string
   label: string
+  horizontal?: boolean
 }) {
   return (
-    <Field>
+    <Field
+      orientation={horizontal ? 'horizontal' : 'vertical'}
+      className={
+        horizontal ? 'grid items-center gap-3 sm:grid-cols-2' : undefined
+      }
+    >
       <FieldLabel>{label}</FieldLabel>
       <Skeleton className="h-8 w-full" />
       {description ? <FieldDescription>{description}</FieldDescription> : null}

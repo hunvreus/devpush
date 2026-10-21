@@ -22,6 +22,9 @@ export function matchesWorkspaceUpdate(
       'team-context',
       'project-context',
       'server-context',
+      'server-metrics',
+      'manual-deploy-options',
+      'operation-logs',
       'deployment-context',
       'deployment-logs',
       'project-logs',
@@ -35,9 +38,12 @@ export function matchesWorkspaceUpdate(
       (family === 'project-context' && key.at(-1) === 'shell')
     )
   return (
-    ['deployment-context', 'deployment-logs', 'project-logs'].includes(
-      family,
-    ) ||
+    [
+      'deployment-context',
+      'deployment-logs',
+      'project-logs',
+      'manual-deploy-options',
+    ].includes(family) ||
     (family === 'team-context' && key.at(-1) === 'overview') ||
     (family === 'project-context' &&
       ['overview', 'deployments', 'shell', 'backups'].includes(

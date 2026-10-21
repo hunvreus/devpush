@@ -1,7 +1,11 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { switchServerControlPlane } from './switch'
 import { required } from '@/test/required'
 import { eq, inArray } from 'drizzle-orm'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
 import { currentAgentCapabilities } from '@/server/agents/compatibility'
@@ -20,10 +24,12 @@ import {
   user,
 } from '@/server/db/schema'
 import {
+  mergePublicAddresses,
   createServerInstallCommand,
   createPendingServer,
   deleteTeamServer,
   requireTeamServer,
+  requireServerMetricHistoryForTeam,
   updateTeamServer,
   disableTeamServer,
   enableTeamServer,
@@ -45,6 +51,7 @@ const touchedMetricIds: Array<string> = []
 const touchedHeartbeatIds: Array<string> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await cleanupRows()
 })
 
@@ -53,6 +60,207 @@ afterAll(async () => {
 })
 
 describe('server service integration', () => {
+  test('routine heartbeats preserve the server settings timestamp while lifecycle transitions advance it', async () => {
+    const { teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'heartbeat-timestamp',
+    })
+    touchedServerIds.push(server.id)
+    const registration = await registerAgent({
+      token: required(server.installCommand.match(/dps_[\w-]+/)?.[0]),
+      publicAddress: null,
+    })
+    const token = required(registration.credential)
+    // The first heartbeat promotes enrollment credentials: a lifecycle change.
+    await recordAgentHeartbeat({
+      serverId: server.id,
+      token,
+      publicAddress: null,
+    })
+    const baseline = new Date(1000)
+    await db
+      .update(servers)
+      .set({ updatedAt: baseline })
+      .where(eq(servers.id, server.id))
+    await recordAgentHeartbeat({
+      serverId: server.id,
+      token,
+      publicAddress: null,
+      agentVersion: 'test-version',
+      system: { uptimeSeconds: 123 },
+    })
+    const [observed] = await db
+      .select()
+      .from(servers)
+      .where(eq(servers.id, server.id))
+    expect(observed?.updatedAt).toEqual(baseline)
+    expect(observed?.lastSeenAt!.getTime()).toBeGreaterThan(baseline.getTime())
+    expect(observed?.hostUptimeSeconds).toBe(123)
+    expect(observed?.settingsVersion).toBe(1)
+    await db
+      .update(servers)
+      .set({ status: 'disconnected' })
+      .where(eq(servers.id, server.id))
+    await recordAgentHeartbeat({
+      serverId: server.id,
+      token,
+      publicAddress: null,
+    })
+    const [reconnected] = await db
+      .select()
+      .from(servers)
+      .where(eq(servers.id, server.id))
+    expect(reconnected?.updatedAt.getTime()).toBeGreaterThan(baseline.getTime())
+  })
+
+  test('a heartbeat cannot reconnect a server disabled after credential lookup', async () => {
+    const { teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'heartbeat-race',
+    })
+    touchedServerIds.push(server.id)
+    const registration = await registerAgent({
+      token: required(server.installCommand.match(/dps_[\w-]+/)?.[0]),
+      publicAddress: null,
+    })
+    const update = db.update.bind(db)
+    vi.spyOn(db, 'update').mockImplementationOnce((table) => {
+      const builder = update(table)
+      const set = builder.set.bind(builder)
+      vi.spyOn(builder, 'set').mockImplementationOnce((values) => {
+        const query = set(values)
+        const execute = query.execute.bind(query)
+        vi.spyOn(query, 'execute').mockImplementationOnce(async () => {
+          await update(servers)
+            .set({ status: 'disabled' })
+            .where(eq(servers.id, server.id))
+          return execute()
+        })
+        return query
+      })
+      return builder
+    })
+    await expect(
+      recordAgentHeartbeat({
+        serverId: server.id,
+        token: required(registration.credential),
+        publicAddress: null,
+      }),
+    ).rejects.toThrow('Server state or credential changed.')
+    expect(
+      (await db.select().from(servers).where(eq(servers.id, server.id)))[0]
+        ?.status,
+    ).toBe('disabled')
+  })
+
+  test('server details exclude history while the independent chart query preserves peaks and team access', async () => {
+    const { teamId, teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'chart-history',
+    })
+    touchedServerIds.push(server.id)
+    const now = Date.now()
+    await db
+      .update(servers)
+      .set({ createdAt: new Date(now - 24 * 60 * 60 * 1000) })
+      .where(eq(servers.id, server.id))
+    await db
+      .update(serverAvailabilityWindows)
+      .set({ startedAt: new Date(now - 24 * 60 * 60 * 1000) })
+      .where(eq(serverAvailabilityWindows.serverId, server.id))
+    const rows = Array.from({ length: 2880 }, (_, index) => ({
+      id: crypto.randomUUID(),
+      serverId: server.id,
+      observedAt: new Date(now - (2879 - index) * 30_000),
+      cpuPercent: index === 111 ? 99 : 10,
+      networkReceiveBytesPerSecond: index === 119 ? 9999 : 10,
+    }))
+    touchedMetricIds.push(...rows.map((row) => row.id))
+    for (let start = 0; start < rows.length; start += 100)
+      await db.insert(serverMetrics).values(rows.slice(start, start + 100))
+    const detail = await requireTeamServer({
+      userId,
+      teamSlug,
+      serverId: server.id,
+    })
+    expect(detail).not.toHaveProperty('metricSeries')
+    expect(detail).not.toHaveProperty('metricWindow')
+    expect(detail.monitoring.latestMetrics?.cpuPercent).toBe(10)
+    const history = await requireServerMetricHistoryForTeam({
+      teamId,
+      serverId: server.id,
+    })
+    expect(history.points.length).toBeLessThanOrEqual(600)
+    expect(history.points.some((point) => point.cpuPercent === 99)).toBe(true)
+    expect(
+      history.points.some(
+        (point) => point.networkReceiveBytesPerSecond === 9999,
+      ),
+    ).toBe(true)
+    await expect(
+      requireServerMetricHistoryForTeam({
+        teamId: 'foreign-team',
+        serverId: server.id,
+      }),
+    ).rejects.toThrow('Server not found')
+    expect(
+      await db
+        .select({ id: serverMetrics.id })
+        .from(serverMetrics)
+        .where(eq(serverMetrics.serverId, server.id)),
+    ).toHaveLength(2880)
+  })
+
+  test('keeps both discovered families and ignores connection-family changes for routing', async () => {
+    const { teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'dual-address-test',
+    })
+    touchedServerIds.push(server.id)
+    const registration = await registerAgent({
+      token: required(server.installCommand.match(/dps_[\w-]+/)?.[0]),
+      publicAddress: '2001:db8::9',
+      publicIpv4: '203.0.113.10',
+      publicIpv6: '2001:db8::10',
+    })
+    await recordAgentHeartbeat({
+      serverId: server.id,
+      token: required(registration.credential),
+      publicAddress: '2001:db8::9',
+      publicIpv6: '2001:db8::11',
+    })
+    const rows = await db
+      .select()
+      .from(servers)
+      .where(eq(servers.id, server.id))
+    expect(rows[0]).toMatchObject({
+      publicAddress: '203.0.113.10',
+      publicIpv4: '203.0.113.10',
+      publicIpv6: '2001:db8::11',
+    })
+    await recordAgentHeartbeat({
+      serverId: server.id,
+      token: required(registration.credential),
+      publicAddress: '203.0.113.99',
+      routingAddress: '2001:db8::7',
+    })
+    expect(
+      (await db.select().from(servers).where(eq(servers.id, server.id)))[0],
+    ).toMatchObject({
+      publicAddress: '2001:db8::7',
+      publicIpv4: null,
+      publicIpv6: '2001:db8::7',
+    })
+  })
+
   test('switching pauses an empty server, rejects work, and supports guarded rollback', async () => {
     const { teamId, teamSlug, userId } = await createFixture()
     const server = await createPendingServer({
@@ -96,16 +304,14 @@ describe('server service integration', () => {
     ).toBe('connected')
     const projectId = `switch-project-${crypto.randomUUID()}`
     touchedProjectIds.push(projectId)
-    await db
-      .insert(projects)
-      .values({
-        id: projectId,
-        teamId,
-        defaultServerId: server.id,
-        slug: projectId,
-        name: 'Switch guard',
-        githubRepo: 'example/test',
-      })
+    await db.insert(projects).values({
+      id: projectId,
+      teamId,
+      defaultServerId: server.id,
+      slug: projectId,
+      name: 'Switch guard',
+      githubRepo: 'example/test',
+    })
     await expect(switchServerControlPlane(input)).rejects.toThrow('no projects')
     expect(
       (await requireAgentServer({ serverId: server.id, token })).status,
@@ -134,7 +340,7 @@ describe('server service integration', () => {
       .where(eq(teamMembers.teamId, teamId))
     await expect(
       createPendingServer({ userId, teamSlug, name: 'member-server' }),
-    ).rejects.toThrow('Forbidden')
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
 
     await db
       .update(teamMembers)
@@ -243,6 +449,32 @@ describe('server service integration', () => {
         serverId: server.id,
       }),
     ).rejects.toThrow('Disabled servers cannot be enrolled.')
+  })
+
+  test('the generated installer does not exit its calling shell', async () => {
+    const { teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'installer-shell',
+    })
+    touchedServerIds.push(server.id)
+    const bin = mkdtempSync(join(tmpdir(), 'devpush-install-command-'))
+    try {
+      writeFileSync(join(bin, 'curl'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+      writeFileSync(join(bin, 'sudo'), '#!/bin/sh\nexit 7\n', { mode: 0o755 })
+      const output = execFileSync(
+        'sh',
+        ['-c', `${server.installCommand}; printf 'shell-still-running'`],
+        {
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+          encoding: 'utf8',
+        },
+      )
+      expect(output).toBe('shell-still-running')
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+    }
   })
 
   test('does not rotate the credential of a connected server', async () => {
@@ -913,3 +1145,26 @@ async function cleanupRows() {
     touchedUserIds.length = 0
   }
 }
+
+test('pinned routing address replaces discovered families, including an old preferred IPv4', () => {
+  const server = {
+    publicAddress: '203.0.113.9',
+    publicIpv4: '203.0.113.9',
+    publicIpv6: '2001:db8::9',
+  }
+  expect(
+    mergePublicAddresses(server, { routingAddress: '2001:db8::7' }),
+  ).toEqual({
+    publicAddress: '2001:db8::7',
+    publicIpv4: null,
+    publicIpv6: '2001:db8::7',
+  })
+  expect(
+    mergePublicAddresses(server, { routingAddress: '192.168.64.7' }),
+  ).toEqual({
+    publicAddress: '192.168.64.7',
+    publicIpv4: '192.168.64.7',
+    publicIpv6: null,
+  })
+  expect(mergePublicAddresses(server, {})).toEqual(server)
+})

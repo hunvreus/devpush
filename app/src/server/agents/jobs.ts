@@ -1,5 +1,14 @@
+import type { BackupDestination } from '@/server/backups/service'
+import { backupDestinationSnapshot } from '@/server/backups/destination'
+import { refreshBackupCredentials } from '@/server/backups/storage'
+import { getPublicErrorMessage } from '@/lib/public-error'
+import {
+  recoverStaleCleanupJobs,
+  finishContainerCleanup,
+} from './container-cleanup-state'
 import {
   failStaleAgentJob,
+  failClaimedAgentJob,
   finishBackup,
   finishBackupCleanup,
 } from './backup-state'
@@ -7,7 +16,7 @@ import { claimBackupCandidate, claimCleanup, claimDeployment } from './claims'
 import { failRunningDeployments, finishDeployment } from './deployment-state'
 import { isAbsolute, relative } from 'node:path/posix'
 
-import { and, asc, eq, inArray, lt, lte } from 'drizzle-orm'
+import { and, asc, eq, inArray, lt, lte, or, isNull, sql } from 'drizzle-orm'
 
 import { db } from '@/server/db'
 import { notifyServer } from '@/server/realtime/service'
@@ -21,6 +30,7 @@ import {
   deployments,
   environments,
   projects,
+  servers,
 } from '@/server/db/schema'
 import { createInstallationAccessToken } from '@/server/github/service'
 import { queueBackupRetentionCleanupJobs } from '@/server/backups/service'
@@ -76,16 +86,18 @@ export async function claimNextAgentJob({
   createAccessToken?: InstallationAccessTokenFactory
 }): Promise<AgentJob | null> {
   const server = await requireAgentServer({ serverId, token })
+  if (server.status !== 'deleted')
+    await recoverStaleCleanupJobs(db, { serverId, now: new Date() })
   await Promise.all([
     failStaleRunningDeployments(serverId),
-    failStaleRunningAgentJobsForServer(serverId),
+    failStaleAgentJobs(serverId),
   ])
 
   if (protocolVersion !== currentAgentProtocolVersion) {
     return null
   }
 
-  const cleanupJob = hasAgentCapability(capabilities, 'jobs.compose.cleanup.v1')
+  const cleanupJob = hasAgentCapability(capabilities, 'jobs.compose.cleanup.v2')
     ? await claimNextCleanupJob({ serverId })
     : null
 
@@ -117,7 +129,10 @@ export async function claimNextAgentJob({
   ]
   const backupJob =
     backupTypes.length > 0
-      ? await claimNextBackupJob({ serverId, types: backupTypes })
+      ? await claimNextBackupJob({
+          serverId,
+          types: backupTypes,
+        })
       : null
 
   if (backupJob) {
@@ -141,13 +156,23 @@ async function claimNextBackupJob({
   serverId: string
   types: Array<'backup' | 'restore' | 'backup_cleanup'>
 }): Promise<AgentBackupJob | AgentBackupCleanupJob | AgentRestoreJob | null> {
+  const [owner] = await db
+    .select({ teamId: servers.teamId })
+    .from(servers)
+    .where(eq(servers.id, serverId))
+    .limit(1)
+  if (!owner) return null
+  const teamId = owner.teamId
   let claimed: typeof agentJobs.$inferSelect | null = null
   // A lost compare-and-set means another request consumed this candidate.
   // Read the next one immediately instead of delaying it until another poll.
-  while (!claimed) {
+  for (let attempt = 0; !claimed && attempt < 8; attempt++) {
     const now = new Date()
-    const [candidate] = await db
-      .select()
+    const [snapshot] = await db
+      .select({
+        job: agentJobs,
+        payloadSnapshot: sql<string>`${agentJobs.payload}`,
+      })
       .from(agentJobs)
       .where(
         and(
@@ -159,108 +184,152 @@ async function claimNextBackupJob({
       )
       .orderBy(asc(agentJobs.createdAt), asc(agentJobs.id))
       .limit(1)
-    if (!candidate) return null
+    if (!snapshot) return null
+    const candidate = snapshot.job
     const payload =
       candidate.type === 'backup' ? parseBackupPayload(candidate.payload) : null
     claimed = await claimBackupCandidate(db, {
       job: candidate,
+      payloadSnapshot: snapshot.payloadSnapshot,
       backupRunId: payload?.backupRunId ?? null,
       now,
     })
   }
 
-  if (claimed.type === 'backup') {
-    const payload = parseBackupPayload(claimed.payload)
+  if (!claimed) return null
 
-    if (!payload) {
-      await failCleanupJob(claimed.id, 'Backup job payload is invalid.')
-      return null
+  try {
+    if (claimed.type === 'backup') {
+      const payload = parseBackupPayload(claimed.payload)
+
+      if (!payload) {
+        await failCleanupJob(claimed.id, 'Backup job payload is invalid.')
+        return null
+      }
+
+      return {
+        type: 'backup',
+        id: claimed.id,
+        backup: await hydrateBackupPayload(payload, teamId),
+      }
     }
 
-    return {
-      type: 'backup',
-      id: claimed.id,
-      backup: hydrateBackupPayload(payload),
+    if (claimed.type === 'backup_cleanup') {
+      const payload = parseBackupCleanupPayload(claimed.payload)
+
+      if (!payload) {
+        await failCleanupJob(
+          claimed.id,
+          'Backup cleanup job payload is invalid.',
+        )
+        return null
+      }
+
+      return {
+        type: 'backup_cleanup',
+        id: claimed.id,
+        cleanup: await hydrateBackupCleanupPayload(payload, teamId),
+      }
     }
+
+    if (claimed.type === 'restore') {
+      const payload = parseRestorePayload(claimed.payload)
+
+      if (!payload) {
+        await failCleanupJob(claimed.id, 'Restore job payload is invalid.')
+        return null
+      }
+
+      return {
+        type: 'restore',
+        id: claimed.id,
+        restore: await hydrateRestorePayload(payload, teamId),
+      }
+    }
+
+    return null
+  } catch (error) {
+    const payload =
+      claimed.type === 'backup' ? parseBackupPayload(claimed.payload) : null
+    const cleanup =
+      claimed.type === 'backup_cleanup'
+        ? parseBackupCleanupPayload(claimed.payload)
+        : null
+    await failClaimedAgentJob(db, {
+      job: claimed,
+      now: new Date(),
+      message: getPublicErrorMessage(
+        error,
+        'Backup storage credentials could not be loaded.',
+      ),
+      backupRunId: payload?.backupRunId ?? null,
+      cleanupRunIds: cleanup?.backupRunIds ?? [],
+    })
+    return null
   }
-
-  if (claimed.type === 'backup_cleanup') {
-    const payload = parseBackupCleanupPayload(claimed.payload)
-
-    if (!payload) {
-      await failCleanupJob(claimed.id, 'Backup cleanup job payload is invalid.')
-      return null
-    }
-
-    return {
-      type: 'backup_cleanup',
-      id: claimed.id,
-      cleanup: hydrateBackupCleanupPayload(payload),
-    }
-  }
-
-  if (claimed.type === 'restore') {
-    const payload = parseRestorePayload(claimed.payload)
-
-    if (!payload) {
-      await failCleanupJob(claimed.id, 'Restore job payload is invalid.')
-      return null
-    }
-
-    return {
-      type: 'restore',
-      id: claimed.id,
-      restore: hydrateRestorePayload(payload),
-    }
-  }
-
-  return null
 }
 
-function hydrateBackupPayload(
+async function hydrateBackupPayload(
   payload: NonNullable<ReturnType<typeof parseBackupPayload>>,
+  teamId: string,
 ) {
   return {
     ...payload,
-    destination: hydrateBackupDestination(payload.destination),
+    destination: await hydrateBackupDestination(
+      teamId,
+      payload.destination,
+      payload.retention.remote.enabled,
+    ),
   }
 }
-
-function hydrateBackupCleanupPayload(
+async function hydrateBackupCleanupPayload(
   payload: NonNullable<ReturnType<typeof parseBackupCleanupPayload>>,
+  teamId: string,
 ) {
   return {
     ...payload,
     ...(payload.destination
-      ? { destination: hydrateBackupDestination(payload.destination) }
+      ? {
+          destination: await hydrateBackupDestination(
+            teamId,
+            payload.destination,
+            payload.remoteObjectKeys.length > 0,
+          ),
+        }
       : {}),
   }
 }
-
-function hydrateRestorePayload(
+async function hydrateRestorePayload(
   payload: NonNullable<ReturnType<typeof parseRestorePayload>>,
+  teamId: string,
 ) {
   return {
     ...payload,
     ...(payload.destination
-      ? { destination: hydrateBackupDestination(payload.destination) }
+      ? {
+          destination: await hydrateBackupDestination(
+            teamId,
+            payload.destination,
+            payload.artifacts.some((artifact) => artifact.storage === 'remote'),
+          ),
+        }
       : {}),
   }
 }
-
-function hydrateBackupDestination<
-  T extends {
-    secretAccessKey?: string
-    secretAccessKeyCiphertext?: string
-  },
->(destination: T) {
-  const { secretAccessKeyCiphertext, ...rest } = destination
-
+async function hydrateBackupDestination(
+  teamId: string,
+  destination: BackupDestination,
+  remote: boolean,
+) {
+  const snapshot = backupDestinationSnapshot(destination)
+  if (!remote) return snapshot
+  const current = await refreshBackupCredentials(teamId, snapshot)
+  if (!current.secretAccessKeyCiphertext)
+    throw new Error('Backup storage credentials missing.')
   return {
-    ...rest,
-    ...(secretAccessKeyCiphertext
-      ? { secretAccessKey: decryptSecret(secretAccessKeyCiphertext) }
-      : {}),
+    ...snapshot,
+    accessKeyId: current.accessKeyId,
+    secretAccessKey: decryptSecret(current.secretAccessKeyCiphertext),
   }
 }
 
@@ -291,6 +360,10 @@ export async function claimNextDeploymentJob({
   const claimed = identity ? { deployment, ...identity } : null
 
   if (!claimed) {
+    await failClaimedDeployment(
+      deployment.id,
+      'Deployment environment no longer exists.',
+    )
     return null
   }
 
@@ -474,42 +547,134 @@ async function claimNextCleanupJob({
     return null
   }
 
+  // A previously orphaned runtime may have been assigned back before this job
+  // became available. Never execute an old purge against a currently owned runtime.
+  const protectedRows = await db
+    .select({ runtimeId: environments.runtimeId })
+    .from(environments)
+    .innerJoin(projects, eq(projects.id, environments.projectId))
+    .where(
+      and(
+        eq(environments.status, 'active'),
+        sql`coalesce(${environments.serverId}, ${projects.defaultServerId}) = ${serverId}`,
+        sql`${environments.runtimeId} in (select value from json_each(${JSON.stringify(payload.runtimeIds)}))`,
+      ),
+    )
+  const activeRows = await db
+    .select({ runtimeId: deployments.runtimeId })
+    .from(deployments)
+    .where(
+      and(
+        eq(deployments.serverId, serverId),
+        inArray(deployments.status, ['queued', 'running']),
+        sql`${deployments.runtimeId} in (select value from json_each(${JSON.stringify(payload.runtimeIds)}))`,
+      ),
+    )
+  const protectedIds = new Set(
+    [...protectedRows, ...activeRows].map((row) => row.runtimeId),
+  )
+  const runtimeIds = payload.runtimeIds.filter((id) => !protectedIds.has(id))
+  if (runtimeIds.length === 0) {
+    await finishContainerCleanup(db, {
+      job: claimed,
+      completion: {
+        jobId: claimed.id,
+        attempt: claimed.attempt,
+        status: 'succeeded',
+      },
+      now: new Date(),
+    })
+    return null
+  }
+
+  if (runtimeIds.length !== payload.runtimeIds.length) {
+    const trimmed = await db
+      .update(agentJobs)
+      .set({ payload: { ...payload, runtimeIds } })
+      .where(
+        and(
+          eq(agentJobs.id, claimed.id),
+          eq(agentJobs.status, 'running'),
+          eq(agentJobs.attempt, claimed.attempt),
+          sql`${agentJobs.claimedAt} is ${claimed.claimedAt?.getTime() ?? null}`,
+        ),
+      )
+      .returning({ id: agentJobs.id })
+    if (trimmed.length === 0) return null
+  }
+
   return {
     type: claimed.type,
     id: claimed.id,
+    attempt: claimed.attempt,
     cleanup: {
-      runtimeIds: payload.runtimeIds,
+      runtimeIds,
       removeVolumes: payload.removeVolumes,
       reason: payload.reason,
     },
   }
 }
 
+const deploymentTimeoutMs = 3 * 60 * 60 * 1000
+const lostAgentTimeoutMs = 10 * 60 * 1000
+const backupJobTimeoutMs = 25 * 60 * 60 * 1000
+
+function agentJobTimeoutMs(type: string) {
+  return type === 'backup' || type === 'backup_cleanup' || type === 'restore'
+    ? backupJobTimeoutMs
+    : deploymentTimeoutMs
+}
+
 export async function failStaleRunningDeployments(serverId?: string) {
-  const cutoff = new Date(Date.now() - 3 * 60 * 60 * 1000)
+  const now = new Date()
+  const cutoff = new Date(now.getTime() - deploymentTimeoutMs)
+  const heartbeatCutoff = new Date(now.getTime() - lostAgentTimeoutMs)
   const staleRows = await db
-    .select({ id: deployments.id, serverId: deployments.serverId })
+    .select({
+      id: deployments.id,
+      serverId: deployments.serverId,
+      startedAt: deployments.startedAt,
+    })
     .from(deployments)
+    .innerJoin(servers, eq(servers.id, deployments.serverId))
     .where(
       and(
         serverId ? eq(deployments.serverId, serverId) : undefined,
         eq(deployments.status, 'running'),
-        lt(deployments.startedAt, cutoff),
+        or(
+          lt(deployments.startedAt, cutoff),
+          and(
+            lt(deployments.startedAt, heartbeatCutoff),
+            or(
+              isNull(servers.lastSeenAt),
+              lt(servers.lastSeenAt, heartbeatCutoff),
+            ),
+          ),
+        ),
       ),
     )
-  const staleIds = staleRows.map((row) => row.id)
-
-  if (staleIds.length === 0) {
-    return []
-  }
-
-  const failed = await failRunningDeployments(db, {
-    ids: staleIds,
-    message: 'Deployment timed out after the agent stopped reporting.',
-    phase: 'timed_out',
-    startedBefore: cutoff,
-    now: new Date(),
-  })
+  const expired = staleRows.filter(
+    (row) => row.startedAt && row.startedAt < cutoff,
+  )
+  const disconnected = staleRows.filter((row) => !expired.includes(row))
+  const failed = [
+    ...(await failRunningDeployments(db, {
+      ids: expired.map((row) => row.id),
+      message: 'Deployment exceeded the three-hour execution limit.',
+      phase: 'timed_out',
+      startedBefore: cutoff,
+      now,
+    })),
+    ...(await failRunningDeployments(db, {
+      ids: disconnected.map((row) => row.id),
+      message:
+        'Deployment failed after ten minutes without an agent heartbeat.',
+      phase: 'timed_out',
+      startedBefore: heartbeatCutoff,
+      heartbeatBefore: heartbeatCutoff,
+      now,
+    })),
+  ]
   const failedIds = new Set(failed)
   const affectedServers = new Set(
     staleRows.filter((row) => failedIds.has(row.id)).map((row) => row.serverId),
@@ -520,31 +685,28 @@ export async function failStaleRunningDeployments(serverId?: string) {
   return failed
 }
 
-async function failStaleRunningAgentJobsForServer(serverId: string) {
+export async function failStaleAgentJobs(serverId?: string) {
   const now = new Date()
-  const runningRows = await db
-    .select({ job: agentJobs })
+  const cutoff = now.getTime() - backupJobTimeoutMs
+  const stale = await db
+    .select({
+      job: agentJobs,
+      payloadSnapshot: sql<string>`${agentJobs.payload}`,
+    })
     .from(agentJobs)
     .where(
-      and(eq(agentJobs.serverId, serverId), eq(agentJobs.status, 'running')),
+      and(
+        serverId ? eq(agentJobs.serverId, serverId) : undefined,
+        sql`${agentJobs.type} in ('backup', 'restore', 'backup_cleanup')`,
+        sql`((${agentJobs.status} = 'running' and (${agentJobs.claimedAt} is null or ${agentJobs.claimedAt} < ${cutoff}))
+        or (${agentJobs.status} = 'queued' and ${agentJobs.availableAt} < ${cutoff}))`,
+      ),
     )
-  const stale = runningRows.filter(({ job }) => {
-    if (!job.claimedAt) return true
-    const timeoutMs =
-      job.type === 'backup' ||
-      job.type === 'backup_cleanup' ||
-      job.type === 'restore'
-        ? 25 * 60 * 60 * 1000
-        : 3 * 60 * 60 * 1000
-    return job.claimedAt.getTime() < now.getTime() - timeoutMs
-  })
-
-  if (stale.length === 0) {
-    return []
-  }
-
+    .orderBy(asc(agentJobs.availableAt))
+    .limit(500)
   const failed: Array<{ id: string }> = []
-  for (const { job } of stale) {
+  const affectedServers = new Set<string>()
+  for (const { job, payloadSnapshot } of stale) {
     const backup =
       job.type === 'backup' ? parseBackupPayload(job.payload) : null
     const cleanup =
@@ -554,21 +716,21 @@ async function failStaleRunningAgentJobsForServer(serverId: string) {
     if (
       await failStaleAgentJob(db, {
         job,
+        payloadSnapshot,
         now,
-        timeoutMs:
-          job.type === 'backup' ||
-          job.type === 'backup_cleanup' ||
-          job.type === 'restore'
-            ? 25 * 60 * 60 * 1000
-            : 3 * 60 * 60 * 1000,
+        timeoutMs: agentJobTimeoutMs(job.type),
         message: 'Agent job timed out before completion was reported.',
         backupRunId: backup?.backupRunId ?? null,
         cleanupRunIds: cleanup?.backupRunIds ?? [],
       })
-    )
+    ) {
       failed.push({ id: job.id })
+      affectedServers.add(job.serverId)
+    }
   }
-  if (failed.length > 0) await notifyServer(serverId, 'deployments')
+  await Promise.all(
+    [...affectedServers].map((id) => notifyServer(id, 'deployments')),
+  )
   return failed
 }
 
@@ -699,7 +861,11 @@ export async function completeCleanupJob({
     .select({ job: agentJobs })
     .from(agentJobs)
     .where(
-      and(eq(agentJobs.id, completion.jobId), eq(agentJobs.serverId, serverId)),
+      and(
+        eq(agentJobs.id, completion.jobId),
+        eq(agentJobs.serverId, serverId),
+        inArray(agentJobs.type, ['deprovision', 'purge']),
+      ),
     )
     .limit(1)
   const row = rows.at(0)
@@ -708,26 +874,16 @@ export async function completeCleanupJob({
     throw new AgentRequestError(404, 'Cleanup job not found for this server.')
   }
 
-  if (row.job.status !== 'running') {
+  if (row.job.status !== 'running' || row.job.attempt !== completion.attempt) {
     return { ok: true, ignored: true }
   }
 
-  const now = new Date()
-
-  await db
-    .update(agentJobs)
-    .set({
-      status: completion.status,
-      errorMessage:
-        completion.status === 'failed'
-          ? (completion.message ?? 'Cleanup failed.')
-          : null,
-      finishedAt: now,
-      updatedAt: now,
-    })
-    .where(
-      and(eq(agentJobs.id, completion.jobId), eq(agentJobs.status, 'running')),
-    )
+  const changed = await finishContainerCleanup(db, {
+    job: row.job,
+    completion,
+    now: new Date(),
+  })
+  if (!changed) return { ok: true, ignored: true }
 
   return { ok: true }
 }

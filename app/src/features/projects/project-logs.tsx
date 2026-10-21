@@ -12,7 +12,7 @@ import {
   Clock3Icon,
   LoaderIcon,
   RefreshCwIcon,
-  XIcon,
+  CircleAlertIcon,
 } from 'lucide-react'
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -154,21 +154,6 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
         teamSlug={teamSlug}
         project={project}
         crumbs={[<span className="truncate">Logs</span>]}
-        actions={
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Refresh"
-                onClick={refresh}
-              >
-                <RefreshCwIcon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Refresh</TooltipContent>
-          </Tooltip>
-        }
       />
 
       <section className="space-y-8">
@@ -294,6 +279,21 @@ export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
                 Reset filters
               </Button>
             ) : null}
+            <div className="ml-auto">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Refresh"
+                    onClick={refresh}
+                  >
+                    <RefreshCwIcon />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh</TooltipContent>
+              </Tooltip>
+            </div>
             {isFiltering ? (
               <div className="flex items-center gap-x-1.5 text-xs text-muted-foreground">
                 <LoaderIcon className="size-3.5 shrink-0 animate-spin" />
@@ -386,26 +386,23 @@ function StatusFilterIcon({
   if (status === 'succeeded') {
     return (
       <CircleCheckIcon
-        className="size-4 shrink-0 text-green-500"
-        data-preserve-color
+        className="size-4 shrink-0 text-success"
       />
     )
   }
 
   if (status === 'failed') {
     return (
-      <CircleXIcon
-        className="size-4 shrink-0 text-red-500"
-        data-preserve-color
+      <CircleAlertIcon
+        className="size-4 shrink-0 text-destructive"
       />
     )
   }
 
   if (status === 'canceled') {
     return (
-      <XIcon
+      <CircleXIcon
         className="size-4 shrink-0 text-muted-foreground"
-        data-preserve-color
       />
     )
   }
@@ -414,7 +411,6 @@ function StatusFilterIcon({
     return (
       <Clock3Icon
         className="size-4 shrink-0 text-muted-foreground"
-        data-preserve-color
       />
     )
   }
@@ -422,7 +418,6 @@ function StatusFilterIcon({
   return (
     <LoaderIcon
       className="size-4 shrink-0 animate-spin text-muted-foreground"
-      data-preserve-color
     />
   )
 }

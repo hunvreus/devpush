@@ -117,8 +117,10 @@ function RootDocument({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
-        <Toaster />
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+          {children}
+          <Toaster />
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>
@@ -129,13 +131,11 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext()
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Outlet />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Outlet />
+      </TooltipProvider>
+    </QueryClientProvider>
   )
 }
 

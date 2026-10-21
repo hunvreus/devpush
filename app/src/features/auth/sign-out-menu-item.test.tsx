@@ -4,6 +4,14 @@ import type { ComponentProps } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { SignOutMenuItem } from './sign-out-menu-item'
+import { QueryClient } from '@tanstack/react-query'
+import type * as QuerySdk from '@tanstack/react-query'
+
+const cache = new QueryClient()
+vi.mock('@tanstack/react-query', async () => {
+  const actual = await vi.importActual<typeof QuerySdk>('@tanstack/react-query')
+  return { ...actual, useQueryClient: () => cache }
+})
 
 const mocks = vi.hoisted(() => ({
   signOut: vi.fn(),
@@ -30,6 +38,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   ),
 }))
 afterEach(() => {
+  cache.clear()
   vi.resetAllMocks()
   vi.unstubAllGlobals()
 })
@@ -57,10 +66,16 @@ test.each([false, true])(
         error: { status: 500, message: 'HTTPError' },
       })
     const view = await mount()
+    cache.setQueryData(['team-context', 'private-team'], {
+      name: 'Private team',
+    })
     await act(async () => view.button.click())
     expect(mocks.navigate).not.toHaveBeenCalled()
     expect(mocks.error).toHaveBeenCalled()
     expect(view.button.disabled).toBe(false)
+    expect(cache.getQueryData(['team-context', 'private-team'])).toEqual({
+      name: 'Private team',
+    })
     await view.close()
   },
 )
@@ -74,7 +89,9 @@ test('keeps sign out disabled until navigation completes', async () => {
       }),
   )
   const view = await mount()
+  cache.setQueryData(['team-context', 'private-team'], { name: 'Private team' })
   await act(async () => view.button.click())
+  expect(cache.getQueryData(['team-context', 'private-team'])).toBeUndefined()
   expect(view.button.disabled).toBe(true)
   expect(view.button.textContent).toBe('Signing out…')
   await act(async () => finish())

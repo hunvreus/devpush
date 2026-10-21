@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { getCurrentUserContext } from '@/server/auth/context'
@@ -10,9 +11,13 @@ export const Route = createFileRoute('/')({
       throw redirect({ to: '/auth/login' })
     }
 
+    if (context.user.profileConfirmedAt === null)
+      throw redirect({ to: '/onboarding' })
+
     throw redirect({
       to: '/$teamSlug',
       params: { teamSlug: context.defaultTeam.slug },
     })
   },
+  head: () => pageHead('Home'),
 })

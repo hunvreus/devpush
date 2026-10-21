@@ -6,12 +6,14 @@ import { queueDueBackupSchedules } from '@/server/backups/service'
 import { withDatabaseScope } from '@/server/db'
 import { withSecurityHeaders } from '@/server/http/security-headers'
 import { runMaintenance } from '@/server/maintenance'
+import { resolveProxyRequest } from '@/server/http/proxy-request'
 
 export { WorkspaceUpdates } from '@/server/realtime/workspace-object'
 
 export default {
   async fetch(request, _env, context) {
     assertRuntimeSecurity(config)
+    request = resolveProxyRequest(request)
     const response = await withDatabaseScope(
       () =>
         new URL(request.url).pathname === '/api/workspaces/updates'

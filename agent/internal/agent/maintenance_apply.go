@@ -153,11 +153,14 @@ func switchConfig(original []byte, cfg Config) []byte {
 }
 
 func SwitchControlPlane(ctx context.Context, cfg Config, configPath, destination, tokenPath string) (result error) {
-	return applySwitch(ctx, cfg, configPath, destination, tokenPath, func(config Config) Runner { return NewRunner(config, nil) }, service, waitReady)
+	return applySwitch(ctx, cfg, configPath, destination, tokenPath, func(config Config) *Runner {
+		runner := NewRunner(config, nil)
+		return &runner
+	}, service, waitReady)
 }
 
 func applySwitch(ctx context.Context, cfg Config, configPath, destination, tokenPath string,
-	runnerFactory func(Config) Runner, service func(context.Context, string) error, waitReady func(context.Context, Config) error,
+	runnerFactory func(Config) *Runner, service func(context.Context, string) error, waitReady func(context.Context, Config) error,
 ) (result error) {
 	parsed, err := url.Parse(destination)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {

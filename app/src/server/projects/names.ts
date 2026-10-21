@@ -1,11 +1,10 @@
+import { PublicError } from '@/lib/public-error'
 import { and, eq, ne, sql } from 'drizzle-orm'
 
 import type { db } from '@/server/db'
 import { projects } from '@/server/db/schema'
 
 const projectMachineNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/
-const projectMachineNameError =
-  'Project names can only contain letters, numbers, hyphens, underscores and dots. They cannot start or end with a dot, underscore or hyphen.'
 
 export function validateProjectMachineName(name: string) {
   if (
@@ -13,7 +12,7 @@ export function validateProjectMachineName(name: string) {
     name.length > 100 ||
     !projectMachineNamePattern.test(name)
   ) {
-    throw new Error(projectMachineNameError)
+    throw new PublicError('PROJECT_NAME_INVALID')
   }
 }
 
@@ -37,6 +36,6 @@ export async function requireAvailableProjectMachineName(
     .limit(1)
 
   if (duplicateRows.at(0)) {
-    throw new Error('Project names must be unique within a team.')
+    throw new PublicError('PROJECT_NAME_CONFLICT')
   }
 }

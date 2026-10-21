@@ -7,15 +7,12 @@ import { redirect } from '@tanstack/react-router'
 import {
   getTeamSectionContext,
   getTeamShellContext,
-} from '@/server/auth/context'
-import type { TeamContextSection } from '@/server/auth/context'
+} from '@/server/teams/functions'
+import type { TeamContextSection } from '@/lib/team-context-schema'
 
-export type { TeamContextSection } from '@/server/auth/context'
+export type { TeamContextSection } from '@/lib/team-context-schema'
 export type TeamShellContext = NonNullable<
   Awaited<ReturnType<typeof getTeamShellContext>>
->
-export type TeamSectionContext = NonNullable<
-  Awaited<ReturnType<typeof getTeamSectionContext>>
 >
 
 export function teamShellQueryOptions({ teamSlug }: { teamSlug: string }) {

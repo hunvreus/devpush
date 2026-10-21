@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { useRefreshError } from '@/lib/use-refresh-error'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
@@ -43,6 +44,8 @@ export const Route = createFileRoute(
   pendingMinMs: 200,
   pendingComponent: DeploymentsPending,
   component: DeploymentsRoute,
+  head: ({ params }) =>
+    pageHead('Deployments', params.projectName, params.teamSlug),
 })
 
 function DeploymentsPending() {

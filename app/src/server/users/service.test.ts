@@ -4,7 +4,7 @@ import { mapAuthAccountSummary } from './service'
 
 describe('mapAuthAccountSummary', () => {
   test('returns provider identity without token fields', () => {
-    const summary = mapAuthAccountSummary({
+    const account = {
       id: 'account-id',
       accountId: '12345',
       providerId: 'github',
@@ -15,7 +15,8 @@ describe('mapAuthAccountSummary', () => {
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
       idToken: 'id-token',
-    })
+    }
+    const summary = mapAuthAccountSummary(account)
 
     expect(summary).toEqual({
       id: 'account-id',

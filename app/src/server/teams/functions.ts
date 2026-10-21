@@ -1,23 +1,16 @@
+import { listBackupStorage } from '@/server/backups/storage'
+import { getAuthSession, requireAuthSession  } from '@/server/auth/session.server'
+import { getAgentBinaryStatus } from '@/server/install/agent-binary'
+import { listTeamDeployments } from '@/server/projects/context'
 import {
-  createTeamSchema,
-  inviteSchema,
-  bulkInviteSchema,
-  parseInviteEmails,
-} from '@/lib/team-forms-schema'
-import { createServerFn } from '@tanstack/react-start'
-import { z } from 'zod'
-
-import { requireAuthSession } from '@/server/auth/session.server'
-import {
-  teamGeneralSchema,
-  teamSettingsErrors,
-} from '@/lib/team-settings-schema'
-import { formErrors } from '@/lib/form-errors'
-import {
+  getUserContext,
+  getTeamDeletionStatus,
+  requireTeam,
   acceptTeamInvite,
   acceptUserTeamInvite,
+  declineUserTeamInvite,
+  declineTeamInvite,
   createTeam,
-  createTeamInvite,
   createTeamInvites,
   deleteTeam,
   removeTeamMember,
@@ -25,8 +18,30 @@ import {
   revokeTeamInvite,
   transferTeamOwnership,
   updateTeamGeneral,
-  updateTeamMemberRole,
+  updateTeamMemberRole
 } from '@/server/teams/service'
+import {
+  listTeamInvites,
+  listTeamMembers,
+  listTeamProjects,
+  listTeamServers,
+} from '@/server/teams/queries'
+import { teamContextSectionSchema } from '@/lib/team-context-schema'
+import { PublicError } from '@/lib/public-error'
+import { publicErrorsMiddleware } from '@/server/http/public-errors'
+import {
+  createTeamSchema,
+  bulkInviteSchema,
+  parseInviteEmails,
+} from '@/lib/team-forms-schema'
+import { createServerFn } from '@tanstack/react-start'
+import { z } from 'zod'
+
+import {
+  teamGeneralSchema,
+  teamSettingsErrors,
+} from '@/lib/team-settings-schema'
+import { formErrors } from '@/lib/form-errors'
 
 const teamRouteSchema = z.object({
   teamSlug: z.string().min(1),
@@ -54,6 +69,7 @@ const memberSchema = teamRouteSchema.extend({
 })
 
 export const updateTeamGeneralAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: z.input<typeof teamGeneralSchema>) => data)
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -74,6 +90,7 @@ export const updateTeamGeneralAction = createServerFn({ method: 'POST' })
   })
 
 export const createTeamAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => createTeamSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -84,18 +101,8 @@ export const createTeamAction = createServerFn({ method: 'POST' })
     })
   })
 
-export const createTeamInviteAction = createServerFn({ method: 'POST' })
-  .validator((data: unknown) => inviteSchema.parse(data))
-  .handler(async ({ data }) => {
-    const session = await requireAuthSession()
-
-    return createTeamInvite({
-      userId: session.user.id,
-      ...data,
-    })
-  })
-
 export const createTeamInvitesAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => {
     const parsed = bulkInviteSchema.parse(data)
     return {
@@ -114,6 +121,7 @@ export const createTeamInvitesAction = createServerFn({ method: 'POST' })
   })
 
 export const resendTeamInviteAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => inviteIdSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -125,6 +133,7 @@ export const resendTeamInviteAction = createServerFn({ method: 'POST' })
   })
 
 export const revokeTeamInviteAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => inviteIdSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -136,6 +145,7 @@ export const revokeTeamInviteAction = createServerFn({ method: 'POST' })
   })
 
 export const updateTeamMemberRoleAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => memberRoleSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -147,6 +157,7 @@ export const updateTeamMemberRoleAction = createServerFn({ method: 'POST' })
   })
 
 export const removeTeamMemberAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => memberSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -158,6 +169,7 @@ export const removeTeamMemberAction = createServerFn({ method: 'POST' })
   })
 
 export const transferTeamOwnershipAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => memberSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -169,6 +181,7 @@ export const transferTeamOwnershipAction = createServerFn({ method: 'POST' })
   })
 
 export const deleteTeamAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => deleteTeamSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -180,6 +193,7 @@ export const deleteTeamAction = createServerFn({ method: 'POST' })
   })
 
 export const acceptTeamInviteAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) =>
     z.object({ token: z.string().min(1) }).parse(data),
   )
@@ -193,6 +207,7 @@ export const acceptTeamInviteAction = createServerFn({ method: 'POST' })
   })
 
 export const acceptUserTeamInviteAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: unknown) => userInviteIdSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession()
@@ -201,4 +216,106 @@ export const acceptUserTeamInviteAction = createServerFn({ method: 'POST' })
       userId: session.user.id,
       inviteId: data.inviteId,
     })
+  })
+
+export const declineUserTeamInviteAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
+  .validator((data: unknown) => userInviteIdSchema.parse(data))
+  .handler(async ({ data }) => {
+    const session = await requireAuthSession()
+    return declineUserTeamInvite({
+      userId: session.user.id,
+      inviteId: data.inviteId,
+    })
+  })
+
+export const declineTeamInviteAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
+  .validator((data: unknown) =>
+    z.object({ token: z.string().min(1) }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await requireAuthSession()
+    return declineTeamInvite({ userId: session.user.id, token: data.token })
+  })
+
+const teamSectionRequestSchema = teamRouteSchema.extend({
+  section: teamContextSectionSchema,
+})
+
+export const getTeamShellContext = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
+  .validator((data: z.input<typeof teamRouteSchema>) =>
+    teamRouteSchema.parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+
+    if (!session) {
+      return null
+    }
+
+    const userContext = await getUserContext(session.user.id)
+    const team = userContext.teams.find((item) => item.slug === data.teamSlug)
+
+    if (!team) {
+      throw new PublicError('TEAM_NOT_FOUND')
+    }
+
+    const [projects, servers] = await Promise.all([
+      listTeamProjects(team.id),
+      listTeamServers(team.id, { includeMonitoring: false }),
+    ])
+
+    return {
+      userContext,
+      team,
+      projects,
+      servers,
+    }
+  })
+
+export const getTeamSectionContext = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
+  .validator((data: z.input<typeof teamSectionRequestSchema>) =>
+    teamSectionRequestSchema.parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+
+    if (!session) {
+      return null
+    }
+
+    const team = await requireTeam(session.user.id, data.teamSlug)
+
+    if (data.section === 'overview') {
+      return {
+        section: data.section,
+        deployments: await listTeamDeployments({ teamId: team.id, limit: 5 }),
+      } as const
+    }
+
+    if (data.section === 'servers') {
+      const [servers, serverInstall] = await Promise.all([
+        listTeamServers(team.id, { includeMonitoring: true }),
+        getAgentBinaryStatus(),
+      ])
+
+      return { section: data.section, servers, serverInstall } as const
+    }
+
+    const [members, invites, deletionStatus, backupStorage] = await Promise.all(
+      [
+        listTeamMembers(team.id),
+        listTeamInvites(team.id),
+        getTeamDeletionStatus({ teamId: team.id }),
+        listBackupStorage(team.id, team.role !== 'member'),
+      ],
+    )
+
+    return {
+      section: data.section,
+      settings: { deletionStatus, invites, members, backupStorage },
+    } as const
   })

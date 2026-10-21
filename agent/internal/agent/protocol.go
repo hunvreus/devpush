@@ -1,6 +1,9 @@
 package agent
 
 type agentRequest struct {
+	RoutingAddress  string           `json:"routingAddress,omitempty"`
+	PublicIpv4      string           `json:"publicIpv4,omitempty"`
+	PublicIpv6      string           `json:"publicIpv6,omitempty"`
 	ServerID        string           `json:"serverId,omitempty"`
 	Token           string           `json:"token"`
 	AgentVersion    string           `json:"agentVersion"`
@@ -61,6 +64,7 @@ func (metrics hostMetrics) hasValues() bool {
 }
 
 type agentResponse struct {
+	ManagedCertificates    bool               `json:"managedCertificates,omitempty"`
 	MetricsAcceptedThrough string             `json:"metricsAcceptedThrough,omitempty"`
 	ServerID               string             `json:"serverId"`
 	Status                 string             `json:"status"`
@@ -96,6 +100,7 @@ type nextJobResponse struct {
 }
 
 type agentJob struct {
+	Attempt     int           `json:"attempt"`
 	Type        string        `json:"type"`
 	ID          string        `json:"id"`
 	LogStartSeq int           `json:"logStartSeq"`
@@ -266,6 +271,7 @@ type jobCompletion struct {
 }
 
 type cleanupJobCompletion struct {
+	Attempt  int    `json:"attempt"`
 	ServerID string `json:"serverId"`
 	Token    string `json:"token"`
 	Type     string `json:"type"`

@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { auth } from '@/lib/auth'
+import { auth } from '@/server/auth/better-auth'
 import { config } from '@/server/config'
-import { getSafeRedirectPath } from '@/server/http/internal-redirect'
+import { getSafeRedirectPath } from '@/lib/internal-redirect'
 import { createGitHubInstallState } from '@/server/github/install-state'
 
 export const Route = createFileRoute('/api/github/install')({

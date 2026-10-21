@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 const statusTextColors: Record<ServerStatus, string> = {
   disabled: 'text-destructive',
   disconnected: 'text-destructive',
-  connected: 'text-green-500',
+  connected: 'text-success',
   deleted: 'text-muted-foreground',
   pending: 'text-amber-500',
 }

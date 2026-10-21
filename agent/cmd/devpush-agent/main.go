@@ -34,6 +34,8 @@ func main() {
 	}
 
 	var configPath string
+	var checkConfig bool
+	flag.BoolVar(&checkConfig, "check-config", false, "validate configuration and exit")
 	flag.StringVar(&configPath, "config", "/etc/devpush/agent.env", "agent config path")
 	flag.Parse()
 
@@ -41,6 +43,10 @@ func main() {
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
+	}
+
+	if checkConfig {
+		return
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -72,14 +78,31 @@ func rotateCredential(args []string) {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	lock, err := os.OpenFile(*configPath+".maintenance.lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		slog.Error("open maintenance lock", "error", err)
+		os.Exit(1)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		slog.Error("another maintenance operation is running")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+	if err := agent.Drain(ctx, cfg); err != nil {
+		slog.Error("credential rotation postponed", "error", err)
+		os.Exit(1)
+	}
+	defer agent.Resume(cfg)
 	runner := agent.NewRunner(cfg, slog.Default())
 	if err := runner.RotateCredential(ctx); err != nil {
+		_ = agent.Resume(cfg)
 		slog.Error("failed to rotate credential", "error", err)
 		os.Exit(1)
 	}
 	if err := exec.Command("systemctl", "restart", "devpush-agent").Run(); err != nil {
+		_ = agent.Resume(cfg)
 		slog.Error("credential rotated but agent restart failed", "error", err, "hint", "run systemctl restart devpush-agent")
 		os.Exit(1)
 	}

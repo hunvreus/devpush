@@ -1,97 +1,134 @@
 # TODO
 
-- Validate workspace WebSocket notifications on deployed Cloudflare staging,
-  including an idle browser receiving a real GitHub webhook deployment.
+Outstanding work only. Completed changes belong in CHANGELOG.md; supported
+behavior and contracts belong in the documentation.
 
-## Near-term
+## Before release
 
-- Add a remote-connectivity health check to the local development workflow so
-  a running app with an unavailable tunnel is reported before testing agents.
+1. Complete the Cloudflare production migration in the separate devpush account,
+   using the existing GitHub/Google apps and app.devpu.sh. Production credentials
+   are verified in Development / `devpush (production)`, tagged `devpush` and
+   `production`; retain the legacy `.env.prod` copy until cutover is verified.
+   Activate Workers/R2 and prepare the domain transfer while preserving existing
+   services. Do not assume a staging deployment exists.
+2. Complete remote release verification:
+   - Run `pnpm validate:remote:proof` against a clean VPS and public HTTPS control
+     plane: enrollment, GitHub-backed Compose deployment and public routing.
+     Retain its `.tmp/remote-validation-<timestamp>.md` report.
+   - Verify agent upgrade/drain, managed ingress replacement and empty-host
+     control-plane switching. Rebuild legacy images containing checkout tokens;
+     verify checkout pruning with retained bind mounts and signed pushes after
+     repository renames and during server outages.
+   - Verify deployed Cloudflare workspace notifications with an idle browser and
+     a real GitHub push, automatic backup cron, backup/restore log uploads and
+     interrupted R2 transfers.
+   - Verify real Claude OAuth and a second third-party MCP client on Node and
+     Workers. SDK tests alone do not establish client compatibility.
+   - Verify hosted Turso credentials, TLS and recovery, including Worker access
+     to remote libSQL. Exercise hosted D1/libSQL concurrency and recovery.
+   - Run authenticated Worker load tests under concurrent deployments and log
+     ingestion; record p50/p95/p99 latency and query counts for document loads,
+     navigation, settings saves and scoped polling.
+3. Confirm the supported API operation matrix and version/deprecation policy.
+   Publish the rebuilt marketing site in `hunvreus/devpush-website`, which imports
+   this repository's docs and Taupe theme using ReallySimpleDocs. Update the
+   existing host to use `pnpm build` and `dist/`; verify production examples,
+   links, search, Markdown exports, LLM files and legacy redirects before cutover.
+   Complete and fact-check the Coolify, Dokploy, Vercel and Render comparison
+   placeholders, and replace the legacy demo recording.
 
-- Validate agent update/drain and empty-host control-plane switch on a live VPS
-  after publishing the new agent and source switch endpoint. Design explicit
-  ownership migration before supporting switches of servers with deployments.
+## Reliability and operations
 
-- Give server business errors explicit public codes/messages, so UI error handling
-  can default to hiding all unknown errors instead of recognizing technical messages.
+- Handle server IP changes for existing generated routes. Preserve historical
+  deployment URLs and publish replacement aliases only after routing is applied.
+- Provide operator inspection/export/recovery for corrupt or permanently rejected
+  completion-outbox entries and runtime-log captures with missing ownership.
+  Keep completion delivery blocking new claims until acknowledged or explicitly
+  resolved; do not discard evidence solely on a 404. Preserve captures until
+  recovered or explicitly discarded.
+- Detect runtime-log gaps caused by Docker rotation before collection. Durable
+  delivery protects captured batches, not source logs already removed by Docker.
+- Reproduce intermittent local Nitro `POST /api/agents/jobs/next` transport resets
+  before changing behavior. Monitor Worker/D1 smoke reliability: asynchronous
+  fixture seeding passes, but the earlier synchronous-seeding reset is unexplained.
+- Add agent-to-control-plane connectivity preflight to optional remote-agent tests.
+  The local Lima workflow needs no public tunnel.
+- Add versioned encryption-key rotation, multi-key reads and an audited rewrite
+  command before rotating `DEVPUSH_SECRET_ENCRYPTION_KEY` in a deployed installation.
+- Add a GitHub Actions setup flow for automatic Cloudflare deployments with secure
+  provisioning of bindings, application secrets and scoped Cloudflare credentials.
+- Inventory and retire obsolete remote Cloudflare test Workers, storage, tunnels,
+  DNS records and third-party apps after checking live consumers. Removing local
+  configuration did not remove remote resources.
+- Design explicit ownership migration before supporting control-plane switches
+  for servers that already have deployments.
 
-- Address the remaining moderate dependency advisories; the high-severity
-  audit gate passes after the tooling updates.
+## API and MCP expansion
 
-- Verify hosted Turso credentials, TLS connectivity, and recovery procedures on a real configured account; local libSQL adapter and HTTP server checks pass. Verify the deployed Worker with remote libSQL as well.
+- Complete REST project/server coverage: custom-domain writes and verification,
+  repository settings, project avatars and server enrollment with explicit
+  lost-response recovery. Preserve final atomic authorization and admitted IDs;
+  enrollment rotation is not automatically safe to retry.
+- Define separate personal/admin grants before exposing team membership,
+  invitations, ownership transfers, account/profile verification, administration,
+  credential management and team/account avatars. These remain browser-only;
+  security, admin, enrollment and ownership actions are not MCP tools.
+- Add Worker client-ID metadata discovery only when a maintained transport can
+  pin validated DNS. Do not fall back to an unsafe metadata fetch.
+- Consider service accounts separately. Add a stdio package only if a required
+  client cannot use remote HTTP.
 
-- Detect and report runtime-log gaps caused by Docker rotation before collection.
-  Bounded time-window collection and durable delivery retain captured batches,
-  but cannot recover source logs Docker has already removed.
+## Product backlog
 
-- Run authenticated production Worker load tests, including cold documents,
-  client navigation, direct team-save updates and scoped polling, against representative team,
-  project, deployment, and log routes; record p50, p95, and p99 latency plus
-  query counts under concurrent deployment and log ingestion.
-- Add versioned encryption-key rotation with a multi-key read window and an
-  audited re-encryption command before changing
-  `DEVPUSH_SECRET_ENCRYPTION_KEY` in a deployed installation.
-- Add a first-class GitHub Actions setup flow for automatic Cloudflare
-  deployments, including secure provisioning of generated Wrangler bindings,
-  application secrets and scoped Cloudflare
-  credentials.
-- Complete clean remote VPS validation by running `pnpm validate:remote:proof`
-  with public HTTPS control-plane config, a valid GitHub App private key, server
-  install, GitHub-backed Compose deploy, public route smoke, and the generated
-  `.tmp/remote-validation-<timestamp>.md` summary artifact.
-- Add a single-Dockerfile application runtime with image build, managed
-  ingress, health/readiness, logs, and rolling replacement semantics that do
-  not require a Compose file.
+### Runtimes and routing
 
-## Later
+- Add Dockerfile-only projects by generating a single-service Compose runtime,
+  keeping build context, Dockerfile path, arguments, port, command and named-volume
+  settings explicit. Reuse deployment snapshots, readiness, logs, cleanup and
+  rollback; validate backup/restore ownership. Do not infer a complete application
+  topology from a Dockerfile or promise universal compatibility.
+- Defer Docker Swarm until after the initial release; evaluate afterward: cluster ownership, manager failover, immutable
+  registry images, compatibility checks, updates/rollback, ingress, task logs and
+  persistent data/backups. Compose commands alone are insufficient.
+- Publish and pin deployment API v4 and the shared `ingress.certificates.v1`
+  agent capability in the private hosted release. Private Cloudflare DNS and
+  configurable ACME/ZeroSSL services, SQL state, polling, renewal and installation
+  acknowledgements are implemented. Verify the product implementation in an
+  isolated live rollout before production; Node/workerd tests use fake providers,
+  and the VM verifies real Traefik HTTPS/reload. Hosted readiness UI and production
+  setup are tracked in the private repository.
+- Add managed fallback pages for starting deployments and removed historical
+  aliases, with authenticated historical redeployment.
+- Add Compose graph visualization and a raw Compose template editor.
+- Add external runtime-log drains/export beyond the 24-hour UI window.
 
-- Revisit cloud server provisioning after the first release, starting with Hetzner.
-  A standalone test helper is available through `pnpm setup:hetzner`; the product
-  UI and workspace credential storage remain deferred.
-  Store provider credentials at workspace scope and restrict paid creation to
-  owners. Keep server naming on the first setup screen; on the second, offer
-  manual installation (default) or Hetzner creation with all provider fields
-  together. Fetch current regions, server types, compatible images, availability,
-  and prices from the provider API; revalidate before creation and handle capacity
-  failures. Run the install command through startup provisioning, retain it for
-  manual recovery, and allow provisioning progress to continue after dismissal.
+### Backups
 
-- Explore server creation within project creation, including manual enrollment
-  and cloud provisioning with workspace provider credentials. Decide the UI
-  interaction before implementation; preserve project inputs when switching flows.
+- Add multi-artifact restore selection and restore to a new environment.
+- Consider downloads through signed storage URLs or authenticated agent streaming;
+  do not add manual backup-file deletion.
+- Add optional quiesced-volume backups; live tar archives are not atomic snapshots.
+- Test saved storage from the deployment server through upload/read/delete of a
+  dedicated test object. Syntax validation does not prove connectivity.
+- Consider Cloudflare OAuth for R2 bucket selection/creation and scoped credentials.
+- Extend engine support to SQLite, ClickHouse and libSQL; validate full-cluster
+  recovery across existing roles, credentials and engine versions.
 
-- Design deploy-button and reusable project-template configuration, including
-  how templates are created, shared, imported, and passed through deployment
-  URLs. Do not introduce repository-owned project settings as part of this work.
-- Backups deployment validation: verify automatic Cloudflare cron invocation on
-  staging. Local cron enqueueing/deduplication, PostgreSQL local/R2 recovery,
-  count retention, failed uploads/restores and restore feedback passed live
-  tests on the Hetzner test server. Age/size retention and member restrictions
-  have integration coverage.
-- Backups: add multi-artifact restore selection, restore-to-new-environment, and
-  dedicated restore history.
-- Backups: consider download of stored files (signed S3 links or authenticated
-  streaming from the agent). Do not add manual backup-file deletion.
-- Backups: add an optional quiesced-volume backup mode; live tar archives are not guaranteed to be
-  consistent or recoverable.
-- Backups: add a connection test from the deployment server for saved workspace
-  storage; verify upload/read access and clean up only the test object. Connection
-  syntax validation does not prove a bucket is reachable or writable.
-- Backups: add an optional Cloudflare OAuth setup flow for R2 that can create or
-  select a bucket and provision scoped S3-compatible credentials.
-- Runtime logs: add external drain/export support for long-term retention beyond
-  the 24-hour runtime-log UI window.
-- Compose graph visualization.
-- Raw Compose template editor.
-- Evaluate a Docker Swarm runtime driver after the single-Dockerfile runtime,
-  including manager/worker topology, registry-backed images, stack
-  compatibility preflight, rolling updates, and rollback behavior.
-- Hosted wildcard domain management.
-- Add managed fallback pages for first deployments that are still starting and
-  removed immutable deployment aliases, including an authenticated redeploy
-  action for historical deployments.
-- Notification rules.
-- Billing.
+### Onboarding and platform
 
-- Extend engine-specific backup/restore support to SQLite, ClickHouse and libSQL.
-- Validate full-cluster database recovery across existing roles, credentials and engine versions.
+- Validate deployment on a physical Raspberry Pi with 64-bit Linux and Docker
+  Compose: ARM64 installer/images, builds, logs, metrics, routing and backup/restore.
+  Document outbound agent management separately from LAN/VPN/public application
+  access, private address configuration and resource requirements. Do not advertise
+  verified Pi support before completing this check.
+
+- Add product cloud provisioning after release, starting with Hetzner. The
+  `pnpm setup:hetzner` test helper already exists. Store credentials at workspace
+  scope, restrict paid creation to owners, derive choices/prices/availability from
+  provider APIs and preserve manual installation/recovery and background progress.
+- Explore server creation within project creation; preserve project drafts when
+  switching flows and settle the interaction before implementation.
+- Design reusable project templates and deploy buttons, including sharing/import
+  and deployment URLs, without introducing repository-owned project settings.
+- Add notification rules.
+- Hosted release: publish/pin deployment API v4, configure and validate Stripe test-mode checkout/portal/webhooks, and confirm log allowances and trial-abuse controls before opening paid signup. Detailed commercial backlog lives in the private hosted repository.

@@ -1,3 +1,6 @@
+import { resolveGeneratedHostname } from './generated-hostname'
+import { PublicError } from '@/lib/public-error'
+import type { ApiMutationAdmission } from '@/server/api/admission'
 import { insertProject } from './creation-state'
 import { isUniqueConstraintError } from '@/server/db/errors'
 import { and, eq } from 'drizzle-orm'
@@ -17,12 +20,8 @@ import {
   upsertGitHubInstallation,
 } from '@/server/github/service'
 import { requireTeam } from '@/server/teams/service'
-import { buildRuntimeId } from './deployment-config'
-import {
-  buildDefaultHostForProject,
-  generatedAliasUsesHttps,
-  resolveAvailableAliasHostname,
-} from './hostnames'
+import { buildRuntimeId } from '@/lib/runtime-id'
+import { resolveAvailableAliasHostname } from './hostnames'
 import {
   requireAvailableProjectMachineName,
   validateProjectMachineName,
@@ -33,7 +32,7 @@ import { encryptProjectEnvVars } from './project-env-vars'
 import {
   createComposeRuntimeConfig,
   requireProjectRuntimeConfig,
-} from './runtime-config'
+} from '@/lib/project-runtime-config'
 import type {
   CreatedProject,
   ProjectEnvironmentVariable,
@@ -93,16 +92,14 @@ export async function listRepositorySelectionRepositories({
   const githubAccount = await getGitHubAccount(userId)
 
   if (!githubAccount) {
-    throw new Error(
-      'Connect your GitHub account before selecting a repository.',
-    )
+    throw new PublicError('PROJECT_GITHUB_ACCOUNT_REQUIRED')
   }
 
   const installations = await listUserInstallations(githubAccount.accessToken)
   const installation = installations.find((item) => item.id === installationId)
 
   if (!installation) {
-    throw new Error('Install the GitHub App for this account to continue.')
+    throw new PublicError('PROJECT_GITHUB_ACCOUNT_INSTALLATION_REQUIRED')
   }
 
   const repositories = (
@@ -127,6 +124,7 @@ export async function createProjectFromGitHub({
   repoFullName,
   installationId,
   serverId,
+  admission,
 }: {
   userId: string
   teamSlug: string
@@ -139,6 +137,7 @@ export async function createProjectFromGitHub({
   readinessPath?: string
   releaseCommand?: string
   releaseService?: string
+  admission?: ApiMutationAdmission
 }): Promise<CreatedProject> {
   const normalizedRequestedComposePath = requestedComposePath?.trim() || null
   requireProjectRuntimeConfig(
@@ -163,18 +162,18 @@ export async function createProjectFromGitHub({
   const server = serverRows.at(0) ?? null
 
   if (serverId && !server) {
-    throw new Error('Select a valid server.')
+    throw new PublicError('PROJECT_SERVER_INVALID')
   }
 
   if (!githubAccount) {
-    throw new Error('Connect GitHub before creating a project.')
+    throw new PublicError('PROJECT_CREATION_GITHUB_REQUIRED')
   }
 
   const installations = await listUserInstallations(githubAccount.accessToken)
   const installation = installations.find((item) => item.id === installationId)
 
   if (!installation) {
-    throw new Error('Install the GitHub app for this repository to continue.')
+    throw new PublicError('PROJECT_REPOSITORY_INSTALLATION_REQUIRED')
   }
 
   await upsertGitHubInstallation(installation)
@@ -194,22 +193,20 @@ export async function createProjectFromGitHub({
       (installationRepo) => installationRepo.id === repo.id,
     )
   ) {
-    throw new Error('Install the GitHub app for this repository to continue.')
+    throw new PublicError('PROJECT_REPOSITORY_INSTALLATION_REQUIRED')
   }
 
   if (!repo.permissions.push) {
-    throw new Error(
-      'You need push access to create a project from this repository.',
-    )
+    throw new PublicError('PROJECT_CREATION_PUSH_ACCESS_REQUIRED')
   }
 
-  const composePath = await detectComposePath({
-    accessToken: githubAccount.accessToken,
-    repo: repo.fullName,
-    ref: repo.defaultBranch,
-  })
-
-  const projectComposePath = composePath ?? normalizedRequestedComposePath
+  const projectComposePath =
+    normalizedRequestedComposePath ??
+    (await detectComposePath({
+      accessToken: githubAccount.accessToken,
+      repo: repo.fullName,
+      ref: repo.defaultBranch,
+    }))
   let initialRoutes: Array<ProjectRoute> = []
   let initialComposeMetadata: ProjectComposeMetadata | null = null
   if (projectComposePath) {
@@ -232,7 +229,7 @@ export async function createProjectFromGitHub({
   const slug = projectName.trim()
   validateProjectMachineName(slug)
 
-  const projectId = crypto.randomUUID()
+  const projectId = admission?.resourceId ?? crypto.randomUUID()
   const productionEnvironmentId = crypto.randomUUID()
   const scopedProjectEnvVars = projectEnvVars.map((envVar) => ({
     ...envVar,
@@ -242,12 +239,15 @@ export async function createProjectFromGitHub({
         : envVar.environment,
   }))
   await requireAvailableProjectMachineName(db, team.id, slug)
-  const requestedDefaultHost = server
-    ? buildDefaultHostForProject({
+  const generatedHost = server
+    ? await resolveGeneratedHostname({
+        kind: 'project',
+        serverId: server.id,
         projectName: slug,
         serverPublicAddress: server.publicAddress,
       })
     : null
+  const requestedDefaultHost = generatedHost?.hostname ?? null
   const defaultHost = requestedDefaultHost
     ? await resolveAvailableAliasHostname({
         hostname: requestedDefaultHost,
@@ -256,7 +256,9 @@ export async function createProjectFromGitHub({
     : null
 
   try {
-    await insertProject(db, {
+    const inserted = await insertProject(db, {
+      userId,
+      admission,
       project: {
         id: projectId,
         teamId: team.id,
@@ -298,8 +300,9 @@ export async function createProjectFromGitHub({
         }),
       },
       hostname: defaultHost,
-      https: generatedAliasUsesHttps(server?.publicAddress ?? null),
+      https: generatedHost?.https ?? false,
     })
+    if (!inserted) throw new PublicError('PROJECT_ACCESS_CHANGED')
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       // A concurrent creation can win after the friendly preflight check.

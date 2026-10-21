@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { auth } from '@/lib/auth'
+import { auth } from '@/server/auth/better-auth'
 import {
   getAppInstallation,
   upsertGitHubInstallation,

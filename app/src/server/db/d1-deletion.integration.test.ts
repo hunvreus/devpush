@@ -1,3 +1,4 @@
+import { pruneDeletedResources } from '@/server/deleted-resources'
 import { required } from '@/test/required'
 import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
@@ -158,26 +159,31 @@ describe('atomic deletion on D1', () => {
   test('project deletion keeps every runtime in bounded cleanup jobs and rolls back a failed final status', async () => {
     const db = stores.main
     const ids = await seed('delete-project')
+    const fixtureWrites = []
     for (let offset = 0; offset < 251; offset += 6) {
-      await db.insert(schema.deployments).values(
-        Array.from({ length: Math.min(6, 251 - offset) }, (_, index) => ({
-          id: `project-runtime-${offset + index}`,
-          environmentId: ids.environmentId,
-          serverId: ids.serverId,
-          status: 'queued' as const,
-          repoId: 1,
-          repoFullName: 'example/project',
-          gitSha: 'sha',
-          gitBranch: 'main',
-          config: {},
-          envVars: '[]',
-          runtimeId:
-            offset + index === 0
-              ? 'dp_delete-project'
-              : `dp_runtime_${offset + index}`,
-        })),
+      fixtureWrites.push(
+        db.insert(schema.deployments).values(
+          Array.from({ length: Math.min(6, 251 - offset) }, (_, index) => ({
+            id: `project-runtime-${offset + index}`,
+            environmentId: ids.environmentId,
+            serverId: ids.serverId,
+            status: 'queued' as const,
+            repoId: 1,
+            repoFullName: 'example/project',
+            gitSha: 'sha',
+            gitBranch: 'main',
+            config: {},
+            envVars: '[]',
+            runtimeId:
+              offset + index === 0
+                ? 'dp_delete-project'
+                : `dp_runtime_${offset + index}`,
+          })),
+        ),
       )
     }
+    // Keep bounded inserts in one D1 request; the assertions exercise deletion, not fixture round trips.
+    await db.batch([required(fixtureWrites[0]), ...fixtureWrites.slice(1)])
     const input = { ...ids, removeDeployments: true, now: new Date() }
     await db
       .update(schema.teamMembers)
@@ -277,6 +283,30 @@ describe('atomic deletion on D1', () => {
         .select()
         .from(schema.aliases)
         .where(eq(schema.aliases.projectId, ids.projectId)),
+    ).toHaveLength(1)
+    expect(
+      await db
+        .select()
+        .from(schema.domains)
+        .where(eq(schema.domains.projectId, ids.projectId)),
+    ).toHaveLength(1)
+    await pruneDeletedResources({ store: db, now: input.now })
+    expect(
+      await db
+        .select()
+        .from(schema.domains)
+        .where(eq(schema.domains.projectId, ids.projectId)),
+    ).toHaveLength(1)
+    await db
+      .update(schema.agentJobs)
+      .set({ status: 'succeeded' })
+      .where(sql`project_id = ${ids.projectId} and type = 'deprovision'`)
+    await pruneDeletedResources({ store: db, now: input.now })
+    expect(
+      await db
+        .select()
+        .from(schema.aliases)
+        .where(eq(schema.aliases.projectId, ids.projectId)),
     ).toEqual([])
     expect(
       await db
@@ -308,6 +338,18 @@ describe('atomic deletion on D1', () => {
         .from(schema.agentJobs)
         .where(eq(schema.agentJobs.projectId, kept.projectId)),
     ).toEqual([])
+    expect(
+      await db
+        .select()
+        .from(schema.aliases)
+        .where(eq(schema.aliases.projectId, kept.projectId)),
+    ).toHaveLength(1)
+    expect(
+      await db
+        .select()
+        .from(schema.domains)
+        .where(eq(schema.domains.projectId, kept.projectId)),
+    ).toHaveLength(1)
   })
 
   test('team deletion respects current default teams and restores its subtree after a late failure', async () => {
@@ -568,6 +610,7 @@ describe('atomic deletion on D1', () => {
           soleMemberOwnedTeamIds: [ids.teamId],
         },
         now: new Date(),
+        claim: { id: 'missing-claim', attempt: 1 },
       }),
     ).rejects.toThrow('Deleted user not found.')
     expect(
@@ -592,12 +635,18 @@ describe('atomic deletion on D1', () => {
       .from(schema.userCleanupJobs)
       .where(eq(schema.userCleanupJobs.userId, ids.userId))
     const payload = required(job).payload as UserCleanupJobPayload
+    const now = new Date()
+    const claim = { id: required(job).id, attempt: 1 }
+    await db
+      .update(schema.userCleanupJobs)
+      .set({ status: 'running', attempt: claim.attempt, claimedAt: now })
+      .where(eq(schema.userCleanupJobs.id, claim.id))
     expect(payload.soleMemberOwnedTeamIds).toEqual([ids.teamId])
     await db.run(sql`create trigger reject_user_cleanup before delete on team_members
       when old.user_id = 'user-cleanup-owner' begin select raise(abort, 'simulated user cleanup failure'); end`)
     try {
       await expect(
-        cleanupDeletedUserState(db, { payload, now: new Date() }),
+        cleanupDeletedUserState(db, { payload, now, claim }),
       ).rejects.toThrow('simulated user cleanup failure')
       expect(
         required(
@@ -630,7 +679,7 @@ describe('atomic deletion on D1', () => {
           .select()
           .from(schema.teamInvites)
           .where(eq(schema.teamInvites.id, 'user-cleanup-invite')),
-      ).toHaveLength(1)
+      ).toHaveLength(0)
       expect(
         required(
           (
@@ -644,7 +693,7 @@ describe('atomic deletion on D1', () => {
     } finally {
       await db.run(sql`drop trigger reject_user_cleanup`)
     }
-    await cleanupDeletedUserState(db, { payload, now: new Date() })
+    await cleanupDeletedUserState(db, { payload, now, claim })
     expect(
       required(
         (
@@ -683,7 +732,7 @@ describe('atomic deletion on D1', () => {
         .from(schema.agentJobs)
         .where(eq(schema.agentJobs.teamId, ids.teamId)),
     ).toHaveLength(2)
-    await cleanupDeletedUserState(db, { payload, now: new Date() })
+    await cleanupDeletedUserState(db, { payload, now, claim })
     expect(
       await db
         .select()

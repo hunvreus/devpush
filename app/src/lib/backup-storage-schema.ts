@@ -33,6 +33,7 @@ export const backupStorageSchema = z.object({
 })
 export type BackupStorageInput = z.infer<typeof backupStorageSchema>
 export type BackupStorageSummary = {
+  settingsVersion: number
   id: string
   name: string
   bucket: string

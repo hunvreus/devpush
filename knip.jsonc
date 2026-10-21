@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip/schema.json",
+  "ignoreBinaries": ["go", "op", "xdg-open"],
+  "workspaces": {
+    ".": {
+      // The scheduler test resolves yaml from app/package.json deliberately.
+      "ignoreDependencies": ["yaml"]
+    },
+    "app": {
+      "entry": [
+        // The Worker entry stays live even before an installation is configured.
+        "src/server.ts",
+        "drizzle.logs.config.ts",
+        "scripts/backup-sqlite.mjs",
+        "src/server/**/*.cloudflare.ts"
+      ],
+      // Transport tests resolve the exact serializer/router used by Start,
+      // rather than testing a separately installed copy of these dependencies.
+      // cloudflare: imports are provided by the Workers runtime, not npm.
+      "ignoreDependencies": ["seroval", "@tanstack/router-core", "cloudflare"]
+    }
+  }
+}

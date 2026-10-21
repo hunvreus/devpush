@@ -8,18 +8,12 @@ describe('delete policy', () => {
     expect(
       canDeleteTeam({
         defaultUserIds: ['user-a', 'user-b'],
-        ignoreDefaultForUserId: 'user-a',
       }),
     ).toBe(false)
   })
 
-  test('allows account deletion to delete the current user default team only', () => {
-    expect(
-      canDeleteTeam({
-        defaultUserIds: ['user-a'],
-        ignoreDefaultForUserId: 'user-a',
-      }),
-    ).toBe(true)
+  test('allows deleting a team with no default users', () => {
+    expect(canDeleteTeam({ defaultUserIds: [] })).toBe(true)
   })
 
   test('allows project deletion for owners and admins only', () => {

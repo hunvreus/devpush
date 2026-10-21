@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
@@ -36,6 +37,7 @@ export const Route = createFileRoute('/$teamSlug/projects/$projectName/logs')({
   pendingMinMs: 200,
   pendingComponent: LogsPending,
   component: LogsRoute,
+  head: ({ params }) => pageHead('Logs', params.projectName, params.teamSlug),
 })
 
 function LogsPending() {

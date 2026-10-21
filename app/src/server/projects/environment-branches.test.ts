@@ -12,6 +12,16 @@ const environments = [
 ]
 
 describe('environment branch matching', () => {
+  test('wildcard prefix and suffix cannot overlap in the branch', () => {
+    const rules = [
+      { id: 'production', branch: 'main' },
+      { id: 'release', branch: 'release-*-rc' },
+      { id: 'preview', branch: '*' },
+    ]
+    expect(getEnvironmentForBranch('release-rc', rules)?.id).toBe('preview')
+    expect(getEnvironmentForBranch('release--rc', rules)?.id).toBe('release')
+    expect(getEnvironmentForBranch('release-v2-rc', rules)?.id).toBe('release')
+  })
   test('assigns a branch to only the first matching environment', () => {
     expect(getEnvironmentForBranch('main', environments)?.id).toBe('production')
     expect(getEnvironmentForBranch('stg-feature', environments)?.id).toBe(

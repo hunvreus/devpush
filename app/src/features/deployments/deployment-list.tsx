@@ -1,18 +1,25 @@
+import {
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+  EmptyDescription,
+} from '@/components/ui/empty'
+import { DeploymentAliasBadge } from './deployment-alias-badge'
 import { Link } from '@tanstack/react-router'
 import {
+  ArrowUpRightIcon,
   CircleCheckIcon,
   CircleXIcon,
   Clock3Icon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
-  Link2Icon,
   LoaderIcon,
-  MoreHorizontalIcon,
-  SparkleIcon,
-  XIcon,
+  EllipsisVerticalIcon,
+  CircleAlertIcon,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { ButtonGroup } from '@/components/ui/button-group'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
@@ -43,8 +50,21 @@ export function DeploymentList({
   const rows = limit ? deployments.slice(0, limit) : deployments
   const deploymentAliases = getDeploymentAliases(deployments)
 
+  if (rows.length === 0) {
+    return (
+      <Empty className="min-h-60 border bg-card text-card-foreground">
+        <EmptyHeader>
+          <EmptyTitle>No deployments yet.</EmptyTitle>
+          <EmptyDescription>
+            Deploy a project to see its history here.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  }
+
   return (
-    <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
+    <ul className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground">
       {rows.map((deployment) => (
         <DeploymentRow
           key={deployment.id}
@@ -69,13 +89,13 @@ export function DeploymentListPending({
 }) {
   return (
     <ul
-      className="overflow-hidden rounded-xl border bg-card text-card-foreground"
+      className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground"
       aria-label={label}
       aria-busy="true"
     >
       {Array.from({ length: rows }, (_, index) => (
         <li
-          className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0"
+          className="flex h-11 min-w-[28rem] items-center gap-4 border-b px-4 text-sm whitespace-nowrap md:min-w-[48rem] last:border-b-0"
           key={index}
         >
           <Skeleton className="size-4 shrink-0 rounded-full" />
@@ -91,25 +111,36 @@ export function DeploymentListPending({
             <Skeleton className="h-4 w-20" />
           </span>
           <Skeleton className="h-4 w-12 shrink-0" />
-          <span className="flex min-w-0 items-center gap-2">
+          <span className="hidden min-w-0 items-center gap-2 sm:flex">
             <Skeleton className="size-4 shrink-0" />
             <Skeleton className="h-4 w-12" />
           </span>
-          <span className="flex min-w-0 max-w-1/2 flex-1 items-center gap-2">
+          <span className="hidden min-w-0 max-w-64 items-center gap-2 md:flex">
             <Skeleton className="size-5 shrink-0" />
-            <Skeleton className="h-4 min-w-16 flex-1" />
+            <Skeleton className="h-4 w-32" />
           </span>
-          <Skeleton className="h-5 w-16 shrink-0" />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="ml-auto"
-            disabled
-            aria-label="Deployment actions"
-          >
-            <MoreHorizontalIcon />
-          </Button>
-          {displayProject ? null : <Skeleton className="size-7 shrink-0" />}
+          <Skeleton className="h-5 w-16 shrink-0 max-sm:hidden" />
+          <div className="ml-auto shrink-0">
+            <ButtonGroup className="-mr-2" aria-label="Deployment actions">
+              <Button variant="outline" size="sm" disabled>
+                Visit
+                <ArrowUpRightIcon
+                  data-icon="inline-end"
+                  className="opacity-50"
+                />
+              </Button>
+              {!displayProject ? (
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  disabled
+                  aria-label="Deployment options"
+                >
+                  <EllipsisVerticalIcon />
+                </Button>
+              ) : null}
+            </ButtonGroup>
+          </div>
         </li>
       ))}
     </ul>
@@ -137,8 +168,21 @@ function DeploymentRow({
       : null
 
   return (
-    <li className="flex h-11 items-center gap-4 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50">
-      <DeploymentStatusIcon status={deployment.status} />
+    <li className="flex h-11 min-w-[28rem] items-center gap-4 border-b px-4 text-sm whitespace-nowrap md:min-w-[48rem] last:border-b-0 hover:bg-muted/50">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            role="status"
+            aria-label={deployment.status}
+            className="inline-flex shrink-0"
+          >
+            <DeploymentStatusIcon status={deployment.status} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="capitalize">
+          {deployment.status}
+        </TooltipContent>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
@@ -163,7 +207,7 @@ function DeploymentRow({
             <Link
               to="/$teamSlug/projects/$projectName"
               params={{ teamSlug, projectName: deployment.projectName }}
-              className="flex min-w-0 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
+              className="flex min-w-20 max-w-40 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
             >
               <ResourceAvatar
                 name={deployment.projectName}
@@ -186,18 +230,32 @@ function DeploymentRow({
               projectName: deployment.projectName,
             }}
             search={{ environment: deployment.environmentSlug }}
-            className="flex items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
+            className="flex min-w-16 max-w-32 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
           >
             <EnvironmentDot color={deployment.environmentColor} />
-            {deployment.environmentName}
+            <span className="truncate">{deployment.environmentName}</span>
           </Link>
         </TooltipTrigger>
         <TooltipContent>Environment</TooltipContent>
       </Tooltip>
 
-      <span className="whitespace-nowrap text-muted-foreground">
-        {formatAge(deployment.createdAt)}
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <time
+            dateTime={deployment.createdAt}
+            className="shrink-0 whitespace-nowrap text-muted-foreground"
+          >
+            {formatAge(deployment.createdAt)}
+          </time>
+        </TooltipTrigger>
+        <TooltipContent>
+          {new Intl.DateTimeFormat('en', {
+            dateStyle: 'medium',
+            timeStyle: 'long',
+            timeZone: 'UTC',
+          }).format(new Date(deployment.createdAt))}
+        </TooltipContent>
+      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -205,7 +263,7 @@ function DeploymentRow({
             href={`https://github.com/${deployment.githubRepo}/tree/${deployment.gitBranch}`}
             target="_blank"
             rel="noreferrer"
-            className="flex min-w-0 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
+            className="hidden min-w-16 max-w-32 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground sm:flex [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
           >
             <GitBranchIcon />
             <span className="truncate">{deployment.gitBranch}</span>
@@ -221,7 +279,7 @@ function DeploymentRow({
               href={`https://github.com/${deployment.githubRepo}/commit/${deployment.gitSha}`}
               target="_blank"
               rel="noreferrer"
-              className="flex min-w-0 max-w-1/2 items-center gap-2 text-muted-foreground transition-colors hover:text-foreground [&>svg]:shrink-0 [&>svg]:opacity-50"
+              className="hidden min-w-0 max-w-64 items-center gap-2 md:flex text-muted-foreground transition-colors hover:text-foreground [&>svg]:shrink-0 [&>svg]:opacity-50"
             >
               <GitCommitHorizontalIcon className="size-5 shrink-0" />
               <span className="truncate">
@@ -230,7 +288,7 @@ function DeploymentRow({
               </span>
             </a>
           ) : (
-            <span className="flex min-w-0 max-w-1/2 items-center gap-2 text-muted-foreground [&>svg]:shrink-0 [&>svg]:opacity-50">
+            <span className="hidden min-w-0 max-w-64 items-center gap-2 md:flex text-muted-foreground [&>svg]:shrink-0 [&>svg]:opacity-50">
               <GitCommitHorizontalIcon className="size-5 shrink-0" />
               <span className="truncate">
                 {deployment.commitMessage ??
@@ -246,56 +304,54 @@ function DeploymentRow({
         </TooltipContent>
       </Tooltip>
 
-      {alias === 'current' ? (
-        <span className="inline-flex h-5 items-center gap-x-1 rounded-md bg-secondary px-2 text-xs font-medium text-secondary-foreground max-sm:hidden">
-          <SparkleIcon className="size-3 shrink-0" />
-          Current
-        </span>
-      ) : alias === 'previous' ? (
-        <span className="inline-flex h-5 items-center rounded-md bg-secondary px-2 text-xs font-medium text-muted-foreground max-sm:hidden">
-          Previous
-        </span>
-      ) : null}
+      <DeploymentAliasBadge alias={alias} className="max-sm:hidden" />
 
-      <div className="ml-auto flex items-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              asChild={visitUrl !== null}
-              disabled={visitUrl === null}
-            >
-              {visitUrl ? (
-                <a
-                  href={visitUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Visit"
-                >
-                  <Link2Icon />
-                </a>
-              ) : (
-                <Link2Icon />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Visit</TooltipContent>
-        </Tooltip>
-        {!displayProject ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Deployment options"
+      <div className="ml-auto shrink-0">
+        <ButtonGroup className="-mr-2" aria-label="Deployment actions">
+          <Button
+            variant="outline"
+            size="sm"
+            asChild={visitUrl !== null}
+            disabled={visitUrl === null}
+          >
+            {visitUrl ? (
+              <a
+                href={visitUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Visit"
               >
-                <MoreHorizontalIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DeploymentActions deployment={deployment} teamSlug={teamSlug} />
-          </DropdownMenu>
-        ) : null}
+                Visit
+                <ArrowUpRightIcon
+                  data-icon="inline-end"
+                  className="opacity-50"
+                />
+              </a>
+            ) : (
+              <>
+                Visit
+                <ArrowUpRightIcon
+                  data-icon="inline-end"
+                  className="opacity-50"
+                />
+              </>
+            )}
+          </Button>
+          {!displayProject ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Deployment options"
+                >
+                  <EllipsisVerticalIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DeploymentActions deployment={deployment} teamSlug={teamSlug} />
+            </DropdownMenu>
+          ) : null}
+        </ButtonGroup>
       </div>
     </li>
   )
@@ -307,15 +363,15 @@ function DeploymentStatusIcon({
   status: DeploymentSummary['status']
 }) {
   if (status === 'succeeded') {
-    return <CircleCheckIcon className="size-4 shrink-0 text-green-500" />
+    return <CircleCheckIcon className="size-4 shrink-0 text-success" />
   }
 
   if (status === 'failed') {
-    return <CircleXIcon className="size-4 shrink-0 text-red-500" />
+    return <CircleAlertIcon className="size-4 shrink-0 text-destructive" />
   }
 
   if (status === 'canceled') {
-    return <XIcon className="size-4 shrink-0 text-muted-foreground" />
+    return <CircleXIcon className="size-4 shrink-0 text-muted-foreground" />
   }
 
   if (status === 'queued') {

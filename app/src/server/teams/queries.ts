@@ -77,6 +77,8 @@ export async function listTeamServers(
       id: servers.id,
       name: servers.name,
       publicAddress: servers.publicAddress,
+      publicIpv4: servers.publicIpv4,
+      publicIpv6: servers.publicIpv6,
       status: servers.status,
       agentVersion: servers.agentVersion,
       agentProtocolVersion: servers.agentProtocolVersion,
@@ -96,6 +98,8 @@ export async function listTeamServers(
     id: server.id,
     name: server.name,
     publicAddress: server.publicAddress,
+    publicIpv4: server.publicIpv4,
+    publicIpv6: server.publicIpv6,
     status: getEffectiveServerStatus({
       status: server.status,
       lastSeenAt: server.lastSeenAt,

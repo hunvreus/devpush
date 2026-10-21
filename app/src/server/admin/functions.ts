@@ -2,6 +2,7 @@ import {
   allowlistRuleSchema,
   allowlistImportSchema,
 } from '@/lib/allowlist-schema'
+import { adminSearchSchema } from '@/lib/admin-search-schema'
 import { formErrors } from '@/lib/form-errors'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
@@ -33,23 +34,25 @@ const userIdSchema = z.object({
 
 export const getAdminSettingsContext = createServerFn({
   method: 'GET',
-}).handler(async () => {
-  const session = await getAuthSession()
-
-  if (!session) {
-    return null
-  }
-
-  const [userContext, adminOverview] = await Promise.all([
-    getUserContext(session.user.id),
-    getAdminOverview(session.user),
-  ])
-
-  return {
-    userContext,
-    adminOverview,
-  }
 })
+  .validator((data: unknown) => adminSearchSchema.parse(data))
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+
+    if (!session) {
+      return null
+    }
+
+    const [userContext, adminOverview] = await Promise.all([
+      getUserContext(session.user.id),
+      getAdminOverview(session.user, data),
+    ])
+
+    return {
+      userContext,
+      adminOverview,
+    }
+  })
 
 export const getInstallationReleaseStatus = createServerFn({
   method: 'GET',

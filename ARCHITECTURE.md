@@ -1,456 +1,473 @@
 # Architecture
 
-## Runtime shape
-
-devpush has two runtimes:
-
-- Control plane: TanStack Start app backed by SQLite (native files, Cloudflare D1, or remote libSQL).
-- Agent: Go daemon installed on user servers.
-
-The control plane never runs Docker directly. Agents own Docker Compose,
-Traefik, local secret storage, runtime log reads, and deploy execution.
+devpush has two execution boundaries: a TanStack Start control plane and a Go
+agent on each deployment server. The control plane never runs Docker. Agents own
+Compose execution, Traefik ingress, host observations and local recovery state.
 
 ```mermaid
 flowchart LR
-  Browser["Browser"] --> App["devpush control plane"]
-  GitHub["GitHub App"] --> App
-  App --> Main["Main SQLite / D1 / libSQL database"]
-  App --> Logs["Separate SQLite / D1 / libSQL log database"]
-  App --> Storage["Local or S3-compatible object storage"]
-  Agent["Server agent"] -->|Outbound HTTP polling| App
-  Agent --> Docker["Docker Compose"]
-  Agent --> Traefik["Traefik"]
+  Browser --> App[Control plane]
+  GitHub --> App
+  Agent -->|Outbound HTTP| App
+  App --> Main[Main database]
+  App --> Logs[Log database]
+  App --> Storage[Object storage]
+  Agent --> Docker[Docker Compose]
+  Agent --> Traefik
 ```
 
-## State split
+## Code ownership
 
-The main database is the durable source of truth for teams, projects, servers,
-environments, deployments, deployment events, agent jobs, runtime observations,
-backups, GitHub metadata, and config or secret metadata.
+`app/src/routes` defines loaders, guards, search contracts and route states.
+Product UI and state live in `features/<domain>`. Generic shadcn primitives live
+in `components/ui`; shared components need actual reuse. Runtime-independent
+schemas and client helpers belong in `lib`, and authorization, persistence and
+provider integrations in `server`. Agent code is separate under `agent/`.
 
-Deploy queues, locks, cancellation, request rate limits, and simple background
-work use atomic SQLite statements and batches. Valkey can be added later for higher-volume
-coordination, scheduled job queues, webhook smoothing, presence, or runtime log
-fanout.
+Shared server services work on Node and Cloudflare. Vite aliases select database,
+object-storage, version-reader and workspace-notification implementations.
+Workers never fall back to local files. Agent HTTP routes validate requests and
+delegate to typed services; browser, API and MCP handlers reuse domain logic.
 
-Important history must not exist only in ephemeral coordination storage.
+See [Configuration](docs/configuration.md), [API](docs/api.md) and
+[Agent protocol](docs/agent-protocol.md) for supported external contracts.
 
-Agents durably queue captured runtime logs under their state directory and
-discard an upload chunk only after `200 OK` confirms all submitted lines were
-accepted after persistence or deduplication. Collection checkpoints and pending
-chunks survive restart; credentials are resolved at upload time and never
-written into the log queue. Upload chunks are scheduled per runtime so a large
-capture cannot consume another runtime's entire upload allocation.
+## Storage and atomic writes
 
-Runtime output uses the separate log SQLite database. Identity is validated
-against the main database before ingestion; every read checks main-database
-project permissions and current server assignments. There are no foreign keys
-between the files. Runtime inserts are bounded and idempotent, so partial
-storage failures can be retried. Global maintenance removes expired runtime
-output even after its server or environment stops reporting.
+| Store | Ownership |
+| --- | --- |
+| Main SQLite, D1 or libSQL database | Accounts, teams, projects, environments, servers, deployments, control events, jobs, observations, backup metadata, credentials, API audit and idempotency. |
+| Separate log database | Deployment output, runtime output, operation diagnostics and log-cleanup cursors. |
+| Local or S3-compatible object storage | Avatars and published agent binaries. |
+| Deployment host | Runtime volumes, local backup archives and durable upload outboxes. |
 
-Agent deployment output also uses the separate log database. Small queue,
-cancellation and timeout events stay in main `deployment_events` transactions
-with their state changes. Reads merge the `control` and `deploy` streams after
-checking project access; stored output for removed deployments is excluded.
-Completion persists output first, then changes main deployment state, so either
-store can fail without losing already acknowledged output. Retries use stable
-agent sequence numbers and also store the tail for already terminal deployments.
-Maintenance scans at most 80 deployment identities and removes at most 1,000
-orphan output rows per run, retaining its scan position in log storage.
+There are no cross-database foreign keys. Log ingestion validates identity in the
+main database before writing output. Every read rechecks current authorization.
+Output writes are bounded and idempotent; an acknowledged upload is persisted or
+deduplicated. Main-database queue and cancellation events commit with their state
+changes; reads merge these with agent output from log storage.
 
-Deployment progress consumes pending output from the beginning of the queue.
-Only acknowledged chunks advance its checkpoint. Completion persistence retains
-the full unsent output; initial delivery and restart replay send bounded chunks
-with the same sequence numbers before the final completion request.
+All backends use guarded SQL statements and atomic batches. D1 does not support
+application callback transactions. Admission predicates check live permissions
+and resource state inside the final write, rather than relying only on an earlier
+read. Builds and remote requests never hold database transactions open.
 
-Team member role changes and removals check the actor's current permissions,
-the target's current role and remaining ownership inside one SQL mutation.
-Concurrent owner demotions cannot both succeed and leave the team without an
-owner. This guard works on local SQLite and D1 without callback transactions.
-Ownership transfer promotes the target and demotes the acting owner in one
-guarded SQL statement, using a materialized eligibility snapshot before either
-role changes.
+Node uses native SQLite or remote libSQL. Workers use D1 or a request-scoped
+libSQL web client, closed after each statement or batch. The libSQL adapter keeps
+positional result mapping so joined columns with duplicate names remain distinct.
+Main and log stores have independent connection configuration.
 
-Team creation and account bootstrap use guarded atomic batches to create the
-team and owner membership together. Competing bootstrap requests reuse the
-first active membership and preserve a valid default team. Invitation acceptance
-checks the pending token, expiration, verified email and active user/team in the
-batch that adds membership and accepts the invite. Leaving a team checks its
-current default-team and last-owner restrictions inside the delete statement.
+Project runtime configuration is one type-discriminated JSON object. Compose is
+the only supported runtime. Environments, aliases and domains have stable
+relational identities. Backup policies remain separate because scheduling and
+retention query them across projects; editing one policy updates one row and
+preserves its creation timestamp. Runs represent executions; artifacts represent
+independently retained local or remote files.
 
-Project and team deletion cancel affected work, queue runtime deprovisioning and
-delayed volume purge, remove hostnames and mark resources deleted in one guarded
-batch. Cleanup targets come from current environments and deployment history,
-including inherited server assignments. Each agent job contains at most 200
-distinct runtimes; larger target sets create additional jobs without dropping
-targets. Volume purge becomes available seven days after deletion. Deletion
-rechecks current management permission, and team deletion also protects active
-users' default teams.
+## Authorization and credentials
 
-Account deletion checks ownership inside the same batch that queues user cleanup,
-removes credentials and marks the account deleted. Other owners must be active
-users; an account awaiting cleanup cannot satisfy the last-owner requirement.
-Queued user cleanup atomically deletes the recorded sole-owned teams' resources,
-clears affected default-team references, removes invitations and memberships,
-and queues runtime cleanup. A failed batch leaves these effects uncommitted.
+Installation administration is independent of team roles. `DEVPUSH_ADMIN_EMAIL`
+selects the administrator; the earliest-created user is the fallback. Team
+members may use projects and ordinary project settings. Owners and admins manage
+servers, storage and privileged deploy/rollback host commands. Services enforce
+these rules independently of UI visibility.
 
-Pending OAuth identity replacement deletes the previous record and inserts the
-new encrypted identity in one batch, preserving the old identity if insertion
-fails.
+Membership changes check the actor, target role and remaining active ownership
+inside the mutation. Ownership transfer promotes and demotes in one guarded
+statement. Bootstrap creates a team and its owner together. Invitation acceptance
+checks the pending token, verified email, expiry and active account/team in the
+batch adding membership. Concurrent demotions cannot remove every active owner.
 
-Deployment failure and timeout handling writes its control event and terminal
-status in the same guarded batch. Event sequences are calculated inside that
-batch, and competing requests cannot add a second failure event. Timeout
-mutations recheck the start-time cutoff and process at most 80 deployments per
-batch.
+Project environment variables and backup-storage secrets are encrypted with
+AES-GCM. Backup credentials live only in the current workspace storage record;
+queued jobs and run history contain storage IDs and immutable locations. The
+control plane decrypts current credentials only for a compatible authenticated
+claim. Missing or foreign storage fails the job; historical ciphertext is not a
+fallback.
 
-Deployment and cleanup claims select the next eligible queued record inside a
-single guarded update. Deployment claims skip runtimes with a running deployment,
-so unrelated runtimes can execute concurrently. Backup claims update the job and
-its backup run in one atomic batch, validating the candidate payload again. A
-request that loses the claim reads the next candidate immediately. Successful
-deployment completion moves the matching environment and branch aliases before
-its terminal status update in the same batch; retries and cancellations cannot
-move those aliases again.
+Linked provider account tokens use reversible encryption as described below.
+Protect databases, exports and encryption keys as secrets. API keys, OAuth access and
+refresh tokens, authorization codes and agent credentials use hashed storage;
+OAuth confidential-client secrets follow the provider's encryption policy.
+Public origins require strong, distinct authentication and encryption secrets.
 
-Deployment enqueueing commits the queued record, cancellation of superseded
-deployments, control events and generated aliases in one atomic batch. Duplicate
-GitHub deliveries skip every effect, and an alias collision rolls back the queue
-and cancellations. Generated aliases cannot take a hostname owned by a custom
-domain.
+Avatar replacement uploads a unique object before committing its reference.
+Only a successful save permits removal of the previous owned object; a rejected
+save removes its newly staged object. Cleanup validates resource ownership and
+does not trust arbitrary stored image URLs.
 
-Project domain and route replacements also use atomic batches. Domain changes
-preserve verification when the target environment stays the same and reset it
-when the target changes. Another project's hostname and generated aliases remain
-reserved. Project names use the database's unique constraint to settle racing
-renames.
+## Provider-token storage
 
-Project creation stores the project, production environment and generated alias
-in one batch. Environment replacement checks the environment and alias snapshot
-used to reconcile IDs before applying its writes. A competing update causes the
-service to reload and retry up to twice. Existing environment runtime IDs survive
-the replacement; removed environments lose their aliases, custom domains and
-scoped routes in the same batch.
+Better Auth encrypts linked provider access and refresh tokens using
+`BETTER_AUTH_SECRET`; account hooks encrypt ID tokens using the same codec.
+GitHub account reads and Google identity parsing decrypt stored values before use.
+Maintenance rewrites up to 100 existing plaintext account records per invocation.
+Each rewrite compares the original access, refresh and ID tokens together so a
+concurrent provider refresh is preserved. This uses the existing account columns
+on SQLite, D1 and libSQL; no schema migration is required. Deploy all control-plane
+instances together and retain the original authentication secret. API/MCP bearer
+credentials use their existing hashed storage.
 
-Server deletion rechecks current team management permission inside its batch.
-Backup jobs are canceled, monitoring samples are removed and availability windows
-are closed with the status change. The caller's choice to finish or cancel ongoing
-deployments is preserved, including retention of credentials for work allowed to
-finish. A failed status update rolls back the preceding changes.
+## Public sign-in notice
 
-Backup completion commits artifact records and run/job terminal statuses in one
-guarded batch. Cleanup completion deletes only the claimed artifacts and records
-cleanup completion in that batch. Terminal replays cannot insert more artifacts
-or clear a newer cleanup request. Stale job failure rechecks the current claim
-time before changing related backup runs.
+The public sign-in notice comes from `DEVPUSH_SIGN_IN_MESSAGE` in deployment
+configuration. Login reads it without an installation-settings database query.
+It has no Admin editor or concurrency counter; changing it requires a restart or
+redeploy. Authentication policy remains separate, in the allowlist table.
 
-Backup enqueueing creates its run and agent job together after checking the
-current environment, server and backup policy. Retention cleanup claims current
-eligible runs and derives object keys from those runs inside the same batch,
-preventing competing requests from queueing duplicate cleanup.
+## Settings consistency
 
-Runtime reconciliation upserts observations in groups of eight and decides orphan
-cleanup from current assignments, deployments and pending cleanup jobs inside
-one atomic batch. A heartbeat without service state preserves the last reported
-state. Cleanup and retained-volume purge each queue at most 200 runtimes per job.
+Editable resources use an integer `settings_version`. A form captures its values
+and version together. Save checks that version and current permissions, changes
+only the intended fields, and increments the version in one write. Project
+sections share one version; teams, accounts, servers, policies and storage have
+independent versions. Dependencies are still validated at write time.
 
-Host metrics are persisted in a single atomically replaced agent history file
-before upload. The file retains a rolling 24 hours (3,600-sample safety cap)
-and a checkpoint per control-plane URL plus enrolled server ID. Ordered batches
-advance only after `metricsAcceptedThrough` identifies their final sample.
-The hub inserts each batch atomically with JSON extraction to stay below D1's
-parameter limit. A server-scoped SHA-256 of random sample ID uses the existing
-metric primary key for deduplication; no sequence counter or new schema is
-needed. Original collection times drive charts; hub receipt times drive liveness.
-A separate resync marker is consumed by the heartbeat loop, avoiding concurrent
-CLI edits of history. Its random token preserves requests arriving during upload.
-Acknowledged history remains available for explicit replay after hub data loss.
+Clean forms adopt refreshed values and version together. Dirty forms retain their
+original baseline, including when another section saves. Editors use immutable
+resource IDs so navigation cannot reuse a different resource's draft.
+Configuration-field triggers cover internal/provider changes; explicit settings
+saves increment once, including no-op saves. Heartbeats, metrics, job progress,
+sign-in activity and Compose metadata refreshes do not advance settings versions.
+There is no monotonic `updated_at` trigger. Server heartbeats leave that lifecycle
+timestamp alone; registration, credential promotion and connection-state changes
+may update it. Unchanged GitHub push metadata does not touch the project row.
 
-Monitoring maintenance prunes raw heartbeat and metric samples after
-`DEVPUSH_MONITORING_RETENTION_DAYS` (seven by default). Writes are bounded to
-1,000 rows per transaction and at most ten batches per table per run.
+Stale saves return `SETTINGS_CONFLICT`. Browser forms preserve the draft and show
+a persistent Sonner notification with Reload and Dismiss. Reload confirms before
+discarding all page edits. Renamed projects/teams return a safe current URL.
+REST/MCP return 409 with the same conflict code. There is no automatic retry,
+merge or force overwrite. Expected action errors cross RPC as safe plain objects;
+unexpected errors are logged server-side and replaced by a generic public code.
+Field validation remains beside its input; save failures use Sonner.
 
-## Authorization invariant
+## Deployment lifecycle
 
-Installation administration and team administration are separate boundaries.
-`DEVPUSH_ADMIN_EMAIL` selects the installation administrator; when it is unset,
-the earliest-created user is the deterministic fallback. Admin routes and
-services enforce that policy on the server. A team owner or team admin may
-manage that team's servers; ordinary team members have read access but cannot
-create, mutate, enroll, disable, or delete servers.
+An environment has a stable runtime ID. Compose reconciles it in place using
+`docker compose -p <runtimeId>`, preserving service identity and named volumes.
+The effective server is the environment override or project default. Deployments
+reach their project through their environment, rather than a second project ID.
 
-Team members may manage ordinary project settings, deployments, and pre-deploy
-commands that run inside a Compose service. Only team owners and admins may
-change deploy or rollback commands because those commands execute directly on
-an agent host with Docker access.
+Queue admission snapshots the repository ref, resolved runtime configuration,
+expanded routes and encrypted environment variables. GitHub credentials are
+resolved at claim time and never frozen in that snapshot. Enqueueing commits the
+record, superseded-deployment cancellation, control events and generated aliases
+in one batch. Duplicate GitHub delivery IDs skip every effect. Hostname collisions
+roll back admission, and generated aliases cannot claim custom-domain names.
 
-User uploads use a small object-store boundary. The default adapter writes to
-the local persistent uploads directory; configuring the complete
-`DEVPUSH_STORAGE_*` set switches avatars and published agent binaries to an
-S3-compatible bucket such as R2. Application URLs remain stable because avatar
-objects are served through the control plane rather than exposed as public
-bucket URLs.
+Claims select work inside a guarded update. A partial unique index permits one
+running deployment per runtime. Claims and terminal writes recheck status; a
+canceled or completed deployment cannot move aliases again. Completion persists
+output before committing deployment state and successful environment/branch
+alias changes. Timeout handling commits the failure event and terminal state
+atomically, in bounded batches.
 
-Project environment variables and other application secrets are encrypted with
-AES-GCM before persistence. The greenfield schema does not include plaintext
-storage for project environment variables.
+Redeploy and rollback create new deployment records using the selected commit,
+runtime settings and environment-variable snapshot. Public routes are resolved
+from current project routing, active domains and aliases, with a new deployment
+hostname. They cannot restore a removed hostname. Historical replay rejects an
+environment moved to another server; create a normal deployment there instead.
+Queued job payloads are subsequently assembled from their deployment record.
 
-Public deployments fail closed when authentication and encryption secrets are
-missing, weak, or reused. Auth and agent-registration abuse limits are atomic
-database counters so they remain correct across Worker isolates and
-self-hosted replicas. OAuth account-linking handoff state is encrypted,
-expiring database state rather than process memory.
+The agent clones the exact revision using a short-lived installation token in
+Git's child environment, not command arguments or persisted remote URLs. Compose
+paths must remain inside the repository after symlink resolution. Checkout pruning
+protects bind sources and Compose references of all containers, including stopped
+ones; inventory failure prevents deletion.
 
-## Deployment invariant
+The resolved Compose override removes published host ports and host networking,
+keeps services on their runtime network, and attaches routed services to the
+shared ingress network. A pinned Docker socket proxy on a separate internal
+network serves Traefik. Application networks cannot reach that proxy.
 
-Each environment has one stable devpush runtime identity. Managed Compose
-deployments reconcile that runtime in place with `docker compose -p
-<runtimeId> ... up -d`. Databases, Redis, queues, and volumes stay stable
-because the runtime identity stays stable across deployments.
+Default deployment uses `compose up -d`; it is not a zero-downtime rollout.
+Pre-deploy commands run in a selected Compose service. Custom deploy/rollback
+commands run on the host with resolved variables and managed Compose paths.
+They replace only the update operation; checkout, image preparation, reporting
+and readiness checks remain managed. Commands using Compose must include the
+managed override. See [Compose deployments](docs/compose-deployments.md).
 
-The agent renders a deployment-only Compose override after resolving the exact
-repository revision. It removes published host ports and host networking,
-leaving services private to the environment runtime network, and attaches only
-routed services to the shared proxy network. Traefik owns public HTTP/HTTPS
-ports 80/443.
+All deployed repositories are trusted host code. Privileged services, bind mounts
+and Docker access can reach host data. Role checks on host commands are not tenant
+isolation, and project environment variables enter those commands' environment.
+Use separate servers for mutually untrusted repositories.
 
-Compose file paths are repository-relative. The control plane rejects absolute
-and parent-traversal paths, and the agent resolves symlinks and checks the final
-file remains inside the cloned repository before invoking Docker Compose.
+## Agent jobs and recovery
 
-Traefik reaches Docker through a pinned socket-proxy container on a dedicated
-internal network. Application runtimes join the public ingress network only and
-cannot reach the Docker API proxy.
+Enrollment exchanges a one-hour token for a dedicated agent credential.
+Registration and heartbeats prove possession of staged replacement credentials
+before retiring old ones. Rotation uses compare-and-set guards and the host CLI
+drains active work before restarting. Disable cuts authentication; deletion
+permits only explicitly retained deployment/cleanup work.
 
-Environment IDs are stable runtime identifiers. Environment slugs are editable
-labels used for branch matching and readable generated hostnames. The
-project owns the default server assignment; an environment may own a nullable
-server override. The effective server is resolved from the override and then
-the project default. Custom domains and generated aliases are separate
-relational records keyed by the stable environment ID. Mutable project settings
-are resolved once into the deployment row before an agent can claim the job.
-Deployments reach their project through that immutable environment relationship
-instead of duplicating a second project foreign key.
+The agent serializes claims, execution and completion delivery with a filesystem
+lock. Before execution it persists a minimal failed-completion fallback containing
+only job identities. The normal result atomically replaces it. After restart the
+outbox reports interruption before claiming more work; it does not rerun a partial
+restore or deployment automatically. A crash between the remote claim and local
+persistence still relies on control-plane timeout recovery.
 
-Only one deployment may be `running` for a runtime at a time. SQLite enforces
-that with a partial unique index on running deployment runtime IDs, and the
-agent claim path treats lease races as "no job available" instead of surfacing
-an agent error.
+Completion and log outboxes survive restart. Credentials are attached at delivery,
+not stored in pending files. Network errors and rejected acknowledgments retain
+the report and block further claims. This deliberately avoids silently abandoning
+results; [Agent maintenance](docs/agent-maintenance.md) covers recovery. Do not
+turn a schema/identity failure into permission to discard a completion.
 
-Managed Compose does not promise zero downtime or keep multiple full Compose
-runtimes alive. Projects that need an application-specific service update can
-provide a deployment command override. The agent still checks out the exact
-commit, resolves Compose, writes the environment file, generates the
-managed-ingress override, prepares images, reports logs and status, and performs
-container and public readiness checks. The override replaces only the standard
-`docker compose up` operation.
+Deployments have deadline and lost-heartbeat recovery. Backup, restore and backup
+cleanup jobs expire after 25 hours; queued jobs measure from availability, running
+jobs from claim time. Periodic maintenance sweeps these globally in pages of 500,
+so an offline agent cannot reserve an environment indefinitely. Per-agent polling
+also sweeps its own jobs. Failure releases associated run/cleanup state with the
+same claim and payload guards. Container cleanup uses separate bounded retries.
 
-Custom commands receive the resolved deployment variables plus
-`DEVPUSH_COMPOSE_PATH`, `DEVPUSH_COMPOSE_OVERRIDE`,
-`DEVPUSH_COMPOSE_PROJECT_NAME`, `DEVPUSH_ENV_FILE`, and `DEVPUSH_ACTION`. A
-Compose-based command must include both the repository file and generated
-override so managed ingress remains authoritative. An optional rollback command
-is used for rollback jobs; otherwise the deployment command runs against the
-snapshotted rollback commit with `DEVPUSH_ACTION=rollback`. Commands are
-explicitly trusted host configuration: Docker access is root-equivalent, so
-repository content cannot enable this mode by itself.
+Backup execution creates a run and job together after checking current policy,
+environment, storage and server. Schedule keys deduplicate each policy/UTC minute;
+a partial unique index prevents simultaneous active backups in one environment.
+Restore admission prevents another active restore for that environment.
+Completion commits artifacts and run/job statuses together. Retention independently
+selects generations for each tier with remaining artifacts, reserves cleanup and
+releases failed reservations for a later retry. Remote archives preserve their
+original location while credentials come from current storage configuration.
+See [Backups](docs/backups.md) for contents, consistency and restore limits.
 
-## Deployment record invariant
+## Observations, logs and notifications
 
-Each deployment row is the immutable record of what was deployed. Stable,
-queryable identity and target data stays in columns: environment, server,
-repository, Git ref, runtime, lifecycle state, and commit metadata. The project
-is reached through the deployment's environment relationship.
-Runtime-specific project settings are one type-discriminated `runtime_config`
-JSON object. Compose currently provides the only runtime type; future
-Dockerfile or Swarm drivers add union members instead of project columns. When
-a deployment is queued, its immutable `config` nests the resolved runtime
-object alongside expanded routes. Resolved environment variables are encrypted
-in `env_vars` on the same row. GitHub installation identity remains mutable project integration state;
-queued deployments do not freeze credential identifiers.
-Installation records retain GitHub's stable target account ID alongside the
-human-readable login. Lifecycle and rename webhooks refresh that metadata. If
-token creation reports a missing cached installation, the control plane asks
-GitHub for the repository's current installation, updates the project cache,
-and retries once.
+Runtime reconciliation decides ownership inside the cleanup batch. Active
+environments, in-flight deployments and unfinished cleanup jobs protect a
+runtime. Reassignment back to a server resets its observation cleanup timestamps;
+a subsequent orphaning starts a new grace and seven-day volume-retention window.
+Each cleanup job contains at most 200 runtimes.
 
-Parsed Compose service, volume, warning, and route metadata is project state.
-It is refreshed while creating or updating a project and read from the main database
-when rendering settings and backup screens. Page rendering must not wait for a
-GitHub API request.
+Agents discover IPv4/IPv6 separately at startup and every 15 minutes, retaining
+cached addresses after failed discovery. Installer `--address IP` persists a
+routing pin and disables discovery; `--address auto` restores it. The pin takes
+precedence over discovered addresses. Connection IP is monitoring metadata, not
+routing configuration. Generated names embed the selected address; existing
+hostnames are not universally rewritten after an IP change.
 
-## Request rendering invariant
+Metrics are saved locally before upload, retaining 24 hours and a checkpoint per
+control-plane origin/server identity. Acknowledgments advance ordered batches;
+replay uses original collection times. Collection gaps stay gaps. Server charts
+fetch history separately from lightweight live status and downsample displayed
+extrema without modifying stored samples. Monitoring retention defaults to seven
+days; maintenance prunes bounded pages even for offline servers.
 
-Route loaders perform authorization and bounded reads only. Normal GET renders
-do not bootstrap accounts, repair data, call third-party APIs, download object
-contents to test existence, or mutate stale records. Parent and child routes
-share section-specific React Query entries so one navigation does not reload
-the same team or project context multiple times. Authenticated application
-routes use selective client rendering: the server sends the route-accurate
-pending layout immediately, then the client runs authorization and data loaders.
-Known route labels, separators, resource identities, and IDs remain visible in
-pending layouts; skeletons represent only data that is genuinely unresolved.
-Known controls retain their labels, icons and dimensions while disabled during
-loading. Pending forms use the same field primitives and spacing as their loaded
-forms; known IDs keep their copy controls. Permission-specific editing controls
-are omitted for confirmed read-only members. While permissions are unresolved,
-editing placeholders stay disabled. Skeleton animations respect reduced motion.
-Collection placeholders represent populated rows, never empty-state cards or
-claims that a collection is empty. Confirmed empty cached data renders its real
-empty state immediately, including while other section data is loading.
-Standalone row and detail metadata icons use 16px with flex shrinking disabled.
-Commit glyphs use 20px to compensate for their short drawing; pending views use
-the same dimensions. Compact badges and indicators use 12–14px, while dialog
-illustrations can be larger. Buttons, menus and input groups own their icon size
-and shrink behavior; feature icons inherit those defaults unless a deliberate
-variant requires an override. These rules apply to icons, not chart geometry.
+Runtime logs use per-runtime durable capture queues, content-hash deduplication
+and acknowledged cursors. A full host queue pauses capture. Pending captures can
+finish uploading after a runtime leaves the active list, using historical server
+ownership, while reads still check current project permissions. Docker rotation
+before capture can lose source output; captured output is retained until acknowledged.
 
-Pending components reuse cached server details, project sections, team settings,
-and account/admin loader results instead of masking known data. Server loading
-uses known enrollment status and monitoring summaries to show install guidance
-immediately. Shell summaries intentionally omit monitoring; their null readings
-are unresolved, not a confirmed empty state. Only resolved server details can
-show the metrics empty state. Unresolved metrics retain the four chart
-cards and known readings, with a centered loading message inside each chart area.
-Server danger actions remain visible but disabled while data or permissions resolve;
-confirmed read-only members do not see the danger section.
-Static labels and disabled controls remain visible. Unknown backup lists reserve
-policy rows and run columns with disabled controls.
-Conditional backup-policy forms and log content use a loading message rather
-than speculative sections, fields or log lines. Collection placeholders use the same card, row or table
-structure as the loaded view. Incoming cached data replaces placeholders without
-waiting for unrelated requests. Local repository filtering
-does not introduce a loading delay; repository requests track which installation
-has resolved, and background refresh errors preserve existing form state.
+Deployment output uses stable agent sequences and bounded replay chunks.
+Backup/restore diagnostics use byte-cursor host files and central operation logs;
+dump stdout is an artifact, never diagnostics. Operation logs retain 14 days,
+with a 10 MiB per-job host limit and 100 MiB total budget. Maintenance removes
+expired runtime output and orphan deployment output with durable scan positions.
 
-React Query owns the 30-second freshness window. Router loaders always consult
-`fetchQuery` rather than maintaining a second freshness window; fresh data is
-reused and concurrent fetches deduplicate. Shared project data is refreshed when
-expired before merging it with a section. Mutations cancel older in-flight
-resource reads and invalidate affected team/project entries, including inactive
-entries; mutation responses then seed the saved section and shared project data.
-Account and membership changes invalidate cross-team snapshots as needed.
-Team metadata edits patch embedded team records in cached navigation directly,
-preserving snapshot timestamps and unrelated data. Slug changes still invalidate
-old route keys and navigate to the new URL. Deployment lists have no timers or
-router invalidation: team-overview and project section queries poll at two seconds
-while a deployment is active. Project overview uses a 15-second interval otherwise
-for runtime updates. Background refresh failures retain the visible data and show
-a dismissible warning that clears on recovery or leaving the page.
+Workspace notifications contain invalidation hints, not authoritative data.
+Cloudflare uses one SQLite Durable Object per team with hibernating WebSockets;
+Node uses a process-local broadcaster. Socket admission validates origin, session
+and membership; broadcasts recheck active access and close revoked connections.
+Notification failure cannot roll back an acknowledged mutation. Browsers batch
+hints, reconnect with backoff and refetch authorized snapshots. Polling repairs
+missed hints and handles unavailable sockets; hidden pages pause live refreshes.
+A multi-process Node deployment needs shared pub/sub for immediate cross-process
+notifications; recovery polling still works.
 
-Authenticated team routes, account/admin settings and invitations use `ssr: false`;
-server functions remain responsible for authorization. Public login keeps SSR.
-Client transitions default to a 150ms pending delay and 200ms minimum display.
-Runtime logs poll every two seconds while the page is visible, independently of
-deployment activity. Deployment status polling stops at completion; completed
-logs use a distinct query key to fetch final output and isolate late running
-responses. Query polling pauses in hidden tabs by default.
+## Browser data ownership
 
-By default, Node opens two distinct SQLite files with WAL, foreign keys, a busy timeout, and
-full synchronization. Workers default to two D1 bindings. The main database owns
-permissions and orchestration; the log database stores bulk deployment and
-runtime output. Cross-store operations are not a single transaction: log chunks
-are persisted and deduplicated before acknowledging receipt or terminal status.
-Node and Workers select libSQL when both remote database URLs are configured.
-These URLs override local paths or D1 bindings; partial remote settings fail.
-Worker database adapters initialize on first use rather than module evaluation,
-so Cloudflare upload validation can run before resource bindings are available.
-Workers create a web client per statement or atomic batch and close it after
-completion, avoiding I/O resources shared across requests. Client factories
-also support database work during streaming responses and scheduled handlers.
-Each store has its own URL and optional authentication token. This adapter uses
-atomic libSQL write batches and positional result mapping through Drizzle's
-SQLite proxy, preserving duplicate column names in joins. It does not use local
-replicas or callback transactions. Remote migrations use Drizzle's libSQL
-migrator; backups belong to the database provider rather than the local file
-backup service.
-Application mutations use prebuilt atomic SQL batches on all backends. D1 does
-not support application callback transactions. Deployments run on agents and
-never hold a database write transaction for the duration of the build.
+TanStack Query owns cached section data and its 30-second freshness window.
+Router loaders consult `fetchQuery` with no competing freshness window, reusing
+fresh data and deduplicating requests. Intent preloading uses that same client.
+These are in-memory caches, not persisted browser storage. Account/admin/auth and
+invitation direct loaders do not all share that policy.
 
-The agent job payload is assembled from that one deployment row. It does not
-copy current project, environment, or server settings into another operational
-record. GitHub installation tokens are generated at claim time and sent as
-short-lived job credentials.
+Loaders perform authorization and bounded reads. Normal page rendering does not
+repair data, call GitHub or probe stored objects. Compose metadata is persisted
+project state, refreshed during explicit workflows. API Compose-path changes
+clear metadata from the old file. Mutations cancel older reads, invalidate affected
+queries including inactive entries, then seed authoritative saved values.
 
-GitHub push delivery IDs are persisted with deployments and uniquely scoped to
-an environment. A retried webhook therefore resolves to the existing work
-instead of canceling or duplicating a deployment.
+Authenticated settings/team/invitation routes use client rendering; login keeps
+SSR. Pending layouts preserve known identities, labels and disabled controls;
+only unknown data becomes a skeleton. Cached empty lists immediately show real
+empty states. Background errors retain visible data. Branch options fetch commits
+only for the selected branch; logs fetch appended output with separate terminal
+keys to prevent late running responses from hiding final output.
 
-Long-running agent jobs have type-specific deadlines. The agent persists every
-completion without its credential to a private local outbox before sending it
-and does not claim a new job until pending completions are acknowledged. It
-attaches the current credential only during delivery. The control plane fails
-jobs that exceed their deadline so a lost agent cannot hold an environment
-indefinitely.
+## External management access
 
-Maintenance shares a file lock with job claiming, execution, and completion
-delivery. A drain marker prevents later claims while heartbeats continue. Updates
-replace executables only after that boundary. Empty-host control-plane switches
-disable the source through an atomic conditional write, isolate destination state,
-and select all identity fields through one config rename. Rollback tickets bind
-the source ID and disabled-row timestamp so intervening operator changes cannot
-be silently overwritten. This is not migration of active deployment ownership.
+`/api/v1` and `/mcp` share `server/api/operation-contract.ts` and the operation
+executor. Explicit schemas validate inputs and safe DTOs; browser aggregate
+contexts are never serialized as public resources. The catalog also generates
+OpenAPI. Read projections, write dispatch and authorization context have separate
+modules, rather than one catch-all handler.
 
-S3-compatible backup destinations belong to workspaces. Policies store a
-workspace-scoped destination reference and prefix; members receive only safe
-metadata, while owners/admins manage connection credentials. Queued backup runs
-snapshot their original destination and policy ID. Restore and retention use
-that snapshot’s location with the referenced connection’s current credentials;
-policy edits cannot redirect old files to a different bucket. Storage location
-fields are immutable; moving future backups means selecting another connection.
+API keys bind to a user, membership instance, team, optional project restrictions,
+issued scopes/role ceiling and expiry. Every request checks current access;
+credentials cannot revive after membership removal. Nullable expiry means no
+scheduled expiration; finite durations are 1–365 days. OAuth grants always expire.
+Write effects embed live authorization and commit API audit/idempotency records
+atomically. The membership owns the shared operation rate budget. Accepted work
+is not canceled by later revocation. These audit records are not a unified audit
+trail for browser and background activity.
 
-Completed archives survive remote upload failures. Such runs remain failed with
-`manifest.localRecoveryAvailable = true`, publish only their local artifacts and
-participate in local retention. Restore accepts their retained local artifacts;
-incomplete archive failures do not publish recovery files. Run and policy alerts
-refresh through workspace notifications and adaptive polling. SQLite triggers
-validate workspace storage references and block removing referenced connections,
-including concurrent policy and run writes.
+MCP uses the SDK's stateless fetch handler. Browser authorization uses the OAuth
+provider for discovery, PKCE codes, opaque tokens, refresh rotation and reuse
+revocation. The bridge additionally checks the active devpush grant and intersects
+token scopes with it. API-key bearer authentication is supported separately.
+Node supports DNS-pinned client metadata discovery; Workers use dynamic
+registration without an unpinned-fetch fallback. Auth initializes lazily within
+requests, rather than seeding resources during module import.
 
-Remote backup credentials are encrypted before persistence. Queued job payloads
-contain ciphertext; the control plane decrypts it only after an authenticated,
-compatible agent claims the job. Backup schedule keys and a partial unique
-index guarantee at most one active backup per environment and one enqueue per
-policy and UTC schedule minute.
+`DEVPUSH_MCP_URL` fixes the canonical resource/audience; the OAuth issuer uses
+`BETTER_AUTH_URL`. This permits localhost MCP with a VM-reachable base URL.
+Changing the resource URL requires reauthorization. API token/idempotency/audit
+maintenance uses bounded pages; refresh reuse records survive until expiry.
 
-## Log invariant
+## Deletion and retention
 
-Deploy logs are sequenced by the agent and acknowledged by the control plane
-after durable persistence. Runtime logs are collected from assigned Compose
-runtimes by the agent and posted back to the control plane with content-hash
-deduplication.
+Deletion is a guarded soft-delete transition, not a full relational cascade.
 
-## Workspace notifications
+| Resource | Immediate effects | Deferred or retained state |
+| --- | --- | --- |
+| Account | End sign-in, remove provider accounts, revoke keys/grants, queue cleanup. | Remove memberships, invitations and avatar; delete eligible sole-member teams; retain user/job records until final cleanup. |
+| Project | Cancel affected work; keep hostname reservations until container removal. | Queue requested runtime cleanup and delayed purge; retained containers keep routes. |
+| Team | Cancel work, mark resources deleted and revoke credentials. | Keep server/runtime references for cleanup. |
+| Server | Cancel backup/restore work, release reservations, remove monitoring and mark deleted. | Preserve the chosen handling of ongoing deployments and permitted cleanup access. |
 
-On Cloudflare, each workspace has a SQLite Durable Object with hibernating
-WebSockets. The HTTP boundary authenticates the session, checks active workspace
-membership and validates the socket Origin. Committed deployment enqueue and
-agent mutations publish small resource-change hints through RPC. Preparation
-failures before delivery and job timeouts also publish terminal changes; timeout
-checks with no changed rows do not broadcast. Before each
-broadcast, the publisher checks current active sessions and memberships; revoked
-connections are closed. Data and logs remain in the database and are refetched
-through the existing authorized queries. Notification failure cannot roll back
-an acknowledged mutation.
+Settings owned by surviving teams/projects remain when a user leaves. Backup
+policies, history and storage credentials do not cascade on soft deletion. Maintenance permanently removes eligible deleted resources in bounded batches
+after a 30-day retention window. It deletes projects before servers and teams;
+foreign-key cascades remove owned settings, backup metadata and credentials.
+Pending/failed jobs, retained environments, recorded backup artifacts and unresolved
+runtime observations block collection. Successful cleanup records remain for at
+least 30 days so agents can retry lost acknowledgements. Project/team avatars are
+removed before their owning rows; storage failures preserve the reference for retry.
+Hostname reservations are released after successful deprovisioning, without
+waiting for delayed volume purge or the metadata retention window. Intentionally
+retained runtimes keep their reservations. External archives and failed cleanup
+still require explicit resolution. Audit history survives resource deletion until
+retention. Remaining lifecycle work is tracked only in [TODO](TODO.md).
 
-The browser maintains one connection for the current workspace, batches hints,
-reconnects with backoff and refreshes snapshots on reconnect. Hidden pages close
-the connection and pause interval refetches. Browser pings use the Durable Object
-auto-response to preserve hibernation. Authentication is renewed every five
-minutes. Connected views retain a one-minute recovery poll. When WebSockets are
-unavailable, deployment lists poll every 15 seconds when idle and every two
-seconds when active; server views poll every five seconds. Node uses Nitro’s WebSocket upgrade handler and a process-local workspace
-broadcaster behind the same notification interface. Normal `pnpm dev` exercises
-the same browser WebSocket flow. A single Node process is supported; multiple
-processes require shared pub/sub for immediate cross-process delivery. Recovery
-polling still repairs missed hints.
+Account cleanup fences attempts with claim time and attempt number; avatar cleanup
+finishes before success. Container cleanup claims and completions carry the monotonic attempt number
+under `jobs.compose.cleanup.v2`. A completion from an older attempt is acknowledged
+without modifying the current attempt; SQL snapshot guards also fence concurrent
+reclaims. Deleted servers can retry a retained cleanup completion even when idle. Retention ignores deleted resources and unsupported remote
+snapshots, and failed cleanup waits an hour before automatic retry.
 
-Restore status is read from project-scoped `restore` agent jobs. The client receives
-IDs, status, error and timestamps only; abandoned jobs display as failed. Restore
-claims/completions use workspace invalidation, with active-job HTTP polling as a
-fallback. Retention selects generations independently per storage tier, counting
-only runs with remaining artifacts in that tier. A local archive from a failed
-upload never displaces a successful remote copy. Database dump stdout is gzip
-compressed before artifact checksumming/upload, and decompressed during restore.
+Operator deletion recovery builds guarded SQL batches in
+`app/src/server/deletion-recovery.ts`. The CLI connects directly to the selected
+SQLite, libSQL or D1 main database using installation-operator access. Inspection
+whitelists fields; mutations require a snapshot revision, reason and explicit
+apply. Each batch records the operator action before its guarded effects, so a
+concurrent change produces no audit or mutation. Container retries preserve
+attempts, retained-project cleanup uses normal agent jobs, and verified manual
+resolutions retain evidence without inventing successful backup executions.
+Final garbage collection still enforces its retention and external-resource guards.
+
+## Migrations and repository hygiene
+
+Main and log databases each start with a `0000_initial` migration and matching
+Drizzle journal/snapshot. Append future migrations; never rewrite an applied one.
+Migration runners reject unknown histories and populated untracked stores. D1
+requires fresh baseline bindings. Source updates never reset data automatically.
+
+`app/public` contains intentional branding/metadata assets, not starter icon sets.
+Runtime `public/uploads` is application state. `knip.jsonc` records non-import
+entrypoints and platform replacements; its output needs reference checks before
+removal. Test fixture writers stay in `src/test`. Verification commands and schema
+workflows live in [Testing](docs/testing.md), not this architecture reference.
+
+
+## Build-time application composition
+
+The default build uses `app/src/deployment/default.server.ts`. A separate private
+application can select an absolute server entry with the build-time
+`DEVPUSH_DEPLOYMENT_SERVER` variable. Vite resolves that entry into the bundle;
+changing the running application's environment cannot switch implementations.
+No private DNS, issuer or commercial implementation is distributed in OSS.
+
+`app/deployment-api.json` versions the typed contract in
+`app/src/deployment/contract.ts`. The selected entry declares its supported API
+version and creates named optional services: generated hostnames, server
+reconciliation/maintenance and agent certificate requests. Unknown services or
+incompatible versions fail explicitly. A hostname provider failure never falls
+back silently to nip.io. The OSS entry supplies no overrides and retains existing
+nip.io generation and custom-domain HTTPS behavior.
+
+Deployment API v2 provides bounded, paginated routing-state reads, including
+soft-deleted servers, team status, agent capabilities and routing-retention checks. Agent/enrollment credential hashes are excluded. These
+are trusted server-side extension boundaries, not public API authorization.
+Reconciliation reads persisted state rather than relying on UI-only mutation
+callbacks, so API changes and deletion can be handled too. It runs before private
+hostname/certificate work; maintenance runs the provider before permanently
+pruning deleted rows. A provider cleanup failure prevents that prune pass.
+Implementations must make reconciliation idempotent, bounded and retryable.
+
+The optional certificate endpoint authenticates the existing agent credential,
+rejects deleted/disabled servers and inactive teams, then passes sanitized routing
+state and an optional CSR/installation fingerprint to the selected service.
+Without a CSR it returns the permitted wildcard name. Later requests return
+pending timing or a public certificate chain. Private issuance validates the CSR
+signature and names; core bounds and validates the service response.
+
+The shared agent advertises `ingress.certificates.v1`. A hosted heartbeat enables
+certificate requests and reconciles persisted address changes; ordinary OSS
+heartbeats add no certificate requests or provider calls. The agent stores its key
+and CSR atomically, validates the returned key/name/validity, writes versioned PEM
+files and atomically updates watched Traefik YAML. It acknowledges the leaf's
+SHA-256 fingerprint after saving the files. The hosted service gates deployment
+URLs on acknowledged validity and renews within 30 days of expiry.
+
+Only Traefik's dynamic subdirectory is watched. Request/installation JSON stays
+outside that directory. Managed wildcard routes omit the ACME resolver label;
+custom domains keep the existing HTTP-01 resolver. Updating an older ingress
+configuration replaces its managed Traefik container on the next deployment.
+This is an additive agent capability, not a protocol-version break. No public
+issuer/DNS automation or schema migration is added. Private hosted state and
+migrations stay in its separate database; retained routing references prevent
+premature managed-DNS retirement.
+
+
+Deployment API v3 also provides a narrow workspace mutation boundary, an optional
+HTTP handler under `/api/deployment/*`, and an optional build-time settings UI.
+Core supplies sanitized workspace counts and membership authorization. Private
+deployments may serialize server creation and restrict invitations/deployment
+enqueue; core owns the actual mutations, permissions and SQL guards. The OSS
+provider returns no such services and renders no additional settings. Payment
+providers, prices, subscriptions and trial persistence remain outside core.
+`DEVPUSH_DEPLOYMENT_UI` selects the optional UI module alongside the existing
+server entry; both are trusted build inputs, never runtime unlock flags.
+
+Deployment UI API v7 supplies workspace status, page notice, server-setup notice,
+settings and settings-pending components, plus a scoped upgrade action for rejected
+server additions. Core renders status beside the breadcrumb, notices in page
+content across team/project routes (including cached pending contexts), and settings
+after Members. All OSS default exports are empty: prices, trials and payment
+behavior live in the private build. Both compatibility manifests must match; no
+agent or database upgrade is required for this UI boundary. The generic server-list
+route accepts `addServer=1` to open its enrollment dialog.
+
+Private UI source directories are registered with Tailwind only in their composed
+build, so external component utilities are generated without adding private paths
+or classes to OSS output. Stylesheet URL imports remain JavaScript modules and
+are excluded from this CSS transformation.
+
+### Profile onboarding
+
+New users confirm their profile once before entering a workspace. The public core stores
+`user.profile_confirmed_at`; existing accounts are backfilled by migration 0003. Profile
+confirmation reuses avatar validation and optimistic settings-version checks. Safe internal
+return paths preserve invitations and project links. Invited users skip hosted plan selection.
+
+Deployment UI API v8 adds build-time profile fields and plan-onboarding UI. OSS renders no
+commercial fields or plan step. Hosted may add optional newsletter consent and a workspace
+plan screen; creating a new hosted workspace enters plan selection without repeating profile
+confirmation. Newsletter credentials, consent delivery and subscription management stay private.
+
+Deployment UI API v9 adds optional account preference content/navigation and its matching
+pending view. Profile and account extensions receive the user ID only for isolated client
+cache keys; hosted endpoints derive identity from the authenticated session. OSS exports
+remain empty. Account/Admin headings and back buttons are normal-flow content.

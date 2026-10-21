@@ -1,3 +1,6 @@
+import { updateProjectRuntimeState } from './configuration-state'
+import { getProjectSettingsContext } from './settings-context'
+import { PublicError } from '@/lib/public-error'
 import { replaceProjectDomains } from './domain-state'
 import { replaceProjectRoutes } from './route-state'
 import { isUniqueConstraintError } from '@/server/db/errors'
@@ -26,7 +29,7 @@ import {
 } from '@/server/github/service'
 import { canDeleteProject } from '@/server/teams/delete-policy'
 import { requireTeam } from '@/server/teams/service'
-import { removePublicFile, resolveAvatarUpdate } from '@/server/uploads/avatar'
+import { removeOwnedAvatar, resolveAvatarUpdate } from '@/server/uploads/avatar'
 import { getProjectContext } from './context'
 import {
   findDuplicate,
@@ -38,11 +41,18 @@ import {
   validateProjectMachineName,
 } from './names'
 import { fetchProjectComposeMetadata } from './repository'
-import { requireProjectRuntimeConfig } from './runtime-config'
-import type { ProjectRuntimeConfig } from './runtime-config'
+import {
+  requireProjectRuntimeConfig,
+  hostLifecycleCommandsChanged,
+  hostLifecycleCommandsUseChangedSource,
+} from '@/lib/project-runtime-config'
+import type { ProjectRuntimeConfig } from '@/lib/project-runtime-config'
 import type { ProjectRoute } from './types'
 
 export async function updateProjectSettings({
+  settingsVersion,
+  section,
+  projectId,
   userId,
   teamSlug,
   currentProjectName,
@@ -53,6 +63,9 @@ export async function updateProjectSettings({
   deleteAvatar,
   runtimeConfig,
 }: {
+  section?: 'general' | 'build'
+  settingsVersion?: number
+  projectId?: string
   userId: string
   teamSlug: string
   currentProjectName: string
@@ -63,12 +76,35 @@ export async function updateProjectSettings({
   deleteAvatar?: boolean
   runtimeConfig: ProjectRuntimeConfig
 }) {
-  const context = await getProjectContext({
+  const context = await getProjectSettingsContext({
+    projectId,
+    settingsVersion,
     userId,
     teamSlug,
     projectName: currentProjectName,
     scope: 'shell',
   })
+  const expectedVersion = settingsVersion ?? context.project.settingsVersion
+  if (expectedVersion !== context.project.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
+  const [snapshot] = await db
+    .select({
+      updatedAt: projects.updatedAt,
+      runtimeConfig: projects.runtimeConfig,
+      repository: projects.githubRepo,
+      name: projects.name,
+    })
+    .from(projects)
+    .where(eq(projects.id, context.project.id))
+    .limit(1)
+  if (
+    !snapshot ||
+    JSON.stringify(requireProjectRuntimeConfig(snapshot.runtimeConfig)) !==
+      JSON.stringify(context.project.runtimeConfig) ||
+    snapshot.repository !== context.project.githubRepo ||
+    snapshot.name !== context.project.name
+  )
+    throw new PublicError('SETTINGS_CONFLICT')
   const nextProjectSlug = projectName.trim()
   validateProjectMachineName(nextProjectSlug)
   const nextRuntimeConfig = requireProjectRuntimeConfig(runtimeConfig)
@@ -80,9 +116,7 @@ export async function updateProjectSettings({
     ) &&
     !canManageTeamSettings(context.team.role)
   ) {
-    throw new Error(
-      'Only team owners and admins can change host lifecycle commands.',
-    )
+    throw new PublicError('PROJECT_HOST_COMMANDS_FORBIDDEN')
   }
 
   if (
@@ -94,9 +128,7 @@ export async function updateProjectSettings({
     }) &&
     !canManageTeamSettings(context.team.role)
   ) {
-    throw new Error(
-      'Only team owners and admins can change the source of host lifecycle commands.',
-    )
+    throw new PublicError('PROJECT_HOST_COMMAND_SOURCE_FORBIDDEN')
   }
 
   const repoUpdate = await resolveProjectRepositoryUpdate({
@@ -139,69 +171,86 @@ export async function updateProjectSettings({
       nextProjectSlug,
       context.project.id,
     )
-    await db
-      .update(projects)
-      .set({
-        slug: nextProjectSlug,
-        name: nextProjectSlug,
-        githubRepoId: repoUpdate.repoId,
-        githubRepo: repoUpdate.repoFullName,
-        githubInstallationId: repoUpdate.installationId,
-        avatarPath,
-        runtimeConfig: nextRuntimeConfig,
-        composeMetadata,
-        updatedAt: now,
+    const changedHostCommands =
+      hostLifecycleCommandsChanged(
+        context.project.runtimeConfig,
+        nextRuntimeConfig,
+      ) ||
+      hostLifecycleCommandsUseChangedSource({
+        currentRepoFullName: context.project.githubRepo,
+        currentRuntimeConfig: context.project.runtimeConfig,
+        nextRepoFullName: repoUpdate.repoFullName,
+        nextRuntimeConfig,
       })
-      .where(eq(projects.id, context.project.id))
+    const changed =
+      section === 'build'
+        ? await updateProjectRuntimeState(db, {
+            projectId: context.project.id,
+            userId,
+            settingsVersion: expectedVersion,
+            currentRuntimeConfig: snapshot.runtimeConfig,
+            runtimeConfig: nextRuntimeConfig,
+            composeMetadata,
+            now,
+          })
+        : (
+            await db
+              .update(projects)
+              .set({
+                ...{
+                  slug: nextProjectSlug,
+                  name: nextProjectSlug,
+                  githubRepoId: repoUpdate.repoId,
+                  githubRepo: repoUpdate.repoFullName,
+                  githubInstallationId: repoUpdate.installationId,
+                  avatarPath,
+                },
+                ...(section !== 'general'
+                  ? { runtimeConfig: nextRuntimeConfig }
+                  : {}),
+                composeMetadata,
+                settingsVersion: sql`${projects.settingsVersion} + 1`,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(projects.id, context.project.id),
+                  eq(projects.status, 'active'),
+                  eq(projects.settingsVersion, expectedVersion),
+
+                  sql`${projects.runtimeConfig} = ${JSON.stringify(snapshot.runtimeConfig)}`,
+                  sql`exists(select 1 from team_members m join user u on u.id = m.user_id join teams t on t.id = m.team_id where m.team_id = ${context.team.id} and m.user_id = ${userId} and u.status = 'active' and t.status = 'active' ${changedHostCommands ? sql`and m.role in ('owner','admin')` : sql``})`,
+                ),
+              )
+              .returning({ id: projects.id })
+          ).length === 1
+    if (!changed) throw new PublicError('SETTINGS_CONFLICT')
   } catch (error) {
     if (avatarPath && avatarPath !== context.project.avatarUrl) {
-      await removePublicFile(avatarPath)
+      await removeOwnedAvatar(avatarPath, {
+        filePrefix: 'project',
+        resourceId: context.project.id,
+      })
     }
 
     if (isUniqueConstraintError(error)) {
-      throw new Error('Project names must be unique within a team.')
+      throw new PublicError('PROJECT_NAME_CONFLICT')
     }
     throw error
   }
 
+  if (context.project.avatarUrl !== avatarPath) {
+    await removeOwnedAvatar(context.project.avatarUrl, {
+      filePrefix: 'project',
+      resourceId: context.project.id,
+    })
+  }
   return getProjectContext({
     userId,
     teamSlug,
     projectName: nextProjectSlug,
     scope: 'settings',
   })
-}
-
-function hostLifecycleCommandsChanged(
-  current: ProjectRuntimeConfig,
-  next: ProjectRuntimeConfig,
-) {
-  return (
-    current.deployCommand !== next.deployCommand ||
-    current.rollbackCommand !== next.rollbackCommand
-  )
-}
-
-function hostLifecycleCommandsUseChangedSource({
-  currentRepoFullName,
-  currentRuntimeConfig,
-  nextRepoFullName,
-  nextRuntimeConfig,
-}: {
-  currentRepoFullName: string
-  currentRuntimeConfig: ProjectRuntimeConfig
-  nextRepoFullName: string
-  nextRuntimeConfig: ProjectRuntimeConfig
-}) {
-  const hasHostCommand = Boolean(
-    nextRuntimeConfig.deployCommand || nextRuntimeConfig.rollbackCommand,
-  )
-
-  return (
-    hasHostCommand &&
-    (nextRepoFullName !== currentRepoFullName ||
-      nextRuntimeConfig.path !== currentRuntimeConfig.path)
-  )
 }
 
 export async function deleteProject({
@@ -225,11 +274,11 @@ export async function deleteProject({
   })
 
   if (!canDeleteProject(context.team.role)) {
-    throw new Error('Only team owners and admins can delete projects.')
+    throw new PublicError('PROJECT_DELETE_FORBIDDEN')
   }
 
   if (confirmationName !== context.project.name) {
-    throw new Error('Type the project name to confirm deletion.')
+    throw new PublicError('PROJECT_DELETE_CONFIRMATION')
   }
 
   const now = new Date()
@@ -243,26 +292,35 @@ export async function deleteProject({
       now,
     }))
   )
-    throw new Error('Project not found or access changed.')
+    throw new PublicError('PROJECT_ACCESS_CHANGED')
 }
 
 export async function updateProjectRoutes({
+  settingsVersion,
+  projectId,
   userId,
   teamSlug,
   projectName,
   routes,
 }: {
+  settingsVersion?: number
+  projectId?: string
   userId: string
   teamSlug: string
   projectName: string
   routes: Array<ProjectRoute>
 }) {
-  const context = await getProjectContext({
+  const context = await getProjectSettingsContext({
+    projectId,
+    settingsVersion,
     userId,
     teamSlug,
     projectName,
     scope: 'shell',
   })
+  const expectedVersion = settingsVersion ?? context.project.settingsVersion
+  if (expectedVersion !== context.project.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
   const normalizedRoutes = normalizeProjectRoutes(routes)
   const environmentIds = new Set(
     context.environments.map((environment) => environment.id),
@@ -272,7 +330,7 @@ export async function updateProjectRoutes({
   )
 
   if (invalidScopedRoute) {
-    throw new Error('Select a valid environment for every scoped route.')
+    throw new PublicError('PROJECT_ROUTE_ENVIRONMENT_INVALID')
   }
   const duplicateRoute = findDuplicate(
     normalizedRoutes.map(
@@ -281,11 +339,13 @@ export async function updateProjectRoutes({
   )
 
   if (duplicateRoute) {
-    throw new Error('Each route path can only be configured once per scope.')
+    throw new PublicError('PROJECT_ROUTE_DUPLICATED')
   }
   const now = new Date()
 
   await replaceProjectRoutes(db, {
+    userId,
+    settingsVersion: expectedVersion,
     projectId: context.project.id,
     routes: normalizedRoutes,
     now,
@@ -295,11 +355,15 @@ export async function updateProjectRoutes({
 }
 
 export async function updateProjectDomains({
+  settingsVersion,
+  projectId,
   userId,
   teamSlug,
   projectName,
   domains: projectDomains,
 }: {
+  settingsVersion?: number
+  projectId?: string
   userId: string
   teamSlug: string
   projectName: string
@@ -310,12 +374,17 @@ export async function updateProjectDomains({
     https: boolean
   }>
 }) {
-  const context = await getProjectContext({
+  const context = await getProjectSettingsContext({
+    projectId,
+    settingsVersion,
     userId,
     teamSlug,
     projectName,
     scope: 'shell',
   })
+  const expectedVersion = settingsVersion ?? context.project.settingsVersion
+  if (expectedVersion !== context.project.settingsVersion)
+    throw new PublicError('SETTINGS_CONFLICT')
   const normalizedDomains = projectDomains.map((domain) => ({
     host: domain.host.trim().toLowerCase(),
     environmentId: domain.environmentId,
@@ -330,14 +399,14 @@ export async function updateProjectDomains({
   )
 
   if (invalidDomain) {
-    throw new Error('Select a valid environment for every domain.')
+    throw new PublicError('PROJECT_DOMAIN_ENVIRONMENT_INVALID')
   }
   const duplicateHost = findDuplicate(
     normalizedDomains.map((domain) => domain.host),
   )
 
   if (duplicateHost) {
-    throw new Error('Each domain can only be added once.')
+    throw new PublicError('PROJECT_DOMAIN_DUPLICATED')
   }
 
   for (const domain of normalizedDomains) {
@@ -361,16 +430,18 @@ export async function updateProjectDomains({
         sql`${aliases.hostname} in (select value from json_each(${JSON.stringify(normalizedDomains.map((item) => item.host))}))`,
       )
   if ((await checkAliases()).length > 0)
-    throw new Error('A custom domain cannot replace a generated alias.')
+    throw new PublicError('PROJECT_GENERATED_ALIAS_PROTECTED')
   try {
     await replaceProjectDomains(db, {
+      userId,
+      settingsVersion: expectedVersion,
       projectId: context.project.id,
       domains: normalizedDomains,
       now,
     })
   } catch (error) {
     if ((await checkAliases()).length > 0)
-      throw new Error('A custom domain cannot replace a generated alias.')
+      throw new PublicError('PROJECT_GENERATED_ALIAS_PROTECTED')
     throw error
   }
 
@@ -413,7 +484,7 @@ export async function verifyProjectDomain({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Domain not found.')
+    throw new PublicError('PROJECT_DOMAIN_NOT_FOUND')
   }
 
   const succeededDeployment = await db
@@ -441,6 +512,10 @@ export async function verifyProjectDomain({
     const result = await verifyDomainAddress({
       hostname: row.domain.hostname,
       expectedAddress: row.server.publicAddress,
+      additionalAddresses: [
+        row.server.publicIpv4,
+        row.server.publicIpv6,
+      ].filter((value): value is string => Boolean(value)),
     })
     status = result.verified ? 'active' : 'failed'
     message = result.message
@@ -472,14 +547,30 @@ export async function verifyProjectDomain({
 export async function verifyDomainAddress({
   hostname,
   expectedAddress,
-  resolveAddresses = isIP(expectedAddress) === 6 ? resolve6 : resolve4,
+  additionalAddresses = [],
+  resolveAddresses,
 }: {
   hostname: string
   expectedAddress: string
+  additionalAddresses?: Array<string>
   resolveAddresses?: (hostname: string) => Promise<Array<string>>
-}) {
+}): Promise<{ verified: boolean; message: string | null }> {
+  if (additionalAddresses.length) {
+    const results = await Promise.all(
+      [...new Set([expectedAddress, ...additionalAddresses])].map((address) =>
+        verifyDomainAddress({
+          hostname,
+          expectedAddress: address,
+          resolveAddresses,
+        }),
+      ),
+    )
+    return results.find((result) => result.verified) ?? results[0]!
+  }
   try {
-    const addresses = await resolveAddresses(hostname)
+    const addresses = await (
+      resolveAddresses ?? (isIP(expectedAddress) === 6 ? resolve6 : resolve4)
+    )(hostname)
 
     const normalize = (address: string) =>
       isIP(address) === 6 ? new URL(`http://[${address}]`).hostname : address
@@ -534,21 +625,21 @@ async function resolveProjectRepositoryUpdate({
   }
 
   if (!installationId) {
-    throw new Error('Select a GitHub App installation for this repository.')
+    throw new PublicError('PROJECT_REPOSITORY_INSTALLATION_REQUIRED_SELECTION')
   }
 
   await requireTeam(userId, teamSlug)
   const githubAccount = await getGitHubAccount(userId)
 
   if (!githubAccount) {
-    throw new Error('Connect GitHub before changing the repository.')
+    throw new PublicError('PROJECT_REPOSITORY_GITHUB_REQUIRED')
   }
 
   const installations = await listUserInstallations(githubAccount.accessToken)
   const installation = installations.find((item) => item.id === installationId)
 
   if (!installation) {
-    throw new Error('Install the GitHub app for this repository to continue.')
+    throw new PublicError('PROJECT_REPOSITORY_INSTALLATION_REQUIRED')
   }
 
   await upsertGitHubInstallation(installation)
@@ -568,11 +659,11 @@ async function resolveProjectRepositoryUpdate({
       (installationRepo) => installationRepo.id === repo.id,
     )
   ) {
-    throw new Error('Install the GitHub app for this repository to continue.')
+    throw new PublicError('PROJECT_REPOSITORY_INSTALLATION_REQUIRED')
   }
 
   if (!repo.permissions.push) {
-    throw new Error('You need push access to use this repository.')
+    throw new PublicError('PROJECT_REPOSITORY_PUSH_ACCESS_REQUIRED')
   }
 
   const detectedComposePath = await detectComposePath({
@@ -582,7 +673,7 @@ async function resolveProjectRepositoryUpdate({
   })
 
   if (!detectedComposePath && composePath.trim() === '') {
-    throw new Error('Set a Compose file path before changing repositories.')
+    throw new PublicError('PROJECT_COMPOSE_PATH_REQUIRED')
   }
 
   return {

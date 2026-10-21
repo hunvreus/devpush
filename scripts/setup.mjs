@@ -27,6 +27,7 @@ import {
   readJsonConfig,
   upsertEnv,
   validateUrl,
+  validateMcpUrl,
   writeFileAtomic,
 } from "./setup-config.mjs";
 
@@ -69,6 +70,10 @@ async function setupLocal() {
     existing.DEVPUSH_BASE_URL || "http://localhost:7429",
   );
   const authUrl = existing.BETTER_AUTH_URL || baseUrl;
+  if (existing.DEVPUSH_MCP_URL && validateMcpUrl(existing.DEVPUSH_MCP_URL))
+    throw new Error(
+      `DEVPUSH_MCP_URL: ${validateMcpUrl(existing.DEVPUSH_MCP_URL)}`,
+    );
   const adminEmail = await askAdminEmail(existing.DEVPUSH_ADMIN_EMAIL);
   const database = await askDatabase(existing);
   const values = {
@@ -98,8 +103,8 @@ async function setupLocal() {
     [
       `Configuration: ${relative(envPath)}`,
       "",
-      "1. Start devpush: pnpm dev:start",
-      `3. Open ${baseUrl}`,
+      "1. Start devpush: pnpm --dir app db:migrate && pnpm dev",
+      `2. Open ${authUrl || baseUrl}`,
       "3. Create a project and install the GitHub App when prompted.",
     ]
       .filter(Boolean)
@@ -116,6 +121,10 @@ async function setupDocker() {
     existing.DEVPUSH_BASE_URL || "https://devpush.example.com",
   );
   const authUrl = existing.BETTER_AUTH_URL || baseUrl;
+  if (existing.DEVPUSH_MCP_URL && validateMcpUrl(existing.DEVPUSH_MCP_URL))
+    throw new Error(
+      `DEVPUSH_MCP_URL: ${validateMcpUrl(existing.DEVPUSH_MCP_URL)}`,
+    );
   const adminEmail = await askAdminEmail(existing.DEVPUSH_ADMIN_EMAIL);
   const database = await askDatabase(existing);
   const values = {
@@ -147,7 +156,7 @@ async function setupDocker() {
       `Configuration: ${relative(envPath)}`,
       "",
       "1. Start devpush: docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build",
-      `3. Open ${baseUrl}`,
+      `2. Open ${authUrl || baseUrl}`,
       "3. Create a project and install the GitHub App when prompted.",
     ].join("\n"),
     "Next steps",
@@ -201,6 +210,10 @@ async function setupCloudflare() {
   const baseUrl = origin.baseUrl;
   const authUrl =
     existingConfig?.vars.BETTER_AUTH_URL || existingSecrets.BETTER_AUTH_URL;
+  const mcpUrl =
+    existingConfig?.vars.DEVPUSH_MCP_URL || existingSecrets.DEVPUSH_MCP_URL;
+  if (mcpUrl && validateMcpUrl(mcpUrl))
+    throw new Error(`DEVPUSH_MCP_URL: ${validateMcpUrl(mcpUrl)}`);
   const adminEmail = await askAdminEmail(
     existingConfig?.vars.DEVPUSH_ADMIN_EMAIL ||
       existingSecrets.DEVPUSH_ADMIN_EMAIL,
@@ -417,6 +430,7 @@ async function setupCloudflare() {
   delete secrets.BETTER_AUTH_URL;
   delete secrets.DEVPUSH_ADMIN_EMAIL;
   delete secrets.DEVPUSH_BASE_URL;
+  delete secrets.DEVPUSH_MCP_URL;
   writePrivateJson(secretsPath, secrets);
   writeFileAtomic(
     generatedPath,
@@ -433,6 +447,7 @@ async function setupCloudflare() {
       vars: {
         DEVPUSH_BASE_URL: baseUrl,
         ...(authUrl ? { BETTER_AUTH_URL: authUrl } : {}),
+        ...(mcpUrl ? { DEVPUSH_MCP_URL: mcpUrl } : {}),
         ...(adminEmail ? { DEVPUSH_ADMIN_EMAIL: adminEmail } : {}),
       },
       workersDev: origin.workersDev,
@@ -446,7 +461,7 @@ async function setupCloudflare() {
     [
       "1. Apply both database migrations: pnpm --dir app db:migrate:cloudflare",
       "2. Deploy devpush: pnpm deploy:cloudflare",
-      `3. Open ${baseUrl}`,
+      `2. Open ${authUrl || baseUrl}`,
       "4. Sign in and create a project.",
       "5. Install the GitHub App when prompted by devpush.",
       "",

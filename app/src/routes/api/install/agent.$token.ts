@@ -1,12 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { config } from '@/server/config'
-import { buildTokenizedAgentInstallScript } from '@/server/install/agent-script'
+import {
+  buildTokenizedAgentInstallScript,
+  isAgentEnrollmentToken,
+} from '@/server/install/agent-script'
 
 export const Route = createFileRoute('/api/install/agent/$token')({
   server: {
     handlers: {
       HEAD: async ({ params }) => {
+        if (!isAgentEnrollmentToken(params.token))
+          return new Response(null, { status: 404 })
         const script = buildTokenizedAgentInstallScript({
           autoUpdate: config.DEVPUSH_AGENT_AUTO_UPDATE,
           baseUrl: config.DEVPUSH_BASE_URL,
@@ -19,6 +24,8 @@ export const Route = createFileRoute('/api/install/agent/$token')({
         })
       },
       GET: async ({ params }) => {
+        if (!isAgentEnrollmentToken(params.token))
+          return new Response(null, { status: 404 })
         const script = buildTokenizedAgentInstallScript({
           autoUpdate: config.DEVPUSH_AGENT_AUTO_UPDATE,
           baseUrl: config.DEVPUSH_BASE_URL,

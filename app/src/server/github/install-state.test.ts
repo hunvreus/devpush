@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest'
+import { SignJWT } from 'jose'
+import { config } from '@/server/config'
 
 import {
   createGitHubInstallState,
@@ -6,6 +8,20 @@ import {
 } from './install-state'
 
 describe('GitHub installation state', () => {
+  test.each(['devpush:email-verification', 'devpush:other-purpose'])(
+    'rejects a token signed with the auth key for another audience: %s',
+    async (audience) => {
+      const state = await new SignJWT({ userId: 'user-1', next: '/team' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuer('devpush')
+        .setAudience(audience)
+        .setExpirationTime('15m')
+        .sign(new TextEncoder().encode(config.BETTER_AUTH_SECRET))
+      await expect(
+        verifyGitHubInstallState({ state, userId: 'user-1' }),
+      ).rejects.toThrow()
+    },
+  )
   test('round-trips the initiating user and a safe redirect', async () => {
     const state = await createGitHubInstallState({
       next: '/team/projects',

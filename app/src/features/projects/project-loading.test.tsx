@@ -25,7 +25,9 @@ test('unknown project settings show rows instead of claiming collections are emp
   const client = new QueryClient()
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
-      <ProjectSectionPending section="settings" />
+      <TooltipProvider>
+        <ProjectSectionPending section="settings" />
+      </TooltipProvider>
     </QueryClientProvider>,
   )
   client.clear()
@@ -78,13 +80,15 @@ test.each([
   if (section === 'backup') {
     expect(html).toContain('aria-label="Loading backup policy"')
     expect(html).toContain('<fieldset disabled=""')
-    expect(html).toContain('Backup targets loading')
+    expect(html).toContain('Volumes loading')
+    expect(html).toContain('Databases loading')
     expect(html).not.toContain('data-slot="empty"')
     for (const label of [
       'General',
       'Remote backups',
       'Retention',
-      'Backup targets',
+      'Volumes',
+      'Databases',
       'Delete policy',
     ]) {
       expect(html).toContain(label)
@@ -92,21 +96,19 @@ test.each([
   } else if (section === 'backups') {
     for (const label of [
       'Policies',
-      'Runs',
+      'Activity',
+      'All types',
       'Create policy',
       'All environments',
       'All statuses',
       'All servers',
       'All dates',
-      'Status',
-      'Artifacts',
-      'Started',
       'Restore',
     ])
       expect(html).toContain(label)
     expect(html).toContain('data-slot="skeleton"')
     expect(html).not.toContain('Loading backups…')
-  } else if (section === 'logs') expect(html).toContain('Loading logs…')
+  } else if (section === 'logs') expect(html).toContain('Loading logs')
   else expect(html).toContain('data-slot="skeleton"')
   if (section === 'deployment') {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*?Visit<\/button>/)
@@ -149,8 +151,12 @@ test('unknown log results keep known filters and use a loading message', () => {
   client.clear()
   expect(html).toContain('All deployments')
   expect(html).toContain('All environments')
+  expect(html).toContain('All dates')
+  expect(html).toContain('All branches')
+  expect(html).toContain('items-center justify-center')
+  expect(html).toContain('animate-spin')
   expect(html).toContain('Find in logs')
-  expect(html).toContain('Loading logs…')
+  expect(html).toContain('Loading logs')
   expect(html).not.toContain('data-slot="skeleton"')
 })
 
@@ -215,7 +221,7 @@ test('cached empty log results stay visible during route loading', () => {
     </QueryClientProvider>,
   )
   client.clear()
-  expect(html).not.toContain('Loading logs…')
+  expect(html).not.toContain('Loading logs')
   expect(html).not.toContain('data-slot="skeleton"')
   expect(html).toContain('No logs')
 })
@@ -293,3 +299,44 @@ test('deployment loading shows metadata already known from the project list', ()
     expect(html).toContain(text)
   expect(html).not.toContain('data-slot="skeleton"')
 })
+
+// Assert the visible value, not the trigger's accessible label. Radix renders
+// its placeholder instead of children when the select has no value.
+test.each([
+  [
+    'deployments',
+    ['All environments', 'All statuses', 'All dates', 'All branches'],
+  ],
+  [
+    'logs',
+    ['All deployments', 'All environments', 'All dates', 'All branches'],
+  ],
+  [
+    'backups',
+    [
+      'All policies',
+      'All types',
+      'All environments',
+      'All statuses',
+      'All servers',
+      'All dates',
+    ],
+  ],
+] as const)(
+  '%s loading renders default labels inside disabled filters',
+  (section, labels) => {
+    const client = new QueryClient()
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <TooltipProvider>
+          <ProjectSectionPending section={section} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    )
+    client.clear()
+    const values = [
+      ...html.matchAll(/data-slot="select-value"[^>]*>(.*?)<\/span>/g),
+    ].map((match) => match[1])
+    expect(values).toEqual(labels)
+  },
+)

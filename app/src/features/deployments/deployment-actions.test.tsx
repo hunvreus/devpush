@@ -91,6 +91,17 @@ test.each(['Redeploy', 'Roll back'] as const)(
       ),
     )
     await click(label, node)
+    expect(
+      [...document.querySelectorAll('[role="alertdialog"] dl dt')].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(['Environment', 'Commit', 'Branch', 'Message'])
+    expect(
+      document.querySelector('[role="alertdialog"] dl')?.textContent,
+    ).toContain('Production')
+    expect(
+      document.querySelector('[role="alertdialog"] dl')?.textContent,
+    ).toContain('main')
     await click(label, document.querySelector('[role="alertdialog"]')!)
     await act(async () =>
       document.dispatchEvent(

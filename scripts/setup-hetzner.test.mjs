@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApi, makeServer, parseOptions, run } from './setup-hetzner.mjs'
@@ -101,3 +101,64 @@ test('refuses deletion of an IP reassigned to another server', async () => {
     await assert.rejects(run({ destroy: true, yes: true, state }, api, () => {}), /another server/)
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
+
+test('destruction waits for delayed Primary IP auto-deletion after the server disappears', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'devpush-destroy-'))
+  const state = join(dir, 'state.json')
+  try {
+    await writeFile(state, JSON.stringify({ version: 1, name: 'devpush-test', serverId: 99, ipIds: [10] }))
+    let reads = 0
+    const missing = () => { throw Object.assign(new Error('not found'), { status: 404 }) }
+    const api = async path => {
+      if (path === '/servers/99') return missing()
+      if (++reads < 3) return { primary_ip: { assignee_id: 99 } }
+      return missing()
+    }
+    await run({ destroy: true, yes: true, state }, api, () => {})
+    assert.equal(reads, 3)
+    await assert.rejects(readFile(state), /ENOENT/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('destruction refuses an IP reassigned while waiting and preserves recovery state', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'devpush-destroy-'))
+  const state = join(dir, 'state.json')
+  try {
+    await writeFile(state, JSON.stringify({ version: 1, name: 'devpush-test', serverId: 99, ipIds: [10] }))
+    let reads = 0, deletes = 0
+    const api = async (path, _body, method) => {
+      if (method === 'DELETE') { deletes++; return {} }
+      if (path === '/servers/99') throw Object.assign(new Error('not found'), { status: 404 })
+      return { primary_ip: { assignee_id: ++reads < 3 ? 99 : 88 } }
+    }
+    await assert.rejects(run({ destroy: true, yes: true, state }, api, () => {}), /still assigned/)
+    assert.equal(deletes, 0)
+    assert.equal(JSON.parse(await readFile(state, 'utf8')).serverId, 99)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+for (const [status, code, released] of [[422, 'invalid_input', true], [401, 'unauthorized', true], [503, 'server_error', false], [422, 'service_error', false], [400, 'unknown_error', false]]) {
+  test(`creation ${status}/${code} ${released ? 'releases' : 'retains'} its reservation without retrying`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'devpush-reservation-'))
+    try {
+      const state = join(dir, 'state.json')
+      const file = join(dir, 'install.sh')
+      await writeFile(file, 'echo fixture')
+      let creates = 0
+      const api = createApi('fixture', async (url, request) => {
+        if (request.method === 'POST') { creates++; return Response.json({ error: { code } }, { status }) }
+        const resource = new URL(url).pathname.split('/').at(-1)
+        return Response.json({ [resource]: catalog[resource], meta: { pagination: { next_page: null } } })
+      })
+      const input = { ...options, create: true, state, 'install-file': file }
+      await assert.rejects(run(input, api, () => {}), /Hetzner HTTP/)
+      assert.equal(creates, 1)
+      if (released) await assert.rejects(readFile(state), { code: 'ENOENT' })
+      else {
+        assert.equal(JSON.parse(await readFile(state, 'utf8')).pending, true)
+        await assert.rejects(run(input, api, () => {}), { code: 'EEXIST' })
+        assert.equal(creates, 1)
+      }
+    } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+}

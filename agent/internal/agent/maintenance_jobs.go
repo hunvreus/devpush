@@ -17,7 +17,11 @@ import (
 	"time"
 )
 
-func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobCompletion {
+const volumeUtilityImage = "alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"
+
+func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) (result backupJobCompletion) {
+	ctx, finishLog := runner.beginJobLog(ctx, job)
+	defer func() { finishLog(result.Status, result.Message) }()
 	status := "succeeded"
 	message := ""
 	localBasePath := ""
@@ -83,6 +87,7 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 	artifacts = append(artifacts, artifact)
 
 	for index, dump := range job.Backup.DatabaseDumps {
+		writeJobProgress(ctx, fmt.Sprintf("Backing up database service %s.", dump.Service))
 		service := sanitizeArtifactName(dump.Service)
 		if service == "" || strings.TrimSpace(dump.Command) == "" {
 			return fail(fmt.Errorf("database dump %d must include service and command", index+1))
@@ -107,6 +112,7 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 		return fail(err)
 	}
 	for _, volumeName := range volumeNames {
+		writeJobProgress(ctx, fmt.Sprintf("Archiving volume %s.", volumeName))
 		path := filepath.Join(job.Backup.LocalBasePath, "volumes", sanitizeArtifactName(volumeName)+".tar.gz")
 		if err := runner.writeVolumeBackup(ctx, volumeName, path); err != nil {
 			return fail(err)
@@ -118,11 +124,13 @@ func (runner *Runner) runBackupJob(ctx context.Context, job agentJob) backupJobC
 		artifacts = append(artifacts, artifact)
 	}
 
+	writeJobProgress(ctx, "Local backup files are complete.")
 	return runner.uploadCompletedBackup(ctx, job, manifest, artifacts)
 }
 
 func (runner *Runner) uploadCompletedBackup(ctx context.Context, job agentJob, manifest map[string]any, artifacts []backupArtifact) backupJobCompletion {
 	if job.Backup.Retention.Remote.Enabled {
+		writeJobProgress(ctx, "Uploading backup files to remote storage.")
 		remoteArtifacts, err := runner.uploadBackupArtifacts(ctx, job.Backup, artifacts)
 		if err != nil {
 			// Upload failure must not destroy the complete local backup.
@@ -207,7 +215,9 @@ func (runner *Runner) runBackupCleanupJob(ctx context.Context, job agentJob) bac
 	}
 }
 
-func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) restoreJobCompletion {
+func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) (result restoreJobCompletion) {
+	ctx, finishLog := runner.beginJobLog(ctx, job)
+	defer func() { finishLog(result.Status, result.Message) }()
 	status := "succeeded"
 	message := ""
 
@@ -242,10 +252,12 @@ func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) restoreJo
 
 	localPaths := map[string]string{}
 	for _, artifact := range job.Restore.Artifacts {
+		writeJobProgress(ctx, fmt.Sprintf("Reading %s backup from %s storage.", artifact.Type, artifact.Storage))
 		path, err := runner.restoreArtifactPath(ctx, job.Restore.Destination, artifact, workdir)
 		if err != nil {
 			return fail(err)
 		}
+		writeJobProgress(ctx, "Verifying backup checksum.")
 		if err := verifyFileSHA256(path, artifact.ChecksumSHA256); err != nil {
 			return fail(fmt.Errorf("verify restore artifact %s: %w", artifact.ID, err))
 		}
@@ -267,6 +279,7 @@ func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) restoreJo
 
 	var stoppedContainers []string
 	if len(volumeArtifacts) > 0 {
+		writeJobProgress(ctx, "Stopping application containers for volume restoration.")
 		stoppedContainers, err = runner.stopRuntimeContainers(ctx, job.Restore.RuntimeID)
 		if err != nil {
 			return fail(err)
@@ -280,6 +293,7 @@ func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) restoreJo
 
 		prepared := make([]preparedVolumeRestore, 0, len(volumeArtifacts))
 		for index, artifact := range volumeArtifacts {
+			writeJobProgress(ctx, fmt.Sprintf("Preparing restore for volume %s.", artifact.TargetVolume))
 			restore, prepareErr := runner.prepareVolumeRestore(
 				ctx,
 				job.Restore.RuntimeID,
@@ -374,6 +388,7 @@ func (runner *Runner) stopRuntimeContainers(ctx context.Context, runtimeID strin
 }
 
 func (runner *Runner) startContainers(ctx context.Context, containerIDs []string) error {
+	writeJobProgress(ctx, "Starting application containers.")
 	if len(containerIDs) == 0 {
 		return nil
 	}
@@ -422,7 +437,7 @@ func (runner *Runner) replaceVolumeContents(ctx context.Context, volumeName stri
 		volumeName + ":/volume_data",
 		"-v",
 		filepath.Dir(artifactPath) + ":/restore:ro",
-		"alpine",
+		volumeUtilityImage,
 		"sh",
 		"-lc",
 		"find /volume_data -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar xzf /restore/" + shellQuote(filepath.Base(artifactPath)) + " -C /volume_data",
@@ -435,6 +450,7 @@ func (runner *Runner) replaceVolumeContents(ctx context.Context, volumeName stri
 }
 
 func (runner *Runner) restoreDatabaseArtifact(ctx context.Context, runtimeID string, artifactPath string, targetService string, restoreCommand string) error {
+	writeJobProgress(ctx, fmt.Sprintf("Restoring database service %s.", targetService))
 	if strings.TrimSpace(targetService) == "" || strings.TrimSpace(restoreCommand) == "" {
 		return errors.New("database restore target service and command are required")
 	}
@@ -468,8 +484,9 @@ func (runner *Runner) restoreDatabaseArtifact(ctx context.Context, runtimeID str
 	)
 	cmd := exec.CommandContext(ctx, composeName, args...)
 	cmd.Stdin = gzipReader
+	cmd.Stdout = jobDiagnostics(ctx, io.Discard)
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd.Stderr = jobDiagnostics(ctx, &stderr)
 	cmd.Env = runner.commandEnv()
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("database restore for service %s failed: %w: %s", targetService, err, strings.TrimSpace(stderr.String()))
@@ -490,6 +507,7 @@ func (runner *Runner) runDeprovisionJob(ctx context.Context, job agentJob) clean
 			Token:    runner.currentCredential(),
 			Type:     job.Type,
 			JobID:    job.ID,
+			Attempt:  job.Attempt,
 			Status:   status,
 			Message:  message,
 		}
@@ -510,6 +528,7 @@ func (runner *Runner) runDeprovisionJob(ctx context.Context, job agentJob) clean
 		Token:    runner.currentCredential(),
 		Type:     job.Type,
 		JobID:    job.ID,
+		Attempt:  job.Attempt,
 		Status:   status,
 		Message:  message,
 	}
@@ -546,7 +565,7 @@ func (runner *Runner) writeDatabaseDump(ctx context.Context, runtimeID string, s
 	gzipWriter := gzip.NewWriter(file)
 	cmd.Stdout = gzipWriter
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd.Stderr = jobDiagnostics(ctx, &stderr)
 	cmd.Env = runner.commandEnv()
 	if err := cmd.Run(); err != nil {
 		_ = gzipWriter.Close()
@@ -647,7 +666,7 @@ func (runner *Runner) writeVolumeBackup(ctx context.Context, volumeName string, 
 		volumeName + ":/volume_data:ro",
 		"-v",
 		backupDir + ":/backup",
-		"alpine",
+		volumeUtilityImage,
 		"sh",
 		"-lc",
 		"cd /volume_data && tar czf /backup/" + shellQuote(fileName) + " .",

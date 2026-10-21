@@ -1,3 +1,4 @@
+import { NewProjectPendingContent } from './new-project-pending'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import { createProjectSchema } from '@/lib/project-creation-schema'
 import { afterMutation } from '@/lib/action-feedback'
@@ -61,10 +62,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  RepositoryListPending,
-  RepositoryToolbarPending,
-} from '@/features/repositories/repository-list-pending'
+import { RepositoryListPending } from '@/features/repositories/repository-list-pending'
 import { ServerAvatar } from '@/features/servers/server-avatar'
 import { authClient } from '@/lib/auth/client'
 import { getErrorMessage } from '@/lib/error-message'
@@ -101,68 +99,23 @@ type NewProjectFieldErrors = Partial<
   >
 >
 
-export function NewProjectDialog({
-  team,
-  servers,
-  onClose,
-}: {
-  team: TeamSummary
-  servers: Array<ServerSummary>
-  onClose?: () => void
-}) {
-  const router = useRouter()
-  const [open, setOpen] = useState(true)
-  const [creating, setCreating] = useState(false)
-
-  function closeDialog() {
-    if (creating) return
-    setOpen(false)
-    if (onClose) {
-      onClose()
-      return
-    }
-
-    void router.navigate({
-      to: '/$teamSlug',
-      params: { teamSlug: team.slug },
-    })
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
-          closeDialog()
-        }
-      }}
-    >
-      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
-        <NewProjectDialogData
-          team={team}
-          servers={servers}
-          onPendingChange={setCreating}
-        />
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 function NewProjectDialogData({
   team,
   servers,
   onPendingChange,
+  onCreated,
 }: {
   team: TeamSummary
   servers: Array<ServerSummary>
   onPendingChange: (pending: boolean) => void
+  onCreated: () => void
 }) {
   const { data, error, isPending } = useQuery(
     repositorySelectionQueryOptions(team.slug),
   )
 
   if (isPending) {
-    return <NewProjectLoadingContent />
+    return <NewProjectPendingContent />
   }
 
   if (!data) {
@@ -185,6 +138,7 @@ function NewProjectDialogData({
         team={team}
         servers={servers}
         onPendingChange={onPendingChange}
+        onCreated={onCreated}
         repositorySelection={data}
       />
     </>
@@ -195,11 +149,13 @@ function NewProjectDialogContent({
   team,
   servers,
   onPendingChange,
+  onCreated,
   repositorySelection,
 }: {
   team: TeamSummary
   servers: Array<ServerSummary>
   onPendingChange: (pending: boolean) => void
+  onCreated: () => void
   repositorySelection: RepositorySelectionContext
 }) {
   const router = useRouter()
@@ -428,19 +384,18 @@ function NewProjectDialogContent({
     onPendingChange(true)
     try {
       const project = await createProject({ data: parsed.data })
-      await invalidateResourceQueries(queryClient, team.slug)
       setProjectCreated(true)
-      await afterMutation(
-        () =>
-          router.navigate({
-            to: '/$teamSlug/projects/$projectName',
-            params: {
-              teamSlug: team.slug,
-              projectName: project.name,
-            },
-          }),
-        'The action completed, but opening the next page failed. Please reload.',
-      )
+      onCreated()
+      await afterMutation(async () => {
+        await invalidateResourceQueries(queryClient, team.slug)
+        await router.navigate({
+          to: '/$teamSlug/projects/$projectName',
+          params: {
+            teamSlug: team.slug,
+            projectName: project.name,
+          },
+        })
+      }, 'The action completed, but opening the next page failed. Please reload.')
     } catch (error) {
       setFieldErrors(getNewProjectFieldErrors(error))
     } finally {
@@ -616,14 +571,45 @@ function NewProjectDialogContent({
   )
 }
 
-export function NewProjectDialogOverlay({
-  onClose,
+export function NewProjectRouteDialog({ teamSlug }: { teamSlug: string }) {
+  const router = useRouter()
+  const [creating, setCreating] = useState(false)
+  const [created, setCreated] = useState(false)
+  if (created) return null
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !creating)
+          void router
+            .navigate({ to: '/$teamSlug', params: { teamSlug } })
+            .catch(() =>
+              toast.error(
+                'Unable to close project creation. Please try again.',
+              ),
+            )
+      }}
+    >
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
+        <NewProjectDialogOverlayContent
+          teamSlug={teamSlug}
+          onPendingChange={setCreating}
+          onCreated={() => setCreated(true)}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function NewProjectDialogOverlayContent({
+  onPendingChange,
+  onCreated,
   teamSlug,
 }: {
-  onClose: () => void
+  onPendingChange: (pending: boolean) => void
+  onCreated: () => void
   teamSlug: string
 }) {
-  const [creating, setCreating] = useState(false)
   const {
     data: context,
     error,
@@ -631,34 +617,30 @@ export function NewProjectDialogOverlay({
   } = useQuery(teamShellQueryOptions({ teamSlug }))
 
   return (
-    <Dialog
-      open
-      onOpenChange={(nextOpen) => !nextOpen && !creating && onClose()}
-    >
-      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
-        {isPending ? (
-          <NewProjectLoadingContent />
-        ) : !context ? (
-          <NewProjectErrorContent
-            error={getErrorMessage(error, 'Unable to load project form.')}
+    <>
+      {isPending ? (
+        <NewProjectPendingContent />
+      ) : !context ? (
+        <NewProjectErrorContent
+          error={getErrorMessage(error, 'Unable to load project form.')}
+        />
+      ) : (
+        <>
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              Unable to refresh project details. Displayed information may be
+              out of date.
+            </p>
+          ) : null}
+          <NewProjectDialogData
+            team={context.team}
+            servers={context.servers}
+            onPendingChange={onPendingChange}
+            onCreated={onCreated}
           />
-        ) : (
-          <>
-            {error ? (
-              <p role="alert" className="text-sm text-destructive">
-                Unable to refresh project details. Displayed information may be
-                out of date.
-              </p>
-            ) : null}
-            <NewProjectDialogData
-              team={context.team}
-              servers={context.servers}
-              onPendingChange={setCreating}
-            />
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+        </>
+      )}
+    </>
   )
 }
 
@@ -675,23 +657,6 @@ function NewProjectErrorContent({ error }: { error: string }) {
           <EmptyDescription>{error}</EmptyDescription>
         </EmptyHeader>
       </Empty>
-    </>
-  )
-}
-
-function NewProjectLoadingContent() {
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Create project</DialogTitle>
-        <DialogDescription>
-          Select a repository, then confirm the initial deployment defaults.
-        </DialogDescription>
-      </DialogHeader>
-      <div className="space-y-4">
-        <RepositoryToolbarPending />
-        <RepositoryListPending />
-      </div>
     </>
   )
 }
@@ -835,9 +800,15 @@ function RepositoryStep({
             ))}
           </ul>
         ) : (
-          <p className="flex h-50 items-center justify-center rounded-lg bg-muted px-4 text-sm text-muted-foreground">
-            No repositories found
-          </p>
+          <Empty className="min-h-50 border">
+            <EmptyHeader>
+              <EmptyTitle>No repositories found.</EmptyTitle>
+              <EmptyDescription>
+                Try a different search or check which repositories the GitHub
+                App can access.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
     </div>

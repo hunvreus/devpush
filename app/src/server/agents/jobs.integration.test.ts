@@ -1,3 +1,4 @@
+import { finishContainerCleanup } from './container-cleanup-state'
 import { required } from '@/test/required'
 import * as realtime from '@/server/realtime/service'
 import { createHash } from 'node:crypto'
@@ -5,6 +6,8 @@ import { createHash } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 import { claimDeployment } from './claims'
+import * as ClaimsModule from './claims'
+import { failRunningDeployments } from './deployment-state'
 
 import { closeDb, db, logsDb } from '@/server/db'
 import { deploymentLogs } from '@/server/db/log-schema'
@@ -23,7 +26,7 @@ import {
   teams,
   user,
 } from '@/server/db/schema'
-import { insertDeploymentEvents } from '@/server/logs/events'
+import { insertDeploymentEvents } from '@/test/deployment-events'
 import { appendDeploymentLogs } from '@/server/logs/deployments'
 import { pruneOrphanDeploymentLogs } from '@/server/logs/cleanup'
 import {
@@ -38,7 +41,9 @@ import { currentAgentCapabilities } from './compatibility'
 import {
   claimNextAgentJob,
   failStaleRunningDeployments,
+  failStaleAgentJobs,
   completeBackupCleanupJob,
+  completeCleanupJob,
   completeBackupJob,
   completeDeploymentJob,
   completeRestoreJob,
@@ -68,6 +73,70 @@ afterAll(async () => {
 })
 
 describe('agent deployment jobs', () => {
+  test.each(['queued', 'running'] as const)(
+    'maintenance expires %s backups without an agent poll',
+    async (status) => {
+      const f = await createBackupFixture()
+      const old = new Date(Date.now() - 26 * 60 * 60 * 1000)
+      await db
+        .update(agentJobs)
+        .set({
+          status,
+          claimedAt: status === 'running' ? old : null,
+          availableAt: old,
+        })
+        .where(eq(agentJobs.id, f.jobId))
+      await db
+        .update(backupRuns)
+        .set({ status })
+        .where(eq(backupRuns.id, f.backupRunId))
+      expect(await failStaleAgentJobs()).toContainEqual({ id: f.jobId })
+      const [job] = await db
+        .select()
+        .from(agentJobs)
+        .where(eq(agentJobs.id, f.jobId))
+      const [run] = await db
+        .select()
+        .from(backupRuns)
+        .where(eq(backupRuns.id, f.backupRunId))
+      expect(job?.status).toBe('failed')
+      expect(run?.status).toBe('failed')
+      expect(await failStaleAgentJobs(f.serverId)).toEqual([])
+    },
+  )
+
+  test('contention retries in one backup poll are bounded without consuming the job', async () => {
+    const f = await createBackupFixture()
+    await db
+      .update(agentJobs)
+      .set({ status: 'queued', claimedAt: null })
+      .where(eq(agentJobs.id, f.jobId))
+    await db
+      .update(backupRuns)
+      .set({ status: 'queued' })
+      .where(eq(backupRuns.id, f.backupRunId))
+    let attempts = 0
+    const claim = vi
+      .spyOn(ClaimsModule, 'claimBackupCandidate')
+      .mockImplementation(async () => {
+        if (++attempts >= 12) throw new Error('Unbounded claim retries')
+        return null
+      })
+    await expect(
+      claimNextAgentJob({
+        serverId: f.serverId,
+        token: f.token,
+        protocolVersion: 1,
+        capabilities: ['jobs.backup.v1'],
+      }),
+    ).resolves.toBeNull()
+    expect(claim).toHaveBeenCalledTimes(8)
+    const [job] = await db
+      .select()
+      .from(agentJobs)
+      .where(eq(agentJobs.id, f.jobId))
+    expect(job?.status).toBe('queued')
+  })
   test('publishes timeout updates only when a deployment changes', async () => {
     const { deploymentId, serverId } = await createFixture()
     const notification = vi.spyOn(realtime, 'notifyServer').mockResolvedValue()
@@ -86,6 +155,71 @@ describe('agent deployment jobs', () => {
     await failStaleRunningDeployments(serverId)
     expect(notification).toHaveBeenCalledTimes(1)
   })
+  test('fails a lost agent after ten minutes but preserves deployments with recent heartbeats', async () => {
+    const { deploymentId, serverId } = await createFixture()
+    const startedAt = new Date(Date.now() - 11 * 60 * 1000)
+    await db
+      .update(deployments)
+      .set({ status: 'running', startedAt })
+      .where(eq(deployments.id, deploymentId))
+    await db
+      .update(servers)
+      .set({ lastSeenAt: new Date() })
+      .where(eq(servers.id, serverId))
+    expect(await failStaleRunningDeployments(serverId)).toEqual([])
+    await db
+      .update(servers)
+      .set({ lastSeenAt: startedAt })
+      .where(eq(servers.id, serverId))
+    expect(await failStaleRunningDeployments(serverId)).toEqual([deploymentId])
+    expect(
+      (
+        await db
+          .select()
+          .from(deployments)
+          .where(eq(deployments.id, deploymentId))
+      )[0]?.status,
+    ).toBe('failed')
+  })
+
+  test('does not fail a deployment if the heartbeat recovers before the atomic failure batch', async () => {
+    const { deploymentId, serverId } = await createFixture()
+    const now = new Date()
+    const cutoff = new Date(now.getTime() - 10 * 60 * 1000)
+    await db
+      .update(deployments)
+      .set({ status: 'running', startedAt: new Date(cutoff.getTime() - 60000) })
+      .where(eq(deployments.id, deploymentId))
+    await db
+      .update(servers)
+      .set({ lastSeenAt: now })
+      .where(eq(servers.id, serverId))
+    expect(
+      await failRunningDeployments(db, {
+        ids: [deploymentId],
+        message: 'Lost agent',
+        phase: 'timed_out',
+        startedBefore: cutoff,
+        heartbeatBefore: cutoff,
+        now,
+      }),
+    ).toEqual([])
+    expect(
+      (
+        await db
+          .select()
+          .from(deployments)
+          .where(eq(deployments.id, deploymentId))
+      )[0]?.status,
+    ).toBe('running')
+    expect(
+      await db
+        .select()
+        .from(deploymentEvents)
+        .where(eq(deploymentEvents.deploymentId, deploymentId)),
+    ).toEqual([])
+  })
+
   test('publishes a terminal update when preparing a claimed job fails', async () => {
     const { deploymentId, serverId, token } = await createFixture()
     const notification = vi.spyOn(realtime, 'notifyServer').mockResolvedValue()
@@ -936,6 +1070,220 @@ describe('agent deployment jobs', () => {
 
     expect(jobRows).toEqual([{ status: 'succeeded', errorMessage: null }])
   })
+})
+
+test('pending purge excludes reassigned and in-flight runtimes', async () => {
+  const f = await createFixture()
+  const [environment] = await db
+    .select()
+    .from(environments)
+    .where(eq(environments.id, f.environmentId))
+  if (!environment) throw new Error('Missing environment')
+  await db
+    .update(deployments)
+    .set({ runtimeId: 'dp_inflight' })
+    .where(eq(deployments.id, f.deploymentId))
+  const jobId = crypto.randomUUID()
+  touchedAgentJobIds.push(jobId)
+  await db.insert(agentJobs).values({
+    id: jobId,
+    type: 'purge',
+    serverId: f.serverId,
+    payload: {
+      schemaVersion: 1,
+      runtimeIds: [environment.runtimeId, 'dp_inflight', 'dp_orphan'],
+      removeVolumes: true,
+      reason: 'Test',
+    },
+  })
+  const job = await claimNextAgentJob({
+    serverId: f.serverId,
+    token: f.token,
+    protocolVersion: 1,
+    capabilities: ['jobs.compose.cleanup.v2'],
+  })
+  expect(job).toMatchObject({
+    id: jobId,
+    type: 'purge',
+    cleanup: { runtimeIds: ['dp_orphan'] },
+  })
+})
+
+test.each(['connected', 'deleted'] as const)(
+  'stale container cleanup retries on a %s server',
+  async (status) => {
+    const f = await createFixture()
+    const jobId = `container-cleanup-${crypto.randomUUID()}`
+    touchedAgentJobIds.push(jobId)
+    await db.insert(agentJobs).values({
+      id: jobId,
+      type: 'purge',
+      status: 'running',
+      serverId: f.serverId,
+      projectId: f.projectId,
+      attempt: 1,
+      maxAttempts: 3,
+      claimedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      payload: {
+        schemaVersion: 1,
+        runtimeIds: ['dp_fixture'],
+        removeVolumes: true,
+        reason: 'Test cleanup',
+      },
+    })
+    await db.update(servers).set({ status }).where(eq(servers.id, f.serverId))
+    const claimed = await claimNextAgentJob({
+      serverId: f.serverId,
+      token: f.token,
+      protocolVersion: 1,
+      capabilities: ['jobs.compose.cleanup.v2'],
+    })
+    expect(claimed).toMatchObject({ id: jobId, type: 'purge' })
+    expect(
+      (await db.select().from(agentJobs).where(eq(agentJobs.id, jobId)))[0],
+    ).toMatchObject({ status: 'running', attempt: 2 })
+    await completeCleanupJob({
+      serverId: f.serverId,
+      token: f.token,
+      completion: {
+        jobId,
+        attempt: 2,
+        status: 'failed',
+        message: 'Temporary host failure',
+      },
+    })
+    expect(
+      (await db.select().from(agentJobs).where(eq(agentJobs.id, jobId)))[0],
+    ).toMatchObject({
+      status: 'queued',
+      attempt: 2,
+      claimedAt: null,
+      finishedAt: null,
+    })
+    await db
+      .update(agentJobs)
+      .set({ status: 'running', attempt: 3, claimedAt: new Date() })
+      .where(eq(agentJobs.id, jobId))
+    await completeCleanupJob({
+      serverId: f.serverId,
+      token: f.token,
+      completion: {
+        jobId,
+        attempt: 3,
+        status: 'failed',
+        message: 'Final host failure',
+      },
+    })
+    expect(
+      (await db.select().from(agentJobs).where(eq(agentJobs.id, jobId)))[0],
+    ).toMatchObject({ status: 'abandoned', attempt: 3 })
+  },
+)
+
+test('container-cleanup completion refuses a backup job ID', async () => {
+  const f = await createBackupFixture()
+  await expect(
+    completeCleanupJob({
+      serverId: f.serverId,
+      token: f.token,
+      completion: { jobId: f.jobId, attempt: 1, status: 'succeeded' },
+    }),
+  ).rejects.toThrow('Cleanup job not found')
+  expect(
+    (await db.select().from(agentJobs).where(eq(agentJobs.id, f.jobId)))[0]
+      ?.status,
+  ).toBe('running')
+  expect(
+    (
+      await db.select().from(backupRuns).where(eq(backupRuns.id, f.backupRunId))
+    )[0]?.status,
+  ).toBe('running')
+})
+
+test('late cleanup completion acknowledges the old attempt without finishing the new one', async () => {
+  const f = await createFixture()
+  const jobId = crypto.randomUUID()
+  touchedAgentJobIds.push(jobId)
+  await db.insert(agentJobs).values({
+    id: jobId,
+    type: 'purge',
+    status: 'running',
+    serverId: f.serverId,
+    attempt: 2,
+    claimedAt: new Date(),
+    payload: {
+      schemaVersion: 1,
+      runtimeIds: ['dp_orphan'],
+      removeVolumes: true,
+      reason: 'Test',
+    },
+  })
+  await db
+    .update(servers)
+    .set({ status: 'deleted' })
+    .where(eq(servers.id, f.serverId))
+  expect(
+    await completeCleanupJob({
+      serverId: f.serverId,
+      token: f.token,
+      completion: { jobId, attempt: 1, status: 'succeeded' },
+    }),
+  ).toEqual({ ok: true, ignored: true })
+  expect(
+    (await db.select().from(agentJobs).where(eq(agentJobs.id, jobId)))[0],
+  ).toMatchObject({ status: 'running', attempt: 2 })
+  expect(
+    await completeCleanupJob({
+      serverId: f.serverId,
+      token: f.token,
+      completion: { jobId, attempt: 2, status: 'succeeded' },
+    }),
+  ).toEqual({ ok: true })
+  expect(
+    await completeCleanupJob({
+      serverId: f.serverId,
+      token: f.token,
+      completion: { jobId, attempt: 2, status: 'succeeded' },
+    }),
+  ).toEqual({ ok: true, ignored: true })
+})
+
+test('cleanup completion cannot overwrite an attempt reclaimed after its snapshot', async () => {
+  const f = await createFixture()
+  const jobId = `cleanup-snapshot-${crypto.randomUUID()}`
+  touchedAgentJobIds.push(jobId)
+  await db.insert(agentJobs).values({
+    id: jobId,
+    type: 'deprovision',
+    status: 'running',
+    serverId: f.serverId,
+    projectId: f.projectId,
+    attempt: 1,
+    claimedAt: new Date(),
+    payload: {
+      schemaVersion: 1,
+      runtimeIds: ['dp_fixture'],
+      removeVolumes: false,
+      reason: 'Test cleanup',
+    },
+  })
+  const job = required(
+    (await db.select().from(agentJobs).where(eq(agentJobs.id, jobId)))[0],
+  )
+  await db
+    .update(agentJobs)
+    .set({ attempt: 2, claimedAt: new Date(Date.now() + 1000) })
+    .where(eq(agentJobs.id, jobId))
+  expect(
+    await finishContainerCleanup(db, {
+      job,
+      completion: { jobId, attempt: 1, status: 'succeeded' },
+      now: new Date(),
+    }),
+  ).toBe(false)
+  expect(
+    (await db.select().from(agentJobs).where(eq(agentJobs.id, jobId)))[0],
+  ).toMatchObject({ status: 'running', attempt: 2 })
 })
 
 async function createBackupFixture() {

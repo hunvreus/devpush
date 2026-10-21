@@ -57,6 +57,6 @@ export class WorkspaceUpdates extends DurableObject<Env> {
     socket.close(1008, 'Notifications only')
   }
   webSocketClose(socket: CloudflareSocket, code: number, reason: string) {
-    socket.close(code, reason)
+    socket.close([1005, 1006, 1015].includes(code) ? 1000 : code, reason)
   }
 }

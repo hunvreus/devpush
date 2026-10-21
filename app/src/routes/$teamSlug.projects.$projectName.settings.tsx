@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { createFileRoute, useParams } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
@@ -23,6 +24,8 @@ export const Route = createFileRoute(
   pendingMinMs: 200,
   pendingComponent: SettingsPending,
   component: SettingsRoute,
+  head: ({ params }) =>
+    pageHead('Project settings', params.projectName, params.teamSlug),
 })
 
 function SettingsPending() {
@@ -45,5 +48,5 @@ function SettingsRoute() {
     ),
   )
 
-  return <ProjectSettings context={context} />
+  return <ProjectSettings key={context.project.id} context={context} />
 }

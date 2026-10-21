@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   readFileSync,
@@ -17,7 +18,72 @@ import {
   readJsonConfig,
   upsertEnv,
   validateUrl,
+  validateMcpUrl,
 } from "./setup-config.mjs";
+
+test("configuration CLI rejects public HTTP origins despite an HTTPS MCP override", () => {
+  const fixture = join(
+    mkdtempSync(join(tmpdir(), "devpush-url-validation-")),
+    "config.env",
+  );
+  writeFileSync(fixture, "");
+  for (const key of ["DEVPUSH_BASE_URL", "BETTER_AUTH_URL"]) {
+    for (const value of [
+      "http://devpush.example",
+      "http://localhost:7429",
+      "http://host.lima.internal:7429",
+    ]) {
+      const env = Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([name]) =>
+            !name.startsWith("DEVPUSH_") && !name.startsWith("BETTER_AUTH_"),
+        ),
+      );
+      Object.assign(env, {
+        BETTER_AUTH_SECRET: "a".repeat(40),
+        DEVPUSH_BASE_URL: "http://localhost:7429",
+        DEVPUSH_MCP_URL: "https://devpush.example/mcp",
+        [key]: value,
+      });
+      const result = spawnSync(
+        process.execPath,
+        ["scripts/validate-config.mjs", "--env", fixture, "--smoke"],
+        { env, encoding: "utf8" },
+      );
+      assert.equal(
+        result.status,
+        value === "http://devpush.example" ? 1 : 0,
+        result.stderr,
+      );
+      if (result.status === 1)
+        assert.match(
+          result.stderr,
+          /must use HTTPS except for local development hosts/,
+        );
+    }
+  }
+});
+
+test("validates canonical MCP endpoints independently of the control-plane origin", () => {
+  for (const value of [
+    "http://localhost:7429/mcp",
+    "http://host.lima.internal:7429/mcp",
+    "http://[::1]:7429/mcp",
+    "https://mcp.example.com/mcp",
+  ])
+    assert.equal(validateMcpUrl(value), undefined);
+  for (const value of [
+    "https://user:secret@example.com/mcp",
+    "https://example.com/mcp?secret=yes",
+    "https://example.com/mcp?",
+    "https://example.com/mcp#",
+    "https://example.com/",
+    "https://example.com/mcp/",
+    "http://example.com/mcp",
+    "ftp://example.com/mcp",
+  ])
+    assert.equal(typeof validateMcpUrl(value), "string");
+});
 
 test("creates a deployment-specific Cloudflare config", () => {
   const config = JSON.parse(
@@ -188,8 +254,58 @@ test("upserts env values without discarding unrelated configuration", () => {
   assert.deepEqual(readdirSync(directory), [".env"]);
 });
 
+test("setup reads standard dotenv quoting and replaces whole multiline assignments", () => {
+  const directory = mkdtempSync(join(tmpdir(), "devpush-env-quotes-"));
+  const path = join(directory, ".env");
+  writeFileSync(path, "# Keep this comment\nexport KEY='line one\nFAKE=value\nline three'\nUNRELATED=`literal \\\\n`\n");
+  assert.equal(readEnv(path).KEY, "line one\nFAKE=value\nline three");
+  const unrelated = readEnv(path).UNRELATED;
+  upsertEnv(path, { KEY: 'new "quoted" value', NEXT: "ready" });
+  assert.deepEqual(readEnv(path), { KEY: 'new "quoted" value', UNRELATED: unrelated, NEXT: "ready" });
+  assert.ok(readFileSync(path, "utf8").startsWith("# Keep this comment\n"));
+  assert.ok(!readFileSync(path, "utf8").includes("FAKE=value"));
+});
+
+test("setup preserves quote and backslash values when saving existing settings", () => {
+  const directory = mkdtempSync(join(tmpdir(), "devpush-env-roundtrip-"));
+  const path = join(directory, ".env");
+  const values = {
+    PRIVATE_KEY: "-----BEGIN KEY-----\nline1\nline2\n-----END KEY-----",
+    QUOTES: "a 'single' and \"double\" quote # literal",
+    LITERAL: String.raw`literal\npath\value`,
+    EMPTY: "",
+  };
+  upsertEnv(path, values);
+  assert.deepEqual(readEnv(path), values);
+  upsertEnv(path, { EMPTY: "changed" });
+  assert.deepEqual(readEnv(path), { ...values, EMPTY: "changed" });
+});
+
+test("setup leaves malformed multiline files untouched", () => {
+  const directory = mkdtempSync(join(tmpdir(), "devpush-env-malformed-"));
+  const path = join(directory, ".env");
+  const source = "KEY='unterminated\nOTHER=value\n";
+  writeFileSync(path, source);
+  assert.throws(() => upsertEnv(path, { OTHER: "new" }), /unterminated/);
+  assert.equal(readFileSync(path, "utf8"), source);
+});
+
 test("validates control-plane URLs", () => {
   assert.equal(validateUrl("https://devpush.example.com"), undefined);
+  for (const value of [
+    "http://localhost:7429",
+    "http://host.lima.internal:7429",
+    "http://127.0.0.2:7429",
+    "http://[::1]:7429",
+  ])
+    assert.equal(validateUrl(value), undefined);
+  for (const value of [
+    "http://devpush.example",
+    "https://user:secret@devpush.example",
+    "https://devpush.example?",
+    "https://devpush.example#",
+  ])
+    assert.notEqual(validateUrl(value), undefined);
   assert.equal(
     validateUrl("ftp://example.com"),
     "Use an http:// or https:// URL.",

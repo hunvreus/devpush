@@ -7,8 +7,10 @@ import {
   statSync,
 } from "node:fs";
 import { createPrivateKey } from "node:crypto";
+import { parseEnv } from "node:util";
 import { isIP } from "node:net";
 import { resolve } from "node:path";
+import { validateMcpUrl } from "./setup-config.mjs";
 
 const args = process.argv.slice(2);
 const remote = args.includes("--remote");
@@ -48,7 +50,7 @@ if (smoke && remote) {
 }
 
 const fileEnv = existsSync(envPath)
-  ? parseEnvFile(readFileSync(envPath, "utf8"))
+  ? parseEnv(readFileSync(envPath, "utf8"))
   : {};
 const env = { ...fileEnv, ...process.env };
 const errors = [];
@@ -95,7 +97,10 @@ if (
 ) {
   errors.push("Main and log database paths must differ.");
 }
-if (!remoteDatabase && (env.DEVPUSH_DATABASE_AUTH_TOKEN || env.DEVPUSH_LOG_DATABASE_AUTH_TOKEN)) {
+if (
+  !remoteDatabase &&
+  (env.DEVPUSH_DATABASE_AUTH_TOKEN || env.DEVPUSH_LOG_DATABASE_AUTH_TOKEN)
+) {
   errors.push("Database authentication tokens require remote database URLs.");
 }
 checkRequired("BETTER_AUTH_SECRET");
@@ -108,6 +113,17 @@ const authUrl = env.BETTER_AUTH_URL?.trim()
 validateOrigin("DEVPUSH_BASE_URL", baseUrl);
 if (env.BETTER_AUTH_URL?.trim()) {
   validateOrigin("BETTER_AUTH_URL", authUrl);
+}
+const mcpUrl = env.DEVPUSH_MCP_URL?.trim()
+  ? readUrl("DEVPUSH_MCP_URL")
+  : baseUrl
+    ? new URL("/mcp", baseUrl)
+    : null;
+if (mcpUrl) {
+  const error = validateMcpUrl(mcpUrl.href);
+  if (error) errors.push(`DEVPUSH_MCP_URL: ${error}`);
+  if (remote && isPrivateOrLocalHost(mcpUrl.hostname))
+    errors.push("DEVPUSH_MCP_URL must be public for remote validation.");
 }
 
 const authSecret = env.BETTER_AUTH_SECRET?.trim();
@@ -282,10 +298,29 @@ function validateOrigin(name, url) {
   if (!url) {
     return;
   }
-  if (url.pathname !== "/" || url.search || url.hash) {
+  if (
+    url.pathname !== "/" ||
+    url.href.includes("?") ||
+    url.href.includes("#") ||
+    url.username ||
+    url.password ||
+    !["http:", "https:"].includes(url.protocol)
+  ) {
     errors.push(
-      `${name} must be an origin only, without path, query, or fragment.`,
+      `${name} must be an HTTP(S) origin without credentials, path, query, or fragment.`,
     );
+  }
+  const host = url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  const localDevelopment =
+    localHostnames.has(host) ||
+    host.endsWith(".localhost") ||
+    host === "host.lima.internal" ||
+    /^127(?:\.\d{1,3}){3}$/.test(host);
+  if (url.protocol === "http:" && !localDevelopment) {
+    errors.push(`${name} must use HTTPS except for local development hosts.`);
   }
   if (remote && url.protocol !== "https:") {
     errors.push(`${name} must use https:// for remote validation.`);
@@ -361,30 +396,4 @@ function finish() {
         : "Local config validation passed.",
   );
   process.exit(0);
-}
-
-function parseEnvFile(content) {
-  const values = {};
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match) {
-      continue;
-    }
-
-    let value = match[2].trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    values[match[1]] = value;
-  }
-
-  return values;
 }

@@ -1,4 +1,4 @@
-FROM golang:1.27-alpine AS agent-builder
+FROM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS agent-builder
 
 WORKDIR /repo
 
@@ -10,7 +10,7 @@ COPY app/package.json ./app/package.json
 RUN VERSION="$(sed -n 's/.*\"version\": \"\([^\"]*\)\".*/\1/p' app/package.json)" && test -n "$VERSION" && GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/devpush/devpush/agent/internal/agent.Version=${VERSION}" -o /out/devpush-agent-linux-amd64 ./agent/cmd/devpush-agent
 RUN VERSION="$(sed -n 's/.*\"version\": \"\([^\"]*\)\".*/\1/p' app/package.json)" && test -n "$VERSION" && GOOS=linux GOARCH=arm64 go build -ldflags "-X github.com/devpush/devpush/agent/internal/agent.Version=${VERSION}" -o /out/devpush-agent-linux-arm64 ./agent/cmd/devpush-agent
 
-FROM node:22-alpine AS app-builder
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS app-builder
 
 WORKDIR /repo
 
@@ -49,7 +49,7 @@ RUN cd app && pnpm exec esbuild scripts/sync-agent-binaries.ts \
     --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
     --outfile=.maintenance/sync-agent-binaries.mjs
 
-FROM node:22-alpine
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
 
 RUN apk add --no-cache curl
 

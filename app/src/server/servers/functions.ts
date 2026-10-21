@@ -1,17 +1,22 @@
-import { serverNameSchema } from '@/lib/server-name-schema'
-import { createServerFn } from '@tanstack/react-start'
-import { z } from 'zod'
-
-import { requireAuthSession } from '@/server/auth/session.server'
+import { getAuthSession, requireAuthSession  } from '@/server/auth/session.server'
+import { requireTeam } from '@/server/teams/service'
 import {
+  requireServerForTeam,
+  requireServerMetricHistoryForTeam,
   createPendingServer,
   createServerInstallCommand,
   deleteTeamServer,
   disableTeamServer,
   enableTeamServer,
   getServerDeleteDiagnostic,
-  updateTeamServer,
+  updateTeamServer
 } from '@/server/servers/service'
+import { settingsVersionSchema } from '@/lib/settings-version'
+import { publicErrorsMiddleware } from '@/server/http/public-errors'
+import { serverNameSchema } from '@/lib/server-name-schema'
+import { createServerFn } from '@tanstack/react-start'
+import { z } from 'zod'
+
 
 const createServerSchema = z.object({
   teamSlug: z.string().min(1),
@@ -24,6 +29,7 @@ const serverInstallCommandSchema = z.object({
 })
 
 const updateServerSchema = z.object({
+  settingsVersion: settingsVersionSchema,
   teamSlug: z.string().min(1),
   serverId: z.string().min(1),
   name: serverNameSchema,
@@ -53,6 +59,7 @@ const deleteServerSchema = z.object({
 })
 
 export const createServer = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: { name: string; teamSlug: string }) =>
     createServerSchema.parse(data),
   )
@@ -67,6 +74,7 @@ export const createServer = createServerFn({ method: 'POST' })
   })
 
 export const createInstallCommand = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: { serverId: string; teamSlug: string }) =>
     serverInstallCommandSchema.parse(data),
   )
@@ -83,23 +91,31 @@ export const createInstallCommand = createServerFn({ method: 'POST' })
   })
 
 export const updateServer = createServerFn({ method: 'POST' })
-  .validator((data: { name: string; serverId: string; teamSlug: string }) =>
-    updateServerSchema.parse(data),
+  .middleware([publicErrorsMiddleware])
+  .validator(
+    (data: {
+      settingsVersion: number
+      name: string
+      serverId: string
+      teamSlug: string
+    }) => updateServerSchema.parse(data),
   )
   .handler(async ({ data }) => {
     const session = await requireAuthSession(
       'Sign in before updating a server.',
     )
 
-    await updateTeamServer({
+    return updateTeamServer({
       userId: session.user.id,
       teamSlug: data.teamSlug,
       serverId: data.serverId,
+      settingsVersion: data.settingsVersion,
       name: data.name,
     })
   })
 
 export const disableServer = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: { confirmationName: string; serverId: string; teamSlug: string }) =>
       disableServerSchema.parse(data),
@@ -118,6 +134,7 @@ export const disableServer = createServerFn({ method: 'POST' })
   })
 
 export const enableServer = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: { serverId: string; teamSlug: string }) =>
     enableServerSchema.parse(data),
   )
@@ -134,6 +151,7 @@ export const enableServer = createServerFn({ method: 'POST' })
   })
 
 export const getDeleteServerDiagnostic = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: { serverId: string; teamSlug: string }) =>
     deleteServerDiagnosticSchema.parse(data),
   )
@@ -150,6 +168,7 @@ export const getDeleteServerDiagnostic = createServerFn({ method: 'POST' })
   })
 
 export const deleteServer = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
       cancelOngoingDeployments: boolean
@@ -169,5 +188,44 @@ export const deleteServer = createServerFn({ method: 'POST' })
       serverId: data.serverId,
       confirmationName: data.confirmationName,
       cancelOngoingDeployments: data.cancelOngoingDeployments,
+    })
+  })
+
+export const getTeamServerContext = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
+  .validator((data: z.input<typeof serverInstallCommandSchema>) =>
+    serverInstallCommandSchema.parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+
+    if (!session) {
+      return null
+    }
+
+    const team = await requireTeam(session.user.id, data.teamSlug)
+    const server = await requireServerForTeam({
+      teamId: team.id,
+      serverId: data.serverId,
+    })
+
+    return {
+      team,
+      server,
+    }
+  })
+
+export const getTeamServerMetricHistory = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
+  .validator((data: z.input<typeof serverInstallCommandSchema>) =>
+    serverInstallCommandSchema.parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+    if (!session) return null
+    const team = await requireTeam(session.user.id, data.teamSlug)
+    return requireServerMetricHistoryForTeam({
+      teamId: team.id,
+      serverId: data.serverId,
     })
   })

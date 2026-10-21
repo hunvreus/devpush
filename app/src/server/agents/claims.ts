@@ -61,6 +61,7 @@ export async function claimBackupCandidate(
   store: Store & Pick<AtomicStore, 'batch'>,
   input: {
     job: typeof schema.agentJobs.$inferSelect
+    payloadSnapshot: string
     backupRunId: string | null
     now: Date
   },
@@ -71,7 +72,9 @@ export async function claimBackupCandidate(
     eq(agentJobs.serverId, input.job.serverId),
     eq(agentJobs.status, 'queued'),
     eq(agentJobs.type, input.job.type),
-    eq(agentJobs.payload, input.job.payload),
+    sql`${agentJobs.payload} = ${input.payloadSnapshot}`,
+    eq(agentJobs.attempt, input.job.attempt),
+    eq(agentJobs.updatedAt, input.job.updatedAt),
     sql`${agentJobs.availableAt} <= ${input.now.getTime()}`,
   )
   const claim = store

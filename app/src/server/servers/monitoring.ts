@@ -68,18 +68,6 @@ export type ServerMonitoringSummary = {
   latestMetrics: ServerMetricsSample | null
 }
 
-export type ServerMetricsInput = {
-  cpuPercent?: number
-  memoryUsedBytes?: number
-  memoryTotalBytes?: number
-  diskUsedBytes?: number
-  diskTotalBytes?: number
-  networkReceiveBytesPerSecond?: number
-  networkTransmitBytesPerSecond?: number
-  diskReadBytesPerSecond?: number
-  diskWriteBytesPerSecond?: number
-}
-
 export type ServerMetricsSample = {
   observedAt: string
   cpuPercent: number | null
@@ -127,36 +115,6 @@ export async function recordServerHeartbeat({
     observedAt,
     agentVersion,
     publicAddress,
-  })
-}
-
-export async function recordServerMetrics({
-  serverId,
-  observedAt,
-  metrics,
-}: {
-  serverId: string
-  observedAt: Date
-  metrics: ServerMetricsInput
-}) {
-  if (!hasMetrics(metrics)) {
-    return
-  }
-
-  await db.insert(serverMetrics).values({
-    id: randomUUID(),
-    serverId,
-    observedAt,
-    cpuPercent: metrics.cpuPercent ?? null,
-    memoryUsedBytes: metrics.memoryUsedBytes ?? null,
-    memoryTotalBytes: metrics.memoryTotalBytes ?? null,
-    diskUsedBytes: metrics.diskUsedBytes ?? null,
-    diskTotalBytes: metrics.diskTotalBytes ?? null,
-    networkReceiveBytesPerSecond: metrics.networkReceiveBytesPerSecond ?? null,
-    networkTransmitBytesPerSecond:
-      metrics.networkTransmitBytesPerSecond ?? null,
-    diskReadBytesPerSecond: metrics.diskReadBytesPerSecond ?? null,
-    diskWriteBytesPerSecond: metrics.diskWriteBytesPerSecond ?? null,
   })
 }
 
@@ -553,10 +511,6 @@ function sumIntervals(intervals: Array<{ start: number; end: number }>) {
   )
 }
 
-function hasMetrics(metrics: ServerMetricsInput) {
-  return Object.keys(metrics).length > 0
-}
-
 function formatMetricSample(row: {
   observedAt: Date
   cpuPercent: number | null
@@ -583,4 +537,56 @@ function formatMetricSample(row: {
     diskReadBytesPerSecond: row.diskReadBytesPerSecond,
     diskWriteBytesPerSecond: row.diskWriteBytesPerSecond,
   }
+}
+
+// Keep extrema for every displayed series, plus bucket boundaries. Preserve
+// null transitions separately so downsampling never joins across an outage or
+// a period where an individual metric was unavailable. Raw rows remain stored.
+export function downsampleServerMetricSeries(
+  samples: Array<ServerMetricsSample>,
+  targetPoints = 600,
+) {
+  if (samples.length <= targetPoints) return samples
+  const ratio = (used: number | null, total: number | null) =>
+    used === null || total === null || total <= 0 ? null : used / total
+  const values = samples.map((sample) => [
+    sample.cpuPercent,
+    ratio(sample.memoryUsedBytes, sample.memoryTotalBytes),
+    ratio(sample.diskUsedBytes, sample.diskTotalBytes),
+    sample.networkReceiveBytesPerSecond,
+    sample.networkTransmitBytesPerSecond,
+  ])
+  const selected = new Set<number>()
+  const bucketSize = Math.ceil(
+    samples.length / Math.max(1, Math.floor(targetPoints / 12)),
+  )
+  for (let start = 0; start < samples.length; start += bucketSize) {
+    const end = Math.min(start + bucketSize, samples.length)
+    selected.add(start)
+    selected.add(end - 1)
+    for (let series = 0; series < 5; series++) {
+      let minimum = -1
+      let maximum = -1
+      for (let index = start; index < end; index++) {
+        const value = values[index]![series]
+        if (value === null || value === undefined) continue
+        if (minimum === -1 || value < values[minimum]![series]!) minimum = index
+        if (maximum === -1 || value > values[maximum]![series]!) maximum = index
+      }
+      if (minimum !== -1) selected.add(minimum)
+      if (maximum !== -1) selected.add(maximum)
+    }
+  }
+  for (let index = 1; index < values.length; index++) {
+    if (
+      values[index]!.some(
+        (value, series) =>
+          (value === null) !== (values[index - 1]![series] === null),
+      )
+    ) {
+      selected.add(index - 1)
+      selected.add(index)
+    }
+  }
+  return [...selected].sort((a, b) => a - b).map((index) => samples[index]!)
 }

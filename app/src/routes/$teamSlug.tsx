@@ -1,6 +1,9 @@
+import { getCurrentUserContext } from '@/server/auth/context'
+import { pageHead } from '@/lib/page-head'
 import { useWorkspaceUpdates } from '@/features/teams/use-workspace-updates'
 import {
   Outlet,
+  redirect,
   createFileRoute,
   useParams,
   useRouterState,
@@ -13,6 +16,11 @@ import { teamShellQueryOptions } from '@/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug')({
   ssr: false,
+  beforeLoad: async ({ location }) => {
+    const context = await getCurrentUserContext()
+    if (context?.user.profileConfirmedAt === null)
+      throw redirect({ to: '/onboarding', search: { redirect: location.href } })
+  },
   loader: ({ context, location, params }) => {
     if (isProjectRoute(location.pathname, params.teamSlug)) {
       return
@@ -26,6 +34,7 @@ export const Route = createFileRoute('/$teamSlug')({
   pendingMinMs: 200,
   pendingComponent: TeamLayoutPending,
   component: TeamLayoutRoute,
+  head: ({ params }) => pageHead('Overview', params.teamSlug),
 })
 
 function TeamLayoutRoute() {

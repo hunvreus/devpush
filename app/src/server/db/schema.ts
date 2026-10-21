@@ -10,6 +10,8 @@ import {
 } from 'drizzle-orm/sqlite-core'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 
+export * from './oauth-schema'
+
 function enumColumn<const T extends readonly [string, ...string[]]>(values: T) {
   return (name: string) => text(name, { enum: values })
 }
@@ -126,6 +128,7 @@ export const teams = sqliteTable(
   'teams',
   {
     id: text('id').primaryKey(),
+    settingsVersion: integer('settings_version').notNull().default(1),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     status: resourceStatus('status').notNull().default('active'),
@@ -147,6 +150,8 @@ export const user = sqliteTable(
   'user',
   {
     id: text('id').primaryKey(),
+    settingsVersion: integer('settings_version').notNull().default(1),
+    profileConfirmedAt: integer('profile_confirmed_at', { mode: 'timestamp_ms' }),
     name: text('name').notNull(),
     username: text('username').notNull(),
     email: text('email').notNull().unique(),
@@ -311,6 +316,126 @@ export const teamMembers = sqliteTable(
   ],
 )
 
+export const apiKeys = sqliteTable(
+  'api_keys',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    membershipId: text('membership_id')
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    prefix: text('prefix').notNull(),
+    keyHash: text('key_hash').notNull(),
+    roleCeiling: teamMemberRole('role_ceiling').notNull(),
+    preset: text('preset', { enum: ['read', 'deploy', 'manage'] }).notNull(),
+    projectIds: text('project_ids', {
+      mode: 'json',
+    }).$type<Array<string> | null>(),
+    scopes: text('scopes', { mode: 'json' }).notNull().$type<Array<string>>(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+    revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+  },
+  (table) => [
+    ...enumChecks(table),
+    uniqueIndex('api_keys_hash_idx').on(table.keyHash),
+    index('api_keys_user_idx').on(table.userId),
+    index('api_keys_membership_idx').on(table.membershipId),
+  ],
+)
+
+export const apiGrants = sqliteTable(
+  'api_grants',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    membershipId: text('membership_id')
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: 'cascade' }),
+    roleCeiling: teamMemberRole('role_ceiling').notNull(),
+    projectIds: text('project_ids', {
+      mode: 'json',
+    }).$type<Array<string> | null>(),
+    scopes: text('scopes', { mode: 'json' }).notNull().$type<Array<string>>(),
+    providerGrantId: text('provider_grant_id'),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+  },
+  (table) => [
+    ...enumChecks(table),
+    index('api_grants_user_idx').on(table.userId),
+    index('api_grants_membership_idx').on(table.membershipId),
+  ],
+)
+
+export const apiAudit = sqliteTable(
+  'api_audit',
+  {
+    id: text('id').primaryKey(),
+    teamId: text('team_id').notNull(),
+    userId: text('user_id').notNull(),
+    credentialId: text('credential_id').notNull(),
+    requestId: text('request_id').notNull(),
+    operation: text('operation').notNull(),
+    resourceId: text('resource_id').notNull(),
+    outcome: text('outcome').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+  },
+  (table) => [
+    index('api_audit_team_created_idx').on(table.teamId, table.createdAt),
+    index('api_audit_created_idx').on(table.createdAt),
+  ],
+)
+
+export const apiIdempotency = sqliteTable(
+  'api_idempotency',
+  {
+    id: text('id').primaryKey(),
+    membershipId: text('membership_id')
+      .notNull()
+      .references(() => teamMembers.id, { onDelete: 'cascade' }),
+    credentialId: text('credential_id').notNull(),
+    operation: text('operation').notNull(),
+    resourceId: text('resource_id').notNull(),
+    keyHash: text('key_hash').notNull(),
+    requestHash: text('request_hash').notNull(),
+    response: text('response', { mode: 'json' }).notNull().$type<unknown>(),
+    statusCode: integer('status_code').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(cast(unixepoch('subsec') * 1000 as integer))`),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('api_idempotency_actor_operation_key_idx').on(
+      table.membershipId,
+      table.operation,
+      table.resourceId,
+      table.keyHash,
+    ),
+    index('api_idempotency_expiry_idx').on(table.expiresAt),
+  ],
+)
+
 export const teamInvites = sqliteTable(
   'team_invites',
   {
@@ -372,6 +497,7 @@ export const servers = sqliteTable(
   'servers',
   {
     id: text('id').primaryKey(),
+    settingsVersion: integer('settings_version').notNull().default(1),
     teamId: text('team_id')
       .notNull()
       .references(() => teams.id, { onDelete: 'cascade' }),
@@ -384,6 +510,8 @@ export const servers = sqliteTable(
       Array<string>
     >(),
     publicAddress: text('public_address'),
+    publicIpv4: text('public_ipv4'),
+    publicIpv6: text('public_ipv6'),
     hostname: text('hostname'),
     operatingSystem: text('operating_system'),
     kernelVersion: text('kernel_version'),
@@ -501,6 +629,7 @@ export const projects = sqliteTable(
   'projects',
   {
     id: text('id').primaryKey(),
+    settingsVersion: integer('settings_version').notNull().default(1),
     teamId: text('team_id')
       .notNull()
       .references(() => teams.id, { onDelete: 'cascade' }),
@@ -691,6 +820,7 @@ export const backupStorage = sqliteTable(
   'backup_storage',
   {
     id: text('id').primaryKey(),
+    settingsVersion: integer('settings_version').notNull().default(1),
     teamId: text('team_id')
       .notNull()
       .references(() => teams.id, { onDelete: 'cascade' }),
@@ -714,6 +844,7 @@ export const backupConfigs = sqliteTable(
   'backup_configs',
   {
     id: text('id').primaryKey(),
+    settingsVersion: integer('settings_version').notNull().default(1),
     name: text('name').notNull(),
     projectId: text('project_id')
       .notNull()

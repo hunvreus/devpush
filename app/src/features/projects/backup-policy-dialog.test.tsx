@@ -6,12 +6,14 @@ import { BackupPolicyDialog } from './project-backup-policy'
 import { projectContext } from '@/test/project-context'
 
 const mocks = vi.hoisted(() => ({
+  error: vi.fn(),
   save: vi.fn(),
   navigate: vi.fn(),
   saved: vi.fn(),
 }))
 vi.mock('@/server/projects/functions', () => ({
-  saveProjectBackupConfigs: mocks.save,
+  saveProjectBackupPolicyAction: mocks.save,
+  deleteProjectBackupPolicyAction: mocks.save,
 }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
 vi.mock('@tanstack/react-router', () => ({
@@ -20,7 +22,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@/lib/project-context-query', () => ({
   setProjectContextQueryData: vi.fn(),
 }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { error: mocks.error, success: vi.fn(), warning: vi.fn() } }))
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close()
@@ -43,13 +45,14 @@ async function mount() {
     await act(async () => root.unmount())
     node.remove()
   })
-  const render = async () =>
+  const render = async (_revision = projectContext.project.settingsVersion) =>
     act(async () =>
       root.render(
         <BackupPolicyDialog
           backupConfigs={[]}
           context={{
             ...projectContext,
+
             environments: [...projectContext.environments],
           }}
           onSaved={mocks.saved}
@@ -85,6 +88,19 @@ test('context refresh does not erase an in-progress policy name', async () => {
       .value,
   ).toBe('My nightly backup')
 })
+
+test('creation retains the revision captured when its dialog opened', async () => {
+  const view = await mount()
+  await name('My new policy')
+  await view.render(2)
+  mocks.save.mockRejectedValueOnce(new Error('Conflict'))
+  await click('Create policy')
+  expect(mocks.save.mock.calls[0]?.[0].data.settingsVersion).toBe(null)
+  expect(
+    document.querySelector<HTMLInputElement>('input[id^="backup-name-"]')!
+      .value,
+  ).toBe('My new policy')
+})
 test('policy name length is validated before a request', async () => {
   await mount()
   await name('x'.repeat(101))
@@ -110,9 +126,7 @@ test('pending creation locks edits and dismissal and preserves failed values for
   )
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   await act(async () => reject(new Error('HTTPError')))
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    'Unable to save backup policy.',
-  )
+  expect(mocks.error).toHaveBeenLastCalledWith(expect.stringContaining('Unable to save backup policy.'))
   mocks.save.mockResolvedValueOnce(projectContext)
   await click('Create policy')
   expect(mocks.save).toHaveBeenCalledTimes(2)

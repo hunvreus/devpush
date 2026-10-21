@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { getObjectStore } from '@/server/storage/object-store'
 
 const avatarNamePattern =
-  /^(?:user|team|project)_[A-Za-z0-9-]+\.(?:png|jpe?g|webp)$/
+  /^(?:user|team|project)_[A-Za-z0-9_-]+(?:~[a-f0-9]{32})?\.(?:png|jpe?g|webp)$/
 
 export const Route = createFileRoute('/uploads/avatars/$fileName')({
   server: {

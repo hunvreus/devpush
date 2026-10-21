@@ -1,3 +1,4 @@
+import { PublicError } from '@/lib/public-error'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import type { ProjectContext } from '@/server/projects/types'
 // @vitest-environment jsdom
@@ -8,7 +9,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import type * as EnvironmentSettings from './project-environment-settings'
 import { ProjectSettings } from './project-settings'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { createComposeRuntimeConfig } from '@/server/projects/runtime-config'
+import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
 import { projectContext as context } from '@/test/project-context'
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   warning: vi.fn(),
   routes: vi.fn(),
   domains: vi.fn(),
+  verify: vi.fn(),
   envVars: vi.fn(),
   environments: vi.fn(),
   navigate: vi.fn(),
@@ -31,7 +33,7 @@ vi.mock('@/server/projects/functions', () => ({
   deleteProjectAction: mocks.deleteProject,
   saveProjectDomains: mocks.domains,
   saveProjectRoutes: mocks.routes,
-  verifyProjectDomainAction: vi.fn(),
+  verifyProjectDomainAction: mocks.verify,
 }))
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ teamSlug: 'team' }),
@@ -78,13 +80,17 @@ vi.mock('@/components/settings-layout', () => ({
     </section>
   ),
 }))
+const rerenders = new WeakMap<
+  HTMLElement,
+  (context: ProjectContext) => Promise<void>
+>()
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
 })
-async function mount() {
+async function mount(projectContext: ProjectContext = context) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.stubGlobal(
     'ResizeObserver',
@@ -100,10 +106,19 @@ async function mount() {
   await act(async () =>
     root.render(
       <TooltipProvider>
-        <ProjectSettings context={context} />
+        <ProjectSettings context={projectContext} />
       </TooltipProvider>,
     ),
   )
+  rerenders.set(node, async (nextContext) => {
+    await act(async () =>
+      root.render(
+        <TooltipProvider>
+          <ProjectSettings context={nextContext} />
+        </TooltipProvider>,
+      ),
+    )
+  })
   cleanup.push(async () => {
     await act(async () => root.unmount())
     node.remove()
@@ -202,13 +217,13 @@ test('pending submission locks edits and repeat submits until the saved view is 
   expect(node.querySelector('#project-name')?.matches(':disabled')).toBe(false)
 })
 
-test('network failure stays at the form, preserves input, and permits retry', async () => {
+test('network failure uses Sonner, preserves input, and permits retry', async () => {
   const node = await mount()
   await fill(node, 'project-name', 'renamed')
   mocks.save.mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await save(node)
-  expect(node.querySelector('#general [role="alert"]')?.textContent).toContain(
-    'Unable to connect',
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
   )
   expect(node.querySelector<HTMLInputElement>('#project-name')?.value).toBe(
     'renamed',
@@ -308,10 +323,10 @@ test('route failure preserves values, pending locks controls, and retry preserve
   )
   expect(mocks.routes).toHaveBeenCalledTimes(1)
   await act(async () => reject(new Error('HTTPError')))
-  expect(node.querySelector('#routes')?.textContent).toContain(
-    'Unable to save routes.',
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to save routes.'),
   )
-  expect(mocks.error).not.toHaveBeenCalled()
+  expect(mocks.error).toHaveBeenCalledOnce()
   mocks.routes.mockResolvedValueOnce({
     ...context,
     routes: [{ path: '/', service: 'web', port: 80, stripPrefix: false }],
@@ -346,14 +361,16 @@ test('domain save preserves failures, locks pending controls, and retries normal
   )
   expect(mocks.domains).toHaveBeenCalledTimes(1)
   await act(async () => reject(new Error('HTTPError')))
-  expect(node.querySelector('#domains')?.textContent).toContain(
-    'Unable to save domains.',
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to save domains.'),
   )
-  expect(mocks.error).not.toHaveBeenCalled()
+  expect(mocks.error).toHaveBeenCalledOnce()
   mocks.domains.mockResolvedValueOnce({ ...context, domains: [] })
   await save(node, 'domains')
   expect(mocks.domains).toHaveBeenLastCalledWith({
     data: {
+      settingsVersion: 1,
+      projectId: 'p',
       teamSlug: 'team',
       projectName: 'project',
       domains: [
@@ -395,10 +412,10 @@ test('variable failure preserves values and retry locks all pending inputs', asy
   )
   expect(mocks.envVars).toHaveBeenCalledTimes(1)
   await act(async () => reject(new Error('HTTPError')))
-  expect(node.querySelector('#environment-variables')?.textContent).toContain(
-    'Unable to save environment variables.',
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to save environment variables.'),
   )
-  expect(mocks.error).not.toHaveBeenCalled()
+  expect(mocks.error).toHaveBeenCalledOnce()
   mocks.envVars.mockResolvedValueOnce({
     ...context,
     envVars: [{ key: 'API_KEY', value: '', environment: '' }],
@@ -406,6 +423,8 @@ test('variable failure preserves values and retry locks all pending inputs', asy
   await save(node, 'environment-variables')
   expect(mocks.envVars).toHaveBeenLastCalledWith({
     data: {
+      settingsVersion: 1,
+      projectId: 'p',
       teamSlug: 'team',
       projectName: 'project',
       envVars: [{ key: 'API_KEY', value: '', environment: '' }],
@@ -517,14 +536,14 @@ test('environment saves lock controls, retain failed edits, and allow retry', as
   )
   expect(mocks.environments).toHaveBeenCalledTimes(1)
   await act(async () => reject(new Error('HTTPError')))
-  expect(node.querySelector('#environments')?.textContent).toContain(
-    'Unable to save environments.',
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to save environments.'),
   )
   expect(
     (document.getElementById('environments.0.branch') as HTMLInputElement)
       .value,
   ).toBe('release/*')
-  expect(mocks.error).not.toHaveBeenCalled()
+  expect(mocks.error).toHaveBeenCalledOnce()
   mocks.environments.mockResolvedValueOnce({
     ...context,
     environments: context.environments.map((row) => ({
@@ -571,8 +590,8 @@ test('project deletion requires exact confirmation, locks pending edits and clos
   )
   expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
   await act(async () => reject(new Error('HTTPError')))
-  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
-    'Unable to delete project.',
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to delete project.'),
   )
   mocks.deleteProject.mockResolvedValueOnce(undefined)
   mocks.navigate.mockRejectedValueOnce(new Error('offline'))
@@ -593,3 +612,165 @@ test('project deletion requires exact confirmation, locks pending edits and clos
 vi.mock('@/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
+
+test('DNS verification failure appears in its domain row alert rather than invalidating the hostname', async () => {
+  const domain = {
+    id: 'domain',
+    host: 'example.com',
+    environmentId: 'e',
+    basePath: null,
+    https: true,
+    status: 'pending' as const,
+    message: null,
+    verifiedAt: null,
+  }
+  const project = { ...context, domains: [domain] }
+  const node = await mount(project)
+  mocks.verify.mockResolvedValue({
+    verified: false,
+    message: 'DNS record does not point to the server.',
+    context: {
+      ...project,
+      domains: [
+        {
+          ...domain,
+          status: 'failed',
+          message: 'DNS record does not point to the server.',
+        },
+      ],
+    },
+  })
+  const verify = node.querySelector<HTMLButtonElement>(
+    '[aria-label="Verify example.com"]',
+  )!
+  await act(async () => verify.click())
+  const error = node.querySelector('#domains [data-slot="alert"]')!
+  expect(error.textContent).toContain(
+    'Error details: DNS record does not point',
+  )
+  expect(error.textContent).toContain('example.com is not configured correctly')
+  expect(
+    node
+      .querySelector('[aria-label="Domain host"]')
+      ?.getAttribute('aria-invalid'),
+  ).toBe('false')
+})
+
+test('stale saves retain the draft and show the persistent Sonner Reload action', async () => {
+  mocks.save.mockRejectedValueOnce(
+    new PublicError('SETTINGS_CONFLICT', '/team/projects/renamed/settings'),
+  )
+  const node = await mount()
+  await fill(node, 'project-name', 'my-draft')
+  await save(node)
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.any(String),
+    expect.objectContaining({
+      id: 'settings-conflict',
+      duration: Infinity,
+      action: expect.objectContaining({ label: 'Reload' }),
+    }),
+  )
+  expect(
+    (document.getElementById('project-name') as HTMLInputElement).value,
+  ).toBe('my-draft')
+  expect(node.textContent).not.toContain('Unable to save settings.')
+  expect(mocks.cache).not.toHaveBeenCalled()
+  expect(mocks.navigate).not.toHaveBeenCalled()
+})
+
+test('concurrent Compose saves show Reload even for a plain default-transport error', async () => {
+  mocks.save.mockRejectedValueOnce({
+    name: 'PublicError',
+    code: 'SETTINGS_CONFLICT',
+    message:
+      'Settings changed since you started editing. Reload to load the latest settings.',
+    reloadUrl: '/team/projects/project/settings',
+  })
+  const node = await mount()
+  await fill(node, 'compose-path', 'second-compose.yml')
+  await save(node, 'build-and-deploy')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    'Your changes weren’t saved.',
+    expect.objectContaining({
+      duration: Infinity,
+      action: expect.objectContaining({ label: 'Reload' }),
+    }),
+  )
+  expect(
+    (document.getElementById('compose-path') as HTMLInputElement).value,
+  ).toBe('second-compose.yml')
+  expect(node.textContent).not.toContain('Unable to save settings.')
+})
+
+test('clean build fields adopt a newer snapshot and save against its version', async () => {
+  const node = await mount()
+  const next = {
+    ...context,
+    project: {
+      ...context.project,
+      settingsVersion: context.project.settingsVersion + 1,
+      runtimeConfig: {
+        ...context.project.runtimeConfig,
+        path: 'new-compose.yml',
+      },
+    },
+  }
+  await rerenders.get(node)!(next)
+  expect(node.querySelector<HTMLInputElement>('#compose-path')!.value).toBe(
+    'new-compose.yml',
+  )
+  await fill(node, 'compose-path', 'edited-compose.yml')
+  mocks.save.mockResolvedValueOnce({
+    context: {
+      ...next,
+      project: {
+        ...next.project,
+        settingsVersion: next.project.settingsVersion + 1,
+        runtimeConfig: {
+          ...next.project.runtimeConfig,
+          path: 'edited-compose.yml',
+        },
+      },
+    },
+  })
+  await save(node, 'build-and-deploy')
+  expect(mocks.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      data: expect.objectContaining({
+        settingsVersion: next.project.settingsVersion,
+      }),
+    }),
+  )
+})
+
+test('dirty build fields retain their draft and original version after a refresh', async () => {
+  const node = await mount()
+  await fill(node, 'compose-path', 'draft-compose.yml')
+  await rerenders.get(node)!({
+    ...context,
+    project: {
+      ...context.project,
+      settingsVersion: context.project.settingsVersion + 1,
+      runtimeConfig: {
+        ...context.project.runtimeConfig,
+        path: 'remote-compose.yml',
+      },
+    },
+  })
+  expect(node.querySelector<HTMLInputElement>('#compose-path')!.value).toBe(
+    'draft-compose.yml',
+  )
+  mocks.save.mockRejectedValueOnce(new PublicError('SETTINGS_CONFLICT'))
+  await save(node, 'build-and-deploy')
+  expect(mocks.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      data: expect.objectContaining({
+        settingsVersion: context.project.settingsVersion,
+      }),
+    }),
+  )
+  expect(node.querySelector<HTMLInputElement>('#compose-path')!.value).toBe(
+    'draft-compose.yml',
+  )
+})

@@ -48,6 +48,17 @@ describe('buildDefaultHostForProject', () => {
 })
 
 describe('verifyDomainAddress', () => {
+  test('accepts the assigned IPv6 when both families are known and DNS publishes only AAAA', async () => {
+    await expect(
+      verifyDomainAddress({
+        hostname: 'app.example.com',
+        expectedAddress: '203.0.113.10',
+        additionalAddresses: ['2001:db8::10'],
+        resolveAddresses: async () => ['2001:db8::10'],
+      }),
+    ).resolves.toEqual({ verified: true, message: null })
+  })
+
   test('accepts equivalent IPv6 AAAA addresses', async () => {
     await expect(
       verifyDomainAddress({

@@ -81,18 +81,6 @@ export function projectShellQueryOptions(params: ProjectContextKeyParams) {
   })
 }
 
-export function getCachedProjectShellContext(
-  queryClient: QueryClient,
-  params: ProjectContextKeyParams,
-) {
-  return queryClient.getQueryData<ProjectContext>([
-    'project-context',
-    params.teamSlug,
-    params.projectName,
-    'shell',
-  ])
-}
-
 export function deploymentContextQueryOptions(
   params: ProjectContextKeyParams & { deploymentId: string },
   queryClient: QueryClient,
@@ -130,20 +118,6 @@ export function deploymentContextQueryOptions(
         logs: [],
       }
     },
-  })
-}
-
-export function invalidateDeploymentContext(
-  queryClient: QueryClient,
-  params: ProjectContextKeyParams & { deploymentId: string },
-) {
-  return queryClient.invalidateQueries({
-    queryKey: [
-      'deployment-context',
-      params.teamSlug,
-      params.projectName,
-      params.deploymentId,
-    ],
   })
 }
 
@@ -269,18 +243,7 @@ function mergeProjectSection(
     return { ...shell, deployments: section.deployments }
   }
 
-  if (section.scope === 'settings') {
-    return {
-      ...shell,
-      composeMetadata: section.composeMetadata,
-      domains: section.domains,
-      envVars: section.envVars,
-      environment: {
-        ...shell.environment,
-        envVars: getEnvironmentVariables(section.envVars, shell.environment.id),
-      },
-    }
-  }
+  if (section.scope === 'settings') return section.context
 
   return {
     ...shell,
@@ -290,21 +253,4 @@ function mergeProjectSection(
     backupRestores: section.backupRestores,
     composeMetadata: section.composeMetadata,
   }
-}
-
-function getEnvironmentVariables(
-  envVars: ProjectContext['envVars'],
-  environmentId: string,
-) {
-  const values = new Map<string, ProjectContext['envVars'][number]>()
-
-  for (const envVar of envVars) {
-    if (!envVar.environment) values.set(envVar.key, envVar)
-  }
-
-  for (const envVar of envVars) {
-    if (envVar.environment === environmentId) values.set(envVar.key, envVar)
-  }
-
-  return Array.from(values.values())
 }

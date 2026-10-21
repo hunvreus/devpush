@@ -1,11 +1,18 @@
+import { isValidCron } from '@/lib/backup-cron'
 import { describe, expect, test } from 'vitest'
+import type {
+  ProjectBackupRun,
+  ProjectBackupRestore,
+} from '@/server/projects/types'
 
 import {
   formatBytes,
-  formatBackupArtifacts,
+  getBackupActivity,
+  getLatestBackupRuns,
+  formatBackupAge,
+  formatBackupUtc,
   getComposeArtifactName,
   getSinceDate,
-  isCronSchedule,
 } from './project-backup-utils'
 
 describe('project backup helpers', () => {
@@ -23,8 +30,8 @@ describe('project backup helpers', () => {
   })
 
   test('validates cron and URL input', () => {
-    expect(isCronSchedule('0 2 * * *')).toBe(true)
-    expect(isCronSchedule('daily')).toBe(false)
+    expect(isValidCron('0 2 * * *')).toBe(true)
+    expect(isValidCron('daily')).toBe(false)
   })
 })
 
@@ -54,39 +61,77 @@ test('Compose names strip only the current runtime prefix from volume archives',
   ).toBe('dp_90f30fdf6c_b870adad5e_test_data')
 })
 
-test('backup summaries count targets once and exclude manifests', () => {
-  const base = {
-    id: 'a',
-    checksumSha256: 'hash',
-    sizeBytes: 10,
-    createdAt: '2026-10-09',
+test('history filters restores by their own status, start time and server, keeps repeated restores', () => {
+  const source: ProjectBackupRun = {
+    configId: null,
+    localRecoveryAvailable: false,
+    environmentName: 'Production',
+    environmentColor: 'lime',
+    serverName: 'Old server',
+    errorMessage: null,
+    finishedAt: null,
+    id: 'b',
+    status: 'succeeded',
+    environmentId: 'e',
+    serverId: 'old',
+    createdAt: '2026-01-01',
+    startedAt: null,
+    artifacts: [],
   }
+  const restores: ProjectBackupRestore[] = ['r1', 'r2'].map((id) => ({
+    id,
+    backupRunId: 'b',
+    environmentId: 'e',
+    serverId: 'new',
+    status: 'running',
+    createdAt: '2026-10-11T00:00:00Z',
+    startedAt: null,
+    finishedAt: null,
+    errorMessage: null,
+  }))
+  const records = getBackupActivity(
+    [source],
+    restores,
+    { type: 'restore', status: 'running', server: 'new', time: '24h' },
+    new Date('2026-10-11T12:00:00Z'),
+  )
+  expect(records.map((row) => row.record.id)).toEqual(['r1', 'r2'])
   expect(
-    formatBackupArtifacts([
-      {
-        ...base,
-        type: 'volume',
-        storage: 'local',
-        objectKey: 'volumes/data.tar.gz',
-      },
-      {
-        ...base,
-        type: 'volume',
-        storage: 'remote',
-        objectKey: 'prefix/volumes/data.tar.gz',
-      },
-      {
-        ...base,
-        type: 'manifest',
-        storage: 'local',
-        objectKey: 'manifest.json',
-      },
-      {
-        ...base,
-        type: 'manifest',
-        storage: 'remote',
-        objectKey: 'prefix/manifest.json',
-      },
-    ]),
-  ).toBe('1 volume · Server + Remote')
+    getBackupActivity([{ ...source, configId: 'policy-a' }], restores, {
+      policy: 'policy-a',
+    }),
+  ).toHaveLength(3)
+  expect(
+    getBackupActivity([{ ...source, configId: 'policy-a' }], restores, {
+      policy: 'policy-b',
+    }),
+  ).toHaveLength(0)
+  expect(
+    getBackupActivity([source], restores, { type: 'backup' }),
+  ).toHaveLength(1)
+})
+
+test('history timestamps use relative labels and explicit UTC full timestamps', () => {
+  expect(
+    formatBackupAge('2026-10-11T00:00:00Z', Date.parse('2026-10-11T01:00:00Z')),
+  ).toBe('1h ago')
+  expect(formatBackupUtc('2026-10-11T00:00:00Z')).toContain('UTC')
+})
+
+test('latest backup is chosen per policy before filtering, including failed attempts', () => {
+  const run = {
+    id: 'old',
+    configId: 'a',
+    createdAt: '2026-10-01T00:00:00Z',
+  } as ProjectBackupRun
+  const newer = {
+    ...run,
+    id: 'new',
+    status: 'failed' as const,
+    createdAt: '2026-10-02T00:00:00Z',
+  }
+  const other = { ...run, id: 'other', configId: 'b' }
+  const deleted = { ...run, id: 'deleted', configId: null }
+  const latest = getLatestBackupRuns([newer, run, deleted, other])
+  expect([...latest.values()].map((item) => item.id)).toEqual(['new', 'other'])
 })

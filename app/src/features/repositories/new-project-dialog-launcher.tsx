@@ -1,11 +1,12 @@
 import { lazy, Suspense, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { NewProjectPending } from './new-project-pending'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { NewProjectPendingContent } from './new-project-pending'
 
-const NewProjectDialogOverlay = lazy(() =>
+const NewProjectDialogOverlayContent = lazy(() =>
   import('./new-project-dialog').then((module) => ({
-    default: module.NewProjectDialogOverlay,
+    default: module.NewProjectDialogOverlayContent,
   })),
 )
 
@@ -17,19 +18,26 @@ export function NewProjectDialogLauncher({
   teamSlug: string
 }) {
   const [open, setOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   return (
     <>
       {children(() => setOpen(true))}
       {open ? (
-        <Suspense
-          fallback={<NewProjectPending onClose={() => setOpen(false)} />}
+        <Dialog
+          open
+          onOpenChange={(nextOpen) => !nextOpen && !creating && setOpen(false)}
         >
-          <NewProjectDialogOverlay
-            teamSlug={teamSlug}
-            onClose={() => setOpen(false)}
-          />
-        </Suspense>
+          <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
+            <Suspense fallback={<NewProjectPendingContent />}>
+              <NewProjectDialogOverlayContent
+                teamSlug={teamSlug}
+                onPendingChange={setCreating}
+                onCreated={() => setOpen(false)}
+              />
+            </Suspense>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </>
   )

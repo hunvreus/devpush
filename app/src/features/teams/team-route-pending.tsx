@@ -1,20 +1,21 @@
 import {
+  WorkspaceSettingsPending,
+  workspaceSettingsNavigation,
+} from '#devpush/deployment/ui'
+import { backupsEnabled } from '@/lib/backup-feature'
+import { CopyButton } from '@/components/copy-button'
+import {
   InfoIcon,
-  ChevronDownIcon,
-  CopyIcon,
   PlusIcon,
   SearchIcon,
   Trash2Icon,
   UploadIcon,
 } from 'lucide-react'
-import { copyText } from '@/lib/action-feedback'
 import { Field, FieldLabel, FieldDescription } from '@/components/ui/field'
-import { ButtonGroup } from '@/components/ui/button-group'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-  InputGroupButton,
 } from '@/components/ui/input-group'
 import { Alert, AlertTitle } from '@/components/ui/alert'
 import { ResourceAvatar } from '@/components/resource-avatar'
@@ -33,7 +34,6 @@ import { TeamServers } from '@/features/servers/team-servers'
 import { ProjectRoutePending } from '@/features/projects/project-route-pending'
 import { getProjectPendingSection } from '@/features/projects/pending-section'
 import { ServerDetailPending } from '@/features/servers/server-detail-pending'
-import { NewProjectPending } from '@/features/repositories/new-project-pending'
 import { Button } from '@/components/ui/button'
 import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -72,7 +72,7 @@ export function TeamLayoutPending() {
 
   let content
   if (section === 'new-project') {
-    content = <NewProjectPending />
+    content = <TeamOverviewPending />
   } else if (section === 'settings') {
     content = <TeamSettingsPending />
   } else if (section === 'server') {
@@ -219,10 +219,17 @@ export function TeamSettingsPending() {
   return (
     <div className="space-y-8" aria-label="Loading team settings">
       <TeamRouteHeading crumb="Team settings" />
-      <SettingsLayout navigation={teamSettingsNavigationItems}>
+      <SettingsLayout
+        navigation={[
+          ...teamSettingsNavigationItems.slice(0, 2),
+          ...workspaceSettingsNavigation,
+          ...teamSettingsNavigationItems.slice(2),
+        ]}
+      >
         <TeamGeneralPending />
         <TeamMembersPending />
-        {import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED === 'true' ? (
+        <WorkspaceSettingsPending />
+        {backupsEnabled ? (
           <SettingsSection
             id="backup-storage"
             title="Backup storage"
@@ -380,13 +387,11 @@ function TeamGeneralPending() {
                 readOnly
               />
               <InputGroupAddon align="inline-end">
-                <InputGroupButton
-                  size="icon-sm"
-                  aria-label="Copy team ID"
-                  onClick={() => void copyText(context.team.id, 'Team ID')}
-                >
-                  <CopyIcon />
-                </InputGroupButton>
+                <CopyButton
+                  value={context.team.id}
+                  label="Copy team ID"
+                  inputGroup
+                />
               </InputGroupAddon>
             </InputGroup>
           ) : (
@@ -418,20 +423,10 @@ function TeamMembersPending() {
             <InputGroupInput placeholder="Search..." disabled />
           </InputGroup>
           {!context || canManageTeamMembers(context.team.role) ? (
-            <ButtonGroup>
-              <Button variant="outline" disabled>
-                <PlusIcon data-icon="inline-start" />
-                Add member
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                disabled
-                aria-label="More member actions"
-              >
-                <ChevronDownIcon />
-              </Button>
-            </ButtonGroup>
+            <Button variant="outline" disabled>
+              <PlusIcon data-icon="inline-start" />
+              Add members
+            </Button>
           ) : null}
         </div>
         <PendingTable

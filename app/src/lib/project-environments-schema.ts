@@ -1,3 +1,4 @@
+import { settingsVersionSchema } from '@/lib/settings-version'
 import { z } from 'zod'
 
 const projectEnvironmentSchema = z.object({
@@ -27,6 +28,8 @@ const projectEnvironmentSchema = z.object({
 })
 
 export const projectEnvironmentsSchema = z.object({
+  settingsVersion: settingsVersionSchema,
+  projectId: z.string().min(1),
   teamSlug: z.string().min(1),
   projectName: z.string().min(1),
   environments: z

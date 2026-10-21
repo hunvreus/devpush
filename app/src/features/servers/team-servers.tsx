@@ -1,32 +1,18 @@
+import {
+  requestWorkspaceUpgrade,
+  WorkspaceServerSetupNotice,
+} from '#devpush/deployment/ui'
+import { CopyButton } from '@/components/copy-button'
 import { serverNameSchema } from '@/lib/server-name-schema'
-import { afterMutation, copyText } from '@/lib/action-feedback'
+import { afterMutation } from '@/lib/action-feedback'
 import { Link, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  BanIcon,
-  CopyIcon,
-  EllipsisIcon,
-  LoaderIcon,
-  PlusIcon,
-  Trash2Icon,
-} from 'lucide-react'
+import { SettingsIcon, LoaderIcon, PlusIcon } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -34,13 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Empty,
   EmptyContent,
@@ -53,7 +32,6 @@ import { Input } from '@/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
-  InputGroupButton,
   InputGroupInput,
 } from '@/components/ui/input-group'
 import {
@@ -63,23 +41,12 @@ import {
 } from '@/components/ui/tooltip'
 import { TeamHeading } from '@/features/teams/team-heading'
 import { ServerAvatar } from '@/features/servers/server-avatar'
-import { getErrorMessage, getFieldErrorMessage } from '@/lib/error-message'
+import { getFieldErrorMessage } from '@/lib/error-message'
 import { invalidateResourceQueries } from '@/lib/resource-cache'
 import { cn } from '@/lib/utils'
 import { canManageTeamSettings } from '@/lib/team-role'
-import {
-  createInstallCommand,
-  createServer,
-  deleteServer,
-  disableServer,
-  enableServer,
-  getDeleteServerDiagnostic,
-} from '@/server/servers/functions'
-import type {
-  CreatedServer,
-  ServerDeleteDiagnostic,
-  ServerInstallCommand,
-} from '@/server/servers/service'
+import { createServer } from '@/server/servers/functions'
+import type { CreatedServer } from '@/server/servers/service'
 import type { ServerSummary, TeamSummary } from '@/server/teams/types'
 
 type ServerItem = ServerSummary | CreatedServer
@@ -88,7 +55,9 @@ export function TeamServers({
   serverInstall,
   team,
   servers,
+  initialAddServerOpen = false,
 }: {
+  initialAddServerOpen?: boolean
   serverInstall?: {
     ready: boolean
     message: string | null
@@ -99,7 +68,7 @@ export function TeamServers({
   const router = useRouter()
   const queryClient = useQueryClient()
   const [items, setItems] = useState<Array<ServerItem>>(servers)
-  const [addServerOpen, setAddServerOpen] = useState(false)
+  const [addServerOpen, setAddServerOpen] = useState(initialAddServerOpen)
   const canManageServers = canManageTeamSettings(team.role)
   useEffect(() => {
     setItems(servers)
@@ -127,13 +96,13 @@ export function TeamServers({
           </div>
         ) : null}
         {items.length > 0 ? (
-          <ul className="overflow-hidden rounded-xl border bg-card text-card-foreground">
+          <ul className="scrollbar overflow-x-auto rounded-xl border bg-card text-card-foreground">
             {items.map((server) => (
               <li
-                className="flex h-11 min-w-0 items-center gap-4 border-b px-4 text-sm last:border-b-0 hover:bg-muted/50"
+                className="flex h-11 min-w-[20rem] items-center gap-4 border-b px-4 text-sm whitespace-nowrap last:border-b-0 hover:bg-muted/50"
                 key={server.id}
               >
-                <span className="flex min-w-0 items-center gap-2">
+                <span className="flex min-w-0 max-w-64 items-center gap-2">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="inline-flex">
@@ -165,7 +134,7 @@ export function TeamServers({
                 {'publicAddress' in server && server.publicAddress ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="truncate text-muted-foreground">
+                      <span className="hidden max-w-48 truncate text-muted-foreground sm:inline">
                         {server.publicAddress}
                       </span>
                     </TooltipTrigger>
@@ -176,7 +145,7 @@ export function TeamServers({
                 {'lastSeenAt' in server && server.lastSeenAt ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="whitespace-nowrap text-muted-foreground">
+                      <span className="hidden shrink-0 whitespace-nowrap text-muted-foreground md:inline">
                         Last seen {formatAge(server.lastSeenAt)}
                       </span>
                     </TooltipTrigger>
@@ -198,15 +167,26 @@ export function TeamServers({
                 ) : null}
 
                 {canManageServers ? (
-                  <div className="ml-auto flex items-center gap-1">
-                    <ServerActionsMenu
-                      server={server}
-                      teamSlug={team.slug}
-                      onChanged={async () => {
-                        await invalidateResourceQueries(queryClient, team.slug)
-                        await router.invalidate()
-                      }}
-                    />
+                  <div className="ml-auto shrink-0">
+                    <div className="-mr-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button asChild variant="outline" size="icon-sm">
+                            <Link
+                              to="/$teamSlug/servers/$serverId"
+                              params={{
+                                teamSlug: team.slug,
+                                serverId: server.id,
+                              }}
+                              aria-label={`Settings for ${server.name}`}
+                            >
+                              <SettingsIcon />
+                            </Link>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Settings</TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
                 ) : null}
               </li>
@@ -276,482 +256,6 @@ export function formatServerStatus(status: ServerItem['status']) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-function formatCount(count: number, singular: string) {
-  return `${count.toLocaleString()} ${singular}${count === 1 ? '' : 's'}`
-}
-
-export function ServerActionsMenu({
-  server,
-  teamSlug,
-  onChanged,
-}: {
-  server: Pick<ServerItem, 'id' | 'name' | 'status'>
-  teamSlug: string
-  onChanged: () => void | Promise<void>
-}) {
-  const [installOpen, setInstallOpen] = useState(false)
-  const [statusOpen, setStatusOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [disableConfirmation, setDisableConfirmation] = useState('')
-  const [deleteConfirmation, setDeleteConfirmation] = useState('')
-  const [cancelOngoingDeployments, setCancelOngoingDeployments] = useState(true)
-  const [deleteDiagnostic, setDeleteDiagnostic] =
-    useState<ServerDeleteDiagnostic | null>(null)
-  const [deleteDiagnosticError, setDeleteDiagnosticError] = useState<
-    string | null
-  >(null)
-  const [isChangingStatus, setIsChangingStatus] = useState(false)
-  const diagnosticRequest = useRef(0)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [serverDeleted, setServerDeleted] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [isLoadingDeleteDiagnostic, setIsLoadingDeleteDiagnostic] =
-    useState(false)
-  const isDisabled = server.status === 'disabled'
-  const canChangeStatus =
-    !isChangingStatus && (isDisabled || disableConfirmation === server.name)
-  const canDelete =
-    !isDeleting && !serverDeleted && deleteConfirmation.trim() === server.name
-
-  async function toggleServerStatus() {
-    if (
-      isChangingStatus ||
-      isDeleting ||
-      serverDeleted ||
-      (!isDisabled && disableConfirmation !== server.name)
-    )
-      return
-    setActionError(null)
-    setIsChangingStatus(true)
-
-    try {
-      if (isDisabled) {
-        await enableServer({
-          data: {
-            teamSlug,
-            serverId: server.id,
-          },
-        })
-        toast.success('Server enabled.')
-      } else {
-        await disableServer({
-          data: {
-            teamSlug,
-            serverId: server.id,
-            confirmationName: disableConfirmation,
-          },
-        })
-        toast.success('Server disabled.')
-      }
-
-      setStatusOpen(false)
-      await afterMutation(
-        async () => onChanged(),
-        'The action completed, but refreshing the page failed. Please reload.',
-      )
-    } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to update server status.'))
-    } finally {
-      setIsChangingStatus(false)
-    }
-  }
-
-  async function loadDeleteDiagnostic() {
-    const request = ++diagnosticRequest.current
-    setIsLoadingDeleteDiagnostic(true)
-    setDeleteDiagnosticError(null)
-
-    try {
-      const diagnostic = await getDeleteServerDiagnostic({
-        data: {
-          teamSlug,
-          serverId: server.id,
-        },
-      })
-      if (request !== diagnosticRequest.current) return
-      setDeleteDiagnostic(diagnostic)
-    } catch (error) {
-      if (request !== diagnosticRequest.current) return
-      setDeleteDiagnosticError(
-        getErrorMessage(error, 'Unable to inspect server usage.'),
-      )
-    } finally {
-      if (request === diagnosticRequest.current)
-        setIsLoadingDeleteDiagnostic(false)
-    }
-  }
-
-  async function deleteCurrentServer() {
-    if (
-      isDeleting ||
-      isChangingStatus ||
-      serverDeleted ||
-      deleteConfirmation.trim() !== server.name
-    )
-      return
-    setActionError(null)
-    setIsDeleting(true)
-
-    try {
-      await deleteServer({
-        data: {
-          teamSlug,
-          serverId: server.id,
-          confirmationName: deleteConfirmation,
-          cancelOngoingDeployments,
-        },
-      })
-      setServerDeleted(true)
-      setDeleteOpen(false)
-      toast.success('Server deleted.')
-      setDeleteOpen(false)
-      await afterMutation(
-        async () => onChanged(),
-        'The action completed, but refreshing the page failed. Please reload.',
-      )
-    } catch (error) {
-      setActionError(getErrorMessage(error, 'Unable to delete server.'))
-    } finally {
-      setIsDeleting(false)
-    }
-  }
-
-  function onStatusOpenChange(open: boolean) {
-    if (isChangingStatus || isDeleting || serverDeleted) return
-    setActionError(null)
-    setStatusOpen(open)
-
-    if (!open) {
-      setDisableConfirmation('')
-    }
-  }
-
-  function onDeleteOpenChange(open: boolean) {
-    if (isDeleting || isChangingStatus || serverDeleted) return
-    diagnosticRequest.current += 1
-    setActionError(null)
-    setDeleteOpen(open)
-
-    if (!open) {
-      setDeleteConfirmation('')
-      setDeleteDiagnostic(null)
-      setDeleteDiagnosticError(null)
-      setCancelOngoingDeployments(true)
-      return
-    }
-
-    void loadDeleteDiagnostic()
-  }
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            aria-label={`Actions for ${server.name}`}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <EllipsisIcon />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-auto">
-          {server.status === 'connected' ? null : (
-            <>
-              <DropdownMenuItem
-                className="whitespace-nowrap"
-                disabled={isDisabled}
-                onSelect={() => setInstallOpen(true)}
-              >
-                {isDisabled
-                  ? 'Enable server to install agent'
-                  : 'Install agent'}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          {isDisabled ? (
-            <DropdownMenuItem
-              className="whitespace-nowrap"
-              onSelect={() => onStatusOpenChange(true)}
-            >
-              Enable server
-            </DropdownMenuItem>
-          ) : null}
-          {!isDisabled ? (
-            <DropdownMenuItem
-              className="whitespace-nowrap"
-              variant="destructive"
-              onSelect={() => onStatusOpenChange(true)}
-            >
-              <BanIcon />
-              Disable server
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem
-            className="whitespace-nowrap"
-            variant="destructive"
-            onSelect={() => onDeleteOpenChange(true)}
-          >
-            <Trash2Icon />
-            Delete server
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <InstallServerDialog
-        open={installOpen}
-        server={server}
-        teamSlug={teamSlug}
-        onOpenChange={setInstallOpen}
-      />
-
-      <AlertDialog open={statusOpen} onOpenChange={onStatusOpenChange}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {isDisabled ? 'Enable this server?' : 'Disable this server?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {isDisabled
-                ? `${server.name} will return to pending and can be enrolled with a fresh install command.`
-                : `This blocks new enrollment commands and agent token use for ${server.name}. Type "${server.name}" to confirm.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          {!isDisabled ? (
-            <Field>
-              <Input
-                aria-label={`Type ${server.name} to confirm`}
-                required
-                disabled={isChangingStatus}
-                placeholder={server.name}
-                value={disableConfirmation}
-                onChange={(event) => setDisableConfirmation(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && canChangeStatus) {
-                    event.preventDefault()
-                    void toggleServerStatus()
-                  }
-                }}
-              />
-            </Field>
-          ) : null}
-
-          <FieldError role="alert">{actionError}</FieldError>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isChangingStatus}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!canChangeStatus}
-              variant={isDisabled ? 'default' : 'destructive'}
-              onClick={(event) => {
-                event.preventDefault()
-                void toggleServerStatus()
-              }}
-            >
-              {isChangingStatus ? (
-                <LoaderIcon className="animate-spin" />
-              ) : !isDisabled ? (
-                <BanIcon />
-              ) : null}
-              {isDisabled ? 'Enable server' : 'Disable server'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={deleteOpen} onOpenChange={onDeleteOpenChange}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this server?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes {server.name} from server lists and
-              assignment pickers, deletes its monitoring data, and cannot be
-              undone. {`Type "${server.name}" to confirm.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="space-y-4">
-            {isLoadingDeleteDiagnostic ? (
-              <p className="text-sm text-muted-foreground">
-                Inspecting server usage...
-              </p>
-            ) : deleteDiagnosticError ? (
-              <div className="space-y-2">
-                <p role="alert" className="text-sm text-destructive">
-                  {deleteDiagnosticError}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void loadDeleteDiagnostic()}
-                >
-                  Retry inspection
-                </Button>
-              </div>
-            ) : deleteDiagnostic ? (
-              <p className="text-sm">
-                {deleteDiagnostic.projectCount === 0
-                  ? 'This will impact no active projects or environments.'
-                  : `This will impact ${formatCount(deleteDiagnostic.projectCount, 'project')} and ${formatCount(deleteDiagnostic.environmentCount, 'environment')}.`}
-              </p>
-            ) : null}
-
-            <Field orientation="horizontal">
-              <Checkbox
-                id="delete-server-list-cancel-deployments"
-                checked={cancelOngoingDeployments}
-                disabled={isDeleting || serverDeleted}
-                onCheckedChange={(checked) =>
-                  setCancelOngoingDeployments(checked === true)
-                }
-              />
-              <FieldLabel htmlFor="delete-server-list-cancel-deployments">
-                Cancel ongoing deployments on this server
-              </FieldLabel>
-            </Field>
-
-            <Field>
-              <Input
-                aria-label={`Type ${server.name} to confirm`}
-                required
-                disabled={isDeleting || serverDeleted}
-                placeholder={server.name}
-                value={deleteConfirmation}
-                onChange={(event) => setDeleteConfirmation(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && canDelete) {
-                    event.preventDefault()
-                    void deleteCurrentServer()
-                  }
-                }}
-              />
-            </Field>
-          </div>
-
-          <FieldError role="alert">{actionError}</FieldError>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting || serverDeleted}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!canDelete}
-              variant="destructive"
-              onClick={(event) => {
-                event.preventDefault()
-                void deleteCurrentServer()
-              }}
-            >
-              {isDeleting ? <LoaderIcon className="animate-spin" /> : null}
-              Delete server
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  )
-}
-
-export function InstallServerDialog({
-  open,
-  teamSlug,
-  server,
-  onOpenChange,
-}: {
-  open?: boolean
-  teamSlug: string
-  server: Pick<ServerItem, 'id' | 'name'>
-  onOpenChange?: (open: boolean) => void
-}) {
-  const [internalOpen, setInternalOpen] = useState(false)
-  const [isCreating, setIsCreating] = useState(false)
-  const [installCommand, setInstallCommand] = useState<string | null>(null)
-  const [installError, setInstallError] = useState<string | null>(null)
-  const isOpen = open ?? internalOpen
-
-  async function createCommand() {
-    if (isCreating) {
-      return
-    }
-
-    setInstallError(null)
-    setIsCreating(true)
-
-    try {
-      const result: ServerInstallCommand = await createInstallCommand({
-        data: {
-          teamSlug,
-          serverId: server.id,
-        },
-      })
-      setInstallCommand(result.installCommand)
-    } catch (error) {
-      setInstallError(
-        getErrorMessage(error, 'Unable to create install command.'),
-      )
-    } finally {
-      setIsCreating(false)
-    }
-  }
-
-  function close(nextOpen: boolean) {
-    if (isCreating) return
-    onOpenChange?.(nextOpen)
-
-    if (open === undefined) {
-      setInternalOpen(nextOpen)
-    }
-
-    if (!nextOpen) {
-      setInstallCommand(null)
-      setInstallError(null)
-    }
-  }
-
-  useEffect(() => {
-    if (!isOpen || installCommand || isCreating || installError) {
-      return
-    }
-
-    void createCommand()
-  }, [isOpen, installCommand, isCreating, installError])
-
-  return (
-    <Dialog open={isOpen} onOpenChange={close}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Install {server.name}</DialogTitle>
-          <DialogDescription>
-            {getInstallDescription(server.name)}
-          </DialogDescription>
-        </DialogHeader>
-
-        {isCreating && !installCommand ? (
-          <div className="text-sm text-muted-foreground">
-            Creating install command...
-          </div>
-        ) : installCommand ? (
-          <InstallCommand command={installCommand} />
-        ) : installError ? (
-          <div className="space-y-3">
-            <FieldError role="alert">{installError}</FieldError>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void createCommand()}
-            >
-              Retry
-            </Button>
-          </div>
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 export function AddServerDialog({
   open,
   teamSlug,
@@ -792,6 +296,20 @@ export function AddServerDialog({
       setCreatedServer(server)
       await onCreated(server)
     } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error.code === 'PLAN_LIMIT_REACHED' ||
+          error.code === 'SUBSCRIPTION_REQUIRED')
+      ) {
+        const handled = requestWorkspaceUpgrade({
+          teamSlug,
+          reason:
+            'Review your workspace allowance before adding another server.',
+        })
+        if (handled) onOpenChange(false)
+      }
       setNameError(
         getFieldErrorMessage({
           error,
@@ -829,6 +347,7 @@ export function AddServerDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <WorkspaceServerSetupNotice teamSlug={teamSlug} />
         {createdServer ? (
           <div className="space-y-4">
             <InstallCommand command={createdServer.installCommand} />
@@ -897,10 +416,6 @@ export function InstallCommand({
   className?: string
   inputClassName?: string
 }) {
-  async function copyInstallCommand() {
-    await copyText(command, 'Install command')
-  }
-
   return (
     <InputGroup className={cn('h-8', className)}>
       <InputGroupInput
@@ -910,13 +425,12 @@ export function InstallCommand({
         value={command}
       />
       <InputGroupAddon align="inline-end">
-        <InputGroupButton
-          aria-label="Copy install command"
-          onClick={() => void copyInstallCommand()}
+        <CopyButton
+          value={command}
+          label="Copy install command"
           size="icon-xs"
-        >
-          <CopyIcon />
-        </InputGroupButton>
+          inputGroup
+        />
       </InputGroupAddon>
     </InputGroup>
   )

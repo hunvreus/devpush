@@ -1,11 +1,14 @@
+import { PublicError, publicErrorMessages } from '@/lib/public-error'
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { BackupStorageSettings } from './backup-storage-settings'
 import type { BackupStorageSummary } from '@/lib/backup-storage-schema'
 
 const mocks = vi.hoisted(() => ({
+  error: vi.fn(),
   save: vi.fn(),
   remove: vi.fn(),
   invalidate: vi.fn().mockResolvedValue(undefined),
@@ -17,8 +20,9 @@ vi.mock('@/server/backups/storage-functions', () => ({
   saveBackupStorageAction: mocks.save,
   deleteBackupStorageAction: mocks.remove,
 }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { error: mocks.error, success: vi.fn() } }))
 const team = {
+  settingsVersion: 1,
   id: 't',
   name: 'Team',
   slug: 'team',
@@ -27,6 +31,7 @@ const team = {
   color: 'lime',
 } as const
 const storage: BackupStorageSummary = {
+  settingsVersion: 1,
   id: 's',
   name: 'Backups',
   bucket: 'bucket',
@@ -51,14 +56,18 @@ async function mount(role: 'admin' | 'member', rows: BackupStorageSummary[]) {
   })
   await act(async () =>
     root.render(
-      <BackupStorageSettings team={{ ...team, role }} storage={rows} />,
+      <TooltipProvider>
+        <BackupStorageSettings team={{ ...team, role }} storage={rows} />
+      </TooltipProvider>,
     ),
   )
   return node
 }
 async function click(text: string) {
   const button = [...document.querySelectorAll('button')].find(
-    (item) => item.textContent.trim() === text,
+    (item) =>
+      item.textContent.trim() === text ||
+      item.getAttribute('aria-label') === text,
   )!
   await act(async () => button.click())
 }
@@ -100,6 +109,7 @@ test('admins add a destination once and refresh workspace and project queries', 
   expect(mocks.save).toHaveBeenCalledWith({
     data: {
       teamSlug: 'team',
+      settingsVersion: null,
       input: {
         id: undefined,
         name: 'Shared',
@@ -116,13 +126,21 @@ test('admins add a destination once and refresh workspace and project queries', 
     queryKey: ['project-context', 'team'],
   })
 })
-test('editing preserves the secret with an empty replacement and keeps location readonly', async () => {
+test('editing masks the saved secret and keeps it and location readonly', async () => {
   await mount('admin', [storage])
-  await click('Edit')
+  await click('Settings for Backups')
   for (const id of ['bucket', 'region', 'endpoint'])
     expect(
       document.querySelector<HTMLInputElement>(`#storage-${id}`)!.readOnly,
     ).toBe(true)
+  const secret = document.querySelector<HTMLInputElement>(
+    '#storage-secretAccessKey',
+  )!
+  expect(secret.readOnly).toBe(true)
+  expect(secret.value).toBe('••••••••••••••••')
+  expect(document.body.textContent).not.toContain(
+    'Leave empty to keep the saved secret',
+  )
   await fill('name', 'Updated')
   mocks.save.mockResolvedValue([{ ...storage, name: 'Updated' }])
   await submit()
@@ -131,20 +149,29 @@ test('editing preserves the secret with an empty replacement and keeps location 
 
 test('storage removal keeps a referenced destination and displays the server refusal', async () => {
   await mount('admin', [storage])
-  await click('Remove')
-  mocks.remove.mockRejectedValueOnce(
-    new Error('Storage is referenced by a policy.'),
-  )
+  await click('Remove Backups')
+  expect(mocks.remove).not.toHaveBeenCalled()
+  mocks.remove.mockRejectedValueOnce(new PublicError('BACKUP_STORAGE_IN_USE'))
   await click('Remove storage')
   expect(mocks.remove).toHaveBeenCalledWith({
-    data: { teamSlug: 'team', storageId: 's' },
+    data: { teamSlug: 'team', storageId: 's', settingsVersion: 1 },
   })
-  expect(document.body.textContent).toContain(
-    'Storage is referenced by a policy.',
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining(publicErrorMessages.BACKUP_STORAGE_IN_USE),
   )
   expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
   mocks.remove.mockResolvedValueOnce([])
   await click('Remove storage')
   expect(document.body.textContent).toContain('No backup storage.')
   expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+test('empty creation form shows the required secret error alongside other field errors', async () => {
+  await mount('admin', [])
+  await click('Add storage')
+  await submit()
+  expect(mocks.save).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('Enter a storage name.')
+  expect(document.body.textContent).toContain('Enter an access key ID.')
+  expect(document.body.textContent).toContain('Enter a secret access key.')
 })

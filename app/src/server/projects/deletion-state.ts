@@ -1,3 +1,5 @@
+import { releaseBackupCleanupRuns } from '@/server/backups/queue-state'
+import type { ApiMutationAdmission } from '@/server/api/admission'
 import { sql } from 'drizzle-orm'
 import type { AtomicStore } from '@/server/db/atomic'
 import { runtimeCleanupInsert } from '@/server/agents/cleanup'
@@ -10,6 +12,7 @@ export async function deleteProjectState(
     userId: string
     removeDeployments: boolean
     now: Date
+    admission?: ApiMutationAdmission
   },
 ) {
   const now = input.now.getTime()
@@ -17,10 +20,18 @@ export async function deleteProjectState(
     join team_members m on m.team_id = t.id join user u on u.id = m.user_id
     where p.id = ${input.projectId} and p.team_id = ${input.teamId} and p.status = 'active'
       and t.status = 'active' and u.status = 'active' and m.user_id = ${input.userId}
-      and m.role in ('owner', 'admin'))`
+      and m.role in ('owner', 'admin')) and ${input.admission?.guard ?? sql`1`}`
   const envIds = sql`select id from environments where project_id = ${input.projectId}`
   const message = 'Canceled because the project was deleted.'
   const results = await store.batch([
+    store.run(
+      releaseBackupCleanupRuns({
+        jobIds: sql`select id from agent_jobs where project_id = ${input.projectId}`,
+        guard,
+        message,
+        now: input.now,
+      }),
+    ),
     store.run(sql`update agent_jobs set status = 'canceled', error_message = ${message},
       finished_at = ${now}, updated_at = ${now} where project_id = ${input.projectId}
       and type in ('deploy', 'backup', 'restore', 'backup_cleanup') and status in ('queued', 'running') and ${guard}`),
@@ -48,15 +59,11 @@ export async function deleteProjectState(
       : []),
     store.run(sql`update deployments set status = 'canceled', phase = 'canceled', error_message = ${message},
       finished_at = ${now} where environment_id in (${envIds}) and status in ('queued', 'running') and ${guard}`),
-    store.run(
-      sql`delete from aliases where project_id = ${input.projectId} and ${guard}`,
-    ),
-    store.run(
-      sql`delete from domains where project_id = ${input.projectId} and ${guard}`,
-    ),
+    // Keep hostname reservations until the agent confirms container removal.
     store.all(sql`update projects set status = 'deleted', updated_at = ${now} where id = ${input.projectId}
       and ${guard} returning id`),
+    ...(input.admission?.statements ?? []),
   ])
-  const changed = results.at(-1)
+  const changed = results.at(-1 - (input.admission?.statements.length ?? 0))
   return Array.isArray(changed) && changed.length === 1
 }

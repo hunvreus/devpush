@@ -23,8 +23,12 @@ export const Route = createFileRoute('/api/install/agent/checksum')({
             },
           })
         } catch (error) {
+          const expected =
+            error instanceof AgentBinaryNotConfiguredError ||
+            error instanceof AgentBinaryUnsupportedPlatformError
+          if (!expected) console.error('Agent checksum unavailable.', error)
           return Response.json(
-            { error: error instanceof Error ? error.message : 'Unavailable.' },
+            { error: expected ? error.message : 'Agent checksum unavailable.' },
             {
               status:
                 error instanceof AgentBinaryNotConfiguredError

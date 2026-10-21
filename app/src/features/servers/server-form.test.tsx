@@ -3,13 +3,19 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { AddServerDialog } from './team-servers'
+import type * as DeploymentUi from '#devpush/deployment/ui'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   close: vi.fn(),
   created: vi.fn(),
+  upgrade: vi.fn(),
 }))
 vi.mock('@/server/servers/functions', () => ({ createServer: mocks.create }))
+vi.mock('#devpush/deployment/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof DeploymentUi>()),
+  requestWorkspaceUpgrade: mocks.upgrade,
+}))
 afterEach(() => {
   vi.resetAllMocks()
   vi.unstubAllGlobals()
@@ -100,5 +106,23 @@ test('pending creation prevents editing and dismissal until the request settles'
   expect(
     document.querySelector<HTMLInputElement>('#server-name')?.disabled,
   ).toBe(false)
+  await view.close()
+})
+
+test('a hosted server limit opens upgrade without creating or charging for a server', async () => {
+  const view = await mount()
+  await fill('host-4')
+  mocks.upgrade.mockReturnValue(true)
+  mocks.create.mockRejectedValueOnce({
+    name: 'PublicError',
+    code: 'PLAN_LIMIT_REACHED',
+  })
+  await submit()
+  expect(mocks.upgrade).toHaveBeenCalledWith({
+    teamSlug: 'team',
+    reason: expect.stringContaining('allowance'),
+  })
+  expect(mocks.close).toHaveBeenCalledWith(false)
+  expect(mocks.created).not.toHaveBeenCalled()
   await view.close()
 })

@@ -1,7 +1,8 @@
 import type { ProjectContext } from '@/server/projects/types'
-import { createComposeRuntimeConfig } from '@/server/projects/runtime-config'
+import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
 
 const team: ProjectContext['team'] = {
+  settingsVersion: 1,
   id: 't',
   slug: 'team',
   name: 'Team',
@@ -13,6 +14,7 @@ export const projectContext: ProjectContext = {
   team,
   userContext: {
     user: {
+      settingsVersion: 1,
       id: 'u',
       name: 'User',
       username: 'user',
@@ -26,6 +28,7 @@ export const projectContext: ProjectContext = {
     invites: [],
   },
   project: {
+    settingsVersion: 1,
     id: 'p',
     name: 'project',
     githubInstallationId: 1,

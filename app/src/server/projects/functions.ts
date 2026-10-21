@@ -1,4 +1,5 @@
-import type { BackupDatabaseDump } from '@/server/backups/service'
+import { settingsVersionSchema } from '@/lib/settings-version'
+import { publicErrorsMiddleware } from '@/server/http/public-errors'
 import { backupConfigSchema } from '@/lib/backup-policy-schema'
 import { backupRestoreArtifactSchema } from '@/lib/backup-restore-schema'
 import { projectEnvironmentsSchema } from '@/lib/project-environments-schema'
@@ -19,7 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
-import { config } from '@/server/config'
+import { requireBackupsEnabled } from '@/server/backups/feature'
 
 import {
   getAuthSession,
@@ -46,7 +47,8 @@ import {
 import {
   createBackupRestoreJob,
   createManualBackupRun,
-  updateProjectBackupConfigs,
+  saveProjectBackupPolicy,
+  deleteProjectBackupPolicy,
 } from '@/server/projects/backups'
 import {
   getDeploymentLogsContext,
@@ -82,6 +84,7 @@ const deployProjectSchema = projectRouteSchema.extend({
 })
 
 const deployOptionsSchema = projectRouteSchema.extend({
+  branch: z.string().min(1).optional(),
   environmentId: z.string().trim().min(1),
 })
 
@@ -107,6 +110,8 @@ const projectLogsSchema = projectRouteSchema.extend({
 })
 
 const projectEnvironmentServersSchema = projectRouteSchema.extend({
+  projectId: z.string().min(1),
+  settingsVersion: settingsVersionSchema,
   defaultServerId: z.string().trim().min(1).nullable(),
   environmentServers: z.array(
     z.object({
@@ -116,16 +121,13 @@ const projectEnvironmentServersSchema = projectRouteSchema.extend({
   ),
 })
 
-const projectBackupConfigsSchema = projectRouteSchema.extend({
-  backupConfigs: z.array(backupConfigSchema),
-})
-
 const repositorySelectionRepositoriesSchema = z.object({
   teamSlug: z.string().min(1),
   installationId: z.number().int().positive(),
 })
 
 export const getRepositorySelectionContext = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: { teamSlug: string }) => teamSlugSchema.parse(data))
   .handler(async ({ data }) => {
     const session = await requireAuthSession(
@@ -141,6 +143,7 @@ export const getRepositorySelectionContext = createServerFn({ method: 'GET' })
 export const getRepositorySelectionRepositories = createServerFn({
   method: 'GET',
 })
+  .middleware([publicErrorsMiddleware])
   .validator((data: { installationId: number; teamSlug: string }) =>
     repositorySelectionRepositoriesSchema.parse(data),
   )
@@ -157,6 +160,7 @@ export const getRepositorySelectionRepositories = createServerFn({
   })
 
 export const createProject = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
       composePath?: string
@@ -192,6 +196,7 @@ export const createProject = createServerFn({ method: 'POST' })
   })
 
 export const getProject = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: { projectName: string; teamSlug: string }) =>
     projectRouteSchema.parse(data),
   )
@@ -211,6 +216,7 @@ export const getProject = createServerFn({ method: 'GET' })
   })
 
 export const getProjectSection = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
       projectName: string
@@ -239,6 +245,7 @@ export const getProjectSection = createServerFn({ method: 'GET' })
   })
 
 export const getDeployment = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: { deploymentId: string; projectName: string; teamSlug: string }) =>
       deploymentRouteSchema.parse(data),
@@ -259,6 +266,7 @@ export const getDeployment = createServerFn({ method: 'GET' })
   })
 
 export const getDeploymentLogs = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: { deploymentId: string; projectName: string; teamSlug: string }) =>
       deploymentRouteSchema.parse(data),
@@ -279,6 +287,7 @@ export const getDeploymentLogs = createServerFn({ method: 'GET' })
   })
 
 export const getProjectLogs = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
       branch?: string | null
@@ -310,6 +319,7 @@ export const getProjectLogs = createServerFn({ method: 'GET' })
   })
 
 export const saveProjectSettings = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator((data: z.input<typeof projectSettingsSchema>) => data)
   .handler(async ({ data }) => {
     const session = await requireAuthSession(
@@ -335,6 +345,7 @@ export const saveProjectSettings = createServerFn({ method: 'POST' })
   })
 
 export const deleteProjectAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
       confirmationName: string
@@ -358,8 +369,11 @@ export const deleteProjectAction = createServerFn({ method: 'POST' })
   })
 
 export const saveProjectRoutes = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
+      settingsVersion: number
+      projectId: string
       projectName: string
       routes: Array<{
         path: string
@@ -375,6 +389,8 @@ export const saveProjectRoutes = createServerFn({ method: 'POST' })
     const session = await requireAuthSession('Sign in before saving routes.')
 
     return updateProjectRoutes({
+      settingsVersion: data.settingsVersion,
+      projectId: data.projectId,
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
@@ -383,8 +399,11 @@ export const saveProjectRoutes = createServerFn({ method: 'POST' })
   })
 
 export const saveProjectDomains = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
+      settingsVersion: number
+      projectId: string
       domains: Array<{
         basePath: string
         environmentId: string
@@ -399,6 +418,8 @@ export const saveProjectDomains = createServerFn({ method: 'POST' })
     const session = await requireAuthSession('Sign in before saving domains.')
 
     return updateProjectDomains({
+      settingsVersion: data.settingsVersion,
+      projectId: data.projectId,
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
@@ -407,6 +428,7 @@ export const saveProjectDomains = createServerFn({ method: 'POST' })
   })
 
 export const verifyProjectDomainAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: { domainId: string; projectName: string; teamSlug: string }) =>
       projectRouteSchema
@@ -427,8 +449,11 @@ export const verifyProjectDomainAction = createServerFn({ method: 'POST' })
   })
 
 export const saveProjectEnvironments = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
+      settingsVersion: number
+      projectId: string
       environments: Array<{
         branch: string
         color: string
@@ -448,6 +473,8 @@ export const saveProjectEnvironments = createServerFn({ method: 'POST' })
     )
 
     return updateProjectEnvironments({
+      settingsVersion: data.settingsVersion,
+      projectId: data.projectId,
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
@@ -456,8 +483,11 @@ export const saveProjectEnvironments = createServerFn({ method: 'POST' })
   })
 
 export const saveProjectEnvironmentServers = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
+      settingsVersion: number
+      projectId: string
       defaultServerId: string | null
       projectName: string
       environmentServers: Array<{
@@ -473,6 +503,8 @@ export const saveProjectEnvironmentServers = createServerFn({ method: 'POST' })
     )
 
     return updateProjectEnvironmentServers({
+      settingsVersion: data.settingsVersion,
+      projectId: data.projectId,
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
@@ -482,8 +514,11 @@ export const saveProjectEnvironmentServers = createServerFn({ method: 'POST' })
   })
 
 export const saveProjectEnvVars = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
+      settingsVersion: number
+      projectId: string
       envVars: Array<{ environment?: string; key: string; value: string }>
       projectName: string
       teamSlug: string
@@ -495,6 +530,8 @@ export const saveProjectEnvVars = createServerFn({ method: 'POST' })
     )
 
     return updateProjectEnvVars({
+      settingsVersion: data.settingsVersion,
+      projectId: data.projectId,
       userId: session.user.id,
       teamSlug: data.teamSlug,
       projectName: data.projectName,
@@ -502,63 +539,62 @@ export const saveProjectEnvVars = createServerFn({ method: 'POST' })
     })
   })
 
-export const saveProjectBackupConfigs = createServerFn({ method: 'POST' })
+export const saveProjectBackupPolicyAction = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
-      backupConfigs: Array<{
-        databaseDumps: Array<{
-          engine: BackupDatabaseDump['engine']
-          database: string
-          service: string
-        }>
-        destination: { storageId?: string; prefix?: string }
-        enabled: boolean
-        environmentId: string
-        id?: string
-        name: string
-        retention: {
-          local: {
-            count: number
-            days: number
-            maxStorageGb: number
-          }
-          remote: {
-            enabled: boolean
-            count: number
-            days: number
-            maxStorageGb: number
-          }
-        }
-        schedule: {
-          cron: string
-        }
-        volumes: {
-          mode: 'none' | 'allNamed' | 'selected'
-          names: Array<string>
-        }
-      }>
-      projectName: string
       teamSlug: string
-    }) => projectBackupConfigsSchema.parse(data),
+      projectId: string
+      projectName: string
+      settingsVersion: number | null
+      policy: z.input<typeof backupConfigSchema>
+    }) =>
+      projectRouteSchema
+        .extend({
+          projectId: z.string().min(1),
+          settingsVersion: settingsVersionSchema.nullable(),
+          policy: backupConfigSchema,
+        })
+        .parse(data),
   )
   .handler(async ({ data }) => {
     requireBackupsEnabled()
-    const session = await requireAuthSession(
-      'Sign in before saving backup settings.',
-    )
-
-    return updateProjectBackupConfigs({
+    const session = await requireAuthSession()
+    return saveProjectBackupPolicy({
+      ...data,
       userId: session.user.id,
-      teamSlug: data.teamSlug,
-      projectName: data.projectName,
-      backupConfigs: data.backupConfigs.map((backupConfig) => ({
-        ...backupConfig,
-        id: backupConfig.id ?? randomUUID(),
-      })),
+      policy: { ...data.policy, id: data.policy.id || randomUUID() },
     })
   })
 
+export const deleteProjectBackupPolicyAction = createServerFn({
+  method: 'POST',
+})
+  .middleware([publicErrorsMiddleware])
+  .validator(
+    (data: {
+      teamSlug: string
+      projectId: string
+      projectName: string
+      settingsVersion: number
+      policyId: string
+    }) =>
+      projectRouteSchema
+        .extend({
+          projectId: z.string().min(1),
+          settingsVersion: settingsVersionSchema,
+          policyId: z.string().min(1),
+        })
+        .parse(data),
+  )
+  .handler(async ({ data }) => {
+    requireBackupsEnabled()
+    const session = await requireAuthSession()
+    return deleteProjectBackupPolicy({ ...data, userId: session.user.id })
+  })
+
 export const runProjectBackup = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: { backupConfigId: string; projectName: string; teamSlug: string }) =>
       backupRouteSchema.parse(data),
@@ -576,6 +612,7 @@ export const runProjectBackup = createServerFn({ method: 'POST' })
   })
 
 export const restoreProjectBackup = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
       backupRunId: string
@@ -610,13 +647,8 @@ export const restoreProjectBackup = createServerFn({ method: 'POST' })
     })
   })
 
-function requireBackupsEnabled() {
-  if (!config.DEVPUSH_BACKUPS_ENABLED) {
-    throw new Error('Backups are not enabled for this installation.')
-  }
-}
-
 export const deployProject = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: {
       environmentId: string
@@ -642,6 +674,7 @@ export const deployProject = createServerFn({ method: 'POST' })
   })
 
 export const rollbackProjectDeployment = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: { deploymentId: string; projectName: string; teamSlug: string }) =>
       deploymentRouteSchema.parse(data),
@@ -660,6 +693,7 @@ export const rollbackProjectDeployment = createServerFn({ method: 'POST' })
   })
 
 export const redeployProjectDeployment = createServerFn({ method: 'POST' })
+  .middleware([publicErrorsMiddleware])
   .validator(
     (data: { deploymentId: string; projectName: string; teamSlug: string }) =>
       deploymentRouteSchema.parse(data),
@@ -678,9 +712,14 @@ export const redeployProjectDeployment = createServerFn({ method: 'POST' })
   })
 
 export const getProjectDeployOptions = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
   .validator(
-    (data: { environmentId: string; projectName: string; teamSlug: string }) =>
-      deployOptionsSchema.parse(data),
+    (data: {
+      environmentId: string
+      projectName: string
+      teamSlug: string
+      branch?: string
+    }) => deployOptionsSchema.parse(data),
   )
   .handler(async ({ data }) => {
     const session = await requireAuthSession(
@@ -688,6 +727,7 @@ export const getProjectDeployOptions = createServerFn({ method: 'GET' })
     )
 
     return getManualDeploymentOptions({
+      branch: data.branch,
       environmentId: data.environmentId,
       userId: session.user.id,
       teamSlug: data.teamSlug,

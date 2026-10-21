@@ -378,9 +378,9 @@ func TestWriteEnvFileQuotesValues(t *testing.T) {
 	}
 
 	content := readFile(t, path)
-	assertContains(t, content, "PLAIN='value'")
-	assertContains(t, content, "SPACED='hello world'")
-	assertContains(t, content, "QUOTE='can'\\''t'")
+	assertContains(t, content, `PLAIN="value"`)
+	assertContains(t, content, `SPACED="hello world"`)
+	assertContains(t, content, `QUOTE="can't"`)
 }
 
 func TestRouteReadinessPathUsesRoutePrefix(t *testing.T) {
@@ -617,6 +617,9 @@ func TestEnsureTraefikReconcilesRawSocketContainer(t *testing.T) {
 	writeExecutable(t, filepath.Join(binDir, "docker"), `#!/bin/sh
 set -eu
 printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
+if [ "$1" = "pull" ]; then exit 0; fi
+if [ "$1" = "inspect" ] && [ "$2" = "-f" ] && [ "$3" = "{{.Config.Image}}" ]; then echo old-image; exit 0; fi
+if [ "$1" = "inspect" ] && [ "$2" = "-f" ] && [ "$4" = "devpush-traefik" ]; then echo stale-config; exit 0; fi
 if [ "$1" = "network" ] || [ "$1" = "volume" ]; then
   exit 0
 fi
@@ -969,6 +972,44 @@ exit 1
 	}
 }
 
+func TestHeartbeatStillSendsLivenessWhenInventoryOverflows(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "docker"), `#!/bin/sh
+if [ "$1" = "ps" ]; then
+  i=0
+  while [ "$i" -le 200 ]; do
+    echo "dp_project_$i"
+    i=$((i + 1))
+  done
+  exit 0
+fi
+if [ "$1" = "inspect" ]; then
+  i=0
+  while [ "$i" -le 200 ]; do
+    printf 'dp_project_%s\tweb\tweb-1\trunning\t\t0\t2026-06-01T00:00:00Z\t0\n' "$i"
+    i=$((i + 1))
+  done
+  exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var payload map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		decodeJSON(t, request, &payload)
+		writeJSON(t, response, agentResponse{ServerID: "server-1", Status: "connected"})
+	}))
+	defer server.Close()
+	runner := NewRunner(Config{BaseURL: server.URL, StateDir: dir, AgentID: "server-1", Token: "agent-token"}, nil)
+	runner.sendHeartbeat(t.Context())
+	if payload == nil || payload["serverId"] == nil {
+		t.Fatal("expected liveness heartbeat despite oversized inventory")
+	}
+	if payload["runtimeIds"] != nil || payload["runtimes"] != nil {
+		t.Fatal("oversized inventory must be omitted without claiming a partial snapshot")
+	}
+}
+
 func TestHeartbeatReportsRuntimeLogsForTargets(t *testing.T) {
 	tempDir := workspaceTempDir(t, "agent-runtime-logs-")
 	binDir := filepath.Join(tempDir, "bin")
@@ -1146,7 +1187,7 @@ func TestCloneURLDefaultsToGitHubTokenURL(t *testing.T) {
 		Token:    "github-token",
 	})
 
-	if url != "https://x-access-token:github-token@github.com/acme/app.git" {
+	if url != "https://github.com/acme/app.git" {
 		t.Fatalf("unexpected clone URL: %s", url)
 	}
 }
@@ -1666,6 +1707,9 @@ fi
 		StateDir: filepath.Join(tempDir, "state"),
 		Token:    "agent-token",
 	}, nil)
+	runner.discoverAddress = func(context.Context, string, string) (string, error) {
+		return "", fmt.Errorf("no public network in test")
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	controlPlane.cancel = cancel
 
@@ -1846,6 +1890,7 @@ func TestRunDeploymentJobRoutesThroughRealTraefik(t *testing.T) {
 	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Welcome to nginx") {
 		t.Fatalf("expected routed response, got %s: %s", response.Status, string(body))
 	}
+	testManagedTLSReload(t, &runner, host, httpsPort, filepath.Join(stateDir, "deployments", "deployment-1", "repo", "compose.yml"), projectName)
 }
 
 func readFile(t *testing.T, path string) string {

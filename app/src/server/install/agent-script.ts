@@ -49,6 +49,25 @@ printf '%b%s%b\n' "\${CYAN_5}" '██╔╝   ██████╔╝███
 printf '%b%s%b\n' "\${CYAN_6}" '╚═╝    ╚═════╝ ╚══════╝  ╚═══╝ ╚═╝    ╚═╝      ╚═════╝ ╚══════╝╚═╝  ╚═╝' "\${RESET}"
 printf '\n'
 
+ADDRESS="\${DEVPUSH_ROUTING_ADDRESS:-}"
+ADDRESS_SET=false
+if [ -n "\${ADDRESS}" ]; then ADDRESS_SET=true; fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --address)
+      [ "$#" -ge 2 ] || fail "--address requires an IP address or auto."
+      ADDRESS="$2"
+      ADDRESS_SET=true
+      shift 2
+      ;;
+    *) fail "Unknown option: $1. Use --address IP or --address auto." ;;
+  esac
+done
+if [ "\${ADDRESS}" = auto ]; then ADDRESS=""; fi
+if [ -n "\${ADDRESS}" ] && [[ ! "\${ADDRESS}" =~ ^[0-9a-fA-F:.]+$ ]]; then
+  fail "--address requires an IPv4 or IPv6 address, without a port."
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
   fail "Run this installer with sudo."
 fi
@@ -149,7 +168,14 @@ fi
 
 WORK_DIR="$(mktemp -d)"
 STEP_LOG="\${WORK_DIR}/step.log"
-trap 'rm -rf "\${WORK_DIR}"' EXIT
+CONFIG_DRAINED=false
+cleanup_install() {
+  if [ "\${CONFIG_DRAINED}" = true ]; then
+    "$(target_path /usr/local/bin)/devpush-agent" maintenance resume >/dev/null 2>&1 || true
+  fi
+  rm -rf "\${WORK_DIR}"
+}
+trap cleanup_install EXIT
 
 run_step() {
   local message="$1"
@@ -325,6 +351,15 @@ else
   warn "A custom binary URL was supplied without DEVPUSH_AGENT_CHECKSUM_URL; its checksum was not verified."
 fi
 
+if [ "\${ADDRESS_SET}" = false ] && [ -f "\${ETC_DIR}/agent.env" ]; then
+  ADDRESS="$(sed -n 's/^DEVPUSH_ROUTING_ADDRESS="\\(.*\\)"$/\\1/p' "\${ETC_DIR}/agent.env")"
+fi
+if [ -z "\${DEVPUSH_TRAEFIK_EMAIL+x}" ] && [ -f "\${ETC_DIR}/agent.env" ]; then
+  DEVPUSH_TRAEFIK_EMAIL="$(sed -n 's/^DEVPUSH_TRAEFIK_EMAIL="\\(.*\\)"$/\\1/p' "\${ETC_DIR}/agent.env")"
+fi
+chmod 0755 "\${tmp_binary}"
+run_step "Validating agent configuration" env DEVPUSH_ROUTING_ADDRESS="\${ADDRESS}" "\${tmp_binary}" --check-config --config /dev/null
+
 if [ -f "\${ETC_DIR}/agent.env" ] && [ -x "\${BIN_DIR}/devpush-agent" ]; then
   previous_base="$(sed -n 's/^DEVPUSH_BASE_URL="\\(.*\\)"$/\\1/p' "\${ETC_DIR}/agent.env")"
   if [ "\${previous_base%/}" != "\${DEVPUSH_BASE_URL%/}" ]; then
@@ -333,6 +368,8 @@ if [ -f "\${ETC_DIR}/agent.env" ] && [ -x "\${BIN_DIR}/devpush-agent" ]; then
   if systemctl is-active --quiet devpush-agent; then
     # The existing process drains jobs before an atomic binary replacement.
     run_step "Safely updating devpush agent" "\${BIN_DIR}/devpush-agent" maintenance update --binary "\${tmp_binary}"
+    run_step "Draining agent before configuration changes" "\${BIN_DIR}/devpush-agent" maintenance drain
+    CONFIG_DRAINED=true
   elif ! cmp -s "\${tmp_binary}" "\${BIN_DIR}/devpush-agent"; then
     install -m 0755 "\${tmp_binary}" "\${BIN_DIR}/devpush-agent.new"
     mv "\${BIN_DIR}/devpush-agent.new" "\${BIN_DIR}/devpush-agent"
@@ -349,6 +386,7 @@ cat >"\${ETC_DIR}/agent.env" <<EOF
 DEVPUSH_BASE_URL="\${DEVPUSH_BASE_URL}"
 DEVPUSH_AGENT_TOKEN="\${DEVPUSH_AGENT_TOKEN}"
 DEVPUSH_STATE_DIR="\${STATE_DIR}"
+DEVPUSH_ROUTING_ADDRESS="\${ADDRESS}"
 EOF
 
 if [ -n "\${DEVPUSH_TRAEFIK_EMAIL:-}" ]; then
@@ -364,7 +402,11 @@ cat >"\${LIB_DIR}/update-agent" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-source /etc/devpush/agent.env
+DEVPUSH_BASE_URL="$(sed -n 's/^DEVPUSH_BASE_URL="\\(.*\\)"$/\\1/p' /etc/devpush/agent.env)"
+if [ -z "\${DEVPUSH_BASE_URL}" ]; then
+  echo "Agent control-plane URL is missing." >&2
+  exit 1
+fi
 
 case "$(uname -s)" in Linux) os=linux ;; *) echo "Unsupported OS." >&2; exit 1 ;; esac
 case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo "Unsupported architecture." >&2; exit 1 ;; esac
@@ -429,7 +471,8 @@ WantedBy=timers.target
 EOF
 
 run_step "Registering the systemd service" systemctl daemon-reload
-run_step "Starting the devpush agent" systemctl enable --now devpush-agent
+run_step "Enabling the devpush agent" systemctl enable devpush-agent
+run_step "Starting the devpush agent" systemctl restart devpush-agent
 
 if [ "\${AUTO_UPDATE}" = "true" ]; then
   systemctl enable --now devpush-agent-update.timer
@@ -482,6 +525,10 @@ printf '  3. Deploy a project; devpush will start managed Traefik when a public 
 printf '%b%s%b\n\n' "\${GREEN}" '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' "\${RESET}"
 `
 
+export function isAgentEnrollmentToken(token: string) {
+  return /^dps_[A-Za-z0-9_-]{43}$/.test(token)
+}
+
 export function buildTokenizedAgentInstallScript({
   autoUpdate,
   baseUrl,
@@ -493,6 +540,9 @@ export function buildTokenizedAgentInstallScript({
   token: string
   traefikEmail?: string
 }) {
+  if (!isAgentEnrollmentToken(token)) {
+    throw new Error('Invalid agent enrollment token.')
+  }
   const lines = [
     '#!/usr/bin/env bash',
     `export DEVPUSH_BASE_URL=${shellQuote(baseUrl)}`,

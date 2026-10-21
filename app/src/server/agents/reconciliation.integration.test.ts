@@ -30,6 +30,71 @@ afterAll(async () => {
 })
 
 describe('agent runtime reconciliation', () => {
+  test('reusing a runtime resets cleanup and starts a fresh volume retention window', async () => {
+    const { projectId, serverId } = await createFixture()
+    const environmentId = crypto.randomUUID()
+    touchedEnvironmentIds.push(environmentId)
+    await db
+      .insert(environments)
+      .values({
+        id: environmentId,
+        projectId,
+        serverId,
+        name: 'Production',
+        slug: 'production',
+        branch: 'main',
+        runtimeId: 'dp_reused',
+      })
+    const id = crypto.randomUUID()
+    touchedObservationIds.push(id)
+    const old = new Date('2026-05-01')
+    await db
+      .insert(agentRuntimeObservations)
+      .values({
+        id,
+        serverId,
+        runtimeId: 'dp_reused',
+        firstSeenAt: old,
+        lastSeenAt: old,
+        cleanupQueuedAt: old,
+        purgeQueuedAt: old,
+      })
+    const now = new Date('2026-06-01')
+    expect(
+      await reconcileReportedRuntimes({
+        serverId,
+        runtimeIds: ['dp_reused'],
+        now,
+      }),
+    ).toEqual([])
+    const [observation] = await db
+      .select()
+      .from(agentRuntimeObservations)
+      .where(eq(agentRuntimeObservations.id, id))
+    expect(observation).toMatchObject({
+      cleanupQueuedAt: null,
+      purgeQueuedAt: null,
+      firstSeenAt: now,
+    })
+    await db
+      .update(environments)
+      .set({ serverId: null })
+      .where(eq(environments.id, environmentId))
+    expect(
+      await reconcileReportedRuntimes({
+        serverId,
+        runtimeIds: ['dp_reused'],
+        now: new Date('2026-06-01T00:11:00Z'),
+      }),
+    ).toEqual(['dp_reused'])
+    const jobs = await db
+      .select()
+      .from(agentJobs)
+      .where(eq(agentJobs.serverId, serverId))
+    touchedJobIds.push(...jobs.map((job) => job.id))
+    expect(jobs.map((job) => job.type)).toEqual(['deprovision'])
+  })
+
   test('drains retained orphan volumes in bounded jobs across heartbeats', async () => {
     const { serverId } = await createFixture()
     const now = new Date()

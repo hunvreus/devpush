@@ -1,4 +1,5 @@
-import { createFileRoute, notFound, useParams } from '@tanstack/react-router'
+import { pageHead } from '@/lib/page-head'
+import { createFileRoute, useParams } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
 import { ProjectBackupDetails } from '@/features/projects/project-backup-details'
@@ -7,12 +8,9 @@ import { projectContextQueryOptions } from '@/lib/project-context-query'
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/backups/$backupId',
 )({
-  beforeLoad: () => {
-    if (import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED !== 'true') {
-      throw notFound()
-    }
-  },
   component: BackupPolicyRoute,
+  head: ({ params }) =>
+    pageHead(`Backup ${params.backupId}`, params.projectName, params.teamSlug),
 })
 
 function BackupPolicyRoute() {
@@ -32,5 +30,11 @@ function BackupPolicyRoute() {
     ),
   )
 
-  return <ProjectBackupDetails context={context} backupId={backupId} />
+  return (
+    <ProjectBackupDetails
+      key={backupId}
+      context={context}
+      backupId={backupId}
+    />
+  )
 }

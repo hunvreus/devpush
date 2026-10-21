@@ -12,6 +12,12 @@ import (
 )
 
 func (runner *Runner) reportRuntimeLogs(ctx context.Context, targets []runtimeLogTarget) {
+	active := map[string]bool{}
+	for _, target := range targets {
+		active[strings.TrimSpace(target.RuntimeID)] = true
+	}
+	// Copy before appending: the caller owns its target slice.
+	targets = append(append([]runtimeLogTarget{}, targets...), runner.pendingRuntimeLogTargets(ctx, active)...)
 	if len(targets) == 0 {
 		return
 	}
@@ -25,7 +31,7 @@ func (runner *Runner) reportRuntimeLogs(ctx context.Context, targets []runtimeLo
 		if runtimeID == "" {
 			continue
 		}
-		if err := runner.reportRuntimeLogTarget(ctx, runtimeID); err != nil {
+		if err := runner.deliverRuntimeLogTarget(ctx, runtimeID, active[runtimeID]); err != nil {
 			runner.log.Warn("report runtime logs failed; keeping pending logs", "runtime_id", runtimeID, "error", err)
 			// Diagnostics use the ingestion endpoint directly: a saturated local
 			// outbox must not hide its own warning behind that same queue.
@@ -39,11 +45,15 @@ func (runner *Runner) reportRuntimeLogs(ctx context.Context, targets []runtimeLo
 }
 
 func (runner *Runner) reportRuntimeLogTarget(ctx context.Context, runtimeID string) error {
+	return runner.deliverRuntimeLogTarget(ctx, runtimeID, true)
+}
+
+func (runner *Runner) deliverRuntimeLogTarget(ctx context.Context, runtimeID string, collect bool) error {
 	state, err := runner.loadRuntimeLogState(runtimeID)
 	if err != nil {
 		return err
 	}
-	if len(state.Logs) == 0 {
+	if len(state.Logs) == 0 && collect {
 		now := time.Now().UTC()
 		since := state.Since
 		if since.IsZero() {
@@ -80,6 +90,9 @@ func (runner *Runner) reportRuntimeLogTarget(ctx context.Context, runtimeID stri
 	state.Logs = state.Logs[len(batch):]
 	if len(state.Logs) == 0 {
 		state.Since = state.PendingUntil
+		if !collect {
+			return runner.removeRuntimeLogState(runtimeID)
+		}
 	}
 	return runner.saveRuntimeLogState(state)
 }

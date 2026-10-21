@@ -9,6 +9,9 @@ test('mutations invalidate all affected snapshots, preserve other teams, and ref
   const keys = [
     ['team-context', 'a', 'shell'],
     ['server-context', 'a', 'server'],
+    ['server-metrics', 'a', 'server'],
+    ['manual-deploy-options', 'a', 'project', 'environment'],
+    ['operation-logs', 'a', 'restore', 'job'],
     ['project-context', 'a', 'p', 'shell'],
     ['deployment-context', 'a', 'p', 'd'],
     ['project-logs', 'a', 'p'],

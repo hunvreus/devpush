@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { config } from '@/server/config'
+import { matchesBearerSecret } from '@/server/http/auth'
 import { runMaintenance } from '@/server/maintenance'
 
 export const Route = createFileRoute('/api/cron/maintenance')({
@@ -14,8 +15,10 @@ export const Route = createFileRoute('/api/cron/maintenance')({
           )
         }
         if (
-          request.headers.get('authorization') !==
-          `Bearer ${config.DEVPUSH_CRON_SECRET}`
+          !matchesBearerSecret(
+            request.headers.get('authorization'),
+            config.DEVPUSH_CRON_SECRET,
+          )
         ) {
           return Response.json({ error: 'Unauthorized.' }, { status: 401 })
         }

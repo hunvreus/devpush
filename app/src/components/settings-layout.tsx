@@ -42,7 +42,7 @@ export function StandaloneSettingsLayout({
         <header className="flex items-center gap-x-3">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button asChild variant="outline" size="icon">
+              <Button asChild variant="outline" size="icon-sm">
                 <Link to="/" aria-label="Back to home">
                   <ArrowLeftIcon />
                 </Link>
@@ -91,7 +91,7 @@ export function SettingsSection({
 }: {
   children: ReactNode
   contentClassName?: string
-  description: string
+  description: ReactNode
   footer?: ReactNode
   id: string
   title: string

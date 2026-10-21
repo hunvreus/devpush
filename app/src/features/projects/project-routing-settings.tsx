@@ -1,8 +1,22 @@
+import type { ServerSummary } from '@/server/teams/types'
+import {
+  Alert,
+  AlertTitle,
+  AlertDescription,
+  AlertAction,
+} from '@/components/ui/alert'
+import { ComposeServiceInput } from './compose-service-input'
 import type { ReactNode } from 'react'
 import type { FormErrors } from '@/lib/form-errors'
-import { ArrowRightIcon, LoaderIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import {
+  ArrowRightIcon,
+  LoaderIcon,
+  LockIcon,
+  PlusIcon,
+  Trash2Icon,
+  TriangleAlertIcon,
+} from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Empty,
@@ -13,6 +27,11 @@ import {
 } from '@/components/ui/empty'
 import { Field, FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupInput,
+  InputGroupAddon,
+} from '@/components/ui/input-group'
 import {
   Select,
   SelectContent,
@@ -43,11 +62,13 @@ export type ProjectDomainAlias = {
 }
 
 export function RouteSettingsTable({
+  services = [],
   routes,
   environments,
   onChange,
   errors = {},
 }: {
+  services?: string[]
   routes: Array<ProjectRouteDefinition>
   errors?: FormErrors
   environments: Array<ProjectEnvironmentConfig>
@@ -84,16 +105,16 @@ export function RouteSettingsTable({
           <div>
             <div className="grid w-full grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
               <div>Scope</div>
-              <div>Path *</div>
+              <div>Path</div>
               <div />
-              <div>Service *</div>
-              <div>Port *</div>
+              <div>Service</div>
+              <div>Port</div>
               <div>Strip</div>
               <div />
             </div>
             {routes.map((route, index) => (
               <div
-                className="grid w-full grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem] items-center gap-x-2 border-b py-2"
+                className="grid w-full grid-cols-[minmax(8rem,0.8fr)_minmax(0,1.1fr)_1rem_minmax(0,1.1fr)_minmax(5.5rem,0.4fr)_3.5rem_2.5rem] items-start gap-x-2 border-b py-2"
                 key={index}
               >
                 <RoutingField
@@ -120,11 +141,14 @@ export function RouteSettingsTable({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__all__">All environments</SelectItem>
-                      {environments.map((environment) => (
-                        <SelectItem key={environment.id} value={environment.id}>
+                      {environments.map((optionEnvironment) => (
+                        <SelectItem
+                          key={optionEnvironment.id}
+                          value={optionEnvironment.id}
+                        >
                           <EnvironmentOptionLabel
-                            color={environment.color}
-                            label={environment.name}
+                            color={optionEnvironment.color}
+                            label={optionEnvironment.name}
                           />
                         </SelectItem>
                       ))}
@@ -143,16 +167,15 @@ export function RouteSettingsTable({
                     placeholder="/"
                   />
                 </RoutingField>
-                <ArrowRightIcon className="mx-auto size-4 shrink-0 text-muted-foreground" />
+                <ArrowRightIcon className="mx-auto mt-2 size-4 shrink-0 text-muted-foreground" />
                 <RoutingField name={`routes.${index}.service`} errors={errors}>
-                  <Input
+                  <ComposeServiceInput
                     {...routingFieldProps(`routes.${index}.service`, errors)}
+                    services={services}
                     aria-label="Route service"
                     required
                     value={route.service}
-                    onChange={(event) =>
-                      updateRoute(index, { service: event.target.value })
-                    }
+                    onValueChange={(service) => updateRoute(index, { service })}
                     placeholder="web"
                   />
                 </RoutingField>
@@ -172,7 +195,7 @@ export function RouteSettingsTable({
                     placeholder="3000"
                   />
                 </RoutingField>
-                <div className="flex h-full items-center gap-2">
+                <div className="flex h-8 items-center gap-2">
                   <Switch
                     aria-label="Strip route prefix"
                     checked={route.stripPrefix}
@@ -181,7 +204,7 @@ export function RouteSettingsTable({
                     }
                   />
                 </div>
-                <div className="flex justify-end">
+                <div className="-mr-2 flex justify-end">
                   <IconActionTooltip label="Remove route">
                     <Button
                       variant="destructive"
@@ -197,7 +220,6 @@ export function RouteSettingsTable({
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">* Required</p>
           <Button variant="outline" type="button" onClick={addRoute}>
             <PlusIcon data-icon="inline-start" />
             Add route
@@ -263,6 +285,7 @@ export function EnvironmentOptionLabel({
 }
 
 export function DomainSettingsTable({
+  servers = [],
   domains,
   environments,
   routes,
@@ -272,6 +295,10 @@ export function DomainSettingsTable({
   verificationDisabled,
   errors = {},
 }: {
+  servers?: Pick<
+    ServerSummary,
+    'id' | 'name' | 'publicAddress' | 'publicIpv4' | 'publicIpv6'
+  >[]
   domains: Array<ProjectDomainAlias>
   errors?: FormErrors
   environments: Array<ProjectEnvironmentConfig>
@@ -313,150 +340,278 @@ export function DomainSettingsTable({
       {domains.length > 0 ? (
         <>
           <div>
-            <div className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_5.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
-              <div>Host *</div>
-              <div>Environment *</div>
+            <div className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_2.5rem] gap-x-2 border-b pb-2 text-sm font-medium">
+              <div>Host</div>
+              <div>Environment</div>
               <div>Base route</div>
               <div>HTTPS</div>
-              <div>Status</div>
               <div />
             </div>
-            {domains.map((domain, index) => (
-              <div
-                className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_5.5rem_2.5rem] items-center gap-x-2 border-b py-2"
-                key={domain.id}
-              >
-                <RoutingField name={`domains.${index}.host`} errors={errors}>
-                  <Input
-                    {...routingFieldProps(`domains.${index}.host`, errors)}
-                    aria-label="Domain host"
-                    required
-                    maxLength={253}
-                    value={domain.host}
-                    onChange={(event) =>
-                      updateDomain(domain.id, { host: event.target.value })
-                    }
-                    placeholder="myapp.com"
-                  />
-                </RoutingField>
-                <RoutingField
-                  name={`domains.${index}.environmentId`}
-                  errors={errors}
+            {domains.map((domain, index) => {
+              const environment = environments.find(
+                (item) => item.id === domain.environment,
+              )
+              const server = servers.find(
+                (item) => item.id === environment?.effectiveServerId,
+              )
+              const address = server?.publicAddress
+              const addresses = [
+                ...new Set(
+                  [server?.publicIpv4, server?.publicIpv6, address].filter(
+                    (value): value is string => Boolean(value),
+                  ),
+                ),
+              ]
+
+              const rowErrors: FormErrors = { ...errors }
+              const hostError =
+                errors[`verification.${domain.id}`] ??
+                (domain.status === 'failed' ? domain.message : null)
+
+              return (
+                <div
+                  className="grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,1.05fr)_minmax(0,1.05fr)_3.5rem_2.5rem] items-start gap-x-2 border-b py-2"
+                  key={domain.id}
                 >
-                  <Select
-                    value={domain.environment}
-                    onValueChange={(value) =>
-                      updateDomain(domain.id, { environment: value })
-                    }
+                  <RoutingField
+                    name={`domains.${index}.host`}
+                    errors={rowErrors}
                   >
-                    <SelectTrigger
-                      {...routingFieldProps(
-                        `domains.${index}.environmentId`,
-                        errors,
-                      )}
-                      aria-label="Domain environment"
-                      className="w-full"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {environments.map((environment) => (
-                        <SelectItem key={environment.id} value={environment.id}>
-                          <EnvironmentOptionLabel
-                            color={environment.color}
-                            label={environment.name}
-                          />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </RoutingField>
-                <RoutingField
-                  name={`domains.${index}.basePath`}
-                  errors={errors}
-                >
-                  <Select
-                    value={domain.baseRoute || 'all'}
-                    onValueChange={(value) =>
-                      updateDomain(domain.id, {
-                        baseRoute: value === 'all' ? '' : value,
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      {...routingFieldProps(
-                        `domains.${index}.basePath`,
-                        errors,
-                      )}
-                      aria-label="Domain base route"
-                      className="w-full"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All routes</SelectItem>
-                      {getEffectiveRouteDefinitions(
-                        routes,
-                        domain.environment,
-                      ).map((route) => (
-                        <SelectItem value={route.path} key={route.path}>
-                          {route.path}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </RoutingField>
-                <div className="flex h-full items-center justify-center">
-                  <Switch
-                    aria-label="HTTPS"
-                    checked={domain.https}
-                    onCheckedChange={(checked) =>
-                      updateDomain(domain.id, { https: checked })
-                    }
-                  />
-                </div>
-                <div className="flex justify-start">
-                  {domain.status === 'active' ? (
-                    <Badge variant="secondary">Verified</Badge>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      type="button"
-                      disabled={
-                        verificationDisabled ||
-                        !domain.status ||
-                        verifyingDomainId !== null
+                    <InputGroup
+                      className={
+                        domain.status !== undefined ? 'bg-accent/50' : undefined
                       }
-                      title={domain.message ?? undefined}
-                      onClick={() => void onVerify(domain.id)}
                     >
-                      {verifyingDomainId === domain.id ? (
-                        <LoaderIcon
-                          data-icon="inline-start"
-                          className="animate-spin"
-                        />
+                      <InputGroupInput
+                        {...routingFieldProps(
+                          `domains.${index}.host`,
+                          rowErrors,
+                        )}
+                        aria-label="Domain host"
+                        required
+                        maxLength={253}
+                        value={domain.host}
+                        readOnly={domain.status !== undefined}
+                        onChange={(event) => {
+                          if (domain.status !== undefined) return
+                          updateDomain(domain.id, {
+                            host: event.target.value,
+                            status: undefined,
+                            message: null,
+                          })
+                        }}
+                        placeholder="myapp.com"
+                      />
+                      {domain.status !== undefined ? (
+                        <InputGroupAddon align="inline-end">
+                          <IconActionTooltip label="Add and verify a new host before removing this one.">
+                            <span>
+                              <LockIcon className="size-4 shrink-0" />
+                            </span>
+                          </IconActionTooltip>
+                        </InputGroupAddon>
                       ) : null}
-                      Verify
-                    </Button>
-                  )}
-                </div>
-                <div className="flex justify-end">
-                  <IconActionTooltip label="Remove domain">
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      type="button"
-                      aria-label="Remove domain"
-                      onClick={() => removeDomain(domain.id)}
+                    </InputGroup>
+                  </RoutingField>
+                  <RoutingField
+                    name={`domains.${index}.environmentId`}
+                    errors={rowErrors}
+                  >
+                    <Select
+                      value={domain.environment}
+                      onValueChange={(value) =>
+                        updateDomain(domain.id, { environment: value })
+                      }
                     >
-                      <Trash2Icon />
-                    </Button>
-                  </IconActionTooltip>
+                      <SelectTrigger
+                        {...routingFieldProps(
+                          `domains.${index}.environmentId`,
+                          errors,
+                        )}
+                        aria-label="Domain environment"
+                        className="w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {environments.map((optionEnvironment) => (
+                          <SelectItem
+                            key={optionEnvironment.id}
+                            value={optionEnvironment.id}
+                          >
+                            <EnvironmentOptionLabel
+                              color={optionEnvironment.color}
+                              label={optionEnvironment.name}
+                            />
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </RoutingField>
+                  <RoutingField
+                    name={`domains.${index}.basePath`}
+                    errors={rowErrors}
+                  >
+                    <Select
+                      value={domain.baseRoute || 'all'}
+                      onValueChange={(value) =>
+                        updateDomain(domain.id, {
+                          baseRoute: value === 'all' ? '' : value,
+                        })
+                      }
+                    >
+                      <SelectTrigger
+                        {...routingFieldProps(
+                          `domains.${index}.basePath`,
+                          errors,
+                        )}
+                        aria-label="Domain base route"
+                        className="w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All routes</SelectItem>
+                        {getEffectiveRouteDefinitions(
+                          routes,
+                          domain.environment,
+                        ).map((route) => (
+                          <SelectItem value={route.path} key={route.path}>
+                            {route.path}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </RoutingField>
+                  <div className="flex h-8 items-center justify-center">
+                    <Switch
+                      aria-label="HTTPS"
+                      checked={domain.https}
+                      onCheckedChange={(checked) =>
+                        updateDomain(domain.id, { https: checked })
+                      }
+                    />
+                  </div>
+                  <div className="-mr-2 flex justify-end">
+                    <IconActionTooltip label="Remove domain">
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        type="button"
+                        aria-label="Remove domain"
+                        onClick={() => removeDomain(domain.id)}
+                      >
+                        <Trash2Icon />
+                      </Button>
+                    </IconActionTooltip>
+                  </div>
+                  {hostError ||
+                  domain.status === 'pending' ||
+                  domain.status === 'failed' ||
+                  domain.status === 'disabled' ? (
+                    <Alert className="col-span-full mt-2 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400">
+                      <TriangleAlertIcon />
+                      <AlertTitle className="text-amber-600 dark:text-amber-400">
+                        {domain.status === 'disabled'
+                          ? `${domain.host} is disabled.`
+                          : hostError || domain.status === 'failed'
+                            ? `${domain.host} is not configured correctly.`
+                            : `${domain.host} is not yet verified.`}
+                      </AlertTitle>
+                      <AlertDescription className="text-foreground [&_p:not(:last-child)]:mb-0">
+                        <div className="flex flex-col gap-4">
+                          {domain.status === 'disabled' ? (
+                            <p>
+                              Select an active environment and save the domain
+                              before verifying.
+                            </p>
+                          ) : address ? (
+                            <>
+                              <p>
+                                Add one or both of the following DNS records at
+                                your domain provider pointing to {server.name},
+                                the server assigned to {environment?.name}.
+                                Disable CDN/proxy mode while verifying this
+                                domain. After changing the records, click Verify
+                                to check status.
+                              </p>
+                              <div className="scrollbar overflow-x-auto rounded-md border">
+                                <table className="w-full text-left text-sm">
+                                  <thead className="text-muted-foreground">
+                                    <tr>
+                                      <th className="px-3 py-2 font-medium first:pl-4 last:pr-4">
+                                        Type
+                                      </th>
+                                      <th className="px-3 py-2 font-medium first:pl-4 last:pr-4">
+                                        Name
+                                      </th>
+                                      <th className="px-3 py-2 font-medium first:pl-4 last:pr-4">
+                                        Value
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="font-mono text-xs">
+                                    {addresses.map((dnsAddress) => (
+                                      <tr key={dnsAddress} className="border-t">
+                                        <td className="px-3 py-2 first:pl-4 last:pr-4">
+                                          {dnsAddress.includes(':')
+                                            ? 'AAAA'
+                                            : 'A'}
+                                        </td>
+                                        <td className="px-3 py-2 first:pl-4 last:pr-4">
+                                          {domain.host}
+                                        </td>
+                                        <td className="px-3 py-2 first:pl-4 last:pr-4">
+                                          {dnsAddress}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </>
+                          ) : (
+                            <p>
+                              {server
+                                ? 'The assigned server has no public IP address. Configure its public address before verifying.'
+                                : 'Assign a server to this environment before configuring its DNS records.'}
+                            </p>
+                          )}
+                          {hostError ? (
+                            <p className="text-muted-foreground">
+                              Error details: {hostError}
+                            </p>
+                          ) : null}
+                        </div>
+                      </AlertDescription>
+                      <AlertAction>
+                        <Button
+                          variant="default"
+                          size="xs"
+                          type="button"
+                          disabled={
+                            verificationDisabled ||
+                            !domain.status ||
+                            verifyingDomainId !== null
+                          }
+                          aria-label={`Verify ${domain.host || 'domain'}`}
+                          onClick={() => void onVerify(domain.id)}
+                        >
+                          {verifyingDomainId === domain.id ? (
+                            <LoaderIcon
+                              data-icon="inline-start"
+                              className="animate-spin"
+                            />
+                          ) : null}
+                          Verify
+                        </Button>
+                      </AlertAction>
+                    </Alert>
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
-          <p className="text-xs text-muted-foreground">* Required</p>
           <Button variant="outline" type="button" onClick={addDomain}>
             <PlusIcon data-icon="inline-start" />
             Add domain

@@ -1,5 +1,5 @@
 import { and, eq, gt } from 'drizzle-orm'
-import { auth } from '@/lib/auth'
+import { auth } from '@/server/auth/better-auth'
 import { db } from '@/server/db'
 import {
   session,
@@ -10,8 +10,10 @@ import {
   projects,
 } from '@/server/db/schema'
 import { getWorkspaceUpdates } from '@/server/runtime/platform-env'
+import { resolveProxyRequest } from '@/server/http/proxy-request'
 
 export async function authorizeWorkspaceUpdates(request: Request) {
+  request = resolveProxyRequest(request)
   const origin = request.headers.get('Origin')
   const upgrade = request.headers.get('Upgrade')?.toLowerCase() === 'websocket'
   if (

@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TeamSlugRouteImport } from './routes/$teamSlug'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as McpRouteImport } from './routes/mcp'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TeamSlugIndexRouteImport } from './routes/$teamSlug.index'
 import { Route as TeamSlugNewProjectRouteImport } from './routes/$teamSlug.new-project'
@@ -21,25 +23,33 @@ import { Route as TeamSlugSettingsRouteImport } from './routes/$teamSlug.setting
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as InvitesTokenRouteImport } from './routes/invites.$token'
+import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
+import { Route as OnboardingPlansRouteImport } from './routes/onboarding.plans'
 import { Route as TeamSlugProjectsProjectNameRouteImport } from './routes/$teamSlug.projects.$projectName'
 import { Route as TeamSlugServersIndexRouteImport } from './routes/$teamSlug.servers.index'
 import { Route as TeamSlugServersServerIdRouteImport } from './routes/$teamSlug.servers.$serverId'
+import { Route as DotwellKnownOauthProtectedResourceMcpRouteImport } from './routes/[.]well-known.oauth-protected-resource.mcp'
+import { Route as ApiAgentsCertificatesRouteImport } from './routes/api/agents/certificates'
 import { Route as ApiAgentsHeartbeatRouteImport } from './routes/api/agents/heartbeat'
+import { Route as ApiAgentsJobLogsRouteImport } from './routes/api/agents/job-logs'
 import { Route as ApiAgentsRegisterRouteImport } from './routes/api/agents/register'
 import { Route as ApiAgentsRuntimeLogsRouteImport } from './routes/api/agents/runtime-logs'
 import { Route as ApiAgentsSwitchRouteImport } from './routes/api/agents/switch'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronBackupsRouteImport } from './routes/api/cron/backups'
 import { Route as ApiCronMaintenanceRouteImport } from './routes/api/cron/maintenance'
+import { Route as ApiDeploymentSplatRouteImport } from './routes/api/deployment/$'
 import { Route as ApiGithubInstallRouteImport } from './routes/api/github/install'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
 import { Route as ApiInstallAgentRouteImport } from './routes/api/install/agent'
+import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiWorkspacesUpdatesRouteImport } from './routes/api/workspaces/updates'
 import { Route as UploadsAvatarsFileNameRouteImport } from './routes/uploads/avatars/$fileName'
 import { Route as TeamSlugProjectsProjectNameBackupsRouteImport } from './routes/$teamSlug.projects.$projectName.backups'
 import { Route as TeamSlugProjectsProjectNameDeploymentsRouteImport } from './routes/$teamSlug.projects.$projectName.deployments'
 import { Route as TeamSlugProjectsProjectNameLogsRouteImport } from './routes/$teamSlug.projects.$projectName.logs'
 import { Route as TeamSlugProjectsProjectNameSettingsRouteImport } from './routes/$teamSlug.projects.$projectName.settings'
+import { Route as DotwellKnownOauthAuthorizationServerApiAuthRouteImport } from './routes/[.]well-known.oauth-authorization-server.api.auth'
 import { Route as ApiAgentsCredentialsRotateRouteImport } from './routes/api/agents/credentials/rotate'
 import { Route as ApiAgentsJobsCompleteRouteImport } from './routes/api/agents/jobs/complete'
 import { Route as ApiAgentsJobsNextRouteImport } from './routes/api/agents/jobs/next'
@@ -65,6 +75,16 @@ const TeamSlugRoute = TeamSlugRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -112,6 +132,16 @@ const InvitesTokenRoute = InvitesTokenRouteImport.update({
   path: '/invites/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthConsentRoute = OauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingPlansRoute = OnboardingPlansRouteImport.update({
+  id: '/plans',
+  path: '/plans',
+  getParentRoute: () => OnboardingRoute,
+} as any)
 const TeamSlugProjectsProjectNameRoute =
   TeamSlugProjectsProjectNameRouteImport.update({
     id: '/$projectName',
@@ -128,9 +158,25 @@ const TeamSlugServersServerIdRoute = TeamSlugServersServerIdRouteImport.update({
   path: '/$serverId',
   getParentRoute: () => TeamSlugServersRoute,
 } as any)
+const DotwellKnownOauthProtectedResourceMcpRoute =
+  DotwellKnownOauthProtectedResourceMcpRouteImport.update({
+    id: '/.well-known/oauth-protected-resource/mcp',
+    path: '/.well-known/oauth-protected-resource/mcp',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentsCertificatesRoute = ApiAgentsCertificatesRouteImport.update({
+  id: '/api/agents/certificates',
+  path: '/api/agents/certificates',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentsHeartbeatRoute = ApiAgentsHeartbeatRouteImport.update({
   id: '/api/agents/heartbeat',
   path: '/api/agents/heartbeat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentsJobLogsRoute = ApiAgentsJobLogsRouteImport.update({
+  id: '/api/agents/job-logs',
+  path: '/api/agents/job-logs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAgentsRegisterRoute = ApiAgentsRegisterRouteImport.update({
@@ -163,6 +209,11 @@ const ApiCronMaintenanceRoute = ApiCronMaintenanceRouteImport.update({
   path: '/api/cron/maintenance',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDeploymentSplatRoute = ApiDeploymentSplatRouteImport.update({
+  id: '/api/deployment/$',
+  path: '/api/deployment/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGithubInstallRoute = ApiGithubInstallRouteImport.update({
   id: '/api/github/install',
   path: '/api/github/install',
@@ -176,6 +227,11 @@ const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
 const ApiInstallAgentRoute = ApiInstallAgentRouteImport.update({
   id: '/api/install/agent',
   path: '/api/install/agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
+  id: '/api/v1/$',
+  path: '/api/v1/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWorkspacesUpdatesRoute = ApiWorkspacesUpdatesRouteImport.update({
@@ -211,6 +267,12 @@ const TeamSlugProjectsProjectNameSettingsRoute =
     id: '/settings',
     path: '/settings',
     getParentRoute: () => TeamSlugProjectsProjectNameRoute,
+  } as any)
+const DotwellKnownOauthAuthorizationServerApiAuthRoute =
+  DotwellKnownOauthAuthorizationServerApiAuthRouteImport.update({
+    id: '/.well-known/oauth-authorization-server/api/auth',
+    path: '/.well-known/oauth-authorization-server/api/auth',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiAgentsCredentialsRotateRoute =
   ApiAgentsCredentialsRotateRouteImport.update({
@@ -276,6 +338,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$teamSlug': typeof TeamSlugRouteWithChildren
   '/admin': typeof AdminRoute
+  '/mcp': typeof McpRoute
+  '/onboarding': typeof OnboardingRouteWithChildren
   '/settings': typeof SettingsRoute
   '/$teamSlug/new-project': typeof TeamSlugNewProjectRoute
   '/$teamSlug/projects': typeof TeamSlugProjectsRouteWithChildren
@@ -284,19 +348,26 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/auth/login': typeof AuthLoginRoute
   '/invites/$token': typeof InvitesTokenRoute
+  '/oauth/consent': typeof OauthConsentRoute
+  '/onboarding/plans': typeof OnboardingPlansRoute
   '/$teamSlug/': typeof TeamSlugIndexRoute
   '/$teamSlug/projects/$projectName': typeof TeamSlugProjectsProjectNameRouteWithChildren
   '/$teamSlug/servers/$serverId': typeof TeamSlugServersServerIdRoute
+  '/.well-known/oauth-protected-resource/mcp': typeof DotwellKnownOauthProtectedResourceMcpRoute
+  '/api/agents/certificates': typeof ApiAgentsCertificatesRoute
   '/api/agents/heartbeat': typeof ApiAgentsHeartbeatRoute
+  '/api/agents/job-logs': typeof ApiAgentsJobLogsRoute
   '/api/agents/register': typeof ApiAgentsRegisterRoute
   '/api/agents/runtime-logs': typeof ApiAgentsRuntimeLogsRoute
   '/api/agents/switch': typeof ApiAgentsSwitchRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
+  '/api/deployment/$': typeof ApiDeploymentSplatRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
   '/$teamSlug/servers/': typeof TeamSlugServersIndexRoute
@@ -304,6 +375,7 @@ export interface FileRoutesByFullPath {
   '/$teamSlug/projects/$projectName/deployments': typeof TeamSlugProjectsProjectNameDeploymentsRouteWithChildren
   '/$teamSlug/projects/$projectName/logs': typeof TeamSlugProjectsProjectNameLogsRoute
   '/$teamSlug/projects/$projectName/settings': typeof TeamSlugProjectsProjectNameSettingsRoute
+  '/.well-known/oauth-authorization-server/api/auth': typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   '/api/agents/credentials/rotate': typeof ApiAgentsCredentialsRotateRoute
   '/api/agents/jobs/complete': typeof ApiAgentsJobsCompleteRoute
   '/api/agents/jobs/next': typeof ApiAgentsJobsNextRoute
@@ -319,6 +391,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/mcp': typeof McpRoute
+  '/onboarding': typeof OnboardingRouteWithChildren
   '/settings': typeof SettingsRoute
   '/$teamSlug/new-project': typeof TeamSlugNewProjectRoute
   '/$teamSlug/projects': typeof TeamSlugProjectsRouteWithChildren
@@ -326,19 +400,26 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/auth/login': typeof AuthLoginRoute
   '/invites/$token': typeof InvitesTokenRoute
+  '/oauth/consent': typeof OauthConsentRoute
+  '/onboarding/plans': typeof OnboardingPlansRoute
   '/$teamSlug': typeof TeamSlugIndexRoute
   '/$teamSlug/projects/$projectName': typeof TeamSlugProjectsProjectNameRouteWithChildren
   '/$teamSlug/servers/$serverId': typeof TeamSlugServersServerIdRoute
+  '/.well-known/oauth-protected-resource/mcp': typeof DotwellKnownOauthProtectedResourceMcpRoute
+  '/api/agents/certificates': typeof ApiAgentsCertificatesRoute
   '/api/agents/heartbeat': typeof ApiAgentsHeartbeatRoute
+  '/api/agents/job-logs': typeof ApiAgentsJobLogsRoute
   '/api/agents/register': typeof ApiAgentsRegisterRoute
   '/api/agents/runtime-logs': typeof ApiAgentsRuntimeLogsRoute
   '/api/agents/switch': typeof ApiAgentsSwitchRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
+  '/api/deployment/$': typeof ApiDeploymentSplatRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
   '/$teamSlug/servers': typeof TeamSlugServersIndexRoute
@@ -346,6 +427,7 @@ export interface FileRoutesByTo {
   '/$teamSlug/projects/$projectName/deployments': typeof TeamSlugProjectsProjectNameDeploymentsRouteWithChildren
   '/$teamSlug/projects/$projectName/logs': typeof TeamSlugProjectsProjectNameLogsRoute
   '/$teamSlug/projects/$projectName/settings': typeof TeamSlugProjectsProjectNameSettingsRoute
+  '/.well-known/oauth-authorization-server/api/auth': typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   '/api/agents/credentials/rotate': typeof ApiAgentsCredentialsRotateRoute
   '/api/agents/jobs/complete': typeof ApiAgentsJobsCompleteRoute
   '/api/agents/jobs/next': typeof ApiAgentsJobsNextRoute
@@ -363,6 +445,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$teamSlug': typeof TeamSlugRouteWithChildren
   '/admin': typeof AdminRoute
+  '/mcp': typeof McpRoute
+  '/onboarding': typeof OnboardingRouteWithChildren
   '/settings': typeof SettingsRoute
   '/$teamSlug/new-project': typeof TeamSlugNewProjectRoute
   '/$teamSlug/projects': typeof TeamSlugProjectsRouteWithChildren
@@ -371,19 +455,26 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/auth/login': typeof AuthLoginRoute
   '/invites/$token': typeof InvitesTokenRoute
+  '/oauth/consent': typeof OauthConsentRoute
+  '/onboarding/plans': typeof OnboardingPlansRoute
   '/$teamSlug/': typeof TeamSlugIndexRoute
   '/$teamSlug/projects/$projectName': typeof TeamSlugProjectsProjectNameRouteWithChildren
   '/$teamSlug/servers/$serverId': typeof TeamSlugServersServerIdRoute
+  '/.well-known/oauth-protected-resource/mcp': typeof DotwellKnownOauthProtectedResourceMcpRoute
+  '/api/agents/certificates': typeof ApiAgentsCertificatesRoute
   '/api/agents/heartbeat': typeof ApiAgentsHeartbeatRoute
+  '/api/agents/job-logs': typeof ApiAgentsJobLogsRoute
   '/api/agents/register': typeof ApiAgentsRegisterRoute
   '/api/agents/runtime-logs': typeof ApiAgentsRuntimeLogsRoute
   '/api/agents/switch': typeof ApiAgentsSwitchRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
+  '/api/deployment/$': typeof ApiDeploymentSplatRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
   '/$teamSlug/servers/': typeof TeamSlugServersIndexRoute
@@ -391,6 +482,7 @@ export interface FileRoutesById {
   '/$teamSlug/projects/$projectName/deployments': typeof TeamSlugProjectsProjectNameDeploymentsRouteWithChildren
   '/$teamSlug/projects/$projectName/logs': typeof TeamSlugProjectsProjectNameLogsRoute
   '/$teamSlug/projects/$projectName/settings': typeof TeamSlugProjectsProjectNameSettingsRoute
+  '/.well-known/oauth-authorization-server/api/auth': typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   '/api/agents/credentials/rotate': typeof ApiAgentsCredentialsRotateRoute
   '/api/agents/jobs/complete': typeof ApiAgentsJobsCompleteRoute
   '/api/agents/jobs/next': typeof ApiAgentsJobsNextRoute
@@ -409,6 +501,8 @@ export interface FileRouteTypes {
     | '/'
     | '/$teamSlug'
     | '/admin'
+    | '/mcp'
+    | '/onboarding'
     | '/settings'
     | '/$teamSlug/new-project'
     | '/$teamSlug/projects'
@@ -417,19 +511,26 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/auth/login'
     | '/invites/$token'
+    | '/oauth/consent'
+    | '/onboarding/plans'
     | '/$teamSlug/'
     | '/$teamSlug/projects/$projectName'
     | '/$teamSlug/servers/$serverId'
+    | '/.well-known/oauth-protected-resource/mcp'
+    | '/api/agents/certificates'
     | '/api/agents/heartbeat'
+    | '/api/agents/job-logs'
     | '/api/agents/register'
     | '/api/agents/runtime-logs'
     | '/api/agents/switch'
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
+    | '/api/deployment/$'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/v1/$'
     | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
     | '/$teamSlug/servers/'
@@ -437,6 +538,7 @@ export interface FileRouteTypes {
     | '/$teamSlug/projects/$projectName/deployments'
     | '/$teamSlug/projects/$projectName/logs'
     | '/$teamSlug/projects/$projectName/settings'
+    | '/.well-known/oauth-authorization-server/api/auth'
     | '/api/agents/credentials/rotate'
     | '/api/agents/jobs/complete'
     | '/api/agents/jobs/next'
@@ -452,6 +554,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/mcp'
+    | '/onboarding'
     | '/settings'
     | '/$teamSlug/new-project'
     | '/$teamSlug/projects'
@@ -459,19 +563,26 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/auth/login'
     | '/invites/$token'
+    | '/oauth/consent'
+    | '/onboarding/plans'
     | '/$teamSlug'
     | '/$teamSlug/projects/$projectName'
     | '/$teamSlug/servers/$serverId'
+    | '/.well-known/oauth-protected-resource/mcp'
+    | '/api/agents/certificates'
     | '/api/agents/heartbeat'
+    | '/api/agents/job-logs'
     | '/api/agents/register'
     | '/api/agents/runtime-logs'
     | '/api/agents/switch'
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
+    | '/api/deployment/$'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/v1/$'
     | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
     | '/$teamSlug/servers'
@@ -479,6 +590,7 @@ export interface FileRouteTypes {
     | '/$teamSlug/projects/$projectName/deployments'
     | '/$teamSlug/projects/$projectName/logs'
     | '/$teamSlug/projects/$projectName/settings'
+    | '/.well-known/oauth-authorization-server/api/auth'
     | '/api/agents/credentials/rotate'
     | '/api/agents/jobs/complete'
     | '/api/agents/jobs/next'
@@ -495,6 +607,8 @@ export interface FileRouteTypes {
     | '/'
     | '/$teamSlug'
     | '/admin'
+    | '/mcp'
+    | '/onboarding'
     | '/settings'
     | '/$teamSlug/new-project'
     | '/$teamSlug/projects'
@@ -503,19 +617,26 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/auth/login'
     | '/invites/$token'
+    | '/oauth/consent'
+    | '/onboarding/plans'
     | '/$teamSlug/'
     | '/$teamSlug/projects/$projectName'
     | '/$teamSlug/servers/$serverId'
+    | '/.well-known/oauth-protected-resource/mcp'
+    | '/api/agents/certificates'
     | '/api/agents/heartbeat'
+    | '/api/agents/job-logs'
     | '/api/agents/register'
     | '/api/agents/runtime-logs'
     | '/api/agents/switch'
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
+    | '/api/deployment/$'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/v1/$'
     | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
     | '/$teamSlug/servers/'
@@ -523,6 +644,7 @@ export interface FileRouteTypes {
     | '/$teamSlug/projects/$projectName/deployments'
     | '/$teamSlug/projects/$projectName/logs'
     | '/$teamSlug/projects/$projectName/settings'
+    | '/.well-known/oauth-authorization-server/api/auth'
     | '/api/agents/credentials/rotate'
     | '/api/agents/jobs/complete'
     | '/api/agents/jobs/next'
@@ -540,22 +662,31 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TeamSlugRoute: typeof TeamSlugRouteWithChildren
   AdminRoute: typeof AdminRoute
+  McpRoute: typeof McpRoute
+  OnboardingRoute: typeof OnboardingRouteWithChildren
   SettingsRoute: typeof SettingsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   AuthLoginRoute: typeof AuthLoginRoute
   InvitesTokenRoute: typeof InvitesTokenRoute
+  OauthConsentRoute: typeof OauthConsentRoute
+  DotwellKnownOauthProtectedResourceMcpRoute: typeof DotwellKnownOauthProtectedResourceMcpRoute
+  ApiAgentsCertificatesRoute: typeof ApiAgentsCertificatesRoute
   ApiAgentsHeartbeatRoute: typeof ApiAgentsHeartbeatRoute
+  ApiAgentsJobLogsRoute: typeof ApiAgentsJobLogsRoute
   ApiAgentsRegisterRoute: typeof ApiAgentsRegisterRoute
   ApiAgentsRuntimeLogsRoute: typeof ApiAgentsRuntimeLogsRoute
   ApiAgentsSwitchRoute: typeof ApiAgentsSwitchRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronBackupsRoute: typeof ApiCronBackupsRoute
   ApiCronMaintenanceRoute: typeof ApiCronMaintenanceRoute
+  ApiDeploymentSplatRoute: typeof ApiDeploymentSplatRoute
   ApiGithubInstallRoute: typeof ApiGithubInstallRouteWithChildren
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
   ApiInstallAgentRoute: typeof ApiInstallAgentRouteWithChildren
+  ApiV1SplatRoute: typeof ApiV1SplatRoute
   ApiWorkspacesUpdatesRoute: typeof ApiWorkspacesUpdatesRoute
   UploadsAvatarsFileNameRoute: typeof UploadsAvatarsFileNameRoute
+  DotwellKnownOauthAuthorizationServerApiAuthRoute: typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   ApiAgentsCredentialsRotateRoute: typeof ApiAgentsCredentialsRotateRoute
   ApiAgentsJobsCompleteRoute: typeof ApiAgentsJobsCompleteRoute
   ApiAgentsJobsNextRoute: typeof ApiAgentsJobsNextRoute
@@ -584,6 +715,20 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -649,6 +794,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InvitesTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/consent': {
+      id: '/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding/plans': {
+      id: '/onboarding/plans'
+      path: '/plans'
+      fullPath: '/onboarding/plans'
+      preLoaderRoute: typeof OnboardingPlansRouteImport
+      parentRoute: typeof OnboardingRoute
+    }
     '/$teamSlug/projects/$projectName': {
       id: '/$teamSlug/projects/$projectName'
       path: '/$projectName'
@@ -670,11 +829,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamSlugServersServerIdRouteImport
       parentRoute: typeof TeamSlugServersRoute
     }
+    '/.well-known/oauth-protected-resource/mcp': {
+      id: '/.well-known/oauth-protected-resource/mcp'
+      path: '/.well-known/oauth-protected-resource/mcp'
+      fullPath: '/.well-known/oauth-protected-resource/mcp'
+      preLoaderRoute: typeof DotwellKnownOauthProtectedResourceMcpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agents/certificates': {
+      id: '/api/agents/certificates'
+      path: '/api/agents/certificates'
+      fullPath: '/api/agents/certificates'
+      preLoaderRoute: typeof ApiAgentsCertificatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agents/heartbeat': {
       id: '/api/agents/heartbeat'
       path: '/api/agents/heartbeat'
       fullPath: '/api/agents/heartbeat'
       preLoaderRoute: typeof ApiAgentsHeartbeatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agents/job-logs': {
+      id: '/api/agents/job-logs'
+      path: '/api/agents/job-logs'
+      fullPath: '/api/agents/job-logs'
+      preLoaderRoute: typeof ApiAgentsJobLogsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agents/register': {
@@ -719,6 +899,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCronMaintenanceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/deployment/$': {
+      id: '/api/deployment/$'
+      path: '/api/deployment/$'
+      fullPath: '/api/deployment/$'
+      preLoaderRoute: typeof ApiDeploymentSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/github/install': {
       id: '/api/github/install'
       path: '/api/github/install'
@@ -738,6 +925,13 @@ declare module '@tanstack/react-router' {
       path: '/api/install/agent'
       fullPath: '/api/install/agent'
       preLoaderRoute: typeof ApiInstallAgentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/$': {
+      id: '/api/v1/$'
+      path: '/api/v1/$'
+      fullPath: '/api/v1/$'
+      preLoaderRoute: typeof ApiV1SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspaces/updates': {
@@ -781,6 +975,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$teamSlug/projects/$projectName/settings'
       preLoaderRoute: typeof TeamSlugProjectsProjectNameSettingsRouteImport
       parentRoute: typeof TeamSlugProjectsProjectNameRoute
+    }
+    '/.well-known/oauth-authorization-server/api/auth': {
+      id: '/.well-known/oauth-authorization-server/api/auth'
+      path: '/.well-known/oauth-authorization-server/api/auth'
+      fullPath: '/.well-known/oauth-authorization-server/api/auth'
+      preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerApiAuthRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/agents/credentials/rotate': {
       id: '/api/agents/credentials/rotate'
@@ -961,6 +1162,18 @@ const TeamSlugRouteWithChildren = TeamSlugRoute._addFileChildren(
   TeamSlugRouteChildren,
 )
 
+interface OnboardingRouteChildren {
+  OnboardingPlansRoute: typeof OnboardingPlansRoute
+}
+
+const OnboardingRouteChildren: OnboardingRouteChildren = {
+  OnboardingPlansRoute: OnboardingPlansRoute,
+}
+
+const OnboardingRouteWithChildren = OnboardingRoute._addFileChildren(
+  OnboardingRouteChildren,
+)
+
 interface ApiGithubInstallRouteChildren {
   ApiGithubInstallCallbackRoute: typeof ApiGithubInstallCallbackRoute
 }
@@ -992,22 +1205,33 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TeamSlugRoute: TeamSlugRouteWithChildren,
   AdminRoute: AdminRoute,
+  McpRoute: McpRoute,
+  OnboardingRoute: OnboardingRouteWithChildren,
   SettingsRoute: SettingsRoute,
   ApiHealthRoute: ApiHealthRoute,
   AuthLoginRoute: AuthLoginRoute,
   InvitesTokenRoute: InvitesTokenRoute,
+  OauthConsentRoute: OauthConsentRoute,
+  DotwellKnownOauthProtectedResourceMcpRoute:
+    DotwellKnownOauthProtectedResourceMcpRoute,
+  ApiAgentsCertificatesRoute: ApiAgentsCertificatesRoute,
   ApiAgentsHeartbeatRoute: ApiAgentsHeartbeatRoute,
+  ApiAgentsJobLogsRoute: ApiAgentsJobLogsRoute,
   ApiAgentsRegisterRoute: ApiAgentsRegisterRoute,
   ApiAgentsRuntimeLogsRoute: ApiAgentsRuntimeLogsRoute,
   ApiAgentsSwitchRoute: ApiAgentsSwitchRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronBackupsRoute: ApiCronBackupsRoute,
   ApiCronMaintenanceRoute: ApiCronMaintenanceRoute,
+  ApiDeploymentSplatRoute: ApiDeploymentSplatRoute,
   ApiGithubInstallRoute: ApiGithubInstallRouteWithChildren,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
   ApiInstallAgentRoute: ApiInstallAgentRouteWithChildren,
+  ApiV1SplatRoute: ApiV1SplatRoute,
   ApiWorkspacesUpdatesRoute: ApiWorkspacesUpdatesRoute,
   UploadsAvatarsFileNameRoute: UploadsAvatarsFileNameRoute,
+  DotwellKnownOauthAuthorizationServerApiAuthRoute:
+    DotwellKnownOauthAuthorizationServerApiAuthRoute,
   ApiAgentsCredentialsRotateRoute: ApiAgentsCredentialsRotateRoute,
   ApiAgentsJobsCompleteRoute: ApiAgentsJobsCompleteRoute,
   ApiAgentsJobsNextRoute: ApiAgentsJobsNextRoute,

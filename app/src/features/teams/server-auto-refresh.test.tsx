@@ -13,10 +13,12 @@ import { setWorkspaceConnected } from '@/lib/workspace-updates'
 import { useWorkspaceUpdates } from './use-workspace-updates'
 
 const source = vi.hoisted(() => ({ status: 'disconnected' }))
-vi.mock('@/server/auth/context', () => ({
+vi.mock('@/server/servers/functions', () => ({
   getTeamServerContext: vi.fn(async () => ({
     server: { status: source.status },
   })),
+}))
+vi.mock('@/server/teams/functions', () => ({
   getTeamSectionContext: vi.fn(async () => ({
     section: 'servers',
     servers: [{ status: source.status }],

@@ -15,22 +15,25 @@ jobs:
       DEVPUSH_BASE_URL: http://localhost:7429
       DEVPUSH_SECRET_ENCRYPTION_KEY: ci-secret-encryption-key
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           version: 10.17.1
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.mod
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm docs:check
       - run: pnpm test
+        env:
+          DEVPUSH_RUN_DOCKER_TESTS: '1'
       - run: pnpm build
       - run: pnpm --dir app db:migrate
       - run: pnpm test:integration
@@ -38,6 +41,12 @@ jobs:
       - run: pnpm agent:test
       - run: go vet ./agent/...
       - run: pnpm audit:dependencies
+
+  production-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: bash scripts/validate-production-image.sh
 
   worker:
     runs-on: ubuntu-latest
@@ -51,11 +60,11 @@ jobs:
         ports:
           - 7562:8080
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           version: 10.17.1
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm

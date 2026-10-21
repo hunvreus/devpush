@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '17 3 * * 1'
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -15,10 +15,10 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v3
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
 
   codeql:
     name: CodeQL (${{ matrix.language }})
@@ -35,11 +35,11 @@ jobs:
           - language: go
             build-mode: autobuild
     steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           build-mode: ${{ matrix.build-mode }}
           languages: ${{ matrix.language }}
       - if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/autobuild@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4

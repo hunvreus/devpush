@@ -36,7 +36,7 @@ vi.mock('@/server/projects/functions', () => ({
   getProject: vi.fn(),
   getProjectSection: mocks.section,
 }))
-vi.mock('@/server/auth/context', () => ({
+vi.mock('@/server/teams/functions', () => ({
   getTeamShellContext: vi.fn(),
   getTeamSectionContext: mocks.team,
 }))

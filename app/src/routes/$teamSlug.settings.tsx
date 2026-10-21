@@ -1,3 +1,4 @@
+import { pageHead } from '@/lib/page-head'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
@@ -20,6 +21,7 @@ export const Route = createFileRoute('/$teamSlug/settings')({
   pendingMinMs: 200,
   pendingComponent: TeamSettingsPending,
   component: TeamSettingsRoute,
+  head: ({ params }) => pageHead('Team settings', params.teamSlug),
 })
 
 function TeamSettingsRoute() {
@@ -40,6 +42,7 @@ function TeamSettingsRoute() {
 
   return (
     <TeamSettings
+      key={shell.team.id}
       team={shell.team}
       currentUserId={shell.userContext.user.id}
       isDefaultTeam={shell.userContext.user.defaultTeamId === shell.team.id}

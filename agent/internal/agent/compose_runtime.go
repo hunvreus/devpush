@@ -10,6 +10,38 @@ import (
 	"time"
 )
 
+// Inventory omission means discovery is unavailable. Never truncate a complete
+// inventory: the control plane could treat the omitted applications as absent.
+func heartbeatRuntimeIDs(ids []string) ([]string, error) {
+	managed := []string{}
+	for _, id := range ids {
+		if strings.HasPrefix(id, "dp_") {
+			managed = append(managed, id)
+		}
+	}
+	if len(managed) > 200 {
+		return nil, fmt.Errorf("managed runtime inventory exceeds heartbeat limit of 200")
+	}
+	return managed, nil
+}
+
+func heartbeatRuntimeStates(runtimes []composeRuntime) ([]composeRuntime, error) {
+	managed := []composeRuntime{}
+	for _, runtime := range runtimes {
+		if !strings.HasPrefix(runtime.RuntimeID, "dp_") {
+			continue
+		}
+		if len(runtime.Services) > 500 {
+			return nil, fmt.Errorf("managed runtime service inventory exceeds heartbeat limit of 500")
+		}
+		managed = append(managed, runtime)
+	}
+	if len(managed) > 200 {
+		return nil, fmt.Errorf("managed runtime state inventory exceeds heartbeat limit of 200")
+	}
+	return managed, nil
+}
+
 func (runner *Runner) removeComposeRuntime(ctx context.Context, runtimeID string, removeVolumes bool) error {
 	label := "com.docker.compose.project=" + runtimeID
 
@@ -34,7 +66,7 @@ func (runner *Runner) removeComposeRuntime(ctx context.Context, runtimeID string
 	}
 
 	if !removeVolumes {
-		return nil
+		return runner.pruneDeploymentDirectories(ctx, "")
 	}
 
 	volumeIDs, err := runner.dockerIDsByLabel(ctx, "volume", "ls", "-q", "--filter", "label="+label)
@@ -47,7 +79,7 @@ func (runner *Runner) removeComposeRuntime(ctx context.Context, runtimeID string
 		}
 	}
 
-	return nil
+	return runner.pruneDeploymentDirectories(ctx, "")
 }
 
 func (runner *Runner) dockerIDsByLabel(ctx context.Context, args ...string) ([]string, error) {
@@ -184,7 +216,7 @@ func (runner *Runner) commandOutput(ctx context.Context, dir string, name string
 	command.Dir = dir
 	command.Env = runner.commandEnv()
 	var stderr bytes.Buffer
-	command.Stderr = &stderr
+	command.Stderr = jobDiagnostics(ctx, &stderr)
 	output, err := command.Output()
 	if err != nil {
 		details := strings.TrimSpace(stderr.String())

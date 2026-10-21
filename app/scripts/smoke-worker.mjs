@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { parse } from 'jsonc-parser'
 import { createClient } from '@libsql/client/web'
+import { smokeMcp } from './smoke-mcp.mjs'
 
 const appDir = fileURLToPath(new URL('../', import.meta.url))
 const driver = process.argv[2]
@@ -30,6 +31,7 @@ config.main = resolve(appDir, 'src/server.ts')
 config.vars = {
   DEVPUSH_BASE_URL: origin,
   BETTER_AUTH_URL: origin,
+  DEVPUSH_MCP_URL: `${origin}/mcp`,
   BETTER_AUTH_SECRET: 'worker-smoke-auth-secret-over-thirty-two-characters',
   EMAIL_FROM: 'Smoke <smoke@example.invalid>',
   RESEND_API_KEY: 're_worker_smoke_invalid_key',
@@ -79,25 +81,45 @@ function run(command, args, capture = false) {
     )
   return result.stdout
 }
-function d1(index, sql) {
-  const output = run(
-    process.execPath,
-    [
-      'node_modules/wrangler/bin/wrangler.js',
-      'd1',
-      'execute',
-      index === 0 ? 'DEVPUSH_DATABASE' : 'DEVPUSH_LOG_DATABASE',
-      '--local',
-      '--config',
-      configPath,
-      '--persist-to',
-      statePath,
-      '--command',
-      sql,
-      '--json',
-    ],
-    true,
-  )
+function capture(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: appDir,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    child.once('error', reject)
+    child.once('close', (code) => {
+      if (code === 0) resolve(stdout)
+      else reject(new Error(`D1 fixture command failed (${code}): ${stderr}`))
+    })
+  })
+}
+async function d1(index, sql) {
+  // Keep the live HTTP client's timers, socket events and Wrangler output
+  // processing responsive while fixture commands run.
+  const output = await capture(process.execPath, [
+    'node_modules/wrangler/bin/wrangler.js',
+    'd1',
+    'execute',
+    index === 0 ? 'DEVPUSH_DATABASE' : 'DEVPUSH_LOG_DATABASE',
+    '--local',
+    '--config',
+    configPath,
+    '--persist-to',
+    statePath,
+    '--command',
+    sql,
+    '--json',
+  ])
   return JSON.parse(output)[0].results
 }
 async function query(index, sql) {
@@ -177,7 +199,6 @@ try {
     '/smoke-team',
     '/smoke-team/projects/demo/settings',
     '/settings',
-    '/admin',
   ]) {
     const response = await fetch(`${origin}${path}`, { redirect: 'manual' })
     assert.equal(
@@ -192,6 +213,14 @@ try {
       `Missing pending layout for ${path}`,
     )
   }
+  const adminResponse = await fetch(`${origin}/admin`, { redirect: 'manual' })
+  assert.equal(adminResponse.status, 307)
+  const adminLocation = new URL(adminResponse.headers.get('location'), origin)
+  assert.equal(adminLocation.origin, origin)
+  assert.equal(adminLocation.pathname, '/admin')
+  const canonicalAdmin = await fetch(adminLocation)
+  assert.equal(canonicalAdmin.status, 200)
+  assert.match(await canonicalAdmin.text(), /data-slot="skeleton"/)
   // Exercise auth writes without sending an email: rate limiting runs before
   // Better Auth rejects the malformed address.
   const invalidEmail = await fetch(
@@ -203,6 +232,15 @@ try {
     },
   )
   assert.equal(invalidEmail.status, 400, await invalidEmail.text())
+  await smokeMcp({ origin, query, authSecret: config.vars.BETTER_AUTH_SECRET })
+  await query(
+    0,
+    "insert into account(id,account_id,user_id,provider_id,access_token,refresh_token,id_token) select 'worker-smoke-provider','provider-id',id,'github','gho_worker_fixture','refresh-worker-fixture','header.payload.signature' from user order by id limit 1",
+  )
+  await query(
+    0,
+    "insert into teams(id,name,slug,status,updated_at) values('worker-smoke-deleted','Deleted team','worker-smoke-deleted','deleted',0)",
+  )
   const responses = await Promise.all(
     Array.from({ length: 20 }, () => fetch(`${origin}/api/health`)),
   )
@@ -226,13 +264,32 @@ try {
       1,
       "select count(*) as n from runtime_logs where id='worker-smoke-expired'",
     )
-    if (main[0].n === 0 && logs[0].n === 0) break
+    const provider = await query(
+      0,
+      "select access_token,refresh_token,id_token from account where id='worker-smoke-provider'",
+    )
+    const deleted = await query(
+      0,
+      "select count(*) as n from teams where id='worker-smoke-deleted'",
+    )
+    if (
+      main[0].n === 0 &&
+      logs[0].n === 0 &&
+      deleted[0].n === 0 &&
+      provider.length === 1 &&
+      provider[0].access_token !== 'gho_worker_fixture' &&
+      provider[0].refresh_token !== 'refresh-worker-fixture' &&
+      provider[0].id_token !== 'header.payload.signature'
+    )
+      break
     if (attempt === 19)
-      throw new Error('Scheduled cleanup did not update both stores.')
+      throw new Error(
+        'Scheduled cleanup or provider-token encryption did not finish.',
+      )
     await delay(250)
   }
   console.log(
-    `Worker ${driver}: login, concurrent health requests and main/log scheduled cleanup passed.`,
+    `Worker ${driver}: login, API/MCP browser authorization, concurrent health requests, scheduled resource/log cleanup and provider-token encryption passed.`,
   )
 } catch (error) {
   console.error(output)

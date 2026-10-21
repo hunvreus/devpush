@@ -1,3 +1,11 @@
+import { backupConfigSchema } from '@/lib/backup-policy-schema'
+import type { BackupPolicyInput } from '@/lib/backup-policy-schema'
+import type { BackupStorageReference } from '@/lib/backup-storage-schema'
+import { deleteProjectState } from '@/server/projects/deletion-state'
+import { deleteTeamState } from '@/server/teams/deletion-state'
+import { deleteServerState } from '@/server/servers/lifecycle'
+import { enqueueBackupCleanup } from './queue-state'
+import { getProjectContext } from '@/server/projects/context'
 import { finishBackup } from '@/server/agents/backup-state'
 import { buildDatabaseBackupCommand } from './database-commands'
 import {
@@ -6,11 +14,11 @@ import {
   getBackupStorage,
   resolveBackupDestination,
 } from './storage'
-import type { BackupDestination } from './service'
+import type { BackupDestination, BackupJobPayload } from './service'
 import { createHash } from 'node:crypto'
 
-import { eq, inArray, sql } from 'drizzle-orm'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
+import { eq, inArray } from 'drizzle-orm'
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
 import { closeDb, db } from '@/server/db'
 import {
@@ -33,15 +41,10 @@ import {
 import { currentAgentCapabilities } from '@/server/agents/compatibility'
 import { encryptSecret } from '@/server/secrets/crypto'
 import {
-  createBackupRun,
-  listEnvironmentBackupRuns,
-  listProjectBackupConfigs,
-  recordBackupArtifacts,
   queueDueBackupSchedules,
   queueEnvironmentBackup,
   queueBackupRetentionCleanupJobs,
   queueBackupRestoreJob,
-  upsertBackupConfig as upsertPolicy,
 } from './service'
 
 const touchedAgentJobIds: Array<string> = []
@@ -91,8 +94,8 @@ describe('backup service integration', () => {
         teamSlug: other.teamSlug,
         storageId,
       }),
-    ).rejects.toThrow('cannot be removed')
-    const policy = await upsertPolicy({
+    ).rejects.toMatchObject({ code: 'BACKUP_STORAGE_NOT_FOUND' })
+    const policy = await createBackupPolicyFixture({
       enabled: true,
       projectId: fixture.projectId,
       environmentId: fixture.environmentId,
@@ -201,14 +204,14 @@ describe('backup service integration', () => {
         teamSlug: owner.teamSlug,
         input,
       }),
-    ).rejects.toThrow('Forbidden')
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(
       deleteBackupStorage({
         userId: owner.userId,
         teamSlug: owner.teamSlug,
         storageId: storage.id,
       }),
-    ).rejects.toThrow('Forbidden')
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await db
       .update(teamMembers)
       .set({ role: 'admin' })
@@ -234,6 +237,33 @@ describe('backup service integration', () => {
     ).rejects.toThrow('Create another')
   })
 
+  test('a malformed retained policy does not abort maintenance', async () => {
+    const f = await createProjectEnvironment()
+    const policy = await createBackupPolicyFixture({
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      enabled: true,
+      destination: { bucket: 'integration-backups' },
+    })
+    touchedBackupConfigIds.push(policy.id)
+    await db
+      .update(backupConfigs)
+      .set({ retention: {} })
+      .where(eq(backupConfigs.id, policy.id))
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await expect(
+        queueBackupRetentionCleanupJobs({ projectId: f.projectId }),
+      ).resolves.toEqual([])
+      expect(logged).toHaveBeenCalledWith(
+        'Skipping backup retention policy with invalid settings.',
+        { policyId: policy.id },
+      )
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
   test('remote restore and retention keep the original destination after policy replacement and use rotated credentials', async () => {
     const fixture = await createProjectEnvironment()
     const input = {
@@ -251,7 +281,7 @@ describe('backup service integration', () => {
         input,
       })
     )[0]!
-    const policy = await upsertPolicy({
+    const policy = await createBackupPolicyFixture({
       projectId: fixture.projectId,
       environmentId: fixture.environmentId,
       enabled: true,
@@ -273,18 +303,18 @@ describe('backup service integration', () => {
       .update(backupRuns)
       .set({ status: 'succeeded', finishedAt: new Date('2026-01-01') })
       .where(eq(backupRuns.id, queued.backupRunId))
-    const artifacts = await recordBackupArtifacts({
-      backupRunId: queued.backupRunId,
-      artifacts: [
-        {
-          type: 'volume',
-          storage: 'remote',
-          objectKey: 'original/data.tar.gz',
-          checksumSha256: 'a'.repeat(64),
-          sizeBytes: 10,
-        },
-      ],
-    })
+    const artifacts = await db
+      .insert(backupArtifacts)
+      .values({
+        id: crypto.randomUUID(),
+        backupRunId: queued.backupRunId,
+        type: 'volume',
+        storage: 'remote',
+        objectKey: 'original/data.tar.gz',
+        checksumSha256: 'a'.repeat(64),
+        sizeBytes: 10,
+      })
+      .returning({ id: backupArtifacts.id })
     touchedArtifactIds.push(...artifacts.map((item) => item.id))
     const newer = (
       await saveBackupStorage({
@@ -315,21 +345,79 @@ describe('backup service integration', () => {
       ],
     })
     touchedAgentJobIds.push(restored.agentJobId)
+    const context = await getProjectContext({
+      userId: fixture.userId,
+      teamSlug: fixture.teamSlug,
+      projectName: makeSlug(fixture.projectId),
+      scope: 'backups',
+    })
+    const details = context.backupRestores.find(
+      (item) => item.id === restored.agentJobId,
+    )!
+    expect(details.artifacts).toEqual([
+      {
+        artifactId: artifacts[0]!.id,
+        type: 'volume',
+        targetVolume: 'data',
+        targetService: undefined,
+      },
+    ])
+    expect(details).not.toHaveProperty('destination')
+    expect(details.artifacts![0]).not.toHaveProperty('objectKey')
     expect(restored.payload.destination).toMatchObject({
       bucket: 'original-bucket',
-      accessKeyId: 'rotated-key',
+      storageId: storage.id,
+    })
+    const restoreClaim = await claimNextAgentJob({
+      serverId: fixture.serverId,
+      token: fixture.token,
+      protocolVersion: 1,
+      capabilities: ['jobs.restore.v1'],
+    })
+    expect(restoreClaim).toMatchObject({
+      type: 'restore',
+      id: restored.agentJobId,
+      restore: {
+        destination: {
+          bucket: 'original-bucket',
+          accessKeyId: 'rotated-key',
+          secretAccessKey: 'rotated-secret',
+        },
+      },
     })
     const cleanup = await queueBackupRetentionCleanupJobs({
       projectId: fixture.projectId,
-      now: new Date('2026-02-01'),
+      now: new Date(),
     })
     touchedAgentJobIds.push(...cleanup.map((item) => item.id))
     const cleanupJob = (
       await db.select().from(agentJobs).where(eq(agentJobs.id, cleanup[0]!.id))
     )[0]!
     expect(cleanupJob.payload).toMatchObject({
-      destination: { bucket: 'original-bucket', accessKeyId: 'rotated-key' },
+      destination: { bucket: 'original-bucket', storageId: storage.id },
     })
+    const cleanupClaim = await claimNextAgentJob({
+      serverId: fixture.serverId,
+      token: fixture.token,
+      protocolVersion: 1,
+      capabilities: ['jobs.backup.cleanup.v1'],
+    })
+    expect(cleanupClaim).toMatchObject({
+      type: 'backup_cleanup',
+      cleanup: {
+        destination: {
+          bucket: 'original-bucket',
+          accessKeyId: 'rotated-key',
+          secretAccessKey: 'rotated-secret',
+        },
+      },
+    })
+    // A subsequent restore is permitted after the earlier restore completes;
+    // simultaneous restores for one runtime are rejected by queue admission.
+    await db
+      .update(agentJobs)
+      .set({ status: 'succeeded', finishedAt: new Date() })
+      .where(eq(agentJobs.id, restored.agentJobId))
     await db.delete(backupConfigs).where(eq(backupConfigs.id, policy.id))
     const afterDelete = await queueBackupRestoreJob({
       projectId: fixture.projectId,
@@ -366,7 +454,7 @@ describe('backup service integration', () => {
         input: { ...input, name: 'Second', bucket: 'second-bucket' },
       })
     ).find((item) => item.bucket === 'second-bucket')!
-    const policy = await upsertPolicy({
+    const policy = await createBackupPolicyFixture({
       projectId: fixture.projectId,
       environmentId: fixture.environmentId,
       enabled: true,
@@ -389,6 +477,20 @@ describe('backup service integration', () => {
       id: secondId,
       destination: { storageId: second.id },
     })
+    let ambiguityError: unknown
+    try {
+      const unexpected = await queueEnvironmentBackup({
+        projectId: fixture.projectId,
+        environmentId: fixture.environmentId,
+      })
+      if (unexpected) {
+        touchedAgentJobIds.push(unexpected.agentJobId)
+        touchedBackupRunIds.push(unexpected.backupRunId)
+      }
+    } catch (error) {
+      ambiguityError = error
+    }
+    expect(ambiguityError).toMatchObject({ code: 'BACKUP_POLICY_REQUIRED' })
     const queued = (await queueEnvironmentBackup({
       projectId: fixture.projectId,
       environmentId: fixture.environmentId,
@@ -406,220 +508,11 @@ describe('backup service integration', () => {
     expect(run.configId).toBe(secondId)
   })
 
-  test('upserts backup configuration for an environment', async () => {
-    const { environmentId, projectId } = await createProjectEnvironment()
-
-    const config = await upsertBackupConfig({
-      projectId,
-      environmentId,
-      enabled: true,
-      destination: {
-        bucket: 'devpush-backups',
-        prefix: '/team/project/env/',
-        region: 'us-east-1',
-      },
-      databaseDumps: [
-        {
-          service: 'postgres',
-          engine: 'postgres',
-          database: '',
-        },
-      ],
-    })
-    touchedBackupConfigIds.push(config.id)
-
-    expect(config).toMatchObject({
-      projectId,
-      environmentId,
-      enabled: true,
-      destination: {
-        storageId: expect.any(String),
-        prefix: 'team/project/env',
-      },
-      retention: {
-        local: {
-          count: 7,
-          days: 0,
-          maxStorageGb: 0,
-        },
-        remote: {
-          enabled: false,
-          count: 7,
-          days: 0,
-          maxStorageGb: 0,
-        },
-      },
-      databaseDumps: [
-        {
-          service: 'postgres',
-          engine: 'postgres',
-          database: '',
-        },
-      ],
-    })
-
-    const updated = await upsertBackupConfig({
-      projectId,
-      environmentId,
-      enabled: false,
-      destination: { bucket: 'devpush-backups', prefix: 'updated' },
-      retention: {
-        local: {
-          count: 3,
-          days: 0,
-          maxStorageGb: 0,
-        },
-        remote: {
-          enabled: true,
-          count: 3,
-          days: 0,
-          maxStorageGb: 0,
-        },
-      },
-    })
-
-    const configs = await listProjectBackupConfigs(projectId)
-
-    expect(updated.id).toBe(config.id)
-    expect(configs).toHaveLength(1)
-    expect(configs[0]).toMatchObject({
-      id: config.id,
-      enabled: false,
-      destination: { storageId: expect.any(String), prefix: 'updated' },
-      retention: {
-        local: {
-          count: 3,
-          days: 0,
-          maxStorageGb: 0,
-        },
-        remote: {
-          enabled: true,
-          count: 3,
-          days: 0,
-          maxStorageGb: 0,
-        },
-      },
-      databaseDumps: [],
-    })
-  })
-
-  test('rejects backup config for an environment outside the project', async () => {
-    const first = await createProjectEnvironment()
-    const second = await createProjectEnvironment()
-
-    await expect(
-      upsertBackupConfig({
-        projectId: first.projectId,
-        environmentId: second.environmentId,
-        enabled: true,
-        destination: {
-          bucket: 'devpush-backups',
-        },
-      }),
-    ).rejects.toThrow('Backup environment not found.')
-  })
-
-  test('records backup runs and artifacts', async () => {
-    const { environmentId, projectId, serverId } =
-      await createProjectEnvironment()
-
-    const run = await createBackupRun({
-      projectId,
-      environmentId,
-      serverId,
-      runtimeId: 'dp_project_production',
-      manifest: {
-        schemaVersion: 1,
-        commit: 'abc123',
-      },
-    })
-    touchedBackupRunIds.push(run.id)
-
-    const artifacts = await recordBackupArtifacts({
-      backupRunId: run.id,
-      artifacts: [
-        {
-          type: 'manifest',
-          storage: 'remote',
-          objectKey: 'manifest.json',
-          checksumSha256:
-            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          sizeBytes: 512,
-        },
-        {
-          type: 'volume',
-          storage: 'local',
-          objectKey: 'volumes/postgres-data.tar.zst',
-          checksumSha256:
-            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-          sizeBytes: 1024,
-        },
-      ],
-    })
-    touchedArtifactIds.push(...artifacts.map((artifact) => artifact.id))
-
-    const runs = await listEnvironmentBackupRuns(environmentId)
-
-    expect(run).toMatchObject({
-      projectId,
-      environmentId,
-      serverId,
-      runtimeId: 'dp_project_production',
-      status: 'queued',
-    })
-    expect(artifacts).toHaveLength(2)
-    expect(runs.map((item) => item.id)).toEqual([run.id])
-  })
-
-  test('keeps artifact chunks atomic when a later chunk fails', async () => {
-    const { environmentId, projectId, serverId } =
-      await createProjectEnvironment()
-    const run = await createBackupRun({
-      projectId,
-      environmentId,
-      serverId,
-      runtimeId: 'chunk-test',
-    })
-    touchedBackupRunIds.push(run.id)
-    const values = Array.from({ length: 20 }, (_, index) => ({
-      type: 'volume' as const,
-      storage: 'local' as const,
-      objectKey: `chunk-${index}`,
-      checksumSha256: 'a'.repeat(64),
-      sizeBytes: 1,
-    }))
-    await db.run(
-      sql`create trigger reject_late_artifact before insert on backup_artifacts when new.object_key = 'chunk-19' begin select raise(abort, 'late artifact failure'); end`,
-    )
-    try {
-      await expect(
-        recordBackupArtifacts({ backupRunId: run.id, artifacts: values }),
-      ).rejects.toThrow()
-      expect(
-        await db
-          .select()
-          .from(backupArtifacts)
-          .where(eq(backupArtifacts.backupRunId, run.id)),
-      ).toEqual([])
-    } finally {
-      await db.run(sql`drop trigger reject_late_artifact`)
-    }
-    const rows = await recordBackupArtifacts({
-      backupRunId: run.id,
-      artifacts: values,
-    })
-    touchedArtifactIds.push(...rows.map((row) => row.id))
-    expect(rows).toHaveLength(20)
-    expect(rows.map((row) => row.objectKey)).toEqual(
-      values.map((row) => row.objectKey),
-    )
-  })
-
   test('queues and claims backup agent jobs', async () => {
     const { environmentId, projectId, serverId, token } =
       await createProjectEnvironment()
 
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -729,7 +622,7 @@ describe('backup service integration', () => {
     const targets = [
       { service: 'db', engine: 'postgres' as const, database: 'original' },
     ]
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -804,11 +697,11 @@ describe('backup service integration', () => {
     expect(JSON.stringify(job!.payload)).not.toContain('changed')
   })
 
-  test('keeps remote backup secrets encrypted until an agent claims the job', async () => {
+  test('persists no credential copies and loads rotated secrets when the agent claims a job', async () => {
     const { environmentId, projectId, serverId, token } =
       await createProjectEnvironment()
     const rawSecret = `remote-secret-${crypto.randomUUID()}`
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -836,6 +729,29 @@ describe('backup service integration', () => {
       .where(eq(agentJobs.id, queued.agentJobId))
     expect(JSON.stringify(stored[0]?.payload)).not.toContain(rawSecret)
 
+    expect(stored[0]?.payload).toMatchObject({
+      destination: { storageId: config.destination.storageId },
+    })
+    expect(JSON.stringify(stored[0]?.payload)).not.toContain(
+      'secretAccessKeyCiphertext',
+    )
+    expect(JSON.stringify(stored[0]?.payload)).not.toContain('accessKeyId')
+    const [run] = await db
+      .select()
+      .from(backupRuns)
+      .where(eq(backupRuns.id, queued.backupRunId))
+    expect(JSON.stringify(run?.destination)).not.toContain(
+      'secretAccessKeyCiphertext',
+    )
+    const rotatedSecret = `rotated-${crypto.randomUUID()}`
+    await db
+      .update(backupStorage)
+      .set({
+        accessKeyId: 'rotated-after-queue',
+        secretAccessKeyCiphertext: encryptSecret(rotatedSecret),
+      })
+      .where(eq(backupStorage.id, config.destination.storageId))
+
     const claimed = await claimNextAgentJob({
       serverId,
       token,
@@ -845,8 +761,8 @@ describe('backup service integration', () => {
     expect(claimed).toMatchObject({
       backup: {
         destination: {
-          accessKeyId: 'remote-access-key',
-          secretAccessKey: rawSecret,
+          accessKeyId: 'rotated-after-queue',
+          secretAccessKey: rotatedSecret,
         },
       },
     })
@@ -856,7 +772,7 @@ describe('backup service integration', () => {
   test('fails backup jobs whose agent completion never arrives', async () => {
     const { environmentId, projectId, serverId, token } =
       await createProjectEnvironment()
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -907,7 +823,7 @@ describe('backup service integration', () => {
   test('queues retention cleanup jobs once for expired backups', async () => {
     const { environmentId, projectId, serverId } =
       await createProjectEnvironment()
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -946,7 +862,7 @@ describe('backup service integration', () => {
           bucket: 'devpush-backups',
           prefix: 'backups',
           accessKeyId: 'test-key',
-          secretAccessKeyCiphertext: encryptSecret('test-secret'),
+          storageId: config.destination.storageId,
         },
         finishedAt: new Date('2026-06-20T12:00:00.000Z'),
       },
@@ -961,7 +877,7 @@ describe('backup service integration', () => {
           bucket: 'devpush-backups',
           prefix: 'backups',
           accessKeyId: 'test-key',
-          secretAccessKeyCiphertext: encryptSecret('test-secret'),
+          storageId: config.destination.storageId,
         },
         finishedAt: new Date('2026-06-19T12:00:00.000Z'),
       },
@@ -1057,7 +973,7 @@ describe('backup service integration', () => {
   test('applies remote retention after earlier local cleanup', async () => {
     const { environmentId, projectId, serverId, token } =
       await createProjectEnvironment()
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -1084,7 +1000,7 @@ describe('backup service integration', () => {
           bucket: 'devpush-backups',
           prefix: 'backups',
           accessKeyId: 'test-key',
-          secretAccessKeyCiphertext: encryptSecret('test-secret'),
+          storageId: config.destination.storageId,
         },
         finishedAt: new Date('2026-06-20T12:00:00.000Z'),
       },
@@ -1099,7 +1015,7 @@ describe('backup service integration', () => {
           bucket: 'devpush-backups',
           prefix: 'backups',
           accessKeyId: 'test-key',
-          secretAccessKeyCiphertext: encryptSecret('test-secret'),
+          storageId: config.destination.storageId,
         },
         finishedAt: new Date('2026-06-19T12:00:00.000Z'),
       },
@@ -1262,7 +1178,7 @@ describe('backup service integration', () => {
     async (status) => {
       const { environmentId, projectId, serverId } =
         await createProjectEnvironment()
-      const config = await upsertBackupConfig({
+      const config = await createBackupPolicyFixture({
         projectId,
         environmentId,
         enabled: true,
@@ -1305,7 +1221,7 @@ describe('backup service integration', () => {
             bucket: 'devpush-backups',
             prefix: 'backups',
             accessKeyId: 'test-key',
-            secretAccessKeyCiphertext: encryptSecret('test-secret'),
+            storageId: config.destination.storageId,
           },
           finishedAt: new Date('2026-06-20T12:00:00.000Z'),
         },
@@ -1322,7 +1238,7 @@ describe('backup service integration', () => {
             bucket: 'devpush-backups',
             prefix: 'backups',
             accessKeyId: 'test-key',
-            secretAccessKeyCiphertext: encryptSecret('test-secret'),
+            storageId: config.destination.storageId,
           },
           finishedAt: new Date('2026-06-19T12:00:00.000Z'),
         },
@@ -1368,7 +1284,7 @@ describe('backup service integration', () => {
   test('failed local-only uploads do not expire the last remote recovery point', async () => {
     const { projectId, environmentId, serverId } =
       await createProjectEnvironment()
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -1444,7 +1360,7 @@ describe('backup service integration', () => {
 
   test('queues due backup schedules', async () => {
     const { environmentId, projectId } = await createProjectEnvironment()
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -1478,7 +1394,7 @@ describe('backup service integration', () => {
   test('does not queue backups for deleted servers', async () => {
     const { environmentId, projectId, serverId } =
       await createProjectEnvironment()
-    const config = await upsertBackupConfig({
+    const config = await createBackupPolicyFixture({
       projectId,
       environmentId,
       enabled: true,
@@ -1501,6 +1417,155 @@ describe('backup service integration', () => {
     ).resolves.toEqual([])
   })
 })
+
+test.each(['project', 'team', 'server'] as const)(
+  '%s deletion releases canceled backup-cleanup reservations',
+  async (kind) => {
+    const f = await createProjectEnvironment()
+    const runId = makeId('reserved-run'),
+      jobId = makeId('cleanup-job')
+    touchedBackupRunIds.push(runId)
+    touchedAgentJobIds.push(jobId)
+    const now = new Date()
+    await db.insert(backupRuns).values({
+      id: runId,
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      serverId: f.serverId,
+      runtimeId: 'dp_project_production',
+      status: 'succeeded',
+      finishedAt: now,
+      cleanupQueuedAt: now,
+    })
+    await db.insert(agentJobs).values({
+      id: jobId,
+      type: 'backup_cleanup',
+      status: 'queued',
+      serverId: f.serverId,
+      projectId: f.projectId,
+      payload: {
+        schemaVersion: 1,
+        backupRunIds: [runId],
+        localObjectKeys: [],
+        remoteObjectKeys: [],
+      },
+    })
+    const changed =
+      kind === 'project'
+        ? await deleteProjectState(db, {
+            projectId: f.projectId,
+            teamId: f.teamId,
+            userId: f.userId,
+            removeDeployments: true,
+            now,
+          })
+        : kind === 'team'
+          ? await deleteTeamState(db, {
+              teamId: f.teamId,
+              userId: f.userId,
+              now,
+            })
+          : await deleteServerState(db, {
+              serverId: f.serverId,
+              teamId: f.teamId,
+              userId: f.userId,
+              cancelOngoingDeployments: true,
+              now,
+            })
+    expect(changed).toBe(true)
+    expect(
+      (await db.select().from(backupRuns).where(eq(backupRuns.id, runId)))[0]
+        ?.cleanupQueuedAt,
+    ).toBeNull()
+    expect(
+      (await db.select().from(agentJobs).where(eq(agentJobs.id, jobId)))[0]
+        ?.status,
+    ).toBe('canceled')
+    touchedAgentJobIds.push(
+      ...(
+        await db
+          .select({ id: agentJobs.id })
+          .from(agentJobs)
+          .where(eq(agentJobs.serverId, f.serverId))
+      ).map((job) => job.id),
+    )
+  },
+)
+
+test.each(['server', 'project'] as const)(
+  'retention never reserves backup cleanup work for a deleted %s',
+  async (kind) => {
+    const f = await createProjectEnvironment()
+    const policy = await createBackupPolicyFixture({
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      enabled: true,
+      destination: { bucket: 'local-backups' },
+      retention: {
+        local: { count: 0, days: 1, maxStorageGb: 0 },
+        remote: { enabled: false, count: 0, days: 0, maxStorageGb: 0 },
+      },
+    })
+    touchedBackupConfigIds.push(policy.id)
+    const runId = makeId('expired-run'),
+      artifactId = makeId('expired-artifact')
+    touchedBackupRunIds.push(runId)
+    touchedArtifactIds.push(artifactId)
+    await db.insert(backupRuns).values({
+      id: runId,
+      configId: policy.id,
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      serverId: f.serverId,
+      runtimeId: 'dp_project_production',
+      status: 'succeeded',
+      finishedAt: new Date('2020-01-01'),
+    })
+    await db.insert(backupArtifacts).values({
+      id: artifactId,
+      backupRunId: runId,
+      type: 'volume',
+      storage: 'local',
+      objectKey: 'expired/volume.tar',
+      checksumSha256: 'a'.repeat(64),
+      sizeBytes: 12,
+    })
+    if (kind === 'server')
+      await db
+        .update(servers)
+        .set({ status: 'deleted' })
+        .where(eq(servers.id, f.serverId))
+    else
+      await db
+        .update(projects)
+        .set({ status: 'deleted' })
+        .where(eq(projects.id, f.projectId))
+    expect(
+      await queueBackupRetentionCleanupJobs({ projectId: f.projectId }),
+    ).toEqual([])
+    expect(
+      await enqueueBackupCleanup(db, {
+        jobId: makeId('never-queued'),
+        projectId: f.projectId,
+        serverId: f.serverId,
+        backupRunIds: [runId],
+        now: new Date(),
+        destination: { bucket: 'local-backups' },
+        artifacts: [
+          {
+            backupRunId: runId,
+            storage: 'local',
+            objectKey: 'expired/volume.tar',
+          },
+        ],
+      }),
+    ).toEqual([])
+    expect(
+      (await db.select().from(backupRuns).where(eq(backupRuns.id, runId)))[0]
+        ?.cleanupQueuedAt,
+    ).toBeNull()
+  },
+)
 
 async function createProjectEnvironment() {
   const userId = makeId('user')
@@ -1645,38 +1710,287 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }
 
-// Test setup creates a reusable workspace connection before referencing it.
-async function upsertBackupConfig(
-  input: Omit<Parameters<typeof upsertPolicy>[0], 'destination'> & {
-    destination: BackupDestination
+// Fixture setup writes only fixture rows; production policy edits use the shared
+// preparation and guarded policy state covered by project/API integration tests.
+async function createBackupPolicyFixture(
+  input: Partial<
+    Omit<BackupPolicyInput, 'environmentId' | 'enabled' | 'destination'>
+  > & {
+    projectId: string
+    environmentId: string
+    enabled: boolean
+    destination: BackupDestination | BackupStorageReference
   },
 ) {
   const project = (
     await db.select().from(projects).where(eq(projects.id, input.projectId))
-  ).at(0)
-  if (!project)
-    return upsertPolicy({
-      ...input,
-      destination: { prefix: input.destination.prefix },
+  )[0]
+  if (!project) throw new Error('Project fixture missing.')
+  let destination: BackupStorageReference
+  if ('bucket' in input.destination) {
+    const storageId = crypto.randomUUID()
+    await db.insert(backupStorage).values({
+      id: storageId,
+      teamId: project.teamId,
+      name: 'Integration storage',
+      bucket: input.destination.bucket,
+      region: input.destination.region ?? 'auto',
+      endpoint: input.destination.endpoint ?? null,
+      accessKeyId: input.destination.accessKeyId ?? 'test-key',
+      secretAccessKeyCiphertext:
+        input.destination.secretAccessKeyCiphertext ??
+        encryptSecret('test-secret'),
     })
-  const storageId = crypto.randomUUID()
-  await db.insert(backupStorage).values({
-    id: storageId,
-    teamId: project.teamId,
-    name: 'Integration storage',
-    bucket: input.destination.bucket,
-    region: input.destination.region ?? 'auto',
-    endpoint: input.destination.endpoint ?? null,
-    accessKeyId: input.destination.accessKeyId ?? 'test-key',
-    secretAccessKeyCiphertext:
-      input.destination.secretAccessKeyCiphertext ??
-      encryptSecret('test-secret'),
-  })
-  return upsertPolicy({
-    ...input,
-    destination: {
+    destination = {
       storageId,
       prefix: input.destination.prefix?.replace(/^\/+|\/+$/g, ''),
+    }
+  } else destination = input.destination
+  const policy = backupConfigSchema.parse({
+    name: 'Backup',
+    schedule: { cron: '0 2 * * *' },
+    retention: {
+      local: { count: 7, days: 0, maxStorageGb: 0 },
+      remote: { enabled: false, count: 7, days: 0, maxStorageGb: 0 },
+    },
+    volumes: { mode: 'allNamed', names: [] },
+    databaseDumps: [],
+    ...input,
+    destination,
+  })
+  const [saved] = await db
+    .insert(backupConfigs)
+    .values({
+      ...policy,
+      id: crypto.randomUUID(),
+      projectId: input.projectId,
+      destinationType: 's3',
+    })
+    .returning()
+  if (!saved) throw new Error('Policy fixture missing.')
+  if (!destination.storageId) throw new Error('Storage fixture missing.')
+  return {
+    ...saved,
+    destination: { ...policy.destination, storageId: destination.storageId },
+  }
+}
+
+test('unavailable storage fails the claimed job and run without using a saved secret', async () => {
+  const f = await createProjectEnvironment()
+  const policy = await createBackupPolicyFixture({
+    projectId: f.projectId,
+    environmentId: f.environmentId,
+    enabled: true,
+    destination: { bucket: 'own-bucket' },
+    retention: {
+      local: { count: 7, days: 0, maxStorageGb: 0 },
+      remote: { enabled: true, count: 7, days: 0, maxStorageGb: 0 },
     },
   })
-}
+  touchedBackupConfigIds.push(policy.id)
+  const queued = (await queueEnvironmentBackup({
+    projectId: f.projectId,
+    environmentId: f.environmentId,
+  }))!
+  touchedBackupRunIds.push(queued.backupRunId)
+  touchedAgentJobIds.push(queued.agentJobId)
+  const [job] = await db
+    .select()
+    .from(agentJobs)
+    .where(eq(agentJobs.id, queued.agentJobId))
+  const payload = job!.payload as BackupJobPayload
+  await db
+    .update(agentJobs)
+    .set({
+      payload: {
+        ...payload,
+        destination: {
+          ...payload.destination,
+          storageId: 'missing-storage',
+          secretAccessKeyCiphertext: encryptSecret(
+            'saved-secret-must-not-be-used',
+          ),
+        },
+      },
+    })
+    .where(eq(agentJobs.id, queued.agentJobId))
+  expect(
+    await claimNextAgentJob({
+      serverId: f.serverId,
+      token: f.token,
+      protocolVersion: 1,
+      capabilities: ['jobs.backup.v1'],
+    }),
+  ).toBeNull()
+  expect(
+    (
+      await db
+        .select()
+        .from(agentJobs)
+        .where(eq(agentJobs.id, queued.agentJobId))
+    )[0]?.status,
+  ).toBe('failed')
+  expect(
+    (
+      await db
+        .select()
+        .from(backupRuns)
+        .where(eq(backupRuns.id, queued.backupRunId))
+    )[0]?.status,
+  ).toBe('failed')
+})
+
+test('one unsupported remote snapshot does not stop retention for valid snapshots', async () => {
+  const f = await createProjectEnvironment()
+  const policy = await createBackupPolicyFixture({
+    projectId: f.projectId,
+    environmentId: f.environmentId,
+    enabled: true,
+    destination: { bucket: 'retention-bucket' },
+    retention: {
+      local: { count: 0, days: 0, maxStorageGb: 0 },
+      remote: { enabled: true, count: 0, days: 1, maxStorageGb: 0 },
+    },
+  })
+  touchedBackupConfigIds.push(policy.id)
+  const invalidId = makeId('unsupported-run'),
+    validId = makeId('valid-run')
+  for (const [id, destination, finishedAt] of [
+    [invalidId, { bucket: 'retention-bucket' }, new Date('2020-02-01')],
+    [
+      validId,
+      { bucket: 'retention-bucket', storageId: policy.destination.storageId },
+      new Date('2020-01-01'),
+    ],
+  ] as const) {
+    touchedBackupRunIds.push(id)
+    await db.insert(backupRuns).values({
+      id,
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      serverId: f.serverId,
+      runtimeId: 'dp_project_production',
+      status: 'succeeded',
+      destination,
+      finishedAt,
+    })
+    const artifactId = makeId('retention-artifact')
+    touchedArtifactIds.push(artifactId)
+    await db.insert(backupArtifacts).values({
+      id: artifactId,
+      backupRunId: id,
+      type: 'volume',
+      storage: 'remote',
+      objectKey: `${id}/volume.tar`,
+      checksumSha256: 'a'.repeat(64),
+      sizeBytes: 10,
+    })
+  }
+  const queued = await queueBackupRetentionCleanupJobs({
+    projectId: f.projectId,
+  })
+  touchedAgentJobIds.push(...queued.map((job) => job.id))
+  expect(queued).toEqual([{ id: expect.any(String), backupRunIds: [validId] }])
+  expect(
+    (await db.select().from(backupRuns).where(eq(backupRuns.id, invalidId)))[0]
+      ?.cleanupQueuedAt,
+  ).toBeNull()
+})
+
+test('failed credential claims do not create a cleanup job on every maintenance tick', async () => {
+  const f = await createProjectEnvironment()
+  const policy = await createBackupPolicyFixture({
+    projectId: f.projectId,
+    environmentId: f.environmentId,
+    enabled: true,
+    destination: { bucket: 'retention-bucket' },
+    retention: {
+      local: { count: 0, days: 0, maxStorageGb: 0 },
+      remote: { enabled: true, count: 0, days: 1, maxStorageGb: 0 },
+    },
+  })
+  touchedBackupConfigIds.push(policy.id)
+  const runId = makeId('failing-cleanup'),
+    artifactId = makeId('remote-archive')
+  touchedBackupRunIds.push(runId)
+  touchedArtifactIds.push(artifactId)
+  await db.insert(backupRuns).values({
+    id: runId,
+    projectId: f.projectId,
+    environmentId: f.environmentId,
+    serverId: f.serverId,
+    runtimeId: 'dp_project_production',
+    status: 'succeeded',
+    finishedAt: new Date('2020-01-01'),
+    destination: {
+      bucket: 'retention-bucket',
+      storageId: policy.destination.storageId,
+    },
+  })
+  await db.insert(backupArtifacts).values({
+    id: artifactId,
+    backupRunId: runId,
+    type: 'volume',
+    storage: 'remote',
+    objectKey: 'retained/data.tar',
+    checksumSha256: 'a'.repeat(64),
+    sizeBytes: 10,
+  })
+  await db
+    .update(backupStorage)
+    .set({ secretAccessKeyCiphertext: 'invalid-ciphertext' })
+    .where(eq(backupStorage.id, policy.destination.storageId))
+  const queued = await queueBackupRetentionCleanupJobs({
+    projectId: f.projectId,
+  })
+  touchedAgentJobIds.push(...queued.map((job) => job.id))
+  expect(queued).toHaveLength(1)
+  expect(
+    await claimNextAgentJob({
+      serverId: f.serverId,
+      token: f.token,
+      protocolVersion: 1,
+      capabilities: ['jobs.backup.cleanup.v1'],
+    }),
+  ).toBeNull()
+  const [failed] = await db
+    .select()
+    .from(backupRuns)
+    .where(eq(backupRuns.id, runId))
+  expect(failed?.cleanupQueuedAt).toBeNull()
+  expect(failed?.cleanupErrorMessage).toBeTruthy()
+  const now = new Date()
+  expect(
+    await queueBackupRetentionCleanupJobs({ projectId: f.projectId, now }),
+  ).toEqual([])
+  expect(
+    await enqueueBackupCleanup(db, {
+      jobId: makeId('early-retry'),
+      projectId: f.projectId,
+      serverId: f.serverId,
+      backupRunIds: [runId],
+      now,
+      destination: {
+        bucket: 'retention-bucket',
+        storageId: policy.destination.storageId,
+      },
+      artifacts: [
+        {
+          backupRunId: runId,
+          storage: 'remote',
+          objectKey: 'retained/data.tar',
+        },
+      ],
+    }),
+  ).toEqual([])
+  const retry = await queueBackupRetentionCleanupJobs({
+    projectId: f.projectId,
+    now: new Date(now.getTime() + 60 * 60 * 1000 + 1),
+  })
+  touchedAgentJobIds.push(...retry.map((job) => job.id))
+  expect(retry).toHaveLength(1)
+  expect(
+    (await db.select().from(backupRuns).where(eq(backupRuns.id, runId)))[0]
+      ?.cleanupErrorMessage,
+  ).toBeNull()
+})

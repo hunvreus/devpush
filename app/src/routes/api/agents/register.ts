@@ -33,6 +33,9 @@ export const Route = createFileRoute('/api/agents/register')({
               protocolVersion: payload.protocolVersion,
               capabilities: payload.capabilities,
               publicAddress: getRequestPublicAddress(request),
+              routingAddress: payload.routingAddress,
+              publicIpv4: payload.publicIpv4,
+              publicIpv6: payload.publicIpv6,
             }),
           'Unable to register agent.',
         )

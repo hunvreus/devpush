@@ -58,7 +58,7 @@ export async function assertUserCanCreateSession(userId: string) {
   }
 }
 
-async function isEmailAllowlisted(email: string) {
+export async function isEmailAllowlisted(email: string) {
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail) return false
 

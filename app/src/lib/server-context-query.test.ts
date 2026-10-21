@@ -1,12 +1,21 @@
 import { QueryClient } from '@tanstack/react-query'
 import { expect, test, vi } from 'vitest'
 
-import { getTeamServerContext } from '@/server/auth/context'
-import { serverContextQueryOptions } from './server-context-query'
+import {
+  getTeamServerContext,
+  getTeamServerMetricHistory,
+} from '@/server/servers/functions'
+import {
+  serverContextQueryOptions,
+  serverMetricHistoryQueryOptions,
+} from './server-context-query'
 import { teamSectionQueryOptions } from './team-context-query'
 
-vi.mock('@/server/auth/context', () => ({
+vi.mock('@/server/servers/functions', () => ({
   getTeamServerContext: vi.fn(),
+  getTeamServerMetricHistory: vi.fn(),
+}))
+vi.mock('@/server/teams/functions', () => ({
   getTeamSectionContext: vi.fn(),
   getTeamShellContext: vi.fn(),
 }))
@@ -52,4 +61,32 @@ test('list and details poll continuously, pause background polling and refresh o
   expect(
     list.refetchInterval({} as Parameters<typeof list.refetchInterval>[0]),
   ).toBe(5_000)
+})
+
+test('history has an independent cache and avoids refetching fresh points', async () => {
+  const client = new QueryClient()
+  const options = serverMetricHistoryQueryOptions(params)
+  const history = {
+    points: [],
+    window: {
+      startedAt: '2026-10-12T00:00:00Z',
+      endedAt: '2026-10-13T00:00:00Z',
+    },
+  }
+  vi.mocked(getTeamServerMetricHistory).mockResolvedValue(history)
+  try {
+    expect(await client.fetchQuery(options)).toEqual(history)
+    expect(await client.fetchQuery(options)).toEqual(history)
+    expect(getTeamServerMetricHistory).toHaveBeenCalledTimes(1)
+    expect(options.queryKey).toEqual(['server-metrics', 'team', 'server'])
+    if (typeof options.refetchInterval !== 'function')
+      throw Error('Missing history polling policy')
+    expect(
+      options.refetchInterval(
+        {} as Parameters<typeof options.refetchInterval>[0],
+      ),
+    ).toBe(30_000)
+  } finally {
+    client.clear()
+  }
 })

@@ -1,8 +1,8 @@
+import { pageHead } from '@/lib/page-head'
 import { useRefreshError } from '@/lib/use-refresh-error'
 import {
   Outlet,
   createFileRoute,
-  notFound,
   useParams,
   useRouterState,
 } from '@tanstack/react-router'
@@ -19,16 +19,6 @@ import {
 } from '@/lib/project-context-query'
 
 export const Route = createFileRoute('/$teamSlug/projects/$projectName')({
-  beforeLoad: ({ location }) => {
-    if (
-      ['backup', 'backups'].includes(
-        getProjectPendingSection(location.pathname),
-      ) &&
-      import.meta.env.VITE_DEVPUSH_BACKUPS_ENABLED !== 'true'
-    ) {
-      throw notFound()
-    }
-  },
   loader: async ({ context, location, params }) => {
     const scope = getProjectPendingSection(location.pathname)
     const shell = context.queryClient.fetchQuery(
@@ -56,6 +46,8 @@ export const Route = createFileRoute('/$teamSlug/projects/$projectName')({
   },
   pendingComponent: ProjectPending,
   component: ProjectRoute,
+  head: ({ params }) =>
+    pageHead('Overview', params.projectName, params.teamSlug),
 })
 
 function ProjectRoute() {

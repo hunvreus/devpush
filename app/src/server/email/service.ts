@@ -59,7 +59,7 @@ export async function sendEmailChangeEmail({
   })
 
   await sendEmail({
-    to: newEmail,
+    to: currentEmail,
     subject: message.subject,
     html: message.html,
     text: message.text,
@@ -76,13 +76,13 @@ export function buildEmailChangeMessage({
   verifyUrl: string
 }) {
   return {
-    subject: 'Verify your new devpush email address',
-    html: `<p>Confirm that you want to use ${escapeHtml(newEmail)} for devpush.</p><p><a href="${escapeHtml(verifyUrl)}">Verify email address</a></p>`,
+    subject: 'Confirm your devpush email change',
+    html: `<p>Confirm that you want to use ${escapeHtml(newEmail)} for devpush.</p><p><a href="${escapeHtml(verifyUrl)}">Confirm email change</a></p><p>After confirmation, we will ask you to verify the new address.</p>`,
     text: `Confirm that you want to use ${newEmail} for devpush.
 
-Verify email address: ${verifyUrl}
+Confirm email change: ${verifyUrl}
 
-This request was made from ${currentEmail}.`,
+This request was made from ${currentEmail}. After confirmation, we will ask you to verify the new address.`,
   }
 }
 

@@ -12,6 +12,7 @@ export function requireAuthEmailDelivery(): BetterAuthPlugin {
               '/email-otp/send-verification-otp',
               '/change-email',
               '/send-verification-email',
+              '/verify-email',
             ].includes(ctx.path ?? ''),
           handler: createAuthMiddleware(async (ctx) => ({
             context: {

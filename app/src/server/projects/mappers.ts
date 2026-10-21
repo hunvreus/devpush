@@ -1,3 +1,5 @@
+import { isValidCron } from '@/lib/backup-cron'
+import { PublicError } from '@/lib/public-error'
 import { z } from 'zod'
 import { storedBackupDatabaseSchema } from '@/lib/backup-database'
 import { backupStorageReferenceSchema } from '@/lib/backup-storage-schema'
@@ -12,8 +14,10 @@ import type {
   projects,
   servers,
 } from '@/server/db/schema'
-import { backupRetentionSchema } from '@/server/backups/service'
-import type { BackupVolumeSelection } from '@/server/backups/service'
+import {
+  backupRetentionSchema,
+  normalizeBackupVolumes,
+} from '@/lib/backup-policy-schema'
 import { getResourceColor } from '@/server/resources/color'
 import { getEffectiveServerStatus } from '@/server/servers/status'
 import { normalizeDeploymentCommitMeta } from './deployment-config'
@@ -147,34 +151,6 @@ export function mapDeployment({
     projectName: project.name,
     projectColor: getResourceColor(project.id),
   }
-}
-
-export function normalizeEnvVars(
-  value: unknown,
-): Array<ProjectEnvironmentVariable> {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value
-    .filter(
-      (item): item is ProjectEnvironmentVariable =>
-        typeof item === 'object' &&
-        item !== null &&
-        'key' in item &&
-        'value' in item &&
-        typeof item.key === 'string' &&
-        typeof item.value === 'string',
-    )
-    .map((item) => ({
-      key: item.key,
-      value: item.value,
-      environment:
-        'environment' in item && typeof item.environment === 'string'
-          ? item.environment
-          : '',
-    }))
-    .filter((item) => item.key.trim() !== '')
 }
 
 export function mapEnvironmentConfig(
@@ -331,6 +307,7 @@ export function mapBackupConfig(
     .parse(backupConfig.databaseDumps)
 
   return {
+    settingsVersion: backupConfig.settingsVersion,
     id: backupConfig.id,
     name: backupConfig.name,
     environmentId: backupConfig.environmentId,
@@ -341,10 +318,6 @@ export function mapBackupConfig(
     volumes: normalizeBackupVolumes(backupConfig.volumes),
     databaseDumps,
   }
-}
-
-export function maskSecret(value: string) {
-  return value.length > 0 ? 'Configured' : ''
 }
 
 export function mapBackupRun(
@@ -413,39 +386,12 @@ export function parseBackupSchedule(value: unknown): ProjectBackupSchedule {
   if (typeof value === 'object' && value !== null) {
     const schedule = value as Partial<ProjectBackupSchedule>
 
-    if (typeof schedule.cron === 'string' && isCronSchedule(schedule.cron)) {
+    if (typeof schedule.cron === 'string' && isValidCron(schedule.cron)) {
       return { cron: schedule.cron.trim() }
     }
   }
 
-  throw new Error('Backup schedules must use a five-field cron expression.')
-}
-
-export function normalizeBackupVolumes(value: unknown): BackupVolumeSelection {
-  if (typeof value === 'object' && value !== null) {
-    const volumes = value as Partial<BackupVolumeSelection>
-
-    if (volumes.mode === 'none') {
-      return { mode: 'none', names: [] }
-    }
-
-    if (volumes.mode === 'selected' && Array.isArray(volumes.names)) {
-      const names = volumes.names
-        .filter((name): name is string => typeof name === 'string')
-        .map((name) => name.trim())
-        .filter(Boolean)
-
-      return names.length > 0
-        ? { mode: 'selected', names }
-        : { mode: 'allNamed', names: [] }
-    }
-  }
-
-  return { mode: 'allNamed', names: [] }
-}
-
-function isCronSchedule(value: string) {
-  return /^(\S+\s+){4}\S+$/.test(value.trim())
+  throw new PublicError('BACKUP_SCHEDULE_INVALID')
 }
 
 export function getEnvVarsForEnvironment(

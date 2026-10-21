@@ -6,6 +6,11 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { UserSettings } from './user-settings'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
+vi.mock('./connected-apps-settings', () => ({
+  ConnectedAppsSettings: () => null,
+}))
+vi.mock('./api-keys-settings', () => ({ ApiKeysSettings: () => null }))
+
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   email: vi.fn(),
@@ -17,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
+  clearCache: vi.fn(),
 }))
 vi.mock('@/server/users/functions', () => ({
   updateUserGeneralAction: mocks.save,
@@ -41,11 +47,12 @@ vi.mock('sonner', () => ({
   toast: { error: mocks.error, success: mocks.success },
 }))
 afterEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
   vi.unstubAllGlobals()
 })
 const context: ComponentProps<typeof UserSettings>['context'] = {
   user: {
+    settingsVersion: 1,
     id: 'u',
     name: '',
     username: 'hunvreus',
@@ -55,6 +62,7 @@ const context: ComponentProps<typeof UserSettings>['context'] = {
     isInstallationAdmin: false,
   },
   defaultTeam: {
+    settingsVersion: 1,
     id: 't',
     name: 'Team',
     slug: 'team',
@@ -91,6 +99,13 @@ async function mount(
   )
   return {
     node,
+    render: async (next: typeof context) => {
+      root.render(
+        <TooltipProvider>
+          <UserSettings context={next} />
+        </TooltipProvider>,
+      )
+    },
     close: async () => {
       await act(async () => root.unmount())
       node.remove()
@@ -152,10 +167,19 @@ test('correcting the name clears the inline error and allows saving', async () =
   await fill(view.node, 'account-username', 'another')
   await save(view.node)
   await fill(view.node, 'account-name', 'Ronan')
-  mocks.save.mockResolvedValueOnce({ fieldErrors: null })
+  mocks.save.mockResolvedValueOnce({
+    user: {
+      ...context.user,
+      settingsVersion: 2,
+      name: 'Ronan',
+      username: 'another',
+    },
+    fieldErrors: null,
+  })
   await save(view.node)
   expect(mocks.save).toHaveBeenCalledWith({
     data: {
+      settingsVersion: 1,
       name: 'Ronan',
       username: 'another',
       avatarDataUrl: null,
@@ -233,9 +257,9 @@ test('email changes validate inline and retain the address after delivery failur
   await fill(view.node, 'account-email', 'new@example.com')
   mocks.email.mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await submitEmail(view.node)
-  expect(
-    view.node.querySelector('#account-email-form [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   expect(
     view.node.querySelector<HTMLInputElement>('#account-email')?.value,
   ).toBe('new@example.com')
@@ -247,15 +271,15 @@ test('pending email changes disable edits and duplicate submission, then reset a
   await fill(view.node, 'account-email', 'NEW@example.com')
   let resolve!: () => void
   mocks.email.mockReturnValueOnce(
-    new Promise<void>((done) => {
-      resolve = done
+    new Promise<{ settingsVersion: number }>((done) => {
+      resolve = () => done({ settingsVersion: 2 })
     }),
   )
   await submitEmail(view.node)
   await submitEmail(view.node)
   expect(mocks.email).toHaveBeenCalledTimes(1)
   expect(mocks.email).toHaveBeenCalledWith({
-    data: { newEmail: 'new@example.com' },
+    data: { newEmail: 'new@example.com', settingsVersion: 1 },
   })
   expect(
     view.node.querySelector<HTMLInputElement>('#account-email')?.disabled,
@@ -292,9 +316,9 @@ test('leaving a team keeps failures in the dialog and prevents dismissal during 
   )
   mocks.leave.mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await dialogButton('Leave team')
-  expect(
-    document.querySelector('[role="alertdialog"] [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   let resolve!: () => void
   mocks.leave.mockReturnValueOnce(
     new Promise<void>((done) => {
@@ -341,9 +365,9 @@ test('account deletion requires exact confirmation and locks the dialog during t
   )
   expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
   await act(async () => reject(new TypeError('Failed to fetch')))
-  expect(
-    document.querySelector('[role="alertdialog"] [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   expect(
     (document.getElementById('delete-account-confirmation') as HTMLInputElement)
       .value,
@@ -357,6 +381,7 @@ test('account deletion requires exact confirmation and locks the dialog during t
     view.node.querySelector<HTMLButtonElement>('#danger button')?.disabled,
   ).toBe(true)
   expect(mocks.navigate).toHaveBeenCalledWith({ to: '/auth/login' })
+  expect(mocks.clearCache).toHaveBeenCalledOnce()
   await view.close()
 })
 
@@ -400,9 +425,9 @@ test('disconnect failure stays local and pending retries cannot be dismissed', a
   )
   mocks.disconnect.mockRejectedValueOnce(new TypeError('Failed to fetch'))
   await dialogButton('Disconnect')
-  expect(
-    document.querySelector('[role="alertdialog"] [role="alert"]')?.textContent,
-  ).toContain('Unable to connect')
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to connect'),
+  )
   let resolve!: () => void
   mocks.disconnect.mockReturnValueOnce(
     new Promise<void>((done) => {
@@ -425,4 +450,93 @@ vi.mock('@/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ clear: mocks.clearCache }),
+}))
+
+test('account avatar falls back to initials when the provider image fails', async () => {
+  vi.stubGlobal(
+    'Image',
+    class extends EventTarget {
+      complete = false
+      naturalWidth = 0
+      set src(_value: string) {
+        queueMicrotask(() => this.dispatchEvent(new Event('error')))
+      }
+    },
+  )
+  const view = await mount({
+    user: {
+      ...context.user,
+      name: 'Ronan Berder',
+      image: 'https://example.com/failed-avatar.jpg',
+    },
+  })
+  try {
+    await vi.waitFor(() =>
+      expect(
+        view.node.querySelector('[data-slot="avatar-fallback"]')?.textContent,
+      ).toBe('R'),
+    )
+    expect(view.node.querySelector('#general img')).toBeNull()
+    expect(
+      view.node.querySelector('[data-slot="avatar"]')?.className,
+    ).toContain('size-10')
+  } finally {
+    await view.close()
+  }
+})
+
+test('saving email does not advance the original version of a dirty general draft', async () => {
+  const view = await mount({ user: { ...context.user, name: 'Original' } })
+  await fill(view.node, 'account-name', 'Draft')
+  await fill(view.node, 'account-email', 'new@example.com')
+  mocks.email.mockResolvedValueOnce({ settingsVersion: 2 })
+  mocks.invalidate.mockImplementationOnce(() =>
+    view.render({
+      ...context,
+      user: { ...context.user, name: 'Original', settingsVersion: 2 },
+    }),
+  )
+  await submitEmail(view.node)
+  mocks.save.mockRejectedValueOnce({
+    name: 'SettingsConflictError',
+    code: 'SETTINGS_CONFLICT',
+    message: 'Settings changed.',
+  })
+  await save(view.node)
+  expect(mocks.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      data: expect.objectContaining({ settingsVersion: 1, name: 'Draft' }),
+    }),
+  )
+  expect(
+    view.node.querySelector<HTMLInputElement>('#account-name')!.value,
+  ).toBe('Draft')
+  await view.close()
+})
+
+test('email-change refresh lets a clean General form save against the new version', async () => {
+  const initialUser = { ...context.user, name: 'Original' }
+  const view = await mount({ user: initialUser })
+  await fill(view.node, 'account-email', 'new@example.com')
+  mocks.email.mockResolvedValueOnce({ settingsVersion: 2 })
+  mocks.invalidate.mockImplementationOnce(() =>
+    view.render({ ...context, user: { ...initialUser, settingsVersion: 2 } }),
+  )
+  await submitEmail(view.node)
+  expect(mocks.invalidate).toHaveBeenCalledOnce()
+  await fill(view.node, 'account-name', 'Updated')
+  mocks.save.mockResolvedValueOnce({
+    user: { ...initialUser, name: 'Updated', settingsVersion: 3 },
+    fieldErrors: null,
+  })
+  await save(view.node)
+  expect(mocks.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      data: expect.objectContaining({ settingsVersion: 2, name: 'Updated' }),
+    }),
+  )
+  expect(mocks.error).not.toHaveBeenCalled()
+  await view.close()
+})

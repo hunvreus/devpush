@@ -116,6 +116,11 @@ type resolvedComposeModel struct {
 type resolvedComposeService struct {
 	Ports       []json.RawMessage `json:"ports"`
 	NetworkMode string            `json:"network_mode"`
+	Privileged  bool              `json:"privileged"`
+	Volumes     []struct {
+		Type   string `json:"type"`
+		Source string `json:"source"`
+	} `json:"volumes"`
 }
 
 func parseComposeModel(value string) (resolvedComposeModel, error) {
@@ -127,6 +132,27 @@ func parseComposeModel(value string) (resolvedComposeModel, error) {
 		return resolvedComposeModel{}, fmt.Errorf("resolved configuration has no services")
 	}
 	return model, nil
+}
+
+func (model resolvedComposeModel) riskWarnings() []string {
+	warnings := []string{}
+	names := []string{}
+	for name := range model.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		service := model.Services[name]
+		if service.Privileged {
+			warnings = append(warnings, fmt.Sprintf("service %s uses privileged containers with host-level access.", name))
+		}
+		for _, volume := range service.Volumes {
+			if volume.Type == "bind" {
+				warnings = append(warnings, fmt.Sprintf("service %s bind mounts host path %s; repository deploy access is trusted host access.", name, volume.Source))
+			}
+		}
+	}
+	return warnings
 }
 
 func (model resolvedComposeModel) servicesWithPublishedPorts() []string {
@@ -151,7 +177,7 @@ func (model resolvedComposeModel) servicesWithHostNetworking() []string {
 	return services
 }
 
-func writeManagedComposeOverride(path string, projectName string, routes []route, resetPortServices []string, resetHostNetworkServices []string) error {
+func writeManagedComposeOverride(path string, projectName string, routes []route, resetPortServices []string, resetHostNetworkServices []string, managedCertificateNames ...string) error {
 	labelsByService := map[string][]string{}
 	for index, route := range routes {
 		if err := validateRoute(route); err != nil {
@@ -187,8 +213,10 @@ func writeManagedComposeOverride(path string, projectName string, routes []route
 				fmt.Sprintf("traefik.http.routers.%s.entrypoints=websecure", secureRouterName),
 				fmt.Sprintf("traefik.http.routers.%s.service=%s", secureRouterName, serviceName),
 				fmt.Sprintf("traefik.http.routers.%s.tls=true", secureRouterName),
-				fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=devpush", secureRouterName),
 			)
+			if !matchesManagedCertificate(route.Host, managedCertificateNames) {
+				labels = append(labels, fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=devpush", secureRouterName))
+			}
 			if len(routeMiddlewares) > 0 {
 				labels = append(labels, fmt.Sprintf("traefik.http.routers.%s.middlewares=%s", secureRouterName, strings.Join(routeMiddlewares, ",")))
 			}
@@ -304,6 +332,9 @@ func validateRoute(route route) error {
 	}
 	if strings.ContainsAny(route.Path, "` \t\r\n?#") {
 		return fmt.Errorf("path contains unsupported whitespace, query, fragment, or backtick character")
+	}
+	if route.StripPrefix && strings.Contains(route.Path, ",") {
+		return fmt.Errorf("comma paths cannot use prefix stripping")
 	}
 
 	return nil
@@ -423,9 +454,15 @@ func yamlKey(value string) string {
 }
 
 func yamlString(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	// Compose interpolates YAML values even when the scalar is single quoted.
+	// Generated labels and mount values represent literal strings.
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(value, "$", "$$"), "'", "''") + "'"
 }
 
+// Double quoting handles trailing backslashes and backslash-quote combinations.
+// Escape dollars for dotenv interpolation; custom commands receive raw values
+// through their environment and must not source this Compose env file.
 func quoteEnvValue(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"", "$", "$$", "\n", "\\n", "\r", "\\r", "\t", "\\t").Replace(value)
+	return "\"" + escaped + "\""
 }

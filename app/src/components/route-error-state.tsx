@@ -1,3 +1,4 @@
+import { publicErrorMessages } from '@/lib/public-error'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { ArrowLeftIcon } from 'lucide-react'
 
@@ -75,6 +76,17 @@ export function RouteErrorState({ error }: ErrorComponentProps) {
 }
 
 function isNotFoundError(error: unknown) {
+  // Server actions serialize PublicError as a plain object, not an Error instance.
+  if (
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    error.code.endsWith('_NOT_FOUND') &&
+    Object.hasOwn(publicErrorMessages, error.code)
+  )
+    return true
+
   if (!(error instanceof Error)) {
     return false
   }

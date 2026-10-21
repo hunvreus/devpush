@@ -64,7 +64,8 @@ step "Checking production Compose config"
 compose --env-file "$env_file" -f deploy/compose.production.yml config >/dev/null
 
 step "Building production app image"
-docker build -f deploy/Dockerfile.app -t "$image" .
+export DEVPUSH_PRODUCTION_IMAGE="$image"
+compose --env-file "$env_file" -f deploy/compose.production.yml build app
 
 step "Checking production runtime image"
 docker run --rm "$image" sh -lc '
@@ -106,8 +107,28 @@ probe_network="${probe_id}-net"
 probe_volume="${probe_id}-data"
 probe_store="${probe_id}-store"
 probe_app="${probe_id}-app"
+probe_dir="$(mktemp -d)"
+
+# Keep real operator configuration out of the disposable Compose probe.
+probe_compose() (
+  for name in "${!DEVPUSH_@}" "${!BETTER_AUTH_@}" "${!GITHUB_APP_@}" "${!GOOGLE_@}" EMAIL_FROM RESEND_API_KEY; do
+    unset "$name"
+  done
+  export DEVPUSH_PRODUCTION_IMAGE="$image"
+  compose -p "$probe_id" --env-file "$probe_dir/compose.env" -f deploy/compose.production.yml "$@"
+)
+cat > "$probe_dir/compose.env" <<'EOF'
+BETTER_AUTH_SECRET=production-image-validation-auth-secret
+DEVPUSH_SECRET_ENCRYPTION_KEY=production-image-validation-encryption-secret
+DEVPUSH_CRON_SECRET=production-image-validation-cron-secret
+DEVPUSH_BASE_URL=http://localhost:3000
+DEVPUSH_HTTP_PORT=127.0.0.1:0
+DEVPUSH_SIGN_IN_MESSAGE="Compose probe: sign in with your work email."
+EOF
 
 cleanup_probe() {
+  probe_compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$probe_dir"
   docker rm -f "$probe_app" "$probe_store" >/dev/null 2>&1 || true
   docker volume rm "$probe_volume" >/dev/null 2>&1 || true
   docker network rm "$probe_network" >/dev/null 2>&1 || true
@@ -218,6 +239,14 @@ docker run --rm -v "$probe_volume:/app/storage" "$image" node --input-type=modul
     if (!db.prepare("select count(*) as n from sqlite_master where type = ?").get("table").n) throw new Error("Missing migrated tables");
     db.close();
   }
+'
+
+step "Checking production Compose startup and sign-in notice"
+probe_compose up -d --no-build --wait --wait-timeout 90
+compose_app="$(probe_compose ps -q app)"
+docker exec "$compose_app" sh -ec '
+  curl --fail --silent http://127.0.0.1:3000/auth/login | grep -Fq "$DEVPUSH_SIGN_IN_MESSAGE"
+  curl --fail --silent --request POST --header "Authorization: Bearer $DEVPUSH_CRON_SECRET" http://127.0.0.1:3000/api/cron/maintenance >/dev/null
 '
 
 cleanup_probe

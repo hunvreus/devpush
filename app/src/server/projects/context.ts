@@ -1,3 +1,4 @@
+import { PublicError } from '@/lib/public-error'
 import { listBackupStorage } from '@/server/backups/storage'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 
@@ -25,7 +26,7 @@ import {
 import { getResourceColor } from '@/server/resources/color'
 import { getUserContext } from '@/server/teams/service'
 import { listTeamProjects, listTeamServers } from '@/server/teams/queries'
-import { requireProjectRuntimeConfig } from './runtime-config'
+import { requireProjectRuntimeConfig } from '@/lib/project-runtime-config'
 import type { ProjectComposeMetadata } from './compose-metadata'
 import {
   expandPublicRoutesFromHostnames,
@@ -68,6 +69,7 @@ async function requireProjectIdentity({
         id: teams.id,
         slug: teams.slug,
         name: teams.name,
+        settingsVersion: teams.settingsVersion,
         image: teams.avatarPath,
         role: teamMembers.role,
       },
@@ -110,7 +112,7 @@ async function requireProjectIdentity({
   const row = rows.at(0)
 
   if (!row) {
-    throw new Error('Project not found.')
+    throw new PublicError('PROJECT_NOT_FOUND')
   }
 
   return row
@@ -321,17 +323,19 @@ export async function getProjectSectionContext({
   }
 
   if (scope === 'settings') {
-    const domainRows = await db
-      .select()
-      .from(domains)
-      .where(eq(domains.projectId, row.project.id))
-
+    const context = await getProjectContext({
+      userId,
+      teamSlug,
+      projectName,
+      scope: 'settings',
+    })
     return {
       scope,
-      projectId: row.project.id,
-      composeMetadata: parseStoredComposeMetadata(row.project.composeMetadata),
-      domains: mapProjectDomains(domainRows),
-      envVars: readProjectEnvVars(row.project),
+      projectId: context.project.id,
+      context,
+      composeMetadata: context.composeMetadata,
+      domains: context.domains,
+      envVars: context.envVars,
     }
   }
 
@@ -382,6 +386,9 @@ async function listProjectBackupRows(projectId: string) {
     db
       .select({
         id: agentJobs.id,
+        serverId: agentJobs.serverId,
+        serverName: servers.name,
+        artifacts: sql<unknown>`json_extract(${agentJobs.payload}, '$.artifacts')`,
         backupRunId: sql<string>`json_extract(${agentJobs.payload}, '$.backupRunId')`,
         environmentId: sql<string>`json_extract(${agentJobs.payload}, '$.environmentId')`,
         status: agentJobs.status,
@@ -391,6 +398,7 @@ async function listProjectBackupRows(projectId: string) {
         finishedAt: agentJobs.finishedAt,
       })
       .from(agentJobs)
+      .leftJoin(servers, eq(servers.id, agentJobs.serverId))
       .where(
         and(eq(agentJobs.projectId, projectId), eq(agentJobs.type, 'restore')),
       )
@@ -425,6 +433,7 @@ function mapProjectBackupRows(
   return {
     backupRestores: rows.restores.map((restore) => ({
       ...restore,
+      artifacts: parseRestoreContents(restore.artifacts),
       status:
         restore.status === 'abandoned' ? ('failed' as const) : restore.status,
       createdAt: restore.createdAt.toISOString(),
@@ -543,7 +552,7 @@ export async function getDeploymentSectionContext({
   const deploymentRow = deploymentRows.at(0)
 
   if (!deploymentRow) {
-    throw new Error('Deployment not found.')
+    throw new PublicError('DEPLOYMENT_NOT_FOUND')
   }
 
   return {
@@ -586,7 +595,7 @@ export async function getDeploymentLogsContext({
     .limit(1)
 
   const deployment = rows[0]
-  if (!deployment) throw new Error('Deployment not found.')
+  if (!deployment) throw new PublicError('DEPLOYMENT_NOT_FOUND')
   const logs = await readProjectDeploymentLogs(
     { projectId: deployment.projectId, deploymentId },
     1_000,
@@ -731,6 +740,7 @@ function mapProject(
 ): ProjectContext['project'] {
   const runtimeConfig = requireProjectRuntimeConfig(project.runtimeConfig)
   return {
+    settingsVersion: project.settingsVersion,
     id: project.id,
     name: project.name,
     githubInstallationId: project.githubInstallationId,
@@ -756,4 +766,24 @@ function parseStoredComposeMetadata(value: unknown) {
   }
 
   return value as ProjectComposeMetadata
+}
+
+function parseRestoreContents(value: unknown) {
+  const rows = typeof value === 'string' ? JSON.parse(value) : value
+  if (!Array.isArray(rows)) return []
+  return rows
+    .filter(
+      (item) =>
+        item &&
+        typeof item.id === 'string' &&
+        ['volume', 'database'].includes(item.type),
+    )
+    .map((item) => ({
+      artifactId: item.id as string,
+      type: item.type as 'volume' | 'database',
+      targetVolume:
+        typeof item.targetVolume === 'string' ? item.targetVolume : undefined,
+      targetService:
+        typeof item.targetService === 'string' ? item.targetService : undefined,
+    }))
 }

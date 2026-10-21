@@ -1,7 +1,9 @@
+import { settingsVersionSchema } from '@/lib/settings-version'
 import { z } from 'zod'
-import { avatarDataUrlSchema } from '@/server/uploads/avatar-schema'
+import { avatarDataUrlSchema } from '@/lib/avatar-schema'
 
 export const accountSettingsSchema = z.object({
+  settingsVersion: settingsVersionSchema,
   name: z
     .string()
     .trim()
@@ -43,7 +45,15 @@ export function accountServiceErrors(
 ): AccountSettingsErrors | null {
   if (!(error instanceof Error)) return null
   if (error.message === 'Name is required.') return { name: 'Enter your name.' }
-  if (error.message.startsWith('Username ')) return { username: error.message }
+  if (
+    [
+      'Username is already taken.',
+      'Username is required.',
+      'Username must be 50 characters or fewer.',
+      'Username must start and end with a letter or number and only use letters, numbers, dots, underscores hyphens.',
+    ].includes(error.message)
+  )
+    return { username: error.message }
   if (
     [
       'Upload a PNG, JPEG, or WebP image.',
@@ -57,6 +67,7 @@ export function accountServiceErrors(
 }
 
 export const accountEmailSchema = z.object({
+  settingsVersion: settingsVersionSchema,
   newEmail: z
     .string()
     .trim()

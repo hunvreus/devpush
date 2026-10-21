@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   add: vi.fn(),
   importEmails: vi.fn(),
   refresh: vi.fn(),
+  changeAllowlist: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
 }))
@@ -80,10 +81,25 @@ async function mount(overrides: Partial<AdminOverview> = {}) {
       <TooltipProvider>
         <AdminSettings
           currentUserId="admin"
+          onSearchChange={mocks.changeAllowlist}
           overview={{
             installation: { current: null, latest: null },
             users: [],
             allowlist: [],
+            userPagination: {
+              query: '',
+              page: 1,
+              pageCount: 1,
+              total: overrides.users?.length ?? 0,
+              pageSize: 25,
+            },
+            allowlistPagination: {
+              query: '',
+              page: 1,
+              pageCount: 1,
+              total: overrides.allowlist?.length ?? 0,
+              pageSize: 25,
+            },
             ...overrides,
           }}
         />
@@ -284,3 +300,70 @@ test.each([
     expect(document.querySelector('[role="alertdialog"]')).toBeNull()
   },
 )
+
+test('allowlist navigation keeps the applied search and search starts from page one', async () => {
+  await mount({
+    allowlistPagination: {
+      query: 'example.com',
+      page: 2,
+      pageCount: 4,
+      total: 80,
+      pageSize: 25,
+    },
+  })
+  const section = document.getElementById('allowlist')!
+  const next = section.querySelector<HTMLButtonElement>(
+    '[aria-label="Go to next page"]',
+  )!
+  await act(async () => next.click())
+  expect(mocks.changeAllowlist).toHaveBeenCalledWith({
+    allowlistQuery: 'example.com',
+    allowlistPage: 3,
+  })
+  const input = section.querySelector<HTMLInputElement>(
+    '[aria-label="Search allowlist"]',
+  )!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value',
+    )!.set!.call(input, 'another.com')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await click('Search', section)
+  expect(mocks.changeAllowlist).toHaveBeenLastCalledWith({
+    allowlistQuery: 'another.com',
+    allowlistPage: 1,
+  })
+  expect(section.textContent).toContain('No matching allowlist rules.')
+  expect(section.textContent).not.toContain('No allowlist entries.')
+  expect(section.querySelector('table')).toBeNull()
+  expect(section.querySelector('[data-slot=empty]')).not.toBeNull()
+})
+
+test('user search queries the server from page one and paging preserves the applied query', async () => {
+  await mount({
+    userPagination: {
+      query: 'person',
+      page: 2,
+      pageCount: 3,
+      total: 62,
+      pageSize: 25,
+    },
+  })
+  const section = document.getElementById('users')!
+  await act(async () =>
+    section
+      .querySelector<HTMLButtonElement>('[aria-label="Go to next page"]')!
+      .click(),
+  )
+  expect(mocks.changeAllowlist).toHaveBeenCalledWith({
+    userQuery: 'person',
+    userPage: 3,
+  })
+  await click('Search', section)
+  expect(mocks.changeAllowlist).toHaveBeenLastCalledWith({
+    userQuery: 'person',
+    userPage: 1,
+  })
+})

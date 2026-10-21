@@ -4,10 +4,6 @@ export function canManageTeamSettings(role: TeamRole) {
   return role === 'owner' || role === 'admin'
 }
 
-export function canInviteTeamMembers(role: TeamRole) {
-  return canManageTeamSettings(role)
-}
-
 export function canManageTeamMembers(role: TeamRole) {
   return role === 'owner' || role === 'admin'
 }
