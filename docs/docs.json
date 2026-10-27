@@ -15,8 +15,8 @@
       "items": [
         "projects",
         "compose-deployments",
-        "domains",
         "servers",
+        "domains",
         "backups",
         "accounts-and-teams",
         "notifications"
@@ -28,7 +28,6 @@
       "items": [
         "cloudflare-deployment",
         "production-operations",
-        "configuration",
         "agent-maintenance",
         "deletion-recovery"
       ]
@@ -37,9 +36,9 @@
       "type": "group",
       "label": "Reference",
       "items": [
+        "configuration",
         "api",
-        "api-operations",
-        "package-installation"
+        "api-operations"
       ]
     },
     {
@@ -48,6 +47,7 @@
       "items": [
         "local-setup",
         "development",
+        "package-installation",
         "agent-releases"
       ]
     }

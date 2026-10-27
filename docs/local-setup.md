@@ -22,7 +22,7 @@ pnpm dev
 
 Choose **Local development**. Setup writes `app/.env`, generates secrets and can create a GitHub App. `pnpm dev` applies pending migrations to the databases in `app/.data/`, and stops if a migration fails. If you reuse a database, keep its existing encryption key.
 
-Open `http://localhost:7429`. Startup fails if the port is in use. Configure [sign-in](/docs/configuration/#authentication). The first account becomes administrator unless `DEVPUSH_ADMIN_EMAIL` is set.
+Open `http://localhost:7429`. Startup fails if the port is in use. Configure [sign-in](/docs/configuration/#authentication). The first account becomes administrator unless `DEVPUSH_ADMIN_EMAIL` is set. Node development does not start the background scheduler; see [Background work](/docs/production-operations/#background-work).
 
 ## Local deployment VM
 

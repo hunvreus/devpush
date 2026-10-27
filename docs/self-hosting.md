@@ -2,7 +2,7 @@
 description: Choose where to run the dashboard and prepare installation.
 ---
 
-# Install devpush
+# Installation
 
 Install the dashboard first, then [connect servers and deploy apps](/docs/getting-started/). Application containers run on Linux servers regardless of where the dashboard runs.
 

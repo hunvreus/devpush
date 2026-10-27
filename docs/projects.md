@@ -6,7 +6,7 @@ description: Configure environments, variables and deployment servers.
 
 A project connects a GitHub repository to your servers. Its **Settings** page holds the Compose path, environments, variables, server assignments, routes and domains.
 
-Creating a project does not deploy it. For the first deployment, follow [Getting started](/docs/getting-started/).
+Creating a project does not deploy it. For the first deployment, follow [Your first deployment](/docs/getting-started/).
 
 ## Environments
 
@@ -18,7 +18,7 @@ Production starts with the repository's default branch. Add more environments in
 | Staging | `staging` |
 | Preview | `feature/*` |
 
-Rules are evaluated in saved order; only the first match is used. Production requires an exact branch; other environments accept one `*`. A wildcard updates **one shared environment**, not a separate app per branch. A newer admitted deployment cancels the previous queued/running attempt for that environment.
+Rules are evaluated in saved order; only the first match is used. Production requires an exact branch; other environments accept one `*`. A wildcard updates **one shared environment**, not a separate app per branch. A newly queued deployment cancels the previous queued/running attempt for that environment.
 
 ## Variables
 

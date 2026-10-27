@@ -39,6 +39,6 @@ sudo journalctl -u devpush-agent -n 100 --no-pager
 
 Check access to the configured dashboard's `/api/health`. Installer logs are under `/var/log/devpush-agent/`, with `latest.log` pointing to the latest run. Keep `/etc/devpush/agent.env` and install commands private.
 
-`sudo devpush-agent metrics resync` replays the agent's retained 24-hour metric history after control-plane data loss. It cannot recover samples never collected.
+`sudo devpush-agent metrics resync` replays the agent's retained 24-hour metric history after dashboard monitoring data loss. It cannot recover samples never collected.
 
 Use [Agent maintenance](/docs/agent-maintenance/) for upgrades, credentials and interrupted jobs. Deleting a server does not erase external backup archives; inspect the confirmation's handling of ongoing work before proceeding.

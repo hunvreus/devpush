@@ -6,7 +6,7 @@ description: Run the open-source application as a dependency in your own project
 
 The `devpush` package contains the application, build integration and migrations. Your project owns its configuration, credentials and any plugins; plugins are optional.
 
-The first package release has not been published yet. Until it is, use a locally packed tarball or a [source checkout](/docs/self-hosting/). Don't assume that a proposed version number exists on npm.
+Check [Installation](/docs/self-hosting/) for release availability. Use a locally packed tarball for package development, or the guided source-checkout installation.
 
 ## Create a project
 

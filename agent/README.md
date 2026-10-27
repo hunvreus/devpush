@@ -4,4 +4,4 @@ Go agent for Linux servers: Docker Compose, Traefik, monitoring, logs and backup
 
 From the repository root, use `pnpm agent:build:linux` and `pnpm agent:test`, with the compiler pinned in `go.mod`.
 
-See [Servers](../docs/basics/servers.md) for installation, [Agent maintenance](../docs/administration-and-operations/agent-maintenance.md) for recovery, and [Contributing](../docs/development/development.md) for execution and protocol invariants.
+See [Servers](../docs/servers.md) for installation, [Agent maintenance](../docs/agent-maintenance.md) for recovery, and [Contributing](../docs/development.md) for execution and protocol invariants.

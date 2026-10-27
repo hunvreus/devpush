@@ -34,7 +34,7 @@ Scopes do not override team roles. “Administrator” means a team owner/admin;
 | `GET /api/v1/projects/{projectId}/aliases` | `projects:read` | Yes | List generated deployment, branch, and environment aliases. |
 | `GET /api/v1/projects/{projectId}/backup-policies` | `backups:read` | Yes | List policy identifiers and enabled state. Database connection secrets are excluded. |
 | `POST /api/v1/projects/{projectId}/backup-policies` | `backups:write` | Yes | Create a backup policy. Requires current administrator role. |
-| `GET /api/v1/projects/{projectId}/backup-policies/{policyId}` | `backups:read` | Yes | Read a backup policy without legacy commands or storage credentials. |
+| `GET /api/v1/projects/{projectId}/backup-policies/{policyId}` | `backups:read` | Yes | Read a backup policy without commands or storage credentials. |
 | `DELETE /api/v1/projects/{projectId}/backup-policies/{policyId}` | `backups:write` | Yes | Remove a backup policy without deleting retained backup runs. Requires current administrator role. |
 | `PUT /api/v1/projects/{projectId}/backup-policies/{policyId}` | `backups:write` | Yes | Replace a backup policy using its current settings version. Requires current administrator role. |
 | `GET /api/v1/projects/{projectId}/backups` | `backups:read` | Yes | List backup status metadata. Storage credentials and internal manifests are excluded. |

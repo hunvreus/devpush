@@ -12,7 +12,7 @@ devpush generates nip.io addresses using the server's routing IP, such as `shop-
 
 Environment and branch aliases follow successful deployments. Each environment runs one current revision: an old deployment URL does not preserve an older running app.
 
-Renaming a project or changing a server IP does not rewrite saved hostnames. Use a custom domain for a stable address. Installation-owned wildcard domains require an extension; the default OSS application uses nip.io.
+Renaming a project or changing a server IP does not rewrite saved hostnames. Use a custom domain for a stable address. Installation-owned wildcard domains are not available in the default installation, which uses nip.io.
 
 ## Add a domain
 

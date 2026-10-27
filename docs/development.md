@@ -41,6 +41,8 @@ Core supplies generic hooks, permission gates and UI slots. Extension-specific p
 
 `workspaceAccess.run(input, action)` wraps an already authorized effect. Policies may restrict core access, never grant it. Invoke the action once and return its result. Queue admission and productive claims both check policy; completion, observations and cleanup remain independent. Keep coordination in durable storage, not provider-instance state.
 
+The optional `runtimeLogLimits(teamId)` service supplies team-wide runtime-log budgets. Core authenticates uploads and enforces these limits without knowing extension-specific product rules.
+
 Factories/providers must be bounded, retryable and cheap to initialize. Preserve generic fallbacks only when no provider is configured; provider failure must not silently change behavior. Pin compatible app/plugin versions and build them together. See the [server contracts](https://github.com/hunvreus/devpush/blob/development/app/src/plugins/server.ts) and [UI contracts](https://github.com/hunvreus/devpush/blob/development/app/src/plugins/client.ts) for supported hooks.
 
 ## Migrations and docs
@@ -49,6 +51,10 @@ Generate migrations for changed schemas, commit SQL and Drizzle metadata, and ru
 
 See [Background work](/docs/production-operations/#background-work) for scheduling on both targets.
 
-Edit grouped pages in `docs/`, update `docs/docs.json` and run `pnpm docs:check`. Temporary review notes belong in `.tmp/`, not documentation.
+Edit pages in `docs/`, update `docs/docs.json` and run `pnpm docs:check`. Temporary review notes belong in `.tmp/`, not documentation.
 
-The website importer flattens these source folders into its generated snapshot, preserving `/docs/page/` URLs. Keep filenames unique across groups.
+Keep files flat and organize the sidebar through `docs/docs.json`. Page filenames determine public URLs; renaming a file requires a website redirect. Documentation-only edits need no app release.
+
+## Branches
+
+Use `main` for integration and short-lived branches for changes. Create `release/<version>` only when a release needs stabilization or patches while newer work continues on `main`. Release tags identify published builds. The current rewrite remains on `development` until its release checks pass; merge it normally without rewriting the existing history.

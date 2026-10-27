@@ -163,7 +163,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   operation({
     id: 'get_backup_policy',
     description:
-      'Read a backup policy without legacy commands or storage credentials.',
+      'Read a backup policy without commands or storage credentials.',
     method: 'GET',
     path: '/projects/{projectId}/backup-policies/{policyId}',
     scope: 'backups:read',

@@ -12,9 +12,9 @@ Run these commands on the deployment server as an operator.
 sudo /usr/local/lib/devpush/update-agent
 ```
 
-The updater verifies the binary, drains work and acknowledged completions, then replaces/restarts the agent. Drain timeout postpones the update; failed startup restores the previous binary. Application containers keep running. A later deployment may briefly interrupt ingress when replacing Traefik.
+The updater verifies the binary, waits for active work to finish and its results to reach the dashboard, then replaces/restarts the agent. Drain timeout postpones the update; failed startup restores the previous binary. Application containers keep running. A later deployment may briefly interrupt ingress when replacing Traefik.
 
-For manual maintenance, pause new claims and resume afterward:
+For manual maintenance, pause new jobs and resume afterward:
 
 ```sh
 sudo devpush-agent maintenance drain
@@ -53,11 +53,11 @@ A failed confirmation heartbeat restores the source configuration. After success
 
 ## Interrupted work
 
-Pending completions block new claims until acknowledged. Investigate `deliver pending completion failed` and preserve the state directory. **Do not delete outbox entries to resume work.**
+Pending job results block new jobs until the dashboard accepts them. Investigate `deliver pending completion failed` and preserve the state directory. **Do not delete outbox entries to resume work.**
 
 Interrupted deployments, backups and restores are reported failed, not automatically replayed. Inspect application/data state before retrying: some effects may already have occurred.
 
-Volume restores keep journals and archives at `<agent state directory>/restores/<job ID>/recovery`. Restart recovery rolls back interrupted replacements, preserves completed ones and restarts affected containers. Recovery failure blocks claims and leaves containers stopped. Fix the reported Docker/storage error and let polling retry; never delete journals or recovery copies. Database restores require application-specific inspection.
+Volume restores keep journals and archives at `<agent state directory>/restores/<job ID>/recovery`. Restart recovery rolls back interrupted replacements, preserves completed ones and restarts affected containers. Recovery failure blocks new jobs and leaves containers stopped. Fix the reported Docker/storage error and let polling retry; never delete journals or recovery copies. Database restores require application-specific inspection.
 
 Backup/restore work expires centrally after 25 hours without completion. That does not prove the host process stopped or its partial writes were undone.
 

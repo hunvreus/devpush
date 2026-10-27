@@ -58,7 +58,7 @@ Register these URLs, replacing the example origin with yours:
 | GitHub post-installation setup URL | `https://devpush.example.com/api/github/install/callback` |
 | GitHub webhook URL | `https://devpush.example.com/api/github/webhook` |
 
-Sign-in callbacks use the authentication origin. Installation callbacks and webhooks use the public control-plane origin. Local callbacks can use `http://localhost:7429`, but webhooks need an endpoint reachable from the internet. For Lima origins, see [Local development](/docs/local-setup/#local-deployment-vm).
+Sign-in callbacks use the authentication origin. Installation callbacks and webhooks use the public dashboard origin. Local callbacks can use `http://localhost:7429`, but webhooks need an endpoint reachable from the internet. For Lima origins, see [Local development](/docs/local-setup/#local-deployment-vm).
 
 For assisted setup, run `pnpm setup:github-app`. A manually created app must match the generated manifest:
 
@@ -123,11 +123,11 @@ The installer writes `/etc/devpush/agent.env`. Process environment values take p
 | `DEVPUSH_ROUTING_ADDRESS` | Routing pin, set by `--address IP` or `--address auto`. |
 | `DEVPUSH_TRAEFIK_HTTP_PORT` / `DEVPUSH_TRAEFIK_HTTPS_PORT` | Ingress ports; default 80/443. Other ports need matching networking and URLs. |
 | `DEVPUSH_TRAEFIK_EMAIL` | ACME contact for managed certificates. |
-| `DEVPUSH_GIT_CLONE_BASE_URL` | Clone origin; default `https://github.com`. Intended for controlled tests. |
+| `DEVPUSH_GIT_CLONE_BASE_URL` | Clone origin; default `https://github.com`. Testing-only; keep the default for normal installations. |
 | `DOCKER_HOST` | Optional Docker endpoint. Access to it is host-level privilege. |
 | `DEVPUSH_RUNTIME_LOG_QUEUE_BYTES` | Runtime-log queue budget; default 128 MiB. |
 
-To move a host to another control plane, [switch an empty server](/docs/agent-maintenance/#switch-an-empty-server). Editing the URL is not enough.
+To move a host to another installation, [switch an empty server](/docs/agent-maintenance/#switch-an-empty-server). Editing the URL is not enough.
 
 ## Reverse proxies
 
@@ -142,6 +142,6 @@ External schedulers can call `POST /api/cron/maintenance` hourly and `POST /api/
 
 ## Runtime log budgets
 
-Runtime logs are kept for 24 hours, with at most 10,000 rows per runtime. A plugin `runtimeLogLimits(teamId)` policy can add per-team limits on bytes per minute and per day, and on rows per day; see the [server extension contracts](https://github.com/hunvreus/devpush/blob/development/app/src/plugins/server.ts). Without such a policy, no team budget applies.
+Runtime logs are kept for 24 hours, with at most 10,000 rows per runtime. No additional team-wide budget applies by default.
 
-When a batch exceeds the budget, devpush acknowledges it but does not store it. The team gets at most one visible `devpush` notice per UTC day. Collection resumes when the limit window resets. Dropped logs cannot be recovered. Deployment logs are not affected.
+An installation may enforce extra limits. When a batch exceeds them, it is dropped and a visible notice appears at most once per UTC day. Collection resumes when the limit window resets; dropped logs cannot be recovered. Deployment logs have separate limits.

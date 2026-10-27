@@ -1,23 +1,25 @@
 ---
-description: Deploy GitHub applications to your own servers.
+description: What devpush is, why it exists and how it works.
 ---
 
-# devpush
+# Overview
 
-devpush is an open-source deployment platform for apps that run with Docker Compose. Connect a Linux server, select a GitHub repository and deploy. Pushes to configured branches deploy automatically.
+devpush is an open-source deployment platform for applications running on your own servers. Connect a GitHub repository, configure its Docker Compose services and push to deploy.
 
-The dashboard runs on Cloudflare Workers or Node. A small agent runs your applications on your servers and reports deployment progress, logs and resource usage.
+## Why devpush?
 
-- **New installation:** [Install devpush](/docs/self-hosting/).
-- **Dashboard already running:** [Deploy your first app](/docs/getting-started/).
-- **Contributing:** [Local development](/docs/local-setup/).
+devpush started with a simple goal: make deploying Python applications as straightforward as deploying with Vercel. That goal extends to any application that runs with Docker Compose.
 
-## What you can do
+You choose the infrastructure and keep control of your data. devpush brings deployments, domains, logs, monitoring and backups into one interface, so you spend less time assembling and maintaining deployment scripts.
 
-- Deploy Compose apps with separate environments and encrypted variables.
-- Connect custom domains with automatic HTTPS.
-- Inspect build logs, runtime logs and server health.
-- Schedule database and volume backups.
-- Work with a team or connect integrations through the API and MCP.
+## How it works
 
-Compose is required; a Dockerfile can be used inside it. Updates happen in place and do not guarantee zero downtime. Deploy only trusted repositories: Docker access gives deployed code control over its server.
+The dashboard runs on Cloudflare Workers or as a Node app; the supplied Node installation uses Docker Compose. An agent on each Linux server connects to it, runs Docker Compose and reports progress and health. Application traffic goes directly to your servers.
+
+Projects connect repositories to environments, such as production and staging. Each environment has its own variables and server assignment. GitHub pushes trigger deployments for matching branches.
+
+Compose is required; Dockerfiles can be used within it. Updates happen in place and do not guarantee zero downtime. Deploy only trusted code: Docker workloads can access their host.
+
+## Get started
+
+[Install devpush](/docs/self-hosting/) to run your own dashboard, or follow [Your first deployment](/docs/getting-started/) if one is already available.
