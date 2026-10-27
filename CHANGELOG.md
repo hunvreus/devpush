@@ -4,6 +4,8 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.1] - 2026-10-27
+
 ### Changed
 
 - Complete rewrite of the pre-1.0 application: a TypeScript dashboard on Node or Cloudflare Workers, with a Go agent on each deployment server.

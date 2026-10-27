@@ -11,7 +11,7 @@ The app package does not contain agent executables. Its `agent-release.json` pin
 
 `devpush-agent version --json` reports a running agent's version, protocol, capabilities and platform.
 
-The agent release for this rewrite has not been published yet. Until it is, enroll servers only from Docker installations or from Node installations with local binaries.
+Published binaries, checksums and the app package are attached to the matching [GitHub Release](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.1).
 
 ## Download behavior
 

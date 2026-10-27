@@ -6,11 +6,17 @@ description: Run the open-source application as a dependency in your own project
 
 The `devpush` package contains the application, build integration and migrations. Your project owns its configuration, credentials and any plugins; plugins are optional.
 
-Check [Installation](/docs/self-hosting/) for release availability. Use a locally packed tarball for package development, or the guided source-checkout installation.
+The beta package is available from [GitHub Releases](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.1). For package development, use a locally packed tarball. The guided source-checkout installation is described in [Installation](/docs/self-hosting/).
 
 ## Create a project
 
-Use Node.js 22.12+ and pnpm 10.17+. Install an exact `devpush` version with its peer dependencies, plus Vite, and Wrangler if you target Workers. Then create `vite.config.mjs`:
+Use Node.js 22.12+ and pnpm 10.17+. Install the pinned beta tarball:
+
+```sh
+pnpm add https://github.com/hunvreus/devpush/releases/download/v1.0.0-beta.1/devpush-1.0.0-beta.1.tgz
+```
+
+Install its peer dependencies and Vite, plus Wrangler if you target Workers. Then create `vite.config.mjs`:
 
 ```js
 import { devpush } from 'devpush/vite'
