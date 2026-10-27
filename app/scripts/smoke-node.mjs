@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import Sqlite from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { smokeMcp } from './smoke-mcp.mjs'
 import { smokeSettings } from './smoke-settings.mjs'
 import { smokeAssets } from './smoke-assets.mjs'
@@ -123,13 +124,24 @@ try {
         .all()
         .some((column) => column.name === 'profile_confirmed_at'),
     )
-    for (const store of stores)
-      assert.equal(
-        store.prepare('select count(*) n from __drizzle_migrations').get().n,
-        1,
+    for (const [index, store] of stores.entries()) {
+      const migrations = readMigrationFiles({
+        migrationsFolder: resolve(
+          packageDir,
+          'src/server/db',
+          index === 0 ? 'migrations-sqlite' : 'migrations-logs',
+        ),
+      })
+      assert.deepEqual(
+        store
+          .prepare('select hash from __drizzle_migrations order by created_at')
+          .all()
+          .map((row) => row.hash),
+        migrations.map((migration) => migration.hash),
       )
+    }
     console.log(
-      'Development startup: fresh main/log baselines applied before serving requests.',
+      'Development startup: all main/log migrations applied before serving requests.',
     )
   }
   const login = await fetch(`${origin}/auth/login`)
