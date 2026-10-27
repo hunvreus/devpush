@@ -3,9 +3,9 @@ import { fileURLToPath } from 'node:url'
 import { createClient } from '@libsql/client'
 import { sql } from 'drizzle-orm'
 import { expect, test } from 'vitest'
-import { createD1TestStores } from '@/test/d1'
-import { openLibsql } from '@/server/db/libsql-connection'
-import * as schema from '@/server/db/schema'
+import { createD1TestStores } from '#devpush/test/d1'
+import { openLibsql } from '#devpush/server/db/libsql-connection'
+import * as schema from '#devpush/server/db/schema'
 import {
   deletedResourceRetentionMs,
   pruneDeletedResources,

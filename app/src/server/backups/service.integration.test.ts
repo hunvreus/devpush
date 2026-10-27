@@ -1,12 +1,13 @@
-import { backupConfigSchema } from '@/lib/backup-policy-schema'
-import type { BackupPolicyInput } from '@/lib/backup-policy-schema'
-import type { BackupStorageReference } from '@/lib/backup-storage-schema'
-import { deleteProjectState } from '@/server/projects/deletion-state'
-import { deleteTeamState } from '@/server/teams/deletion-state'
-import { deleteServerState } from '@/server/servers/lifecycle'
+import { WorkspacePolicyError } from '#devpush/plugins/server'
+import { backupConfigSchema } from '#devpush/lib/backup-policy-schema'
+import type { BackupPolicyInput } from '#devpush/lib/backup-policy-schema'
+import type { BackupStorageReference } from '#devpush/lib/backup-storage-schema'
+import { deleteProjectState } from '#devpush/server/projects/deletion-state'
+import { deleteTeamState } from '#devpush/server/teams/deletion-state'
+import { deleteServerState } from '#devpush/server/servers/lifecycle'
 import { enqueueBackupCleanup } from './queue-state'
-import { getProjectContext } from '@/server/projects/context'
-import { finishBackup } from '@/server/agents/backup-state'
+import { getProjectContext } from '#devpush/server/projects/context'
+import { finishBackup } from '#devpush/server/agents/backup-state'
 import { buildDatabaseBackupCommand } from './database-commands'
 import {
   saveBackupStorage,
@@ -20,7 +21,7 @@ import { createHash } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
-import { closeDb, db } from '@/server/db'
+import { closeDb, db } from '#devpush/server/db'
 import {
   agentJobs,
   backupArtifacts,
@@ -33,19 +34,35 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   claimNextAgentJob,
   completeBackupCleanupJob,
-} from '@/server/agents/jobs'
-import { currentAgentCapabilities } from '@/server/agents/compatibility'
-import { encryptSecret } from '@/server/secrets/crypto'
+} from '#devpush/server/agents/jobs'
+import { currentAgentCapabilities } from '#devpush/server/agents/compatibility'
+import { encryptSecret } from '#devpush/server/secrets/crypto'
 import {
   queueDueBackupSchedules,
   queueEnvironmentBackup,
   queueBackupRetentionCleanupJobs,
   queueBackupRestoreJob,
 } from './service'
+
+const workspacePolicy = vi.hoisted(() => ({ denied: new Set<string>() }))
+vi.mock('#devpush/server/plugins/services.server', () => ({
+  getPluginServices: () => ({
+    workspaceAccess: {
+      run: async (
+        input: { teamId: string },
+        action: () => Promise<unknown>,
+      ) => {
+        if (workspacePolicy.denied.has(input.teamId))
+          throw new WorkspacePolicyError('restricted')
+        return action()
+      },
+    },
+  }),
+}))
 
 const touchedAgentJobIds: Array<string> = []
 const touchedArtifactIds: Array<string> = []
@@ -58,6 +75,7 @@ const touchedTeamIds: Array<string> = []
 const touchedUserIds: Array<string> = []
 
 afterEach(async () => {
+  workspacePolicy.denied.clear()
   await cleanupRows()
 })
 
@@ -293,6 +311,7 @@ describe('backup service integration', () => {
     })
     touchedBackupConfigIds.push(policy.id)
     const queued = (await queueEnvironmentBackup({
+      actor: { kind: 'system', source: 'maintenance' },
       projectId: fixture.projectId,
       environmentId: fixture.environmentId,
       backupConfigId: policy.id,
@@ -338,6 +357,7 @@ describe('backup service integration', () => {
       },
     })
     const restored = await queueBackupRestoreJob({
+      actor: { kind: 'system', source: 'maintenance' },
       projectId: fixture.projectId,
       backupRunId: queued.backupRunId,
       artifacts: [
@@ -420,6 +440,7 @@ describe('backup service integration', () => {
       .where(eq(agentJobs.id, restored.agentJobId))
     await db.delete(backupConfigs).where(eq(backupConfigs.id, policy.id))
     const afterDelete = await queueBackupRestoreJob({
+      actor: { kind: 'system', source: 'maintenance' },
       projectId: fixture.projectId,
       backupRunId: queued.backupRunId,
       artifacts: [
@@ -480,6 +501,7 @@ describe('backup service integration', () => {
     let ambiguityError: unknown
     try {
       const unexpected = await queueEnvironmentBackup({
+        actor: { kind: 'system', source: 'maintenance' },
         projectId: fixture.projectId,
         environmentId: fixture.environmentId,
       })
@@ -492,6 +514,7 @@ describe('backup service integration', () => {
     }
     expect(ambiguityError).toMatchObject({ code: 'BACKUP_POLICY_REQUIRED' })
     const queued = (await queueEnvironmentBackup({
+      actor: { kind: 'system', source: 'maintenance' },
       projectId: fixture.projectId,
       environmentId: fixture.environmentId,
       backupConfigId: secondId,
@@ -531,6 +554,7 @@ describe('backup service integration', () => {
     touchedBackupConfigIds.push(config.id)
 
     const queued = await queueEnvironmentBackup({
+      actor: { kind: 'system', source: 'maintenance' },
       projectId,
       environmentId,
       manifest: {
@@ -630,7 +654,11 @@ describe('backup service integration', () => {
       databaseDumps: targets,
     })
     touchedBackupConfigIds.push(config.id)
-    const queued = await queueEnvironmentBackup({ projectId, environmentId })
+    const queued = await queueEnvironmentBackup({
+      actor: { kind: 'system', source: 'maintenance' },
+      projectId,
+      environmentId,
+    })
     if (!queued) throw new Error('Not queued')
     touchedBackupRunIds.push(queued.backupRunId)
     touchedAgentJobIds.push(queued.agentJobId)
@@ -681,6 +709,7 @@ describe('backup service integration', () => {
       .where(eq(backupArtifacts.backupRunId, queued.backupRunId))
     touchedArtifactIds.push(artifact!.id)
     const restored = await queueBackupRestoreJob({
+      actor: { kind: 'system', source: 'maintenance' },
       projectId,
       backupRunId: queued.backupRunId,
       artifacts: [
@@ -717,7 +746,11 @@ describe('backup service integration', () => {
     })
     touchedBackupConfigIds.push(config.id)
 
-    const queued = await queueEnvironmentBackup({ projectId, environmentId })
+    const queued = await queueEnvironmentBackup({
+      actor: { kind: 'system', source: 'maintenance' },
+      projectId,
+      environmentId,
+    })
     expect(queued).not.toBeNull()
     if (!queued) throw new Error('Backup was not queued.')
     touchedBackupRunIds.push(queued.backupRunId)
@@ -779,7 +812,11 @@ describe('backup service integration', () => {
       destination: { bucket: 'devpush-backups' },
     })
     touchedBackupConfigIds.push(config.id)
-    const queued = await queueEnvironmentBackup({ projectId, environmentId })
+    const queued = await queueEnvironmentBackup({
+      actor: { kind: 'system', source: 'maintenance' },
+      projectId,
+      environmentId,
+    })
     expect(queued).not.toBeNull()
     if (!queued) throw new Error('Backup was not queued.')
     touchedBackupRunIds.push(queued.backupRunId)
@@ -1122,6 +1159,7 @@ describe('backup service integration', () => {
       })
 
       const queued = await queueBackupRestoreJob({
+        actor: { kind: 'system', source: 'maintenance' },
         projectId,
         backupRunId,
         artifacts: [
@@ -1408,7 +1446,11 @@ describe('backup service integration', () => {
       .where(eq(servers.id, serverId))
 
     await expect(
-      queueEnvironmentBackup({ projectId, environmentId }),
+      queueEnvironmentBackup({
+        actor: { kind: 'system', source: 'maintenance' },
+        projectId,
+        environmentId,
+      }),
     ).rejects.toThrow('Enabled backup configuration not found.')
     await expect(
       queueDueBackupSchedules({
@@ -1789,6 +1831,7 @@ test('unavailable storage fails the claimed job and run without using a saved se
   })
   touchedBackupConfigIds.push(policy.id)
   const queued = (await queueEnvironmentBackup({
+    actor: { kind: 'system', source: 'maintenance' },
     projectId: f.projectId,
     environmentId: f.environmentId,
   }))!
@@ -1993,4 +2036,78 @@ test('failed credential claims do not create a cleanup job on every maintenance 
     (await db.select().from(backupRuns).where(eq(backupRuns.id, runId)))[0]
       ?.cleanupErrorMessage,
   ).toBeNull()
+})
+
+test('a restricted scheduled workspace does not stop other backups and cannot start queued backup work', async () => {
+  const blocked = await createProjectEnvironment()
+  const allowed = await createProjectEnvironment()
+  for (const fixture of [blocked, allowed]) {
+    const config = await createBackupPolicyFixture({
+      projectId: fixture.projectId,
+      environmentId: fixture.environmentId,
+      enabled: true,
+      schedule: { cron: '30 2 * * *' },
+      destination: { bucket: 'devpush-backups' },
+    })
+    touchedBackupConfigIds.push(config.id)
+  }
+  workspacePolicy.denied.add(blocked.teamId)
+  const queued = await queueDueBackupSchedules({
+    now: new Date('2030-07-09T02:30:00.000Z'),
+  })
+  touchedBackupRunIds.push(...queued.map((job) => job.backupRunId))
+  touchedAgentJobIds.push(...queued.map((job) => job.agentJobId))
+  expect(queued).toHaveLength(1)
+  const [run] = await db
+    .select()
+    .from(backupRuns)
+    .where(eq(backupRuns.id, queued[0]!.backupRunId))
+  expect(run!.projectId).toBe(allowed.projectId)
+  workspacePolicy.denied.add(allowed.teamId)
+  expect(
+    await claimNextAgentJob({
+      serverId: allowed.serverId,
+      token: allowed.token,
+      protocolVersion: 1,
+      capabilities: [...currentAgentCapabilities],
+    }),
+  ).toBeNull()
+  expect(
+    (await db.select().from(backupRuns).where(eq(backupRuns.id, run!.id)))[0]
+      ?.status,
+  ).toBe('queued')
+})
+
+test('a malformed schedule cannot abort another workspace backup', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    const fixtures = [
+      await createProjectEnvironment(),
+      await createProjectEnvironment(),
+    ]
+    for (const [index, f] of fixtures.entries()) {
+      const config = await createBackupPolicyFixture({
+        projectId: f.projectId,
+        environmentId: f.environmentId,
+        enabled: true,
+        schedule: { cron: '30 2 * * *' },
+        destination: { bucket: 'devpush-backups' },
+      })
+      touchedBackupConfigIds.push(config.id)
+      if (index === 0)
+        await db
+          .update(backupConfigs)
+          .set({ schedule: { cron: 'invalid' } })
+          .where(eq(backupConfigs.id, config.id))
+    }
+    const queued = await queueDueBackupSchedules({
+      now: new Date('2030-07-09T02:30:00.000Z'),
+    })
+    touchedBackupRunIds.push(...queued.map((job) => job.backupRunId))
+    touchedAgentJobIds.push(...queued.map((job) => job.agentJobId))
+    expect(queued).toHaveLength(1)
+    expect(errorLog).toHaveBeenCalledOnce()
+  } finally {
+    errorLog.mockRestore()
+  }
 })

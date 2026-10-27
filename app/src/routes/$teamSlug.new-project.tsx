@@ -1,6 +1,6 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute } from '@tanstack/react-router'
-import { NewProjectRouteDialog } from '@/features/repositories/new-project-dialog'
+import { NewProjectRouteDialog } from '#devpush/features/repositories/new-project-dialog'
 
 export const Route = createFileRoute('/$teamSlug/new-project')({
   component: NewProjectRoute,

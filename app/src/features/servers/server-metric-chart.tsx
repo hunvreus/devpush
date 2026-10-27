@@ -6,9 +6,9 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-} from '@/components/ui/chart'
-import type { ChartConfig } from '@/components/ui/chart'
-import type { ServerMetricsSample } from '@/server/servers/monitoring'
+} from '#devpush/components/ui/chart'
+import type { ChartConfig } from '#devpush/components/ui/chart'
+import type { ServerMetricsSample } from '#devpush/server/servers/monitoring'
 
 const timeFormatter = new Intl.DateTimeFormat('en', {
   hour: 'numeric',

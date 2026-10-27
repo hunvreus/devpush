@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -153,7 +152,7 @@ func (runner *Runner) collectRuntimeLogWindow(ctx context.Context, runtimeID str
 	for {
 		args := append(append([]string{}, composePrefix...), "-p", runtimeID, "logs", "--no-color", "--timestamps", "--since", since.UTC().Format(time.RFC3339Nano), "--until", until.UTC().Format(time.RFC3339Nano))
 		captureCtx, cancel := context.WithCancel(ctx)
-		command := exec.CommandContext(captureCtx, composeName, args...)
+		command := agentCommand(captureCtx, composeName, args...)
 		command.Env = runner.commandEnv()
 		output := runtimeLogCapture{cancel: cancel}
 		stderr := runtimeLogCapture{cancel: cancel}

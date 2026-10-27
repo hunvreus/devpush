@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { rotateAgentCredential } from '@/server/servers/service'
+import { rotateAgentCredential } from '#devpush/server/servers/service'
 import {
   handleAgentRequest,
   rotateAgentCredentialSchema,
-} from '@/server/agents/protocol'
+} from '#devpush/server/agents/protocol'
 
 export const Route = createFileRoute('/api/agents/credentials/rotate')({
   server: {

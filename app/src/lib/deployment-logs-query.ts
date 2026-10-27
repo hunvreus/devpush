@@ -3,7 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { queryOptions } from '@tanstack/react-query'
 import { isRedirect, redirect } from '@tanstack/react-router'
 
-import { getDeploymentLogs } from '@/server/projects/functions'
+import { getDeploymentLogs } from '#devpush/server/projects/functions'
 
 export function deploymentLogsQueryOptions({
   completed,

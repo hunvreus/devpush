@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { DeploymentsPage } from './deployments-page'
-import { projectContext } from '@/test/project-context'
+import { projectContext } from '#devpush/test/project-context'
 import type { DeploymentsSearch } from './deployment-filters'
 
 const mocks = vi.hoisted(() => ({
@@ -19,16 +19,16 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('sonner', () => ({
   toast: { error: mocks.error, dismiss: mocks.dismiss },
 }))
-vi.mock('@/features/projects/project-heading', () => ({
+vi.mock('#devpush/features/projects/project-heading', () => ({
   ProjectHeading: () => null,
 }))
-vi.mock('@/features/projects/manual-deploy-dialog', () => ({
+vi.mock('#devpush/features/projects/manual-deploy-dialog', () => ({
   ManualDeployDialog: () => null,
 }))
-vi.mock('@/features/deployments/deployment-list', () => ({
+vi.mock('#devpush/features/deployments/deployment-list', () => ({
   DeploymentList: () => null,
 }))
-vi.mock('@/components/ui/select', () => ({
+vi.mock('#devpush/components/ui/select', () => ({
   Select: ({
     children,
     value,

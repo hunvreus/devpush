@@ -1,10 +1,8 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -154,8 +152,11 @@ func (runner *Runner) listComposeRuntimeStates(ctx context.Context) ([]composeRu
 		"--filter",
 		"label=com.docker.compose.project",
 	)
-	if err != nil || len(containerIDs) == 0 {
-		return []composeRuntime{}, err
+	if err != nil {
+		return nil, err
+	}
+	if len(containerIDs) == 0 {
+		return []composeRuntime{}, nil
 	}
 
 	format := `{{index .Config.Labels "com.docker.compose.project"}}\t{{index .Config.Labels "com.docker.compose.service"}}\t{{.Name}}\t{{.State.Status}}\t{{if .State.Health}}{{.State.Health.Status}}{{end}}\t{{.RestartCount}}\t{{.State.StartedAt}}\t{{.State.ExitCode}}`
@@ -212,19 +213,27 @@ func (runner *Runner) listComposeRuntimeStates(ctx context.Context) ([]composeRu
 }
 
 func (runner *Runner) commandOutput(ctx context.Context, dir string, name string, args ...string) (string, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := agentCommand(ctx, name, args...)
 	command.Dir = dir
 	command.Env = runner.commandEnv()
-	var stderr bytes.Buffer
+	stdout := cappedTailBuffer{maxBytes: maxCommandOutputBytes}
+	stderr := cappedTailBuffer{maxBytes: maxCommandOutputBytes}
+	command.Stdout = &stdout
 	command.Stderr = jobDiagnostics(ctx, &stderr)
-	output, err := command.Output()
+	err := command.Run()
+	if stdout.truncated {
+		if err != nil {
+			return "", fmt.Errorf("%s output exceeded the diagnostic limit: %w", name, err)
+		}
+		return "", fmt.Errorf("%s output exceeded the diagnostic limit", name)
+	}
 	if err != nil {
-		details := strings.TrimSpace(stderr.String())
+		details := strings.TrimSpace(string(stderr.Bytes()))
 		if details != "" {
 			return "", fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, details)
 		}
 		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
 
-	return string(output), nil
+	return string(stdout.Bytes()), nil
 }

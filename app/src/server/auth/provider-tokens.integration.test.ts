@@ -1,17 +1,17 @@
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { SignJWT } from 'jose'
-import { db, closeDb } from '@/server/db'
-import { account, user, verification } from '@/server/db/schema'
+import { db, closeDb } from '#devpush/server/db'
+import { account, user, verification } from '#devpush/server/db/schema'
 import { auth, getGoogleUserInfo } from './better-auth'
 import {
   encryptExistingProviderTokens,
   readProviderToken,
   storeProviderToken,
 } from './provider-tokens'
-import { getGitHubAccount } from '@/server/github/service'
+import { getGitHubAccount } from '#devpush/server/github/service'
 
-vi.mock('@/server/auth/auth-methods', () => ({
+vi.mock('#devpush/server/auth/auth-methods', () => ({
   getAuthMethods: () => ({ github: true, google: true, email: false }),
   getGitHubOAuthCredentials: () => ({
     clientId: 'fixture-client',
@@ -164,16 +164,14 @@ test('a concurrent profile update keeps its timestamp and defers token rewriting
   const id = await owner(),
     before = new Date(1),
     after = new Date(Date.now() + 60_000)
-  await db
-    .insert(account)
-    .values({
-      id,
-      userId: id,
-      providerId: 'github',
-      accountId: 'provider-id',
-      accessToken: 'gho_original',
-      updatedAt: before,
-    })
+  await db.insert(account).values({
+    id,
+    userId: id,
+    providerId: 'github',
+    accountId: 'provider-id',
+    accessToken: 'gho_original',
+    updatedAt: before,
+  })
   const rewrite = encryptExistingProviderTokens()
   await db
     .update(account)

@@ -1,3 +1,4 @@
+import { withWorkspaceAccess } from '#devpush/server/plugins/workspace-access'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { SQL } from 'drizzle-orm'
@@ -10,17 +11,17 @@ import {
   apiKeyProjectsSchema,
   apiKeyMaxExpirationDays,
   scopesForApiPreset,
-} from '@/lib/api-key-schema'
-import { PublicError } from '@/lib/public-error'
+} from '#devpush/lib/api-key-schema'
+import { PublicError } from '#devpush/lib/public-error'
 import type {
   ApiKeySummary,
   ApiKeyTeamOption,
   ApiKeyProjectOption,
   ApiScope,
-} from '@/lib/api-key-schema'
-import type { TeamRole } from '@/lib/team-role'
-import { db } from '@/server/db'
-import type { AtomicStore } from '@/server/db/atomic'
+} from '#devpush/lib/api-key-schema'
+import type { TeamRole } from '#devpush/lib/team-role'
+import { db } from '#devpush/server/db'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 import {
   apiGrants,
   apiKeys,
@@ -28,10 +29,10 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import type { ApiPrincipal } from './authorization'
 import { apiAuthorizationCondition } from './authorization'
-import { getResourceColor } from '@/server/resources/color'
+import { getResourceColor } from '#devpush/server/resources/color'
 
 type CredentialRow = {
   id: string
@@ -238,7 +239,6 @@ export async function authenticateApiKey(
   return principal
 }
 
-
 export async function resolveApiGrant(
   grantId: string,
   store: AtomicStore = db,
@@ -417,24 +417,37 @@ export async function createApiKey(
 ) {
   const data = createApiKeySchema.parse(input)
   const member = await requireMember(store, userId, data.teamId)
-  const scopes = scopesForApiPreset(data.preset, member.role, data.includeLogs)
-  const id = crypto.randomUUID()
-  const secret = newSecret()
-  const keyHash = await hashApiSecret(secret)
-  const now = Date.now()
-  const expiresAt =
-    data.expiresInDays === null ? null : now + data.expiresInDays * 86_400_000
-  const inserted =
-    await store.all(sql`insert into ${apiKeys} (id,user_id,team_id,membership_id,name,prefix,key_hash,role_ceiling,preset,project_ids,scopes,expires_at,created_at)
+  return withWorkspaceAccess(
+    data.teamId,
+    'credential.create',
+    async () => {
+      const scopes = scopesForApiPreset(
+        data.preset,
+        member.role,
+        data.includeLogs,
+      )
+      const id = crypto.randomUUID()
+      const secret = newSecret()
+      const keyHash = await hashApiSecret(secret)
+      const now = Date.now()
+      const expiresAt =
+        data.expiresInDays === null
+          ? null
+          : now + data.expiresInDays * 86_400_000
+      const inserted =
+        await store.all(sql`insert into ${apiKeys} (id,user_id,team_id,membership_id,name,prefix,key_hash,role_ceiling,preset,project_ids,scopes,expires_at,created_at)
     select ${id},${userId},${data.teamId},${member.membershipId},${data.name},${secret.slice(0, 11)},${keyHash},${member.role},${data.preset},${data.projectIds === null ? null : JSON.stringify(data.projectIds)},${JSON.stringify(scopes)},${expiresAt},${now}
     where ${activeMemberGuard(userId, data.teamId, member.membershipId, member.role)}
       and ${projectSelectionGuard(data.teamId, data.projectIds)}
       and (select count(*) from ${apiKeys} where user_id = ${userId} and revoked_at is null
         and (expires_at is null or expires_at > cast(unixepoch('subsec') * 1000 as integer))) < 100
     returning id`)
-  if (inserted.length !== 1)
-    throw new PublicError('API_KEY_CREATION_UNAVAILABLE')
-  return { key: keySummary(await readKey(store, userId, id), true), secret }
+      if (inserted.length !== 1)
+        throw new PublicError('API_KEY_CREATION_UNAVAILABLE')
+      return { key: keySummary(await readKey(store, userId, id), true), secret }
+    },
+    { kind: 'user', userId: userId },
+  )
 }
 
 export async function revokeApiKey(
@@ -459,23 +472,27 @@ export async function rotateApiKey(
   if (old.expiresAt !== null && old.expiresAt <= Date.now())
     throw new PublicError('API_KEY_EXPIRED')
   const member = await requireMember(store, userId, old.teamId)
-  if (member.membershipId !== old.membershipId)
-    throw new PublicError('FORBIDDEN')
-  const principal = principalFrom(old, member.role, 'api_key')
-  const newId = crypto.randomUUID()
-  const secret = newSecret()
-  const keyHash = await hashApiSecret(secret)
-  const now = Date.now()
-  const expiresAt =
-    old.expiresAt === null
-      ? null
-      : now +
-        Math.min(
-          apiKeyMaxExpirationDays * 86_400_000,
-          Math.max(86_400_000, old.expiresAt - old.createdAt),
-        )
-  const result = await store.batch([
-    store.all(sql`insert into ${apiKeys} (id,user_id,team_id,membership_id,name,prefix,key_hash,role_ceiling,preset,project_ids,scopes,expires_at,created_at)
+  return withWorkspaceAccess(
+    old.teamId,
+    'credential.rotate',
+    async () => {
+      if (member.membershipId !== old.membershipId)
+        throw new PublicError('FORBIDDEN')
+      const principal = principalFrom(old, member.role, 'api_key')
+      const newId = crypto.randomUUID()
+      const secret = newSecret()
+      const keyHash = await hashApiSecret(secret)
+      const now = Date.now()
+      const expiresAt =
+        old.expiresAt === null
+          ? null
+          : now +
+            Math.min(
+              apiKeyMaxExpirationDays * 86_400_000,
+              Math.max(86_400_000, old.expiresAt - old.createdAt),
+            )
+      const result = await store.batch([
+        store.all(sql`insert into ${apiKeys} (id,user_id,team_id,membership_id,name,prefix,key_hash,role_ceiling,preset,project_ids,scopes,expires_at,created_at)
       select ${newId},user_id,team_id,membership_id,name,${secret.slice(0, 11)},${keyHash},${principal.roleCeiling},preset,project_ids,${JSON.stringify(principal.scopes)},${expiresAt},${now}
       from ${apiKeys} where id = ${id} and user_id = ${userId} and revoked_at is null
         and (expires_at is null or expires_at > cast(unixepoch('subsec') * 1000 as integer))
@@ -483,12 +500,18 @@ export async function rotateApiKey(
           and (expires_at is null or expires_at > cast(unixepoch('subsec') * 1000 as integer))) <= 100
         and ${activeMemberGuard(userId, old.teamId, old.membershipId, member.role)}
         and ${projectSelectionGuard(old.teamId, principal.projectIds)} returning id`),
-    store.run(
-      sql`update ${apiKeys} set revoked_at = ${now} where id = ${id} and exists(select 1 from ${apiKeys} where id = ${newId})`,
-    ),
-  ])
-  if (result[0].length !== 1) throw new PublicError('FORBIDDEN')
-  return { key: keySummary(await readKey(store, userId, newId), true), secret }
+        store.run(
+          sql`update ${apiKeys} set revoked_at = ${now} where id = ${id} and exists(select 1 from ${apiKeys} where id = ${newId})`,
+        ),
+      ])
+      if (result[0].length !== 1) throw new PublicError('FORBIDDEN')
+      return {
+        key: keySummary(await readKey(store, userId, newId), true),
+        secret,
+      }
+    },
+    { kind: 'user', userId: userId },
+  )
 }
 
 export async function createApiGrant(
@@ -514,16 +537,23 @@ export async function createApiGrant(
       includeLogs: input.includeLogs ?? false,
     })
   const member = await requireMember(store, input.userId, data.teamId)
-  const id = crypto.randomUUID()
-  const now = Date.now()
-  const rows =
-    await store.all(sql`insert into ${apiGrants} (id,user_id,team_id,membership_id,role_ceiling,project_ids,scopes,provider_grant_id,expires_at,created_at)
+  return withWorkspaceAccess(
+    data.teamId,
+    'credential.create',
+    async () => {
+      const id = crypto.randomUUID()
+      const now = Date.now()
+      const rows =
+        await store.all(sql`insert into ${apiGrants} (id,user_id,team_id,membership_id,role_ceiling,project_ids,scopes,provider_grant_id,expires_at,created_at)
     select ${id},${input.userId},${data.teamId},${member.membershipId},${member.role},${data.projectIds === null ? null : JSON.stringify(data.projectIds)},${JSON.stringify(scopesForApiPreset(data.preset, member.role, data.includeLogs))},${input.providerGrantId ?? null},${now + data.expiresInDays * 86_400_000},${now}
     where ${activeMemberGuard(input.userId, data.teamId, member.membershipId, member.role)} and ${projectSelectionGuard(data.teamId, data.projectIds)}
       and (select count(*) from ${apiGrants} where user_id = ${input.userId} and revoked_at is null and expires_at > ${now}) < 100 returning id`)
-  if (rows.length !== 1)
-    throw new PublicError('MCP_CONNECTION_CREATION_UNAVAILABLE')
-  return resolveApiGrant(id, store)
+      if (rows.length !== 1)
+        throw new PublicError('MCP_CONNECTION_CREATION_UNAVAILABLE')
+      return resolveApiGrant(id, store)
+    },
+    { kind: 'user', userId: input.userId },
+  )
 }
 
 export async function revokeApiGrant(

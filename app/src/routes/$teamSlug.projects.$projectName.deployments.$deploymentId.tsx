@@ -1,17 +1,17 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { DeploymentDetail } from '@/features/deployments/deployment-detail'
-import { ProjectSectionPending } from '@/features/projects/project-route-pending'
-import { deploymentContextQueryOptions } from '@/lib/project-context-query'
+import { DeploymentDetail } from '#devpush/features/deployments/deployment-detail'
+import { ProjectSectionPending } from '#devpush/features/projects/project-route-pending'
+import { pluginContextQueryOptions } from '#devpush/lib/project-context-query'
 
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/deployments/$deploymentId',
 )({
   loader: ({ context, params }) =>
     context.queryClient.fetchQuery(
-      deploymentContextQueryOptions(
+      pluginContextQueryOptions(
         {
           teamSlug: params.teamSlug,
           projectName: params.projectName,
@@ -40,7 +40,7 @@ function DeploymentRoute() {
   const params = Route.useParams()
   const queryClient = useQueryClient()
   const { data: context } = useSuspenseQuery(
-    deploymentContextQueryOptions(params, queryClient),
+    pluginContextQueryOptions(params, queryClient),
   )
 
   return <DeploymentDetail context={context} />

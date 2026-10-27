@@ -1,38 +1,38 @@
-import { refreshView } from '@/lib/action-feedback'
+import { refreshView } from '#devpush/lib/action-feedback'
 import { Link, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { GithubIcon, Link2Icon, PlusIcon, SettingsIcon } from 'lucide-react'
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   DeploymentList,
   DeploymentListPending,
-} from '@/features/deployments/deployment-list'
-import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog-launcher'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { AddServerDialog } from '@/features/servers/team-servers'
-import { routeUrl } from '@/lib/urls'
-import { invalidateTeamContext } from '@/lib/team-context-query'
-import { canManageTeamSettings } from '@/lib/team-role'
-import type { DeploymentSummary } from '@/server/projects/types'
+} from '#devpush/features/deployments/deployment-list'
+import { NewProjectDialogLauncher } from '#devpush/features/repositories/new-project-dialog-launcher'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import { AddServerDialog } from '#devpush/features/servers/team-servers'
+import { routeUrl } from '#devpush/lib/urls'
+import { invalidateTeamContext } from '#devpush/lib/team-context-query'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
+import type { DeploymentSummary } from '#devpush/server/projects/types'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '#devpush/components/ui/tooltip'
 import type {
   ProjectSummary,
   ServerSummary,
   TeamSummary,
-} from '@/server/teams/types'
+} from '#devpush/server/teams/types'
 import { TeamHeading } from './team-heading'
 
 export function TeamHome({

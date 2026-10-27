@@ -1,7 +1,8 @@
+import { config } from '#devpush/server/config'
 import { and, eq, sql } from 'drizzle-orm'
 
-import { logsDb } from '@/server/db'
-import { deploymentLogs } from '@/server/db/log-schema'
+import { logsDb } from '#devpush/server/db'
+import { deploymentLogs } from '#devpush/server/db/log-schema'
 
 type Identity = {
   projectId: string
@@ -24,22 +25,45 @@ export async function appendDeploymentLogs(
     !Number.isSafeInteger(startSeq + lines.length - 1)
   )
     throw new Error('A positive deployment log sequence is required.')
+  const maxLines = config.DEVPUSH_DEPLOYMENT_LOG_MAX_LINES
+  const lineBytes = config.DEVPUSH_DEPLOYMENT_LOG_LINE_BYTES
+  const bounded = lines
+    .slice(0, Math.max(0, maxLines - startSeq + 1))
+    .map((content) => {
+      const bytes = new TextEncoder().encode(content)
+      if (bytes.length <= lineBytes) return content
+      const suffix = '… [line truncated]'
+      const max = lineBytes - new TextEncoder().encode(suffix).length
+      let end = max
+      while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--
+      return new TextDecoder().decode(bytes.subarray(0, end)) + suffix
+    })
+  const rows = bounded.map((content, index) => ({
+    seq: startSeq + index,
+    content,
+  }))
+  if (lines.length && startSeq + lines.length - 1 > maxLines)
+    rows.push({
+      seq: maxLines + 1,
+      content:
+        'Deployment log limit reached. Further output was omitted; deployment execution is unaffected.',
+    })
   const createdAt = new Date()
-  for (let offset = 0; offset < lines.length; offset += 32) {
+  for (let offset = 0; offset < rows.length; offset += 32) {
     const statements = []
     for (
       let start = offset;
-      start < Math.min(offset + 32, lines.length);
+      start < Math.min(offset + 32, rows.length);
       start += 8
     ) {
       statements.push(
         logsDb
           .insert(deploymentLogs)
           .values(
-            lines.slice(start, start + 8).map((content, index) => ({
+            rows.slice(start, start + 8).map(({ content, seq }) => ({
               ...identity,
               stream: 'deploy',
-              seq: startSeq + start + index,
+              seq,
               content,
               searchContent: content.toLowerCase(),
               createdAt,

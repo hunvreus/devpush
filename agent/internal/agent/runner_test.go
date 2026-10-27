@@ -710,8 +710,8 @@ func TestCappedTailBufferKeepsTheNewestOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if string(buffer.data) != "cdefg" || !buffer.truncated {
-		t.Fatalf("unexpected capped output: %q truncated=%t", buffer.data, buffer.truncated)
+	if string(buffer.Bytes()) != "cdefg" || !buffer.truncated {
+		t.Fatalf("unexpected capped output: %q truncated=%t", buffer.Bytes(), buffer.truncated)
 	}
 }
 
@@ -721,8 +721,8 @@ func TestCappedTailBufferDoesNotTruncateAnExactFirstWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if string(buffer.data) != "abcde" || buffer.truncated {
-		t.Fatalf("unexpected capped output: %q truncated=%t", buffer.data, buffer.truncated)
+	if string(buffer.Bytes()) != "abcde" || buffer.truncated {
+		t.Fatalf("unexpected capped output: %q truncated=%t", buffer.Bytes(), buffer.truncated)
 	}
 }
 
@@ -1937,9 +1937,11 @@ func requireDockerCompose(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is not installed")
 	}
-	if command := exec.Command("docker", "compose", "version"); command.Run() != nil {
-		t.Skip("Docker Compose plugin is not installed")
+	runner := NewRunner(Config{}, nil)
+	if _, _, err := runner.composeCommand(t.Context()); err != nil {
+		t.Skip("Docker Compose is not installed")
 	}
+
 }
 
 func dockerCommandSucceeds(name string, args ...string) bool {
@@ -1956,9 +1958,16 @@ func runComposeDown(t *testing.T, projectName string, composePath string) {
 	if _, err := os.Stat(composePath); err != nil {
 		return
 	}
-	name, args := "docker", []string{"compose"}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	runner := NewRunner(Config{}, nil)
+	name, args, err := runner.composeCommand(ctx)
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	args = append(args, "-p", projectName, "-f", composePath, "down", "-v", "--remove-orphans")
-	command := exec.Command(name, args...)
+	command := exec.CommandContext(ctx, name, args...)
 	_ = command.Run()
 }
 

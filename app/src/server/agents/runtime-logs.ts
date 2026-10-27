@@ -2,14 +2,16 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 
-import { db, logsDb } from '@/server/db'
-import { runtimeLogs } from '@/server/db/log-schema'
-import { deployments, environments, projects } from '@/server/db/schema'
-import { requireAgentServer } from '@/server/servers/service'
+import { db, logsDb } from '#devpush/server/db'
+import { runtimeLogs } from '#devpush/server/db/log-schema'
+import { deployments, environments, projects } from '#devpush/server/db/schema'
+import { getPluginServices } from '#devpush/server/plugins/services.server'
+import { admitRuntimeLogs, reserveLogBudget } from '#devpush/server/logs/budget'
+import { requireAgentServer } from '#devpush/server/servers/service'
 import {
   runtimeLogRetentionMs,
   runtimeLogPruneBatchSize,
-} from '@/server/logs/retention'
+} from '#devpush/server/logs/retention'
 
 export type RuntimeLogLine = {
   runtimeId: string
@@ -31,7 +33,7 @@ export async function recordRuntimeLogs({
   token: string
   logs: Array<RuntimeLogLine>
 }) {
-  await requireAgentServer({ serverId, token })
+  const server = await requireAgentServer({ serverId, token })
 
   const normalizedLogs = normalizeRuntimeLogs(logs)
 
@@ -43,7 +45,7 @@ export async function recordRuntimeLogs({
     serverId,
     runtimeIds: Array.from(new Set(normalizedLogs.map((log) => log.runtimeId))),
   })
-  const rows = normalizedLogs.flatMap((log) => {
+  let rows = normalizedLogs.flatMap((log) => {
     const assignment = assignments.get(log.runtimeId)
     if (!assignment) return []
     return [
@@ -54,7 +56,7 @@ export async function recordRuntimeLogs({
         serverId,
         runtimeId: log.runtimeId,
         service: log.service,
-        observedAt: log.observedAt,
+        observedAt: new Date(Math.min(log.observedAt.getTime(), Date.now())),
         content: log.content,
         searchContent: log.content.toLowerCase(),
         contentHash: hashRuntimeLogLine(log),
@@ -64,6 +66,65 @@ export async function recordRuntimeLogs({
 
   if (rows.length === 0) {
     return { ok: true, accepted: 0, inserted: 0 }
+  }
+
+  const acknowledged = rows.length
+  let dropped = 0
+  const limits = getPluginServices().runtimeLogLimits?.(server.teamId)
+  if (limits) {
+    // Replayed batches must not consume another allowance after their rows were stored.
+    const known = new Set<string>()
+    for (let start = 0; start < rows.length; start += 80) {
+      const existing = await logsDb
+        .select({ hash: runtimeLogs.contentHash })
+        .from(runtimeLogs)
+        .where(
+          and(
+            eq(runtimeLogs.serverId, serverId),
+            inArray(
+              runtimeLogs.contentHash,
+              rows.slice(start, start + 80).map((row) => row.contentHash),
+            ),
+          ),
+        )
+      for (const row of existing) known.add(row.hash)
+    }
+    rows = rows.filter((row) => {
+      if (known.has(row.contentHash)) return false
+      known.add(row.contentHash)
+      return true
+    })
+    if (rows.length && !(await admitRuntimeLogs(server.teamId, limits, rows))) {
+      dropped = rows.length
+      const first = rows[0]!
+      rows = []
+      // One visible notice per workspace/day. Never block agent delivery on a quota refusal.
+      if (
+        await reserveLogBudget({
+          teamId: server.teamId,
+          kind: 'notice',
+          amount: 1,
+          limit: 1,
+          windowMs: 86_400_000,
+        })
+      ) {
+        const content =
+          'Runtime log limit reached. Some logs were dropped; collection resumes when the allowance resets. Applications and deployments are unaffected.'
+        rows.push({
+          ...first,
+          id: randomUUID(),
+          service: 'devpush',
+          content,
+          searchContent: content.toLowerCase(),
+          observedAt: new Date(),
+          contentHash: createHash('sha256')
+            .update(
+              `log-limit:${server.teamId}:${Math.floor(Date.now() / 86_400_000)}`,
+            )
+            .digest('hex'),
+        })
+      }
+    }
   }
 
   // Keep each statement below D1's parameter limit. A partially completed
@@ -103,7 +164,12 @@ export async function recordRuntimeLogs({
     now: new Date(),
   })
 
-  return { ok: true, accepted: rows.length, inserted }
+  return {
+    ok: true,
+    accepted: acknowledged,
+    inserted,
+    ...(dropped ? { dropped } : {}),
+  }
 }
 
 function normalizeRuntimeLogs(logs: Array<RuntimeLogLine>) {

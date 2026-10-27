@@ -3,7 +3,7 @@ import {
   EmptyHeader,
   EmptyTitle,
   EmptyDescription,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import { DeploymentAliasBadge } from './deployment-alias-badge'
 import { Link } from '@tanstack/react-router'
 import {
@@ -18,23 +18,23 @@ import {
   CircleAlertIcon,
 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '#devpush/components/ui/button'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { routeUrl } from '@/lib/urls'
+} from '#devpush/components/ui/dropdown-menu'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import { routeUrl } from '#devpush/lib/urls'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import { DeploymentActions } from '@/features/deployments/deployment-actions'
-import type { DeploymentSummary } from '@/server/projects/types'
+} from '#devpush/components/ui/tooltip'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import { DeploymentActions } from '#devpush/features/deployments/deployment-actions'
+import type { DeploymentSummary } from '#devpush/server/projects/types'
 
 export function DeploymentList({
   deployments,

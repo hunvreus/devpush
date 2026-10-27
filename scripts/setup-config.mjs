@@ -63,6 +63,7 @@ export function createCloudflareConfig({
       : {}),
   };
 
+  if (!bucketName) delete config.r2_buckets;
   delete config.hyperdrive;
   if (remoteDatabase) delete config.d1_databases;
 

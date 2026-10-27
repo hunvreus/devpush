@@ -1,7 +1,10 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { McpConsent, McpConsentPending } from '@/features/users/mcp-consent'
-import { getMcpConsentAction } from '@/server/mcp/functions'
+import {
+  McpConsent,
+  McpConsentPending,
+} from '#devpush/features/users/mcp-consent'
+import { getMcpConsentAction } from '#devpush/server/mcp/functions'
 
 export const Route = createFileRoute('/oauth/consent')({
   ssr: false,

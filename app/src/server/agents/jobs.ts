@@ -1,7 +1,11 @@
-import type { BackupDestination } from '@/server/backups/service'
-import { backupDestinationSnapshot } from '@/server/backups/destination'
-import { refreshBackupCredentials } from '@/server/backups/storage'
-import { getPublicErrorMessage } from '@/lib/public-error'
+import {
+  withWorkspaceAccess,
+  isWorkspacePolicyRefusal,
+} from '#devpush/server/plugins/workspace-access'
+import type { BackupDestination } from '#devpush/server/backups/service'
+import { backupDestinationSnapshot } from '#devpush/server/backups/destination'
+import { refreshBackupCredentials } from '#devpush/server/backups/storage'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
 import {
   recoverStaleCleanupJobs,
   finishContainerCleanup,
@@ -18,12 +22,12 @@ import { isAbsolute, relative } from 'node:path/posix'
 
 import { and, asc, eq, inArray, lt, lte, or, isNull, sql } from 'drizzle-orm'
 
-import { db } from '@/server/db'
-import { notifyServer } from '@/server/realtime/service'
+import { db } from '#devpush/server/db'
+import { notifyServer } from '#devpush/server/realtime/service'
 import {
   appendDeploymentLogs,
   nextDeploymentLogSeq,
-} from '@/server/logs/deployments'
+} from '#devpush/server/logs/deployments'
 import {
   agentJobs,
   backupRuns,
@@ -31,18 +35,18 @@ import {
   environments,
   projects,
   servers,
-} from '@/server/db/schema'
-import { createInstallationAccessToken } from '@/server/github/service'
-import { queueBackupRetentionCleanupJobs } from '@/server/backups/service'
+} from '#devpush/server/db/schema'
+import { createInstallationAccessToken } from '#devpush/server/github/service'
+import { queueBackupRetentionCleanupJobs } from '#devpush/server/backups/service'
 import {
   decryptDeploymentEnvVars,
   parseDeploymentConfig,
   toDeploymentCommitMeta,
-} from '@/server/projects/deployment-config'
-import type { DeploymentConfig } from '@/server/projects/deployment-config'
-import { requireAgentServer } from '@/server/servers/service'
+} from '#devpush/server/projects/deployment-config'
+import type { DeploymentConfig } from '#devpush/server/projects/deployment-config'
+import { requireAgentServer } from '#devpush/server/servers/service'
 import { AgentRequestError } from './protocol'
-import { decryptSecret } from '@/server/secrets/crypto'
+import { decryptSecret } from '#devpush/server/secrets/crypto'
 import {
   currentAgentProtocolVersion,
   hasAgentCapability,
@@ -188,12 +192,30 @@ async function claimNextBackupJob({
     const candidate = snapshot.job
     const payload =
       candidate.type === 'backup' ? parseBackupPayload(candidate.payload) : null
-    claimed = await claimBackupCandidate(db, {
-      job: candidate,
-      payloadSnapshot: snapshot.payloadSnapshot,
-      backupRunId: payload?.backupRunId ?? null,
-      now,
-    })
+    try {
+      const claim = () =>
+        claimBackupCandidate(db, {
+          job: candidate,
+          payloadSnapshot: snapshot.payloadSnapshot,
+          backupRunId: payload?.backupRunId ?? null,
+          now,
+        })
+      claimed =
+        candidate.type === 'backup_cleanup'
+          ? await claim()
+          : await withWorkspaceAccess(
+              teamId,
+              candidate.type === 'restore' ? 'restore.claim' : 'backup.claim',
+              claim,
+              { kind: 'system', source: 'agent' },
+            )
+    } catch (error) {
+      if (!isWorkspacePolicyRefusal(error)) throw error
+      // Skip productive work but continue looking for retention cleanup.
+      return types.includes('backup_cleanup')
+        ? claimNextBackupJob({ serverId, types: ['backup_cleanup'] })
+        : null
+    }
   }
 
   if (!claimed) return null
@@ -349,7 +371,29 @@ export async function claimNextDeploymentJob({
     await failStaleRunningDeployments(serverId)
   }
 
-  const deployment = await claimDeployment(db, serverId, new Date())
+  const [serverOwner] = await db
+    .select({ teamId: servers.teamId })
+    .from(servers)
+    .where(
+      and(
+        eq(servers.id, serverId),
+        sql`exists(select 1 from deployments d where d.server_id = ${serverId} and d.status = 'queued')`,
+      ),
+    )
+    .limit(1)
+  if (!serverOwner) return null
+  let deployment
+  try {
+    deployment = await withWorkspaceAccess(
+      serverOwner.teamId,
+      'deployment.claim',
+      () => claimDeployment(db, serverId, new Date()),
+      { kind: 'system', source: 'agent' },
+    )
+  } catch (error) {
+    if (isWorkspacePolicyRefusal(error)) return null
+    throw error
+  }
   if (!deployment) return null
   const [identity] = await db
     .select({ environment: environments, project: projects })

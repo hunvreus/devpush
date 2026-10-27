@@ -3,7 +3,7 @@ import {
   formatByteRatio,
   formatNetworkSummary,
 } from './server-metric-format'
-import { CopyButton } from '@/components/copy-button'
+import { CopyButton } from '#devpush/components/copy-button'
 import {
   getRouteApi,
   Link,
@@ -12,32 +12,35 @@ import {
 } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
-import { TeamHeading } from '@/features/teams/team-heading'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import {
+  SettingsLayout,
+  SettingsSection,
+} from '#devpush/components/settings-layout'
+import { TeamHeading } from '#devpush/features/teams/team-heading'
+import { Button } from '#devpush/components/ui/button'
+import { Input } from '#devpush/components/ui/input'
 import { BanIcon, Trash2Icon } from 'lucide-react'
 import { ServerMetricChartPending } from './server-metric-chart-pending'
 import {
   InputGroup,
   InputGroupInput,
   InputGroupAddon,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Field,
   FieldGroup,
   FieldLabel,
   FieldDescription,
-} from '@/components/ui/field'
+} from '#devpush/components/ui/field'
 import { ServerAvatar } from './server-avatar'
 import { ServerDetail, ServerInstallCallout } from './server-detail'
 import { formatServerStatus, formatAge } from './team-servers'
-import { canManageTeamSettings } from '@/lib/team-role'
-import type { ServerSummary } from '@/server/teams/types'
-import type { getTeamServerContext } from '@/server/servers/functions'
-import { Skeleton } from '@/components/ui/skeleton'
-import { getCachedTeamContexts } from '@/lib/team-context-query'
-import { displayNameFromSlug } from '@/lib/display-name'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
+import type { ServerSummary } from '#devpush/server/teams/types'
+import type { getTeamServerContext } from '#devpush/server/servers/functions'
+import { Skeleton } from '#devpush/components/ui/skeleton'
+import { getCachedTeamContexts } from '#devpush/lib/team-context-query'
+import { displayNameFromSlug } from '#devpush/lib/display-name'
 
 const teamRoute = getRouteApi('/$teamSlug')
 
@@ -245,7 +248,7 @@ function ServerGeneralPending({
       </div>
       <FieldGroup>
         <Field>
-          <FieldLabel>Name (required)</FieldLabel>
+          <FieldLabel>Name</FieldLabel>
           {server ? (
             <Input value={server.name} readOnly disabled />
           ) : (
@@ -280,7 +283,7 @@ function ServerHostPending({ server }: { server?: ServerSummary }) {
       title="Host"
       description="System information reported by the agent."
     >
-      <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
+      <dl className="grid gap-6 text-sm sm:grid-cols-2">
         {[
           'Public IPv4',
           'Public IPv6',
@@ -293,12 +296,12 @@ function ServerHostPending({ server }: { server?: ServerSummary }) {
           'Kernel',
           'Agent version',
         ].map((label, index) => (
-          <div className="space-y-1" key={index}>
-            <dt className="font-medium">{label}</dt>
+          <div className="min-w-0 space-y-1.5" key={index}>
+            <dt className="text-xs text-muted-foreground">{label}</dt>
             {server && !server.lastSeenAt && label !== 'Agent version' ? (
-              <dd className="text-muted-foreground">Not reported</dd>
+              <dd className="text-sm break-words">Not reported</dd>
             ) : label === 'Agent version' && server ? (
-              <dd className="text-muted-foreground">
+              <dd className="text-sm break-words">
                 {server.agentVersion ?? 'Not reported'}
               </dd>
             ) : (

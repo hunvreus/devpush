@@ -1,15 +1,16 @@
+import { pluginContext } from '#devpush/server/plugins/server-context'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { switchServerControlPlane } from './switch'
-import { required } from '@/test/required'
+import { required } from '#devpush/test/required'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
-import { closeDb, db } from '@/server/db'
-import { currentAgentCapabilities } from '@/server/agents/compatibility'
-import { claimNextAgentJob } from '@/server/agents/jobs'
+import { closeDb, db } from '#devpush/server/db'
+import { currentAgentCapabilities } from '#devpush/server/agents/compatibility'
+import { claimNextAgentJob } from '#devpush/server/agents/jobs'
 import {
   agentJobs,
   deployments,
@@ -22,7 +23,7 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   mergePublicAddresses,
   createServerInstallCommand,
@@ -38,7 +39,21 @@ import {
   registerAgent,
   requireAgentServer,
   rotateAgentCredential,
-} from '@/server/servers/service'
+} from '#devpush/server/servers/service'
+
+const connectionPolicy = vi.hoisted(() => ({
+  beforeWrite: undefined as undefined | (() => Promise<void>),
+}))
+vi.mock('#devpush/server/plugins/services.server', () => ({
+  getPluginServices: () => ({
+    workspaceAccess: {
+      run: async (_input: unknown, action: () => Promise<unknown>) => {
+        await connectionPolicy.beforeWrite?.()
+        return action()
+      },
+    },
+  }),
+}))
 
 const touchedServerIds: Array<string> = []
 const touchedTeamIds: Array<string> = []
@@ -51,6 +66,7 @@ const touchedMetricIds: Array<string> = []
 const touchedHeartbeatIds: Array<string> = []
 
 afterEach(async () => {
+  connectionPolicy.beforeWrite = undefined
   vi.restoreAllMocks()
   await cleanupRows()
 })
@@ -60,6 +76,74 @@ afterAll(async () => {
 })
 
 describe('server service integration', () => {
+  test('workspace server usage counts pending, disabled and disconnected servers until deletion', async () => {
+    const { teamSlug, userId } = await createFixture()
+    const server = await createPendingServer({
+      userId,
+      teamSlug,
+      name: 'counted-server',
+    })
+    touchedServerIds.push(server.id)
+    const [stored] = await db
+      .select()
+      .from(servers)
+      .where(eq(servers.id, server.id))
+    const initial = await pluginContext.readWorkspace!(stored!.teamId)
+    expect(initial!.serverCount).toBe(1)
+    for (const status of ['disabled', 'disconnected'] as const) {
+      await db
+        .update(servers)
+        .set({ status, updatedAt: new Date(Date.now() + 10000) })
+        .where(eq(servers.id, server.id))
+      const usage = await pluginContext.readWorkspace!(stored!.teamId)
+      expect(usage!.serverCount).toBe(1)
+      expect(usage!.serverCountChangedAt).toBe(initial!.serverCountChangedAt)
+    }
+    const deletedAt = new Date(Date.now() + 20000)
+    await db
+      .update(servers)
+      .set({ status: 'deleted', updatedAt: deletedAt })
+      .where(eq(servers.id, server.id))
+    const usage = await pluginContext.readWorkspace!(stored!.teamId)
+    expect(usage!.serverCount).toBe(0)
+    expect(usage!.serverCountChangedAt).toBe(deletedAt.getTime())
+  })
+
+  test.each(['disabled', 'deleted', 'rotated'] as const)(
+    'registration cannot undo a concurrent %s change',
+    async (change) => {
+      const { teamSlug, userId } = await createFixture()
+      const server = await createPendingServer({
+        userId,
+        teamSlug,
+        name: 'registration-race',
+      })
+      touchedServerIds.push(server.id)
+      connectionPolicy.beforeWrite = async () => {
+        await db
+          .update(servers)
+          .set(
+            change === 'rotated'
+              ? { enrollmentTokenHash: '0'.repeat(64) }
+              : { status: change },
+          )
+          .where(eq(servers.id, server.id))
+      }
+      await expect(
+        registerAgent({
+          token: required(server.installCommand.match(/dps_[\w-]+/)?.[0]),
+          publicAddress: null,
+        }),
+      ).rejects.toThrow('Server state or credential changed.')
+      const [stored] = await db
+        .select()
+        .from(servers)
+        .where(eq(servers.id, server.id))
+      expect(stored!.status).toBe(change === 'rotated' ? 'pending' : change)
+      expect(stored!.pendingAgentCredentialHash).toBeNull()
+    },
+  )
+
   test('routine heartbeats preserve the server settings timestamp while lifecycle transitions advance it', async () => {
     const { teamSlug, userId } = await createFixture()
     const server = await createPendingServer({
@@ -1167,4 +1251,24 @@ test('pinned routing address replaces discovered families, including an old pref
     publicIpv6: null,
   })
   expect(mergePublicAddresses(server, {})).toEqual(server)
+})
+
+test('browser server creation cannot charge after the actor loses manager authority during admission', async () => {
+  const f = await createFixture()
+  connectionPolicy.beforeWrite = async () => {
+    await db
+      .update(teamMembers)
+      .set({ role: 'member' })
+      .where(eq(teamMembers.userId, f.userId))
+  }
+  await expect(
+    createPendingServer({
+      userId: f.userId,
+      teamSlug: f.teamSlug,
+      name: 'blocked-by-demotion',
+    }),
+  ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  expect(
+    await db.select().from(servers).where(eq(servers.teamId, f.teamId)),
+  ).toHaveLength(0)
 })

@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { getDeploymentServices } from '@/deployment/services.server'
-import { deploymentContext } from '@/deployment/server-context'
-import { requireAgentServer } from '@/server/servers/service'
+import { getPluginServices } from '#devpush/server/plugins/services.server'
+import { pluginContext } from '#devpush/server/plugins/server-context'
+import { requireAgentServer } from '#devpush/server/servers/service'
 import { AgentRequestError } from './protocol'
 
 export const certificateRequestSchema = z.strictObject({
@@ -49,10 +49,10 @@ export async function requestAgentCertificate(
   input: z.infer<typeof certificateRequestSchema>,
 ) {
   await requireAgentServer({ serverId: input.serverId, token: input.token })
-  const services = getDeploymentServices()
+  const services = getPluginServices()
   if (!services.certificates)
     throw new AgentRequestError(404, 'Managed certificates are not configured.')
-  const server = await deploymentContext.readServer(input.serverId)
+  const server = await pluginContext.readServer(input.serverId)
   if (
     !server ||
     server.status === 'deleted' ||

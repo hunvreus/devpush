@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { db } from '@/server/db'
-import { serverMetrics } from '@/server/db/schema'
+import { db } from '#devpush/server/db'
+import { serverMetrics } from '#devpush/server/db/schema'
 
 type ServerMetricsInput = {
   cpuPercent?: number

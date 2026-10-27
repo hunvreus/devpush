@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { handlePublicApiRequest } from '@/server/api/handler'
+import { handlePublicApiRequest } from '#devpush/server/api/handler'
 
 export const Route = createFileRoute('/api/v1/$')({
   server: {

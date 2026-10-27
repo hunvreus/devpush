@@ -5,9 +5,9 @@ import {
   apiKeyTeamsSchema,
   apiKeyProjectsSchema,
   createApiKeySchema,
-} from '@/lib/api-key-schema'
-import { requireAuthSession } from '@/server/auth/session.server'
-import { publicErrorsMiddleware } from '@/server/http/public-errors'
+} from '#devpush/lib/api-key-schema'
+import { requireAuthSession } from '#devpush/server/auth/session.server'
+import { publicErrorsMiddleware } from '#devpush/server/http/public-errors'
 import {
   createApiKey,
   getApiKeySettings,

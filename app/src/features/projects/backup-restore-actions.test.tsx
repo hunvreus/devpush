@@ -3,7 +3,7 @@ import { act } from 'react'
 import type { ComponentProps } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import {
   BackupRunRestoreActions,
   BackupRestoreDetails,
@@ -11,7 +11,7 @@ import {
 import type {
   ProjectBackupArtifact,
   ProjectBackupRun,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 
 const artifact: ProjectBackupArtifact = {
   id: 'a',

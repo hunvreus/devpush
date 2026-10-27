@@ -1,17 +1,19 @@
-import { metricSampleSchema } from '@/server/servers/metric-history-schema'
-import { notifyAgentMutation } from '@/server/realtime/agent-events'
+import { safeErrorDiagnostics } from '#devpush/server/http/error-diagnostics'
+import { PublicError } from '#devpush/lib/public-error'
+import { metricSampleSchema } from '#devpush/server/servers/metric-history-schema'
+import { notifyAgentMutation } from '#devpush/server/realtime/agent-events'
 import { z } from 'zod'
 
 import type {
   BackupCleanupJobPayload,
   BackupJobPayload,
   BackupRestoreJobPayload,
-} from '@/server/backups/service'
+} from '#devpush/server/backups/service'
 import type { DeprovisionJobPayload } from './cleanup'
 import {
   RequestBodyTooLargeError,
   readRequestText,
-} from '@/server/http/request-body'
+} from '#devpush/server/http/request-body'
 
 const maxAgentRequestBytes = 16 * 1024 * 1024
 const maxDeploymentEvents = 100
@@ -374,11 +376,24 @@ export async function handleAgentRequest<T>(
       )
     }
 
+    if (
+      error instanceof PublicError &&
+      ['WORKSPACE_RESTRICTED', 'WORKSPACE_LIMIT_REACHED'].includes(error.code)
+    )
+      return Response.json(
+        {
+          error: error.message,
+          code: error.code,
+          ...(error.policy ? { policy: error.policy } : {}),
+        },
+        { status: 403 },
+      )
+
     if (error instanceof AgentRequestError) {
       return Response.json({ error: error.message }, { status: error.status })
     }
 
-    console.error(failureMessage, error)
+    console.error(failureMessage, safeErrorDiagnostics(error))
     return Response.json({ error: failureMessage }, { status: 500 })
   }
 }

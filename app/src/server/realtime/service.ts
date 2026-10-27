@@ -1,6 +1,6 @@
 import { and, eq, gt } from 'drizzle-orm'
-import { auth } from '@/server/auth/better-auth'
-import { db } from '@/server/db'
+import { auth } from '#devpush/server/auth/better-auth'
+import { db } from '#devpush/server/db'
 import {
   session,
   teamMembers,
@@ -8,9 +8,9 @@ import {
   user,
   servers,
   projects,
-} from '@/server/db/schema'
-import { getWorkspaceUpdates } from '@/server/runtime/platform-env'
-import { resolveProxyRequest } from '@/server/http/proxy-request'
+} from '#devpush/server/db/schema'
+import { getWorkspaceUpdates } from '#devpush/server/runtime/platform-env'
+import { resolveProxyRequest } from '#devpush/server/http/proxy-request'
 
 export async function authorizeWorkspaceUpdates(request: Request) {
   request = resolveProxyRequest(request)

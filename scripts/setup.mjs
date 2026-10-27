@@ -183,7 +183,6 @@ async function setupCloudflare() {
   );
   const remoteDatabase = Boolean(database.DEVPUSH_DATABASE_URL);
   const configuredResources = Boolean(
-    existingConfig?.bucketName &&
     (remoteDatabase ||
       (existingConfig?.databaseId && existingConfig?.logDatabaseId)),
   );
@@ -242,14 +241,18 @@ async function setupCloudflare() {
               {
                 value: "create",
                 label: remoteDatabase
-                  ? "Create R2 bucket"
-                  : "Create R2 and two D1 databases",
+                  ? "Configure resources"
+                  : "Create two D1 databases",
               },
             ]),
         { value: "existing", label: "Use existing resources" },
       ],
     }),
   );
+  const enableUploads = await ask(confirm({
+    message: "Enable image uploads with optional R2 storage?",
+    initialValue: Boolean(existingConfig?.bucketName || pendingConfig?.bucketName),
+  }));
   let bucketName;
   const databases = remoteDatabase
     ? []
@@ -269,8 +272,9 @@ async function setupCloudflare() {
           defaultName: `${workerName}-logs`,
         },
       ];
-  if (resourceMode === "configured") bucketName = existingConfig.bucketName;
-  else if (resourceMode === "existing")
+  if (!enableUploads) bucketName = undefined;
+  else if (resourceMode === "configured" && existingConfig.bucketName) bucketName = existingConfig.bucketName;
+  else if (resourceMode === "existing" || resourceMode === "configured")
     bucketName = await ask(
       text({ message: "R2 bucket name", validate: required }),
     );
@@ -353,7 +357,7 @@ async function setupCloudflare() {
       );
     }
     try {
-      if (resourceMode === "create" || !pendingConfig.bucketName) {
+      if (bucketName && (resourceMode === "create" || !pendingConfig.bucketName)) {
         await runWrangler([
           "r2",
           "bucket",
@@ -386,20 +390,21 @@ async function setupCloudflare() {
     }
     const created = readCloudflareConfig(pendingPath);
     if (
-      !created?.bucketName ||
+      !created ||
+      (enableUploads && !created.bucketName) ||
       (!remoteDatabase && (!created.databaseId || !created.logDatabaseId))
     ) {
       throw new Error(
         "Wrangler created resources but did not write all required bindings to app/wrangler.pending.jsonc.",
       );
     }
-    bucketName = created.bucketName;
+    bucketName = enableUploads ? created.bucketName : undefined;
     for (const database of databases) {
       database.id = created[database.idKey];
       database.name = created[database.nameKey];
     }
   } else {
-    await runWrangler(["r2", "bucket", "info", bucketName]);
+    if (bucketName) await runWrangler(["r2", "bucket", "info", bucketName]);
     for (const database of databases)
       await runWrangler(["d1", "info", database.id]);
   }

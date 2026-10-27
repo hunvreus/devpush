@@ -7,11 +7,11 @@ const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(),
   generate: vi.fn(),
 }))
-vi.mock('@/deployment/services.server', () => ({
-  getDeploymentServices: mocks.services,
+vi.mock('#devpush/server/plugins/services.server', () => ({
+  getPluginServices: mocks.services,
 }))
-vi.mock('@/deployment/server-context', () => ({
-  deploymentContext: { readServer: mocks.readServer },
+vi.mock('#devpush/server/plugins/server-context', () => ({
+  pluginContext: { readServer: mocks.readServer },
 }))
 const server = {
   id: 'server',

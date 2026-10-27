@@ -218,13 +218,7 @@ if (!env.EMAIL_FROM || !env.RESEND_API_KEY) {
   );
 }
 
-if (!env.DEVPUSH_AGENT_BINARY_DIR && productionComposeEnv) {
-  warnings.push(
-    "DEVPUSH_AGENT_BINARY_DIR is not set because production Compose embeds agent binaries in the app image.",
-  );
-} else if (!env.DEVPUSH_AGENT_BINARY_DIR) {
-  issue("DEVPUSH_AGENT_BINARY_DIR is required before adding real servers.");
-} else {
+if (env.DEVPUSH_AGENT_BINARY_DIR) {
   const binaryDir = resolve(env.DEVPUSH_AGENT_BINARY_DIR);
   for (const filename of [
     "devpush-agent-linux-amd64",

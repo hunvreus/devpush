@@ -1,3 +1,4 @@
+import { getPolicyRecoveryUrl } from './public-error'
 import { toast } from 'sonner'
 
 export async function copyText(text: string, label: string) {
@@ -49,4 +50,22 @@ export async function navigateFilters(task: () => Promise<unknown>) {
       id: 'filter-navigation',
     })
   }
+}
+
+export function mutationErrorOptions(
+  error: unknown,
+): [] | [{ action: { label: string; onClick: () => void } }] {
+  const url = getPolicyRecoveryUrl(error)
+  return url
+    ? [
+        {
+          action: {
+            label: 'Review settings',
+            onClick: () => {
+              window.location.assign(url)
+            },
+          },
+        },
+      ]
+    : []
 }

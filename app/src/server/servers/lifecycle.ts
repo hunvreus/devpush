@@ -1,14 +1,14 @@
-import { releaseBackupCleanupRuns } from '@/server/backups/queue-state'
-import type { ApiMutationAdmission } from '@/server/api/admission'
+import { releaseBackupCleanupRuns } from '#devpush/server/backups/queue-state'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 import {
   serverAvailabilityWindows,
   servers,
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 
 export async function changeServerEnabled(
   store: AtomicStore,

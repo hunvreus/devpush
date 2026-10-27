@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { parseConfig } from '@/server/config'
+import { parseConfig } from '#devpush/server/config'
 import { createMcpUrls } from './urls'
 
 test('advertises the explicit localhost endpoint while preserving the Lima agent base', () => {

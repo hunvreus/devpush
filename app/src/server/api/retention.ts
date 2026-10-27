@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
-import { db } from '@/server/db'
-import type { AtomicStore } from '@/server/db/atomic'
+import { db } from '#devpush/server/db'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 
 export const API_AUDIT_RETENTION_MS = 30 * 86400_000
 const batchSize = 500

@@ -1,9 +1,9 @@
-import { afterMutation } from '@/lib/action-feedback'
+import { afterMutation } from '#devpush/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowUpRightIcon, Redo2Icon, Undo2Icon } from 'lucide-react'
 import { useState } from 'react'
-import { FieldError } from '@/components/ui/field'
+import { FieldError } from '#devpush/components/ui/field'
 
 import {
   AlertDialog,
@@ -14,19 +14,19 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+} from '#devpush/components/ui/alert-dialog'
 import {
   DropdownMenuContent,
   DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
+} from '#devpush/components/ui/dropdown-menu'
 import {
   redeployProjectDeployment,
   rollbackProjectDeployment,
-} from '@/server/projects/functions'
-import { getErrorMessage } from '@/lib/error-message'
-import { invalidateProjectContext } from '@/lib/project-context-query'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import type { DeploymentSummary } from '@/server/projects/types'
+} from '#devpush/server/projects/functions'
+import { getErrorMessage } from '#devpush/lib/error-message'
+import { invalidateProjectContext } from '#devpush/lib/project-context-query'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import type { DeploymentSummary } from '#devpush/server/projects/types'
 
 type ActionDeployment = Pick<
   DeploymentSummary,

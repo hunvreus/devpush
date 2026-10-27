@@ -13,16 +13,16 @@ import {
   sql,
 } from 'drizzle-orm'
 
-import { db } from '@/server/db'
-import { config } from '@/server/config'
+import { db } from '#devpush/server/db'
+import { config } from '#devpush/server/config'
 import {
   serverAvailabilityWindows,
   serverHeartbeats,
   serverMetrics,
   servers as serverTable,
-} from '@/server/db/schema'
-import { serverDisconnectedAfterMs } from '@/server/servers/status'
-import type { ServerStatus } from '@/server/servers/status'
+} from '#devpush/server/db/schema'
+import { serverDisconnectedAfterMs } from '#devpush/server/servers/status'
+import type { ServerStatus } from '#devpush/server/servers/status'
 
 const availabilityWindowMaxMs = 24 * 60 * 60 * 1000
 const metricsWindowMs = 24 * 60 * 60 * 1000

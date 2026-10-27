@@ -1,13 +1,13 @@
-import type { ServerSummary } from '@/server/teams/types'
+import type { ServerSummary } from '#devpush/server/teams/types'
 import {
   Alert,
   AlertTitle,
   AlertDescription,
   AlertAction,
-} from '@/components/ui/alert'
+} from '#devpush/components/ui/alert'
 import { ComposeServiceInput } from './compose-service-input'
 import type { ReactNode } from 'react'
-import type { FormErrors } from '@/lib/form-errors'
+import type { FormErrors } from '#devpush/lib/form-errors'
 import {
   ArrowRightIcon,
   LoaderIcon,
@@ -17,35 +17,35 @@ import {
   TriangleAlertIcon,
 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
-import { Field, FieldError } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/empty'
+import { Field, FieldError } from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupInput,
   InputGroupAddon,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
+} from '#devpush/components/ui/select'
+import { Switch } from '#devpush/components/ui/switch'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
 import type {
   ProjectDomain,
   ProjectEnvironmentConfig,
   ProjectRoute,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 import { ProjectSettingsActionTooltip as IconActionTooltip } from './project-settings-section'
 import { getEffectiveProjectRoutes as getEffectiveRouteDefinitions } from './project-settings-utils'
 
@@ -509,16 +509,16 @@ export function DomainSettingsTable({
                   domain.status === 'pending' ||
                   domain.status === 'failed' ||
                   domain.status === 'disabled' ? (
-                    <Alert className="col-span-full mt-2 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400">
+                    <Alert variant="warning" className="col-span-full mt-2">
                       <TriangleAlertIcon />
-                      <AlertTitle className="text-amber-600 dark:text-amber-400">
+                      <AlertTitle>
                         {domain.status === 'disabled'
                           ? `${domain.host} is disabled.`
                           : hostError || domain.status === 'failed'
                             ? `${domain.host} is not configured correctly.`
                             : `${domain.host} is not yet verified.`}
                       </AlertTitle>
-                      <AlertDescription className="text-foreground [&_p:not(:last-child)]:mb-0">
+                      <AlertDescription className="[&_p:not(:last-child)]:mb-0">
                         <div className="flex flex-col gap-4">
                           {domain.status === 'disabled' ? (
                             <p>

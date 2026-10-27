@@ -1,22 +1,26 @@
+import { AccountEmailPreferences } from '#devpush/features/notifications/email-preferences'
 import {
-  AccountEmailPreferences,
+  mutationErrorOptions,
+  afterMutation,
+} from '#devpush/lib/action-feedback'
+import {
+  AccountSettingsContributions,
   accountSettingsNavigation,
-} from '#devpush/deployment/ui'
+} from '#devpush/features/plugins/contributions'
 import { ProfilePicture } from './profile-picture'
-import { useSettingsVersion } from '@/lib/use-settings-version'
-import { showSettingsConflict } from '@/lib/settings-conflict'
+import { useSettingsVersion } from '#devpush/lib/use-settings-version'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
 import { ConnectedAppsSettings } from './connected-apps-settings'
 import { ApiKeysSettings } from './api-keys-settings'
 import { useQueryClient } from '@tanstack/react-query'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
-import { useAvatarInput } from '@/lib/use-avatar-input'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
+import { useAvatarInput } from '#devpush/lib/use-avatar-input'
 import {
   accountSettingsSchema,
   accountEmailSchema,
   accountValidationErrors,
-} from '@/lib/account-settings-schema'
-import type { AccountSettingsErrors } from '@/lib/account-settings-schema'
-import { afterMutation } from '@/lib/action-feedback'
+} from '#devpush/lib/account-settings-schema'
+import type { AccountSettingsErrors } from '#devpush/lib/account-settings-schema'
 import { Link, useRouter } from '@tanstack/react-router'
 import {
   ArrowUpRightIcon,
@@ -39,9 +43,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+} from '#devpush/components/ui/alert-dialog'
+import { Badge } from '#devpush/components/ui/badge'
+import { Button } from '#devpush/components/ui/button'
 import {
   Card,
   CardContent,
@@ -49,28 +53,28 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card'
+} from '#devpush/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '#devpush/components/ui/dropdown-menu'
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
+} from '#devpush/components/ui/field'
 import {
   Empty,
   EmptyHeader,
   EmptyTitle,
   EmptyDescription,
-} from '@/components/ui/empty'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/empty'
+import { Input } from '#devpush/components/ui/input'
 import {
   Table,
   TableBody,
@@ -78,28 +82,28 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '#devpush/components/ui/table'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { authClient } from '@/lib/auth/client'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { StandaloneSettingsLayout } from '@/components/settings-layout'
-import type { AuthUserContext } from '@/server/auth/context'
+} from '#devpush/components/ui/tooltip'
+import { authClient } from '#devpush/lib/auth/client'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import { StandaloneSettingsLayout } from '#devpush/components/settings-layout'
+import type { AuthUserContext } from '#devpush/server/auth/context'
 import {
   deleteUserAccountAction,
   disconnectAuthAccountAction,
   leaveTeamAction,
   requestEmailChangeAction,
   updateUserGeneralAction,
-} from '@/server/users/functions'
+} from '#devpush/server/users/functions'
 import type {
   AuthAccountSummary,
   UserTeamSummary,
-} from '@/server/users/service'
+} from '#devpush/server/users/service'
 
 type UserSettingsContext = Omit<AuthUserContext, 'teams'> & {
   accounts: Array<AuthAccountSummary>
@@ -264,6 +268,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
           error,
           'Unable to save account. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSavingGeneral(false)
@@ -303,6 +308,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
           error,
           'Unable to send the verification email. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSavingEmail(false)
@@ -329,7 +335,10 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to disconnect account.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to disconnect account.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyId(null)
     }
@@ -347,6 +356,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       if (result.error) {
         toast.error(
           getPublicErrorMessage(result.error, `Unable to connect ${provider}.`),
+          ...mutationErrorOptions(result.error),
         )
         setPendingProvider(null)
       }
@@ -371,7 +381,10 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to leave team.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to leave team.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyId(null)
     }
@@ -401,7 +414,10 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       }, 'The action completed, but opening the next page failed. Please reload.')
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to delete account.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to delete account.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setIsDeletingAccount(false)
     }
@@ -412,12 +428,12 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
       title="Account"
       navigation={[
         { href: '#general', label: 'General' },
-        { href: '#email', label: 'Email' },
-        ...accountSettingsNavigation,
+        { href: '#email-preferences', label: 'Email preferences' },
         { href: '#authentication', label: 'Authentication' },
         { href: '#api-keys', label: 'API keys' },
         { href: '#connected-apps', label: 'Connected apps' },
         { href: '#teams', label: 'Teams' },
+        ...accountSettingsNavigation,
         { href: '#danger', label: 'Danger', destructive: true },
       ]}
     >
@@ -436,11 +452,7 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
             }}
           >
             <FieldGroup>
-              <Field
-                orientation="horizontal"
-                className="grid items-center gap-3 sm:grid-cols-2"
-                data-invalid={Boolean(generalErrors.avatarDataUrl)}
-              >
+              <Field data-invalid={Boolean(generalErrors.avatarDataUrl)}>
                 <FieldLabel htmlFor="account-avatar-button">Picture</FieldLabel>
                 <ProfilePicture
                   key={savedGeneral.settingsVersion}
@@ -465,21 +477,12 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                     Reading image…
                   </p>
                 ) : null}
-                <FieldError
-                  className="sm:col-start-2"
-                  id="account-avatar-error"
-                >
+                <FieldError id="account-avatar-error">
                   {generalErrors.avatarDataUrl}
                 </FieldError>
               </Field>
-              <Field
-                orientation="horizontal"
-                className="grid items-center gap-3 sm:grid-cols-2"
-                data-invalid={Boolean(generalErrors.name)}
-              >
-                <FieldLabel htmlFor="account-name">
-                  Name <span className="text-muted-foreground">(required)</span>
-                </FieldLabel>
+              <Field data-invalid={Boolean(generalErrors.name)}>
+                <FieldLabel htmlFor="account-name">Name</FieldLabel>
                 <Input
                   id="account-name"
                   disabled={isSavingGeneral}
@@ -495,19 +498,12 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                     }))
                   }}
                 />
-                <FieldError className="sm:col-start-2" id="account-name-error">
+                <FieldError id="account-name-error">
                   {generalErrors.name}
                 </FieldError>
               </Field>
-              <Field
-                orientation="horizontal"
-                className="grid items-center gap-3 sm:grid-cols-2"
-                data-invalid={Boolean(generalErrors.username)}
-              >
-                <FieldLabel htmlFor="account-username">
-                  Username{' '}
-                  <span className="text-muted-foreground">(required)</span>
-                </FieldLabel>
+              <Field data-invalid={Boolean(generalErrors.username)}>
+                <FieldLabel htmlFor="account-username">Username</FieldLabel>
                 <Input
                   id="account-username"
                   disabled={isSavingGeneral}
@@ -523,15 +519,69 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
                     }))
                   }}
                 />
-                <FieldError
-                  className="sm:col-start-2"
-                  id="account-username-error"
-                >
+                <FieldError id="account-username-error">
                   {generalErrors.username}
                 </FieldError>
               </Field>
             </FieldGroup>
           </form>
+          <div className="mt-6">
+            <form
+              id="account-email-form"
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault()
+                void requestEmailChange()
+              }}
+            >
+              <Field data-invalid={Boolean(emailError)}>
+                <FieldLabel htmlFor="account-email">Email</FieldLabel>
+                <Input
+                  aria-invalid={Boolean(emailError)}
+                  id="account-email"
+                  type="email"
+                  required
+                  maxLength={320}
+                  disabled={isSavingEmail}
+                  aria-describedby="account-email-error"
+                  value={newEmail}
+                  onChange={(event) => {
+                    setNewEmail(event.target.value)
+                    setEmailError(null)
+                  }}
+                />
+                <FieldDescription>
+                  Verification is required before the new email is used for sign
+                  in.
+                </FieldDescription>
+                <FieldError id="account-email-error">{emailError}</FieldError>
+              </Field>
+              {emailDirty ? (
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    disabled={isSavingEmail}
+                    onClick={() => {
+                      setNewEmail(user.email)
+                      setEmailError(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isSavingEmail}>
+                    {isSavingEmail ? (
+                      <LoaderIcon
+                        data-icon="inline-start"
+                        className="animate-spin"
+                      />
+                    ) : null}
+                    Verify email
+                  </Button>
+                </div>
+              ) : null}
+            </form>
+          </div>
         </CardContent>
         <CardFooter className="justify-end gap-2">
           <Button
@@ -555,71 +605,6 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
             form="account-general-form"
           >
             {isSavingGeneral ? (
-              <LoaderIcon data-icon="inline-start" className="animate-spin" />
-            ) : null}
-            Save
-          </Button>
-        </CardFooter>
-      </Card>
-
-      <Card id="email" className="scroll-mt-8">
-        <CardHeader className="border-b">
-          <CardTitle>Email</CardTitle>
-          <CardDescription>
-            The email address used for authentication and notifications.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            id="account-email-form"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault()
-              void requestEmailChange()
-            }}
-          >
-            {' '}
-            <Field data-invalid={Boolean(emailError)}>
-              <FieldLabel htmlFor="account-email">Email (required)</FieldLabel>
-              <Input
-                aria-invalid={Boolean(emailError)}
-                id="account-email"
-                type="email"
-                required
-                maxLength={320}
-                disabled={isSavingEmail}
-                aria-describedby="account-email-error"
-                value={newEmail}
-                onChange={(event) => {
-                  setNewEmail(event.target.value)
-                  setEmailError(null)
-                }}
-              />
-              <FieldDescription>
-                Verification is required before the new email is used for sign
-                in.
-              </FieldDescription>
-              <FieldError id="account-email-error">{emailError}</FieldError>
-            </Field>
-          </form>
-        </CardContent>
-        <CardFooter className="justify-end gap-2">
-          <Button
-            variant="ghost"
-            disabled={!emailDirty || isSavingEmail}
-            onClick={() => {
-              setNewEmail(user.email)
-              setEmailError(null)
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            form="account-email-form"
-            disabled={!emailDirty || isSavingEmail}
-          >
-            {isSavingEmail ? (
               <LoaderIcon data-icon="inline-start" className="animate-spin" />
             ) : null}
             Save
@@ -907,6 +892,8 @@ export function UserSettings({ context }: { context: UserSettingsContext }) {
           )}
         </CardContent>
       </Card>
+
+      <AccountSettingsContributions userId={user.id} />
 
       <Card id="danger" className="scroll-mt-8">
         <CardHeader className="border-b">

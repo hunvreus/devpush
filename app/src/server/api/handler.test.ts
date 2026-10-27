@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { z } from 'zod'
 import { apiErrorBody, handlePublicApiRequest } from './handler'
 import { publicApiOperations } from './operation-contract'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('./credentials', () => ({ authenticateApiKey: mocks.authenticate }))
 vi.mock('./operations', () => ({ executeApiOperation: mocks.execute }))
-vi.mock('@/server/http/rate-limit', () => ({ enforceRateLimit: mocks.limit }))
+vi.mock('#devpush/server/http/rate-limit', () => ({
+  enforceRateLimit: mocks.limit,
+}))
 
 beforeEach(() => {
   vi.resetAllMocks()

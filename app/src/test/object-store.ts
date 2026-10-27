@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import * as ObjectStoreModule from '@/server/storage/object-store'
+import * as ObjectStoreModule from '#devpush/server/storage/object-store'
 
 export function mockObjectStore(entries: Array<[string, Buffer]> = []) {
   const objects = new Map(entries)

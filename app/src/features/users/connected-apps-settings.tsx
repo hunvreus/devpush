@@ -1,18 +1,19 @@
+import { mutationErrorOptions, afterMutation  } from '#devpush/lib/action-feedback'
 import { toast } from 'sonner'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronRightIcon, LoaderIcon, Trash2Icon } from 'lucide-react'
-import { SettingsSection } from '@/components/settings-layout'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { ResourceAvatar } from '@/components/resource-avatar'
+import { SettingsSection } from '#devpush/components/settings-layout'
+import { Button } from '#devpush/components/ui/button'
+import { Badge } from '#devpush/components/ui/badge'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { FieldError } from '@/components/ui/field'
-import { Skeleton } from '@/components/ui/skeleton'
+} from '#devpush/components/ui/tooltip'
+import { FieldError } from '#devpush/components/ui/field'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -20,13 +21,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '#devpush/components/ui/table'
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -36,15 +37,14 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
-} from '@/components/ui/alert-dialog'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { CopyButton } from '@/components/copy-button'
-import { afterMutation } from '@/lib/action-feedback'
-import { apiKeyPresets, apiKeyPresetSchema } from '@/lib/api-key-schema'
+} from '#devpush/components/ui/alert-dialog'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { CopyButton } from '#devpush/components/copy-button'
+import { apiKeyPresets, apiKeyPresetSchema } from '#devpush/lib/api-key-schema'
 import {
   getMcpConnectionsAction,
   revokeMcpConnectionAction,
-} from '@/server/mcp/functions'
+} from '#devpush/server/mcp/functions'
 
 type Connection = Awaited<
   ReturnType<typeof getMcpConnectionsAction>
@@ -80,6 +80,7 @@ export function ConnectedAppsSettings({ userId }: { userId: string }) {
           cause,
           'Unable to revoke this connection. Please try again.',
         ),
+        ...mutationErrorOptions(cause),
       )
     } finally {
       setBusy(false)

@@ -1,23 +1,34 @@
-import { withWorkspaceAccess } from '@/deployment/workspace-access'
-import { PublicError, getPublicErrorMessage } from '@/lib/public-error'
-import { toPublicError } from '@/server/http/public-errors'
+import { withWorkspaceAccess } from '#devpush/server/plugins/workspace-access'
+import { PublicError, getPublicErrorMessage } from '#devpush/lib/public-error'
+import { toPublicError } from '#devpush/server/http/public-errors'
 import { bootstrapOwnedTeam, insertOwnedTeam } from './creation'
 import { acceptInvitation } from './invitations'
 import { mutateTeamMembership, mutateTeamOwnership } from './membership'
-import { isUniqueConstraintError } from '@/server/db/errors'
+import { isUniqueConstraintError } from '#devpush/server/db/errors'
 import { and, count, desc, eq, gt, inArray, lte, ne, sql } from 'drizzle-orm'
 
-import { canManageTeamMembers, canManageTeamSettings } from '@/lib/team-role'
-import type { TeamRole } from '@/lib/team-role'
-import { config } from '@/server/config'
-import { db } from '@/server/db'
+import {
+  canManageTeamMembers,
+  canManageTeamSettings,
+} from '#devpush/lib/team-role'
+import type { TeamRole } from '#devpush/lib/team-role'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
 import { deleteTeamState } from './deletion-state'
-import { teamInvites, teamMembers, teams, user } from '@/server/db/schema'
-import { sendTeamInviteEmail } from '@/server/email/service'
-import { getResourceColor } from '@/server/resources/color'
-import { removeOwnedAvatar, resolveAvatarUpdate } from '@/server/uploads/avatar'
+import {
+  teamInvites,
+  teamMembers,
+  teams,
+  user,
+} from '#devpush/server/db/schema'
+import { sendTeamInviteEmail } from '#devpush/server/email/service'
+import { getResourceColor } from '#devpush/server/resources/color'
+import {
+  removeOwnedAvatar,
+  resolveAvatarUpdate,
+} from '#devpush/server/uploads/avatar'
 import { canDeleteTeam } from './delete-policy'
-import { isInstallationAdmin } from '@/server/admin/access'
+import { isInstallationAdmin } from '#devpush/server/admin/access'
 import {
   listTeamInvites,
   listTeamMembers,
@@ -281,78 +292,84 @@ export async function updateTeamGeneral({
 }) {
   const team = await requireTeam(userId, teamSlug, teamId)
   requireAdminRole(team.role)
+  return withWorkspaceAccess(
+    team.id,
+    'workspace.update',
+    async () => {
+      const expectedVersion = settingsVersion ?? team.settingsVersion
+      if (expectedVersion !== team.settingsVersion)
+        throw new PublicError(
+          'SETTINGS_CONFLICT',
+          `/${encodeURIComponent(team.slug)}/settings`,
+        )
+      const normalizedName = name.trim()
+      const normalizedSlug = normalizeTeamSlug(slug)
 
-  const expectedVersion = settingsVersion ?? team.settingsVersion
-  if (expectedVersion !== team.settingsVersion)
-    throw new PublicError(
-      'SETTINGS_CONFLICT',
-      `/${encodeURIComponent(team.slug)}/settings`,
-    )
-  const normalizedName = name.trim()
-  const normalizedSlug = normalizeTeamSlug(slug)
+      if (!normalizedName) {
+        throw new PublicError('TEAM_NAME_REQUIRED')
+      }
 
-  if (!normalizedName) {
-    throw new PublicError('TEAM_NAME_REQUIRED')
-  }
+      if (forbiddenTeamSlugs.has(normalizedSlug)) {
+        throw new PublicError('TEAM_SLUG_RESERVED')
+      }
 
-  if (forbiddenTeamSlugs.has(normalizedSlug)) {
-    throw new PublicError('TEAM_SLUG_RESERVED')
-  }
-
-  const avatarPath = await resolveAvatarUpdate({
-    filePrefix: 'team',
-    resourceId: team.id,
-    currentAvatarPath: team.image,
-    avatarDataUrl,
-    deleteAvatar: deleteAvatar ?? false,
-  })
-
-  try {
-    const changed = await db
-      .update(teams)
-      .set({
-        name: normalizedName,
-        slug: normalizedSlug,
-        avatarPath,
-        settingsVersion: sql`${teams.settingsVersion} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(teams.id, team.id),
-          eq(teams.status, 'active'),
-          eq(teams.settingsVersion, expectedVersion),
-          sql`${teams.avatarPath} is ${team.image}`,
-          sql`exists(select 1 from team_members m join user u on u.id = m.user_id where m.team_id = ${team.id} and m.user_id = ${userId} and m.role in ('owner','admin') and u.status = 'active')`,
-        ),
-      )
-      .returning({ id: teams.id })
-    if (!changed.length)
-      throw new PublicError(
-        'SETTINGS_CONFLICT',
-        `/${encodeURIComponent(team.slug)}/settings`,
-      )
-  } catch (error) {
-    if (avatarPath && avatarPath !== team.image) {
-      await removeOwnedAvatar(avatarPath, {
+      const avatarPath = await resolveAvatarUpdate({
         filePrefix: 'team',
         resourceId: team.id,
+        currentAvatarPath: team.image,
+        avatarDataUrl,
+        deleteAvatar: deleteAvatar ?? false,
       })
-    }
 
-    if (isUniqueConstraintError(error))
-      throw new PublicError('TEAM_SLUG_CONFLICT')
-    throw error
-  }
+      try {
+        const changed = await db
+          .update(teams)
+          .set({
+            name: normalizedName,
+            slug: normalizedSlug,
+            avatarPath,
+            settingsVersion: sql`${teams.settingsVersion} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(teams.id, team.id),
+              eq(teams.status, 'active'),
+              eq(teams.settingsVersion, expectedVersion),
+              sql`${teams.avatarPath} is ${team.image}`,
+              sql`exists(select 1 from team_members m join user u on u.id = m.user_id where m.team_id = ${team.id} and m.user_id = ${userId} and m.role in ('owner','admin') and u.status = 'active')`,
+            ),
+          )
+          .returning({ id: teams.id })
+        if (!changed.length)
+          throw new PublicError(
+            'SETTINGS_CONFLICT',
+            `/${encodeURIComponent(team.slug)}/settings`,
+          )
+      } catch (error) {
+        if (avatarPath && avatarPath !== team.image) {
+          await removeOwnedAvatar(avatarPath, {
+            filePrefix: 'team',
+            resourceId: team.id,
+          })
+        }
 
-  if (team.image !== avatarPath) {
-    await removeOwnedAvatar(team.image, {
-      filePrefix: 'team',
-      resourceId: team.id,
-    })
-  }
+        if (isUniqueConstraintError(error))
+          throw new PublicError('TEAM_SLUG_CONFLICT')
+        throw error
+      }
 
-  return requireTeam(userId, normalizedSlug)
+      if (team.image !== avatarPath) {
+        await removeOwnedAvatar(team.image, {
+          filePrefix: 'team',
+          resourceId: team.id,
+        })
+      }
+
+      return requireTeam(userId, normalizedSlug)
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function createTeamInvites({
@@ -372,8 +389,6 @@ export async function createTeamInvites({
 
   const team = await requireTeam(userId, teamSlug)
   requireAdminRole(team.role)
-
-  await withWorkspaceAccess(team.id, 'member.invite', async () => undefined)
 
   let emailCount = 0
   const failedEmails: Array<{ email: string; message: string }> = []
@@ -420,7 +435,6 @@ export async function resendTeamInvite({
   const team = await requireTeam(userId, teamSlug)
   requireAdminRole(team.role)
 
-  await withWorkspaceAccess(team.id, 'member.invite', async () => undefined)
   const rows = await db
     .select()
     .from(teamInvites)
@@ -458,24 +472,31 @@ export async function revokeTeamInvite({
 }) {
   const team = await requireTeam(userId, teamSlug)
   requireAdminRole(team.role)
+  return withWorkspaceAccess(
+    team.id,
+    'member.revoke',
+    async () => {
+      const revokedRows = await db
+        .update(teamInvites)
+        .set({ status: 'revoked', updatedAt: new Date() })
+        .where(
+          and(
+            eq(teamInvites.id, inviteId),
+            eq(teamInvites.teamId, team.id),
+            eq(teamInvites.status, 'pending'),
+            sql`exists(select 1 from team_members m join user u on u.id = m.user_id join teams t on t.id = m.team_id where m.user_id = ${userId} and m.team_id = ${team.id} and m.role in ('owner','admin') and u.status = 'active' and t.status = 'active')`,
+          ),
+        )
+        .returning({ id: teamInvites.id })
 
-  const revokedRows = await db
-    .update(teamInvites)
-    .set({ status: 'revoked', updatedAt: new Date() })
-    .where(
-      and(
-        eq(teamInvites.id, inviteId),
-        eq(teamInvites.teamId, team.id),
-        eq(teamInvites.status, 'pending'),
-      ),
-    )
-    .returning({ id: teamInvites.id })
+      if (!revokedRows.at(0)) {
+        throw new PublicError('TEAM_INVITE_NOT_FOUND')
+      }
 
-  if (!revokedRows.at(0)) {
-    throw new PublicError('TEAM_INVITE_NOT_FOUND')
-  }
-
-  return listTeamInvites(team.id)
+      return listTeamInvites(team.id)
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function cleanupExpiredTeamInvites({
@@ -513,39 +534,53 @@ export async function updateTeamMemberRole({
 }) {
   const team = await requireTeam(userId, teamSlug)
   requireMemberManagerRole(team.role)
+  return withWorkspaceAccess(
+    team.id,
+    'member.role',
+    async () => {
+      const memberRows = await db
+        .select()
+        .from(teamMembers)
+        .where(
+          and(
+            eq(teamMembers.teamId, team.id),
+            eq(teamMembers.userId, memberUserId),
+          ),
+        )
+        .limit(1)
+      const member = memberRows.at(0)
 
-  const memberRows = await db
-    .select()
-    .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.teamId, team.id),
-        eq(teamMembers.userId, memberUserId),
-      ),
-    )
-    .limit(1)
-  const member = memberRows.at(0)
+      if (!member) {
+        throw new PublicError('TEAM_MEMBER_NOT_FOUND')
+      }
 
-  if (!member) {
-    throw new PublicError('TEAM_MEMBER_NOT_FOUND')
-  }
+      if (
+        team.role !== 'owner' &&
+        (member.role === 'owner' || role === 'owner')
+      ) {
+        throw new PublicError('TEAM_OWNER_ROLE_FORBIDDEN')
+      }
 
-  if (team.role !== 'owner' && (member.role === 'owner' || role === 'owner')) {
-    throw new PublicError('TEAM_OWNER_ROLE_FORBIDDEN')
-  }
+      const changed = await mutateTeamMembership(db, {
+        teamId: team.id,
+        actorId: userId,
+        memberId: memberUserId,
+        action: 'role',
+        role,
+      })
+      if (!changed) {
+        await throwMembershipChangeError({
+          userId,
+          teamSlug,
+          memberUserId,
+          role,
+        })
+      }
 
-  const changed = await mutateTeamMembership(db, {
-    teamId: team.id,
-    actorId: userId,
-    memberId: memberUserId,
-    action: 'role',
-    role,
-  })
-  if (!changed) {
-    await throwMembershipChangeError({ userId, teamSlug, memberUserId, role })
-  }
-
-  return listTeamMembers(team.id)
+      return listTeamMembers(team.id)
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function removeTeamMember({
@@ -559,43 +594,49 @@ export async function removeTeamMember({
 }) {
   const team = await requireTeam(userId, teamSlug)
   requireMemberManagerRole(team.role)
+  return withWorkspaceAccess(
+    team.id,
+    'member.remove',
+    async () => {
+      const memberRows = await db
+        .select()
+        .from(teamMembers)
+        .where(
+          and(
+            eq(teamMembers.teamId, team.id),
+            eq(teamMembers.userId, memberUserId),
+          ),
+        )
+        .limit(1)
+      const member = memberRows.at(0)
 
-  const memberRows = await db
-    .select()
-    .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.teamId, team.id),
-        eq(teamMembers.userId, memberUserId),
-      ),
-    )
-    .limit(1)
-  const member = memberRows.at(0)
+      if (!member) {
+        throw new PublicError('TEAM_MEMBER_NOT_FOUND')
+      }
 
-  if (!member) {
-    throw new PublicError('TEAM_MEMBER_NOT_FOUND')
-  }
+      if (team.role !== 'owner' && member.role === 'owner') {
+        throw new PublicError('TEAM_OWNER_REMOVAL_FORBIDDEN')
+      }
 
-  if (team.role !== 'owner' && member.role === 'owner') {
-    throw new PublicError('TEAM_OWNER_REMOVAL_FORBIDDEN')
-  }
+      const changed = await mutateTeamMembership(db, {
+        teamId: team.id,
+        actorId: userId,
+        memberId: memberUserId,
+        action: 'remove',
+      })
+      if (!changed) {
+        await throwMembershipChangeError({
+          userId,
+          teamSlug,
+          memberUserId,
+          role: null,
+        })
+      }
 
-  const changed = await mutateTeamMembership(db, {
-    teamId: team.id,
-    actorId: userId,
-    memberId: memberUserId,
-    action: 'remove',
-  })
-  if (!changed) {
-    await throwMembershipChangeError({
-      userId,
-      teamSlug,
-      memberUserId,
-      role: null,
-    })
-  }
-
-  return listTeamMembers(team.id)
+      return listTeamMembers(team.id)
+    },
+    { kind: 'user', userId },
+  )
 }
 
 async function throwMembershipChangeError({
@@ -645,49 +686,55 @@ export async function transferTeamOwnership({
 }) {
   const team = await requireTeam(userId, teamSlug)
   requireOwnerRole(team.role)
+  return withWorkspaceAccess(
+    team.id,
+    'owner.transfer',
+    async () => {
+      if (userId === memberUserId) {
+        throw new PublicError('TEAM_TRANSFER_MEMBER_REQUIRED')
+      }
 
-  if (userId === memberUserId) {
-    throw new PublicError('TEAM_TRANSFER_MEMBER_REQUIRED')
-  }
+      const memberRows = await db
+        .select()
+        .from(teamMembers)
+        .where(
+          and(
+            eq(teamMembers.teamId, team.id),
+            inArray(teamMembers.userId, [userId, memberUserId]),
+          ),
+        )
+      const memberships = new Map(
+        memberRows.map((member) => [member.userId, member]),
+      )
+      const currentMembership = memberships.get(userId)
+      const targetMembership = memberships.get(memberUserId)
 
-  const memberRows = await db
-    .select()
-    .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.teamId, team.id),
-        inArray(teamMembers.userId, [userId, memberUserId]),
-      ),
-    )
-  const memberships = new Map(
-    memberRows.map((member) => [member.userId, member]),
+      if (!currentMembership || currentMembership.role !== 'owner') {
+        throw new PublicError('TEAM_TRANSFER_FORBIDDEN')
+      }
+
+      if (!targetMembership) {
+        throw new PublicError('TEAM_MEMBER_NOT_FOUND')
+      }
+
+      if (targetMembership.role === 'owner') {
+        throw new PublicError('TEAM_MEMBER_ALREADY_OWNER')
+      }
+
+      if (
+        !(await mutateTeamOwnership(db, {
+          teamId: team.id,
+          actorId: userId,
+          memberId: memberUserId,
+        }))
+      ) {
+        throw new PublicError('TEAM_MEMBERSHIP_CHANGED')
+      }
+
+      return listTeamMembers(team.id)
+    },
+    { kind: 'user', userId },
   )
-  const currentMembership = memberships.get(userId)
-  const targetMembership = memberships.get(memberUserId)
-
-  if (!currentMembership || currentMembership.role !== 'owner') {
-    throw new PublicError('TEAM_TRANSFER_FORBIDDEN')
-  }
-
-  if (!targetMembership) {
-    throw new PublicError('TEAM_MEMBER_NOT_FOUND')
-  }
-
-  if (targetMembership.role === 'owner') {
-    throw new PublicError('TEAM_MEMBER_ALREADY_OWNER')
-  }
-
-  if (
-    !(await mutateTeamOwnership(db, {
-      teamId: team.id,
-      actorId: userId,
-      memberId: memberUserId,
-    }))
-  ) {
-    throw new PublicError('TEAM_MEMBERSHIP_CHANGED')
-  }
-
-  return listTeamMembers(team.id)
 }
 
 export async function deleteTeam({
@@ -701,29 +748,35 @@ export async function deleteTeam({
 }) {
   const team = await requireTeam(userId, teamSlug)
   requireOwnerRole(team.role)
+  return withWorkspaceAccess(
+    team.id,
+    'workspace.delete',
+    async () => {
+      if (confirmationName !== team.slug) {
+        throw new PublicError('TEAM_DELETE_CONFIRMATION')
+      }
 
-  if (confirmationName !== team.slug) {
-    throw new PublicError('TEAM_DELETE_CONFIRMATION')
-  }
-
-  const defaultUserRows = await db
-    .select({ id: user.id })
-    .from(user)
-    .where(and(eq(user.defaultTeamId, team.id), eq(user.status, 'active')))
-  if (
-    !canDeleteTeam({
-      defaultUserIds: defaultUserRows.map((row) => row.id),
-    })
+      const defaultUserRows = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(and(eq(user.defaultTeamId, team.id), eq(user.status, 'active')))
+      if (
+        !canDeleteTeam({
+          defaultUserIds: defaultUserRows.map((row) => row.id),
+        })
+      )
+        throw new PublicError('TEAM_DEFAULT_DELETE_FORBIDDEN')
+      if (
+        !(await deleteTeamState(db, {
+          teamId: team.id,
+          userId,
+          now: new Date(),
+        }))
+      )
+        throw new PublicError('TEAM_STATE_CHANGED')
+    },
+    { kind: 'user', userId },
   )
-    throw new PublicError('TEAM_DEFAULT_DELETE_FORBIDDEN')
-  if (
-    !(await deleteTeamState(db, {
-      teamId: team.id,
-      userId,
-      now: new Date(),
-    }))
-  )
-    throw new PublicError('TEAM_STATE_CHANGED')
 }
 
 export async function acceptTeamInvite({
@@ -788,13 +841,17 @@ async function acceptPendingInvitation(
   }
 
   if (
-    !(await withWorkspaceAccess(row.invite.teamId, 'member.accept', () =>
-      acceptInvitation(db, {
-        userId,
-        inviteId: row.invite.id,
-        tokenHash: row.invite.tokenHash,
-        now,
-      }),
+    !(await withWorkspaceAccess(
+      row.invite.teamId,
+      'member.accept',
+      () =>
+        acceptInvitation(db, {
+          userId,
+          inviteId: row.invite.id,
+          tokenHash: row.invite.tokenHash,
+          now,
+        }),
+      { kind: 'user', userId },
     ))
   )
     throw new PublicError('TEAM_INVITATION_INVALID')
@@ -926,37 +983,43 @@ async function upsertTeamInvite({
   }
 
   try {
-    if (shouldUpdateInvite) {
-      const updated = await db
-        .update(teamInvites)
-        .set({
-          role,
-          tokenHash,
-          expiresAt,
-          inviterId: userId,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(teamInvites.id, inviteId),
-            eq(teamInvites.status, 'pending'),
-            sql`exists(select 1 from team_members m join user u on u.id = m.user_id join teams t on t.id = m.team_id
+    await withWorkspaceAccess(
+      team.id,
+      'member.invite',
+      async () => {
+        if (shouldUpdateInvite) {
+          const updated = await db
+            .update(teamInvites)
+            .set({
+              role,
+              tokenHash,
+              expiresAt,
+              inviterId: userId,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(teamInvites.id, inviteId),
+                eq(teamInvites.teamId, team.id),
+                eq(teamInvites.status, 'pending'),
+                sql`exists(select 1 from team_members m join user u on u.id = m.user_id join teams t on t.id = m.team_id
             where m.user_id = ${userId} and m.team_id = ${team.id} and m.role in ('owner','admin') and u.status = 'active' and t.status = 'active')`,
-          ),
-        )
-        .returning({ id: teamInvites.id })
-      if (updated.length === 0) throw new PublicError('TEAM_INVITE_NOT_FOUND')
-    } else {
-      await db.insert(teamInvites).values({
-        id: inviteId,
-        teamId: team.id,
-        email: normalizedEmail,
-        role,
-        inviterId: userId,
-        tokenHash,
-        expiresAt,
-      })
-    }
+              ),
+            )
+            .returning({ id: teamInvites.id })
+          if (updated.length === 0)
+            throw new PublicError('TEAM_INVITE_NOT_FOUND')
+        } else {
+          const created =
+            await db.all(sql`insert into team_invites (id,team_id,email,role,inviter_id,token_hash,expires_at,created_at,updated_at)
+            select ${inviteId},${team.id},${normalizedEmail},${role},${userId},${tokenHash},${expiresAt.getTime()},${now.getTime()},${now.getTime()}
+            where exists(select 1 from team_members m join user u on u.id=m.user_id join teams t on t.id=m.team_id
+              where m.team_id=${team.id} and m.user_id=${userId} and m.role=${team.role} and m.role in ('owner','admin') and u.status='active' and t.status='active') returning id`)
+          if (!created.length) throw new PublicError('FORBIDDEN')
+        }
+      },
+      { kind: 'user', userId },
+    )
   } catch (error) {
     if (!isUniqueConstraintError(error)) {
       throw error
@@ -967,7 +1030,7 @@ async function upsertTeamInvite({
 
   const inviteUrl = new URL(
     `/invites/${token}`,
-    config.DEVPUSH_BASE_URL,
+    config.BETTER_AUTH_URL,
   ).toString()
 
   let emailSent = true

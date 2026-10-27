@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { removeOwnedAvatar } from '@/server/uploads/avatar'
-import { db } from '@/server/db'
-import type { AtomicStore } from '@/server/db/atomic'
+import { removeOwnedAvatar } from '#devpush/server/uploads/avatar'
+import { db } from '#devpush/server/db'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 
 // Keep terminal job records long enough for an agent to retry a lost acknowledgement.
 // Unresolved external resources are never treated as successfully cleaned up.

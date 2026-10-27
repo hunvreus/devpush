@@ -3,7 +3,7 @@ import { act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, test, vi } from 'vitest'
 import { BackupVolumePicker } from './backup-volume-picker'
-import type { ProjectBackupConfig } from '@/server/projects/types'
+import type { ProjectBackupConfig } from '#devpush/server/projects/types'
 
 test('multiple volumes accept custom names, retain known values, and remove chips independently', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)

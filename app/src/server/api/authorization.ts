@@ -1,8 +1,8 @@
 import { sql } from 'drizzle-orm'
-import { apiRoleRank, apiScopeDefinitions } from '@/lib/api-key-schema'
-import { PublicError } from '@/lib/public-error'
-import type { ApiScope } from '@/lib/api-key-schema'
-import type { TeamRole } from '@/lib/team-role'
+import { apiRoleRank, apiScopeDefinitions } from '#devpush/lib/api-key-schema'
+import { PublicError } from '#devpush/lib/public-error'
+import type { ApiScope } from '#devpush/lib/api-key-schema'
+import type { TeamRole } from '#devpush/lib/team-role'
 import {
   apiGrants,
   apiKeys,
@@ -10,7 +10,7 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 
 export type ApiPrincipal = {
   userId: string

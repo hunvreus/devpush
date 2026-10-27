@@ -4,7 +4,7 @@ import {
   calculateHeartbeatAvailability,
   insertMetricGaps,
   downsampleServerMetricSeries,
-} from '@/server/servers/monitoring'
+} from '#devpush/server/servers/monitoring'
 
 describe('calculateHeartbeatAvailability', () => {
   it('returns no availability when the server has no measurable window', () => {

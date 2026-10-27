@@ -1,5 +1,6 @@
+import { mutationErrorOptions } from '#devpush/lib/action-feedback'
 import { toast } from 'sonner'
-import { showSettingsConflict } from '@/lib/settings-conflict'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
 import { useState } from 'react'
 import {
   AlertDialog,
@@ -10,8 +11,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { getPublicErrorMessage } from '@/lib/public-error'
+} from '#devpush/components/ui/alert-dialog'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
 
 export function BackupPolicyDeleteDialog({
   name,
@@ -39,6 +40,7 @@ export function BackupPolicyDeleteDialog({
           cause,
           'Unable to delete backup policy. Please try again.',
         ),
+        ...mutationErrorOptions(cause),
       )
     } finally {
       setPending(false)

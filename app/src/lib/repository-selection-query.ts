@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/react-query'
 
-import { getRepositorySelectionContext } from '@/server/projects/functions'
+import { getRepositorySelectionContext } from '#devpush/server/projects/functions'
 
 export function repositorySelectionQueryOptions(teamSlug: string) {
   return queryOptions({

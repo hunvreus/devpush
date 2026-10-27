@@ -4,7 +4,7 @@ import {
   AgentBinaryNotConfiguredError,
   AgentBinaryUnsupportedPlatformError,
   getAgentBinaryChecksum,
-} from '@/server/install/agent-binary'
+} from '#devpush/server/install/agent-binary'
 
 export const Route = createFileRoute('/api/install/agent/checksum')({
   server: {

@@ -1,7 +1,10 @@
-import { createLocalObjectStore } from '@/server/storage/local-object-store'
+import { createLocalObjectStore } from '#devpush/server/storage/local-object-store'
 
-import { config } from '@/server/config'
-import { getR2ObjectStore } from '@/server/runtime/platform-env'
+import { config } from '#devpush/server/config'
+import {
+  isCloudflareRuntime,
+  getR2ObjectStore,
+} from '#devpush/server/runtime/platform-env'
 import type { S3Client } from '@aws-sdk/client-s3'
 
 type StoredObject = {
@@ -25,6 +28,12 @@ export function getObjectStore() {
     return createR2ObjectStore(r2)
   }
 
+  // Node may pool a client; Worker invocations must not share its transport I/O.
+  if (isCloudflareRuntime()) {
+    if (!isRemoteObjectStorageConfigured())
+      throw new Error('Object storage is not configured.')
+    return createS3ObjectStore()
+  }
   store ??= isRemoteObjectStorageConfigured()
     ? createS3ObjectStore()
     : createLocalObjectStore()
@@ -33,7 +42,11 @@ export function getObjectStore() {
 }
 
 export function isObjectStorageConfigured() {
-  return Boolean(getR2ObjectStore()) || isRemoteObjectStorageConfigured()
+  return (
+    !isCloudflareRuntime() ||
+    Boolean(getR2ObjectStore()) ||
+    isRemoteObjectStorageConfigured()
+  )
 }
 
 function createR2ObjectStore(bucket: R2Bucket): ObjectStore {
@@ -61,7 +74,7 @@ function createR2ObjectStore(bucket: R2Bucket): ObjectStore {
   }
 }
 
-export function isRemoteObjectStorageConfigured() {
+function isRemoteObjectStorageConfigured() {
   return Boolean(
     config.DEVPUSH_STORAGE_ENDPOINT &&
     config.DEVPUSH_STORAGE_BUCKET &&

@@ -1,8 +1,11 @@
 import { eq, gt, inArray, sql } from 'drizzle-orm'
 
-import { db, logsDb } from '@/server/db'
-import { deploymentLogs, logCleanupPositions } from '@/server/db/log-schema'
-import { deployments } from '@/server/db/schema'
+import { db, logsDb } from '#devpush/server/db'
+import {
+  deploymentLogs,
+  logCleanupPositions,
+} from '#devpush/server/db/log-schema'
+import { deployments } from '#devpush/server/db/schema'
 
 const positionId = 'deployment-output'
 

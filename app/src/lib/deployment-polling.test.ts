@@ -3,8 +3,8 @@ import { QueryClient, QueryObserver, focusManager } from '@tanstack/react-query'
 import { afterEach, expect, test, vi } from 'vitest'
 import { projectContextQueryOptions } from './project-context-query'
 import { teamSectionQueryOptions } from './team-context-query'
-import { projectContext } from '@/test/project-context'
-import type { DeploymentSummary } from '@/server/projects/types'
+import { projectContext } from '#devpush/test/project-context'
+import type { DeploymentSummary } from '#devpush/server/projects/types'
 
 const deployment: DeploymentSummary = {
   id: 'd',
@@ -32,11 +32,11 @@ const deployment: DeploymentSummary = {
 }
 
 const mocks = vi.hoisted(() => ({ section: vi.fn(), team: vi.fn() }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   getProject: vi.fn(),
   getProjectSection: mocks.section,
 }))
-vi.mock('@/server/teams/functions', () => ({
+vi.mock('#devpush/server/teams/functions', () => ({
   getTeamShellContext: vi.fn(),
   getTeamSectionContext: mocks.team,
 }))

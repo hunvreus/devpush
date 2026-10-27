@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 import {
   buildTokenizedAgentInstallScript,
   isAgentEnrollmentToken,
-} from '@/server/install/agent-script'
+} from '#devpush/server/install/agent-script'
 
 export const Route = createFileRoute('/api/install/agent/$token')({
   server: {

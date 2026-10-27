@@ -1,7 +1,7 @@
 import { inArray, lt, sql } from 'drizzle-orm'
 
-import { logsDb } from '@/server/db'
-import { runtimeLogs, operationLogs } from '@/server/db/log-schema'
+import { logsDb } from '#devpush/server/db'
+import { runtimeLogs, operationLogs } from '#devpush/server/db/log-schema'
 
 export const runtimeLogRetentionMs = 24 * 60 * 60 * 1000
 export const runtimeLogPruneBatchSize = 1_000

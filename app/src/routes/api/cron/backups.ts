@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { config } from '@/server/config'
-import { matchesBearerSecret } from '@/server/http/auth'
-import { queueDueBackupSchedules } from '@/server/backups/service'
+import { config } from '#devpush/server/config'
+import { matchesBearerSecret } from '#devpush/server/http/auth'
+import { queueDueBackupSchedules } from '#devpush/server/backups/service'
 
 export const Route = createFileRoute('/api/cron/backups')({
   server: {

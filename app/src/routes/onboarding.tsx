@@ -4,10 +4,10 @@ import {
   Outlet,
   useRouterState,
 } from '@tanstack/react-router'
-import { getCurrentUserContext } from '@/server/auth/context'
-import { getSafeRedirectPath } from '@/lib/internal-redirect'
-import { ProfileOnboarding } from '@/features/onboarding/profile-onboarding'
-import { pageHead } from '@/lib/page-head'
+import { getCurrentUserContext } from '#devpush/server/auth/context'
+import { getSafeRedirectPath } from '#devpush/lib/internal-redirect'
+import { ProfileOnboarding } from '#devpush/features/onboarding/profile-onboarding'
+import { pageHead } from '#devpush/lib/page-head'
 
 export const Route = createFileRoute('/onboarding')({
   ssr: false,
@@ -31,7 +31,7 @@ function OnboardingRoute() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
-  return pathname === '/onboarding/plans' ? (
+  return pathname === '/onboarding/workspace' ? (
     <Outlet />
   ) : (
     <ProfileOnboarding context={context} destination={search.redirect} />

@@ -143,6 +143,27 @@ environment blocks a new one. There is no user-facing cancellation action;
 closing a dialog does not cancel a job. Manual deletion of individual backup
 files is not offered.
 
+During a volume restore, graceful agent cancellation attempts to stop the restore
+helper, roll back changed volumes and restart the containers that were running.
+Recovery has its own bounded timeout. If the writer cannot be stopped or rollback
+fails, the application stays stopped and the failure includes the retained
+recovery directory under `<agent state directory>/restores/<job ID>/recovery`.
+Inspect that data before manually recovering or retrying; it is not deleted
+automatically after a failed rollback. Restore downloads also stage on this
+persistent filesystem rather than the system temporary directory.
+
+Before stopping containers, the agent durably journals the original container IDs
+and restart policies, then disables automatic restarts. Recovery copies are synced
+before volume replacement begins. After a hard kill or power loss, the next job
+poll stops orphaned restore helpers and rolls back interrupted volume writes before
+restarting those containers and accepting new work. Completed volume replacement
+is recorded before restart, so recovery preserves committed data rather than
+rolling it back. Unresolved journals retain their copies and block further jobs;
+fix the reported Docker/storage problem and let the agent retry recovery.
+
+The interrupted job is reported as failed; its requested restore is not replayed.
+Database restore commands do not have volume rollback or automatic crash recovery.
+
 ## History and logs
 
 Backup and restore attempts have separate activity rows. Use Details to inspect

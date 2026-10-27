@@ -1,10 +1,10 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { adminSearchSchema } from '@/lib/admin-search-schema'
-import { AdminSettings } from '@/features/admin/admin-settings'
-import { AdminSettingsPending } from '@/features/settings/settings-route-pending'
-import { getAdminSettingsContext } from '@/server/admin/functions'
+import { adminSearchSchema } from '#devpush/lib/admin-search-schema'
+import { AdminSettings } from '#devpush/features/admin/admin-settings'
+import { AdminSettingsPending } from '#devpush/features/settings/settings-route-pending'
+import { getAdminSettingsContext } from '#devpush/server/admin/functions'
 
 export const Route = createFileRoute('/admin')({
   ssr: false,

@@ -1,8 +1,8 @@
-import { projectSettingsGuard } from '@/server/settings-version'
-import type { ApiMutationAdmission } from '@/server/api/admission'
+import { projectSettingsGuard } from '#devpush/server/settings-version'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import type { aliases, environments } from '@/server/db/schema'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import type { aliases, environments } from '#devpush/server/db/schema'
 
 export class EnvironmentStateChanged extends Error {
   constructor() {

@@ -1,24 +1,25 @@
+import { mutationErrorOptions, afterMutation  } from '#devpush/lib/action-feedback'
 import { toast } from 'sonner'
 import { ApiScopeSelection } from './api-scope-selection'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { EllipsisIcon, KeyRoundIcon, LoaderIcon, PlusIcon } from 'lucide-react'
-import { SettingsSection } from '@/components/settings-layout'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { SettingsSection } from '#devpush/components/settings-layout'
+import { Button } from '#devpush/components/ui/button'
+import { Input } from '#devpush/components/ui/input'
 import {
   Field,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
+} from '#devpush/components/ui/field'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -36,32 +37,34 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
-} from '@/components/ui/alert-dialog'
+} from '#devpush/components/ui/alert-dialog'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Skeleton } from '@/components/ui/skeleton'
+} from '#devpush/components/ui/dropdown-menu'
+import { Checkbox } from '#devpush/components/ui/checkbox'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
-import { CopyButton } from '@/components/copy-button'
-import { afterMutation } from '@/lib/action-feedback'
-import { getPublicErrorMessage } from '@/lib/public-error'
+} from '#devpush/components/ui/empty'
+import { CopyButton } from '#devpush/components/copy-button'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
 import {
   getApiKeySettingsAction,
   createApiKeyAction,
   rotateApiKeyAction,
   revokeApiKeyAction,
-} from '@/server/api/functions'
-import { apiKeyPresets, apiKeyExpirationOptions } from '@/lib/api-key-schema'
+} from '#devpush/server/api/functions'
+import {
+  apiKeyPresets,
+  apiKeyExpirationOptions,
+} from '#devpush/lib/api-key-schema'
 
 type KeySettings = Awaited<ReturnType<typeof getApiKeySettingsAction>>
 type ApiKey = KeySettings['keys'][number]
@@ -149,6 +152,7 @@ export function ApiKeysSettings({ userId }: { userId: string }) {
           cause,
           'Unable to create API key. Please try again.',
         ),
+        ...mutationErrorOptions(cause),
       )
     } finally {
       setBusy(false)
@@ -173,6 +177,7 @@ export function ApiKeysSettings({ userId }: { userId: string }) {
           cause,
           'Unable to update API key. Please try again.',
         ),
+        ...mutationErrorOptions(cause),
       )
     } finally {
       setBusy(false)

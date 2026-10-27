@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { BackupPolicyDialog } from './project-backup-policy'
-import { projectContext } from '@/test/project-context'
+import { projectContext } from '#devpush/test/project-context'
 
 const mocks = vi.hoisted(() => ({
   error: vi.fn(),
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   saved: vi.fn(),
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   saveProjectBackupPolicyAction: mocks.save,
   deleteProjectBackupPolicyAction: mocks.save,
 }))
@@ -19,10 +19,12 @@ vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ navigate: mocks.navigate }),
 }))
-vi.mock('@/lib/project-context-query', () => ({
+vi.mock('#devpush/lib/project-context-query', () => ({
   setProjectContextQueryData: vi.fn(),
 }))
-vi.mock('sonner', () => ({ toast: { error: mocks.error, success: vi.fn(), warning: vi.fn() } }))
+vi.mock('sonner', () => ({
+  toast: { error: mocks.error, success: vi.fn(), warning: vi.fn() },
+}))
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close()
@@ -126,7 +128,9 @@ test('pending creation locks edits and dismissal and preserves failed values for
   )
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   await act(async () => reject(new Error('HTTPError')))
-  expect(mocks.error).toHaveBeenLastCalledWith(expect.stringContaining('Unable to save backup policy.'))
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to save backup policy.'),
+  )
   mocks.save.mockResolvedValueOnce(projectContext)
   await click('Create policy')
   expect(mocks.save).toHaveBeenCalledTimes(2)

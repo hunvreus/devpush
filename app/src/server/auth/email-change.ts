@@ -4,7 +4,7 @@ import {
   createAuthMiddleware,
   getSessionFromCtx,
 } from 'better-auth/api'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import { isEmailAllowlisted } from './access'
 
 export async function assertAllowedEmailChange(email: string) {

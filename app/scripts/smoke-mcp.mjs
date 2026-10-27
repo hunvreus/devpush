@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createSmokeRpc } from './smoke-rpc.mjs'
+import { smokeRealtime } from './smoke-realtime.mjs'
 import { makeSignature } from 'better-auth/crypto'
 import { request as httpRequest } from 'node:http'
 import {
@@ -49,6 +50,9 @@ export async function smokeMcp({
   query,
   authSecret,
   supportsCimd = false,
+  development = false,
+  modulePrefix = 'src',
+  appDir = fileURLToPath(new URL('../', import.meta.url)),
 }) {
   const userId = randomUUID(),
     teamId = randomUUID(),
@@ -136,6 +140,11 @@ export async function smokeMcp({
     'content-type': 'application/json',
     accept: 'application/json',
   }
+  await smokeRealtime({
+    origin,
+    teamSlug: teamId,
+    cookie: browserHeaders.cookie,
+  })
   const registered = await fetch(`${origin}/api/auth/oauth2/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -156,9 +165,10 @@ export async function smokeMcp({
   const consentAction = await createSmokeRpc({
     origin,
     headers: browserHeaders,
-    appDir: fileURLToPath(new URL('../', import.meta.url)),
+    appDir,
     name: 'completeMcpConsentAction',
-    modulePath: 'src/server/mcp/functions.ts',
+    modulePath: `${modulePrefix}/server/mcp/functions.ts`,
+    development,
     bundleDir: supportsCimd ? '.output/server/_ssr' : 'dist/server/assets',
   })
   async function authorizeConnection() {

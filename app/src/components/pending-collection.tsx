@@ -5,8 +5,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
+} from '#devpush/components/ui/table'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 
 export function PendingList({
   label,

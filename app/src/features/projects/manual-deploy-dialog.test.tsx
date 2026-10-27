@@ -4,8 +4,8 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { ManualDeployDialog } from './manual-deploy-dialog'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { projectContext } from '@/test/project-context'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+import { projectContext } from '#devpush/test/project-context'
 
 const mocks = vi.hoisted(() => ({
   options: vi.fn(),
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   warning: vi.fn(),
   clearQueryCache: () => {},
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   getProjectDeployOptions: mocks.options,
   deployProject: mocks.deploy,
 }))
@@ -32,7 +32,7 @@ vi.mock('@tanstack/react-query', async () => {
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ navigate: mocks.navigate }),
 }))
-vi.mock('@/lib/project-context-query', () => ({
+vi.mock('#devpush/lib/project-context-query', () => ({
   invalidateProjectContext: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: mocks.warning } }))

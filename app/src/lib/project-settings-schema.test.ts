@@ -5,7 +5,7 @@ import {
   projectValidationErrors,
 } from './project-settings-schema'
 import { formErrors } from './form-errors'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
 
 const input = {
   section: 'general',

@@ -4,17 +4,17 @@ import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { ProjectBackupDetails } from './project-backup-details'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { projectContext } from '@/test/project-context'
-import type { ProjectBackupConfig } from '@/server/projects/types'
-import { PublicError } from '@/lib/public-error'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+import { projectContext } from '#devpush/test/project-context'
+import type { ProjectBackupConfig } from '#devpush/server/projects/types'
+import { PublicError } from '#devpush/lib/public-error'
 
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
   error: vi.fn(),
   navigate: vi.fn(),
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   saveProjectBackupPolicyAction: mocks.save,
   deleteProjectBackupPolicyAction: mocks.save,
 }))
@@ -30,14 +30,14 @@ vi.mock('@tanstack/react-router', () => ({
     'aria-label'?: string
   }) => <a aria-label={props['aria-label']}>{children}</a>,
 }))
-vi.mock('@/lib/project-context-query', () => ({
+vi.mock('#devpush/lib/project-context-query', () => ({
   setProjectContextQueryData: vi.fn(),
 }))
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), warning: vi.fn(), error: mocks.error },
 }))
 vi.mock('./project-heading', () => ({ ProjectHeading: () => null }))
-vi.mock('@/components/settings-layout', () => ({
+vi.mock('#devpush/components/settings-layout', () => ({
   SettingsLayout: ({ children }: { children: ReactNode }) => (
     <TooltipProvider>
       <main>{children}</main>
@@ -176,7 +176,9 @@ test('failed saves use Sonner and pending fields stay locked', async () => {
     node.querySelector('#backup-policy-name-b')?.matches(':disabled'),
   ).toBe(true)
   await act(async () => reject(new Error('HTTPError')))
-  expect(mocks.error).toHaveBeenLastCalledWith(expect.stringContaining('Unable to save backup policy.'))
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to save backup policy.'),
+  )
   expect(
     node.querySelector<HTMLInputElement>('#backup-policy-name-b')!.value,
   ).toBe('Edited')
@@ -278,7 +280,9 @@ test('detail deletion confirms and reports failures through Sonner', async () =>
       .find((button) => button.textContent === 'Delete policy')!
       .click(),
   )
-  expect(mocks.error).toHaveBeenLastCalledWith(expect.stringContaining('Unable to delete backup policy.'))
+  expect(mocks.error).toHaveBeenLastCalledWith(
+    expect.stringContaining('Unable to delete backup policy.'),
+  )
 })
 
 test('members see disabled backup configuration without save or delete controls', async () => {

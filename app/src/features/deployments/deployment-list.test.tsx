@@ -1,14 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
-import type { DeploymentSummary } from '@/server/projects/types'
+import type { DeploymentSummary } from '#devpush/server/projects/types'
 import { DeploymentAliasBadge } from './deployment-alias-badge'
 import { DeploymentList } from './deployment-list'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
 }))
-vi.mock('@/components/ui/tooltip', () => ({
+vi.mock('#devpush/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => (

@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { useWorkspaceUpdates } from './use-workspace-updates'
-import { workspacePollInterval } from '@/lib/workspace-updates'
+import { workspacePollInterval } from '#devpush/lib/workspace-updates'
 
 const mocks = vi.hoisted(() => ({ invalidate: vi.fn() }))
 vi.mock('@tanstack/react-query', () => ({

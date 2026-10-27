@@ -102,4 +102,3 @@ children. Docker inventory or inspection failure prevents deletion. Retained
 bind mounts can therefore consume disk indefinitely; use named volumes for
 persistent data. Custom commands must put non-container artifacts they want to
 retain outside the deployment checkout. Rollback jobs fetch a fresh checkout.
-

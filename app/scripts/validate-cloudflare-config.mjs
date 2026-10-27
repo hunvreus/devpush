@@ -30,12 +30,6 @@ const bucketName = config.r2_buckets?.find(
   (item) => item.binding === 'DEVPUSH_OBJECTS',
 )?.bucket_name
 
-if (!bucketName) {
-  throw new Error(
-    'Run `pnpm configure` to configure the DEVPUSH_OBJECTS R2 bucket binding.',
-  )
-}
-
 const secrets = JSON.parse(
   await readFile(secretsPath, 'utf8').catch(() => {
     throw new Error('Run `pnpm configure` to generate Cloudflare secrets.')
@@ -109,7 +103,7 @@ if (
 }
 
 console.log(
-  `Cloudflare bindings configured: ${remote ? 'remote libSQL (main and logs)' : `D1 ${bindings.map((item) => item.database_name).join(' and ')}`}, R2 ${bucketName}.`,
+  `Cloudflare bindings configured: ${remote ? 'remote libSQL (main and logs)' : `D1 ${bindings.map((item) => item.database_name).join(' and ')}`}, R2 ${bucketName || 'disabled (image uploads unavailable)'}.`,
 )
 
 function requireGeneratedSecret(name, value) {

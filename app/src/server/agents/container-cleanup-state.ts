@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import type { agentJobs } from '@/server/db/schema'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import type { agentJobs } from '#devpush/server/db/schema'
 import type { AgentCleanupCompletion } from './protocol'
 
 export async function recoverStaleCleanupJobs(

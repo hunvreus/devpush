@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import { makeSignature } from 'better-auth/crypto'
 import { eq } from 'drizzle-orm'
-import { config } from '@/server/config'
-import { db } from '@/server/db'
-import { session, user } from '@/server/db/schema'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
+import { session, user } from '#devpush/server/db/schema'
 
 import { auth } from './better-auth'
 
@@ -11,23 +11,19 @@ describe('auth cookies', () => {
   test('generic user updates cannot set an arbitrary avatar path even with a valid session', async () => {
     const id = crypto.randomUUID()
     const token = crypto.randomUUID()
-    await db
-      .insert(user)
-      .values({
-        id,
-        name: 'Avatar owner',
-        username: `owner-${id}`,
-        email: `${id}@example.com`,
-        emailVerified: true,
-      })
-    await db
-      .insert(session)
-      .values({
-        id: crypto.randomUUID(),
-        userId: id,
-        token,
-        expiresAt: new Date(Date.now() + 60_000),
-      })
+    await db.insert(user).values({
+      id,
+      name: 'Avatar owner',
+      username: `owner-${id}`,
+      email: `${id}@example.com`,
+      emailVerified: true,
+    })
+    await db.insert(session).values({
+      id: crypto.randomUUID(),
+      userId: id,
+      token,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
     try {
       const signature = await makeSignature(token, config.BETTER_AUTH_SECRET)
       const response = await auth.handler(

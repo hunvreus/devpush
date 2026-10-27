@@ -1,4 +1,4 @@
-import { navigateFilters } from '@/lib/action-feedback'
+import { navigateFilters } from '#devpush/lib/action-feedback'
 import { useParams, useRouter } from '@tanstack/react-router'
 import {
   CircleCheckIcon,
@@ -9,30 +9,30 @@ import {
   LoaderIcon,
 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { DeploymentList } from '@/features/deployments/deployment-list'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import { ManualDeployDialog } from '@/features/projects/manual-deploy-dialog'
+} from '#devpush/components/ui/select'
+import { DeploymentList } from '#devpush/features/deployments/deployment-list'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import { ManualDeployDialog } from '#devpush/features/projects/manual-deploy-dialog'
 import {
   getDeployBlockReason,
   hasActiveDeployment,
-} from '@/features/projects/deploy-readiness'
-import { ProjectHeading } from '@/features/projects/project-heading'
-import type { ProjectContext } from '@/server/projects/types'
+} from '#devpush/features/projects/deploy-readiness'
+import { ProjectHeading } from '#devpush/features/projects/project-heading'
+import type { ProjectContext } from '#devpush/server/projects/types'
 import { filterDeployments } from './deployment-filters'
 import type { DeploymentsSearch } from './deployment-filters'
 

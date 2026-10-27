@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { serverMetricHistoryQueryOptions } from '@/lib/server-context-query'
+import { serverMetricHistoryQueryOptions } from '#devpush/lib/server-context-query'
 import { ServerMetricChart } from './server-metric-chart'
 import {
   ServerMetricsPending,
@@ -13,8 +13,8 @@ import {
   formatBytesPerSecond,
 } from './server-metric-format'
 
-import { Button } from '@/components/ui/button'
-import type { ServerMetricsSample } from '@/server/servers/monitoring'
+import { Button } from '#devpush/components/ui/button'
+import type { ServerMetricsSample } from '#devpush/server/servers/monitoring'
 
 export function ServerMetrics({
   serverId,

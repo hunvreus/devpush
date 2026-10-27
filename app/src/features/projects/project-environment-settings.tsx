@@ -1,9 +1,10 @@
-import { useSettingsVersion } from '@/lib/use-settings-version'
-import { showSettingsConflict } from '@/lib/settings-conflict'
-import { projectEnvironmentsSchema } from '@/lib/project-environments-schema'
-import { projectEnvVarsSchema } from '@/lib/project-env-schema'
-import { formErrors } from '@/lib/form-errors'
-import type { FormErrors } from '@/lib/form-errors'
+import { mutationErrorOptions } from '#devpush/lib/action-feedback'
+import { useSettingsVersion } from '#devpush/lib/use-settings-version'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
+import { projectEnvironmentsSchema } from '#devpush/lib/project-environments-schema'
+import { projectEnvVarsSchema } from '#devpush/lib/project-env-schema'
+import { formErrors } from '#devpush/lib/form-errors'
+import type { FormErrors } from '#devpush/lib/form-errors'
 import { Link, useParams } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -16,8 +17,8 @@ import type { ClipboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
+import { Button } from '#devpush/components/ui/button'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
 import {
   Dialog,
   DialogContent,
@@ -26,53 +27,53 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '#devpush/components/ui/dropdown-menu'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
-import { Field, FieldLabel, FieldError } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/empty'
+import { Field, FieldLabel, FieldError } from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
+} from '#devpush/components/ui/select'
+import { Textarea } from '#devpush/components/ui/textarea'
 import {
   EnvironmentColorOption,
   EnvironmentDot,
   environmentColors,
   getEnvironmentColor,
 } from './environment-dot'
-import { ServerAvatar } from '@/features/servers/server-avatar'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { setProjectContextQueryData } from '@/lib/project-context-query'
+import { ServerAvatar } from '#devpush/features/servers/server-avatar'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { setProjectContextQueryData } from '#devpush/lib/project-context-query'
 import {
   saveProjectEnvironments,
   saveProjectEnvironmentServers,
   saveProjectEnvVars,
-} from '@/server/projects/functions'
+} from '#devpush/server/projects/functions'
 import type {
   ProjectContext,
   ProjectEnvironmentConfig,
   ProjectEnvironmentVariable,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 import {
   ProjectSettingsActionTooltip as IconActionTooltip,
   ProjectSettingsActions as SettingsActions,
 } from './project-settings-section'
-import { SettingsSection } from '@/components/settings-layout'
+import { SettingsSection } from '#devpush/components/settings-layout'
 import { EnvironmentOptionLabel } from './project-routing-settings'
 import {
   EnvFileValidationError,
@@ -196,6 +197,7 @@ export function EnvironmentSettingsSection({
           error,
           'Unable to save environments. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSaving(false)
@@ -230,9 +232,9 @@ export function EnvironmentSettingsSection({
       >
         <fieldset disabled={isSaving}>
           <div className="grid grid-cols-[repeat(3,minmax(0,1fr))_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
-            <span>Name (required)</span>
-            <span>Identifier (required)</span>
-            <span>Branch (required)</span>
+            <span>Name</span>
+            <span>Identifier</span>
+            <span>Branch</span>
             <span />
           </div>
           {items.map((environment, index) => (
@@ -464,6 +466,7 @@ export function EnvironmentServersSettingsSection({
           cause,
           'Unable to save servers. Please try again.',
         ),
+        ...mutationErrorOptions(cause),
       )
     } finally {
       setIsSaving(false)
@@ -750,6 +753,7 @@ export function EnvironmentVariablesSettingsSection({
           error,
           'Unable to save environment variables. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSaving(false)
@@ -786,7 +790,7 @@ export function EnvironmentVariablesSettingsSection({
           {items.length > 0 ? (
             <div>
               <div className="grid grid-cols-[200px_minmax(0,1fr)_220px_2rem] gap-x-2 border-b pb-3 text-sm font-medium">
-                <span>Key (required)</span>
+                <span>Key</span>
                 <span>Value</span>
                 <span>Environment</span>
                 <span />

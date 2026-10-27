@@ -119,3 +119,61 @@ test("setup upgrades owned VM networking; never edits an unowned VM", () => {
     false,
   );
 });
+
+test("VM enrollment downloads the installer before invoking it with the routing address", async () => {
+  const { createServer } = await import("node:http");
+  const { spawn } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "devpush-vm-install-"));
+  const body = "#!/bin/sh\n# downloaded installer fixture\n";
+  const server = createServer((_request, response) => response.end(body));
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  try {
+    writeFileSync(
+      join(dir, "sudo"),
+      `#!/bin/sh\ncat "$2" > "$RECEIVED"\nprintf '%s' "$3 $4" > "$ARGUMENTS"\nprintf '%s' "$2" > "$TEMP_SCRIPT"\n`,
+      { mode: 0o755 },
+    );
+    const source = readFileSync(resolve("scripts/local-vm.sh"), "utf8");
+    const guestScript = source.match(/<<'INSTALL'\n([\s\S]*?)\nINSTALL/)?.[1];
+    assert.ok(guestScript);
+    const child = spawn(
+      "bash",
+      [
+        "-s",
+        "--",
+        `http://127.0.0.1:${server.address().port}/installer`,
+        "192.168.64.5",
+      ],
+      {
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH}`,
+          RECEIVED: join(dir, "received"),
+          ARGUMENTS: join(dir, "arguments"),
+          TEMP_SCRIPT: join(dir, "temp-script"),
+        },
+        stdio: ["pipe", "ignore", "pipe"],
+      },
+    );
+    let errors = "";
+    child.stderr.on("data", (chunk) => {
+      errors += chunk;
+    });
+    child.stdin.end(guestScript);
+    const status = await new Promise((done) => child.on("exit", done));
+    assert.equal(status, 0, errors);
+    assert.equal(readFileSync(join(dir, "received"), "utf8"), body);
+    assert.equal(
+      readFileSync(join(dir, "arguments"), "utf8"),
+      "--address 192.168.64.5",
+    );
+    const { existsSync } = await import("node:fs");
+    assert.equal(
+      existsSync(readFileSync(join(dir, "temp-script"), "utf8")),
+      false,
+    );
+  } finally {
+    await new Promise((done) => server.close(done));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

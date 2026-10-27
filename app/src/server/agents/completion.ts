@@ -1,13 +1,20 @@
+import { notifyAfterAgentCompletion } from '#devpush/server/notifications/observe'
 import {
   completeBackupCleanupJob,
   completeBackupJob,
   completeCleanupJob,
   completeDeploymentJob,
   completeRestoreJob,
-} from '@/server/agents/jobs'
+} from '#devpush/server/agents/jobs'
 import type { CompleteAgentJobPayload } from './protocol'
 
 export async function completeAgentJob(payload: CompleteAgentJobPayload) {
+  const result = await completeJob(payload)
+  await notifyAfterAgentCompletion(payload.serverId)
+  return result
+}
+
+async function completeJob(payload: CompleteAgentJobPayload) {
   if (payload.type === 'deploy') {
     return completeDeploymentJob({
       serverId: payload.serverId,

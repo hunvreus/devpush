@@ -388,3 +388,13 @@ test("remote database configuration removes template D1 bindings but preserves R
   assert.equal(config.r2_buckets[0].bucket_name, "objects");
   assert.deepEqual(config.compatibility_flags, ["nodejs_compat"]);
 });
+
+test("Cloudflare configuration can omit image storage", () => {
+  const config = JSON.parse(createCloudflareConfig({
+    template: { r2_buckets: [{ binding: "DEVPUSH_OBJECTS", bucket_name: "old" }] },
+    databaseId: "main-id",
+    logDatabaseId: "log-id",
+  }));
+  assert.equal(config.r2_buckets, undefined);
+  assert.equal(config.d1_databases.length, 2);
+});

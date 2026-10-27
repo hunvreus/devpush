@@ -6,7 +6,7 @@ import {
   formatMetricTooltipTimestamp,
   ServerMetricChart,
 } from './server-metric-chart'
-import type { ServerMetricsSample } from '@/server/servers/monitoring'
+import type { ServerMetricsSample } from '#devpush/server/servers/monitoring'
 
 const sample = {
   cpuPercent: 12,

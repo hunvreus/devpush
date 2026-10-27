@@ -1,5 +1,5 @@
-import { manualDeployOptionsQueryOptions } from '@/lib/manual-deploy-options-query'
-import { afterMutation } from '@/lib/action-feedback'
+import { manualDeployOptionsQueryOptions } from '#devpush/lib/manual-deploy-options-query'
+import { afterMutation } from '#devpush/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -9,7 +9,7 @@ import {
   LoaderIcon,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { FieldError } from '@/components/ui/field'
+import { FieldError } from '#devpush/components/ui/field'
 
 import {
   AlertDialog,
@@ -20,8 +20,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
+} from '#devpush/components/ui/alert-dialog'
+import { Button } from '#devpush/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -30,26 +30,26 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
-import { Skeleton } from '@/components/ui/skeleton'
+} from '#devpush/components/ui/dialog'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import { deployProject } from '@/server/projects/functions'
-import type { getProjectDeployOptions } from '@/server/projects/functions'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { invalidateProjectContext } from '@/lib/project-context-query'
-import type { ProjectEnvironmentConfig } from '@/server/projects/types'
+} from '#devpush/components/ui/tooltip'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import { deployProject } from '#devpush/server/projects/functions'
+import type { getProjectDeployOptions } from '#devpush/server/projects/functions'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { invalidateProjectContext } from '#devpush/lib/project-context-query'
+import type { ProjectEnvironmentConfig } from '#devpush/server/projects/types'
 
 type DeployOptions = Awaited<ReturnType<typeof getProjectDeployOptions>>
 

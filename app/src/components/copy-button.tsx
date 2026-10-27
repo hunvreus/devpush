@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CheckIcon, CopyIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { InputGroupButton } from '@/components/ui/input-group'
+import { Button } from '#devpush/components/ui/button'
+import { InputGroupButton } from '#devpush/components/ui/input-group'
 
 export function CopyButton({
   value,

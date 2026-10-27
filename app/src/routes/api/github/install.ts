@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { auth } from '@/server/auth/better-auth'
-import { config } from '@/server/config'
-import { getSafeRedirectPath } from '@/lib/internal-redirect'
-import { createGitHubInstallState } from '@/server/github/install-state'
+import { auth } from '#devpush/server/auth/better-auth'
+import { config } from '#devpush/server/config'
+import { getSafeRedirectPath } from '#devpush/lib/internal-redirect'
+import { createGitHubInstallState } from '#devpush/server/github/install-state'
 
 export const Route = createFileRoute('/api/github/install')({
   server: {

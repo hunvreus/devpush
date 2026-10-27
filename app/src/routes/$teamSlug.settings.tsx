@@ -1,13 +1,13 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { TeamSettings } from '@/features/teams/team-settings'
-import { TeamSettingsPending } from '@/features/teams/team-route-pending'
+import { TeamSettings } from '#devpush/features/teams/team-settings'
+import { TeamSettingsPending } from '#devpush/features/teams/team-route-pending'
 import {
   teamSectionQueryOptions,
   teamShellQueryOptions,
-} from '@/lib/team-context-query'
+} from '#devpush/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug/settings')({
   loader: ({ context, params }) =>

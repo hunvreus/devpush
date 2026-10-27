@@ -1,6 +1,6 @@
-import { settingsVersionSchema } from '@/lib/settings-version'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
 import { z } from 'zod'
-import { avatarDataUrlSchema } from '@/lib/avatar-schema'
+import { avatarDataUrlSchema } from '#devpush/lib/avatar-schema'
 import type { FormErrors } from './form-errors'
 
 export const teamGeneralSchema = z.object({

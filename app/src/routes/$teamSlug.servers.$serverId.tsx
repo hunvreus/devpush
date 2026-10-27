@@ -1,10 +1,10 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { ServerDetail } from '@/features/servers/server-detail'
-import { ServerDetailPending } from '@/features/servers/server-detail-pending'
-import { serverContextQueryOptions } from '@/lib/server-context-query'
+import { ServerDetail } from '#devpush/features/servers/server-detail'
+import { ServerDetailPending } from '#devpush/features/servers/server-detail-pending'
+import { serverContextQueryOptions } from '#devpush/lib/server-context-query'
 
 export const Route = createFileRoute('/$teamSlug/servers/$serverId')({
   loader: ({ context, params }) =>

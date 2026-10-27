@@ -1,5 +1,5 @@
-import { closeDb } from '@/server/db'
-import { cleanupExpiredTeamInvites } from '@/server/teams/service'
+import { closeDb } from '#devpush/server/db'
+import { cleanupExpiredTeamInvites } from '#devpush/server/teams/service'
 
 async function main() {
   const result = await cleanupExpiredTeamInvites()

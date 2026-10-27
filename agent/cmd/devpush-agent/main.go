@@ -23,8 +23,11 @@ func main() {
 		maintenance(os.Args[2:])
 		return
 	}
-	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
-		fmt.Printf("devpush-agent %s\n", agent.Version)
+	if (len(os.Args) == 2 || len(os.Args) == 3 && os.Args[2] == "--json") && (os.Args[1] == "version" || os.Args[1] == "--version") {
+		if err := writeVersion(os.Stdout, len(os.Args) == 3); err != nil {
+			slog.Error("write version", "error", err)
+			os.Exit(1)
+		}
 		return
 	}
 

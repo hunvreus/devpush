@@ -1,9 +1,9 @@
-import { getDefaultBackupPrefix } from '@/lib/backup-paths'
-import { isValidCron } from '@/lib/backup-cron'
-import { showSettingsConflict } from '@/lib/settings-conflict'
-import type { FormErrors } from '@/lib/form-errors'
-import { backupConfigSchema } from '@/lib/backup-policy-schema'
-import { afterMutation } from '@/lib/action-feedback'
+import { mutationErrorOptions, afterMutation  } from '#devpush/lib/action-feedback'
+import { getDefaultBackupPrefix } from '#devpush/lib/backup-paths'
+import { isValidCron } from '#devpush/lib/backup-cron'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
+import type { FormErrors } from '#devpush/lib/form-errors'
+import { backupConfigSchema } from '#devpush/lib/backup-policy-schema'
 import { LoaderIcon, LockIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
@@ -11,7 +11,7 @@ import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Card,
   CardContent,
@@ -19,7 +19,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card'
+} from '#devpush/components/ui/card'
 import {
   Dialog,
   DialogClose,
@@ -29,13 +29,13 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   Field,
   FieldDescription,
@@ -44,29 +44,29 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
+} from '#devpush/components/ui/select'
+import { Switch } from '#devpush/components/ui/switch'
 import { EnvironmentDot } from './environment-dot'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { setProjectContextQueryData } from '@/lib/project-context-query'
-import { saveProjectBackupPolicyAction } from '@/server/projects/functions'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { setProjectContextQueryData } from '#devpush/lib/project-context-query'
+import { saveProjectBackupPolicyAction } from '#devpush/server/projects/functions'
 import type {
   ProjectBackupConfig,
   ProjectContext,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 import {
   backupCronPresets as cronPresets,
   getSchedulePresetValue,
@@ -260,7 +260,10 @@ export function BackupPolicyDialog({
       )
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to save backup policy.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to save backup policy.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setIsSaving(false)
     }
@@ -293,9 +296,7 @@ export function BackupPolicyDialog({
               <Field
                 data-invalid={fieldError?.field === 'name' ? true : undefined}
               >
-                <FieldLabel htmlFor={`backup-name-${id}`}>
-                  Name (required)
-                </FieldLabel>
+                <FieldLabel htmlFor={`backup-name-${id}`}>Name</FieldLabel>
                 <Input
                   aria-invalid={fieldError?.field === 'name'}
                   aria-describedby={
@@ -327,7 +328,7 @@ export function BackupPolicyDialog({
                   fieldError?.field === 'environment' ? true : undefined
                 }
               >
-                <FieldLabel>Environment (required)</FieldLabel>
+                <FieldLabel>Environment</FieldLabel>
                 <Select
                   value={environmentId}
                   onValueChange={(value) => {
@@ -365,7 +366,7 @@ export function BackupPolicyDialog({
                   fieldError?.field === 'schedule' ? true : undefined
                 }
               >
-                <FieldLabel>Schedule (required)</FieldLabel>
+                <FieldLabel>Schedule</FieldLabel>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Select
                     value={schedulePresetValue}

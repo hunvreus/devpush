@@ -6,13 +6,13 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { LoginForm } from './login-form'
 
 const auth = vi.hoisted(() => ({ send: vi.fn(), verify: vi.fn() }))
-vi.mock('@/lib/auth/client', () => ({
+vi.mock('#devpush/lib/auth/client', () => ({
   authClient: {
     emailOtp: { sendVerificationOtp: auth.send },
     signIn: { emailOtp: auth.verify },
   },
 }))
-vi.mock('@/components/ui/input-otp', () => ({
+vi.mock('#devpush/components/ui/input-otp', () => ({
   InputOTP: ({
     onChange,
     disabled,
@@ -118,7 +118,7 @@ test('keeps the form disabled after verification until navigation leaves', async
   expect(window.location.hash).toBe('#signed-in')
   expect(button().textContent).toBe('Signing you in…')
   expect(
-    [...element.querySelectorAll('button,input')].every(
+    [...element.querySelectorAll('form button,form input')].every(
       (control) => (control as HTMLButtonElement).disabled,
     ),
   ).toBe(true)

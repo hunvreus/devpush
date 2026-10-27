@@ -3,18 +3,18 @@ import {
   allowlistRuleSchema,
   allowlistImportSchema,
   parseAllowlistEmails,
-} from '@/lib/allowlist-schema'
+} from '#devpush/lib/allowlist-schema'
 
-import { adminSearchSchema } from '@/lib/admin-search-schema'
-import { db } from '@/server/db'
-import { allowlist, session, user } from '@/server/db/schema'
-import { getInstallationInfo } from '@/server/admin/installation'
-import { deleteUserAccountAsAdmin } from '@/server/users/service'
+import { adminSearchSchema } from '#devpush/lib/admin-search-schema'
+import { db } from '#devpush/server/db'
+import { allowlist, session, user } from '#devpush/server/db/schema'
+import { getInstallationInfo } from '#devpush/server/admin/installation'
+import { deleteUserAccountAsAdmin } from '#devpush/server/users/service'
 import {
   requireInstallationAdmin,
   requireInstallationAdminById,
   installationAdminPredicate,
-} from '@/server/admin/access'
+} from '#devpush/server/admin/access'
 
 export type AdminOverview = Awaited<ReturnType<typeof getAdminOverview>>
 export type AllowlistRuleType = 'email' | 'domain' | 'pattern'

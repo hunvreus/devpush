@@ -3,9 +3,9 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+} from '#devpush/components/ui/input-group'
+import { Button } from '#devpush/components/ui/button'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 
 export function RepositoryToolbarPending() {
   return (

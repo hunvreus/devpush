@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   rollback: vi.fn(),
   navigate: vi.fn(),
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   redeployProjectDeployment: mocks.redeploy,
   rollbackProjectDeployment: mocks.rollback,
 }))
@@ -18,11 +18,11 @@ vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ navigate: mocks.navigate }),
 }))
-vi.mock('@/lib/project-context-query', () => ({
+vi.mock('#devpush/lib/project-context-query', () => ({
   invalidateProjectContext: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { warning: vi.fn() } }))
-vi.mock('@/components/ui/dropdown-menu', () => ({
+vi.mock('#devpush/components/ui/dropdown-menu', () => ({
   DropdownMenuContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),

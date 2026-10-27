@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import type { SQL } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 
 export function projectSettingsGuard(
   projectId: string,

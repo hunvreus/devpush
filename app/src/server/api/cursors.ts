@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 import { ApiError } from './errors'
 
 const cursorSchema = z.strictObject({

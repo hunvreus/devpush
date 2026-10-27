@@ -25,7 +25,8 @@ schemas and client helpers belong in `lib`, and authorization, persistence and
 provider integrations in `server`. Agent code is separate under `agent/`.
 
 Shared server services work on Node and Cloudflare. Vite aliases select database,
-object-storage, version-reader and workspace-notification implementations.
+object-storage, version-reader, platform environment, MCP OAuth discovery,
+workspace notifications and generated plugin registries.
 Workers never fall back to local files. Agent HTTP routes validate requests and
 delegate to typed services; browser, API and MCP handlers reuse domain logic.
 
@@ -38,7 +39,7 @@ See [Configuration](docs/configuration.md), [API](docs/api.md) and
 | --- | --- |
 | Main SQLite, D1 or libSQL database | Accounts, teams, projects, environments, servers, deployments, control events, jobs, observations, backup metadata, credentials, API audit and idempotency. |
 | Separate log database | Deployment output, runtime output, operation diagnostics and log-cleanup cursors. |
-| Local or S3-compatible object storage | Avatars and published agent binaries. |
+| Local or S3-compatible object storage | Uploaded avatars. Optional on Workers; Node defaults to local disk. |
 | Deployment host | Runtime volumes, local backup archives and durable upload outboxes. |
 
 There are no cross-database foreign keys. Log ingestion validates identity in the
@@ -203,7 +204,7 @@ permits only explicitly retained deployment/cleanup work.
 The agent serializes claims, execution and completion delivery with a filesystem
 lock. Before execution it persists a minimal failed-completion fallback containing
 only job identities. The normal result atomically replaces it. After restart the
-outbox reports interruption before claiming more work; it does not rerun a partial
+agent first resolves durable volume-restore journals, then the outbox reports interruption before claiming more work; it does not rerun a partial
 restore or deployment automatically. A crash between the remote claim and local
 persistence still relies on control-plane timeout recovery.
 
@@ -369,10 +370,11 @@ Final garbage collection still enforces its retention and external-resource guar
 
 ## Migrations and repository hygiene
 
-Main and log databases each start with a `0000_initial` migration and matching
-Drizzle journal/snapshot. Append future migrations; never rewrite an applied one.
-Migration runners reject unknown histories and populated untracked stores. D1
-requires fresh baseline bindings. Source updates never reset data automatically.
+Main and log databases start with a `0000_initial` baseline and matching Drizzle
+metadata. Subsequent changes append migrations; applied SQL is never rewritten.
+SQLite/libSQL runners reject unknown histories and populated untracked stores.
+D1 tracks migration filenames, so release artifacts must preserve those names and
+contents. Source updates never reset data automatically.
 
 `app/public` contains intentional branding/metadata assets, not starter icon sets.
 Runtime `public/uploads` is application state. `knip.jsonc` records non-import
@@ -381,93 +383,185 @@ removal. Test fixture writers stay in `src/test`. Verification commands and sche
 workflows live in [Testing](docs/testing.md), not this architecture reference.
 
 
-## Build-time application composition
+## Source package build
 
-The default build uses `app/src/deployment/default.server.ts`. A separate private
-application can select an absolute server entry with the build-time
-`DEVPUSH_DEPLOYMENT_SERVER` variable. Vite resolves that entry into the bundle;
-changing the running application's environment cannot switch implementations.
-No private DNS, issuer or commercial implementation is distributed in OSS.
+`devpush/vite` exports the build preset used by `app/vite.config.ts` and the
+independent-consumer proof. It resolves packaged source, public assets and runtime
+adapters while keeping generated routes and outputs in the consumer. Build
+helpers compile to JavaScript before packing; application code remains source for
+TanStack Start transforms. `devpush/migrate` applies the packaged Node migrations.
 
-`app/deployment-api.json` versions the typed contract in
-`app/src/deployment/contract.ts`. The selected entry declares its supported API
-version and creates named optional services: generated hostnames, server
-reconciliation/maintenance and agent certificate requests. Unknown services or
-incompatible versions fail explicitly. A hostname provider failure never falls
-back silently to nip.io. The OSS entry supplies no overrides and retains existing
-nip.io generation and custom-domain HTTPS behavior.
+Core imports use package-local `#devpush/*` mappings, keeping them out of dependency
+prebundling and avoiding consumer aliases. Runtime/context libraries are exact
+peers so the app and extensions share instances. Tailwind scans explicit sources,
+preventing generated output from changing client/server stylesheet hashes.
 
-Deployment API v2 provides bounded, paginated routing-state reads, including
-soft-deleted servers, team status, agent capabilities and routing-retention checks. Agent/enrollment credential hashes are excluded. These
-are trusted server-side extension boundaries, not public API authorization.
-Reconciliation reads persisted state rather than relying on UI-only mutation
-callbacks, so API changes and deletion can be handled too. It runs before private
-hostname/certificate work; maintenance runs the provider before permanently
-pruning deleted rows. A provider cleanup failure prevents that prune pass.
-Implementations must make reconciliation idempotent, bounded and retryable.
+`pnpm --dir app test:package` installs a tarball into a temporary project and tests
+its runtime without linking a checkout or inheriting application credentials.
+Static plugin declarations generate separate server and UI imports. UI contributions
+participate in server rendering: use `.ui.tsx`, not the browser-only `.client.tsx`
+suffix. Server entries are rejected from the browser build. These are trusted
+application dependencies, not sandboxed third-party code; HTTP handlers must
+validate their own sessions, permissions and webhook signatures.
 
-The optional certificate endpoint authenticates the existing agent credential,
-rejects deleted/disabled servers and inactive teams, then passes sanitized routing
-state and an optional CSR/installation fingerprint to the selected service.
-Without a CSR it returns the permitted wildcard name. Later requests return
-pending timing or a public certificate chain. Private issuance validates the CSR
-signature and names; core bounds and validates the service response.
+## Static application plugins
 
-The shared agent advertises `ingress.certificates.v1`. A hosted heartbeat enables
-certificate requests and reconciles persisted address changes; ordinary OSS
-heartbeats add no certificate requests or provider calls. The agent stores its key
-and CSR atomically, validates the returned key/name/validity, writes versioned PEM
-files and atomically updates watched Traefik YAML. It acknowledges the leaf's
-SHA-256 fingerprint after saving the files. The hosted service gates deployment
-URLs on acknowledged validity and renews within 30 days of expiry.
+The consumer registers trusted local or npm plugins in `devpush({ plugins })`.
+Each declaration names server and UI entry files and supported runtimes. Generated
+imports stay in the consumer’s `.devpush/`; no environment variable selects private
+code. `pluginApiVersion` detects declarations built against a different interface
+version. Plugins must also pin a compatible application dependency; importing
+the constant from the current package does not prove old plugin source is compatible.
 
-Only Traefik's dynamic subdirectory is watched. Request/installation JSON stays
-outside that directory. Managed wildcard routes omit the ACME resolver label;
-custom domains keep the existing HTTP-01 resolver. Updating an older ingress
-configuration replaces its managed Traefik container on the next deployment.
-This is an additive agent capability, not a protocol-version break. No public
-issuer/DNS automation or schema migration is added. Private hosted state and
-migrations stay in its separate database; retained routing references prevent
-premature managed-DNS retirement.
+Server services cover generated hostnames, reconciliation, certificate requests,
+workspace mutation policies and `/api/plugins/{id}/*`. Unknown services, duplicate
+IDs and conflicting providers fail explicitly. Core performs RBAC before policy
+execution; the policy must wrap and serialize quota-sensitive writes. Server create/delete
+operations include the actor ID; deleting resources can remain available when a
+provider restricts additions. Deliberate
+`WorkspacePolicyError` refusals become generic public errors. Internal provider
+exceptions remain private. A single server-setup hook can supply fields and
+readiness; the generic Add server form waits for readiness before submitting.
+This lets plugins load required setup information without product logic in core.
 
+The server context supplies bounded routing reads, workspace counts, creation
+timestamps (including the latest server-count change), personal ownership and membership authorization. It excludes agent
+credential hashes. Owner notifications escape text and use per-recipient
+idempotency keys. Plugins own their HTTP authorization/signature checks and their
+private migration runners. Cookie-authenticated mutations must validate the
+browser Origin; session-less webhooks must verify their signatures. Core never
+discovers private SQL.
 
-Deployment API v3 also provides a narrow workspace mutation boundary, an optional
-HTTP handler under `/api/deployment/*`, and an optional build-time settings UI.
-Core supplies sanitized workspace counts and membership authorization. Private
-deployments may serialize server creation and restrict invitations/deployment
-enqueue; core owns the actual mutations, permissions and SQL guards. The OSS
-provider returns no such services and renders no additional settings. Payment
-providers, prices, subscriptions and trial persistence remain outside core.
-`DEVPUSH_DEPLOYMENT_UI` selects the optional UI module alongside the existing
-server entry; both are trusted build inputs, never runtime unlock flags.
+Services are currently constructed on each lookup. Plugin factories must be
+cheap and side-effect free; shared coordination belongs in durable storage,
+not instance-local locks or counters.
 
-Deployment UI API v7 supplies workspace status, page notice, server-setup notice,
-settings and settings-pending components, plus a scoped upgrade action for rejected
-server additions. Core renders status beside the breadcrumb, notices in page
-content across team/project routes (including cached pending contexts), and settings
-after Members. All OSS default exports are empty: prices, trials and payment
-behavior live in the private build. Both compatibility manifests must match; no
-agent or database upgrade is required for this UI boundary. The generic server-list
-route accepts `addServer=1` to open its enrollment dialog.
+Reconciliation runs before hostname/certificate work and before permanently
+pruning deleted rows. Cleanup failure prevents pruning. Providers must be bounded,
+idempotent and retryable; failures never silently fall back to nip.io. Without
+providers, OSS retains nip.io and custom-domain HTTP-01 HTTPS.
 
-Private UI source directories are registered with Tailwind only in their composed
-build, so external component utilities are generated without adding private paths
-or classes to OSS output. Stylesheet URL imports remain JavaScript modules and
-are excluded from this CSS transformation.
+### Shared agent certificates
 
-### Profile onboarding
+The public agent advertises `ingress.certificates.v1`. The authenticated hub
+endpoint passes sanitized server state and an optional CSR or installation
+fingerprint to a configured provider. Disabled/deleted servers and inactive
+workspaces are rejected. Responses contain permitted names, retry timing or public
+certificate chains; DNS and issuer credentials never reach the agent.
 
-New users confirm their profile once before entering a workspace. The public core stores
-`user.profile_confirmed_at`; existing accounts are backfilled by migration 0003. Profile
-confirmation reuses avatar validation and optimistic settings-version checks. Safe internal
-return paths preserve invitations and project links. Invited users skip hosted plan selection.
+The agent retains its private key, validates certificate key/name/validity, writes
+versioned PEM files and atomically updates watched Traefik YAML. Installation is
+acknowledged using the leaf certificate fingerprint. Request metadata stays outside
+Traefik's watched directory. Managed wildcard routes omit ACME resolver labels;
+ordinary custom domains retain HTTP-01. Existing certificates survive failed
+replacement. Both OSS and hosted use the same agent.
 
-Deployment UI API v8 adds build-time profile fields and plan-onboarding UI. OSS renders no
-commercial fields or plan step. Hosted may add optional newsletter consent and a workspace
-plan screen; creating a new hosted workspace enters plan selection without repeating profile
-confirmation. Newsletter credentials, consent delivery and subscription management stay private.
+### Agent distribution
 
-Deployment UI API v9 adds optional account preference content/navigation and its matching
-pending view. Profile and account extensions receive the user ID only for isolated client
-cache keys; hosted endpoints derive identity from the authenticated session. OSS exports
-remain empty. Account/Admin headings and back buttons are normal-flow content.
+The source package embeds a verified release manifest, not Go binaries. The hub
+redirects agent downloads to pinned GitHub Release assets; installers verify the bundled checksum. Image storage is independent of agent distribution. Node’s explicit local binary directory
+remains a trusted offline/custom override. Docker always sets this directory to
+`/repo/bin`, serving the binaries built into the image. Update recommendations use the pinned
+agent version, independently of hub implementation changes.
+
+Release preparation reads protocol/capabilities from the agent’s JSON version
+command. Tag CI uses the pinned Go compiler, executes both architectures and
+verifies artifacts before publishing them beside the application tarball. See
+[Agent releases](docs/agent-releases.md). No agent protocol or database migration
+is needed for this distribution change.
+
+### UI and profile onboarding
+
+UI entries contribute workspace header/notices, settings navigation and pending
+views, account sections and profile fields. A single profile provider may use React
+hooks and persist its own data after core confirmation. Optional workspace
+onboarding uses a generic route. The server form delegates action errors to the
+plugin; core contains no plan names, billing error codes or upgrade UI. Tailwind
+scans composed UI sources and excludes generated outputs.
+
+New users confirm their profile once before entering a workspace. Core stores
+`user.profile_confirmed_at` in the initial baseline. Confirmation
+reuses avatar validation and optimistic settings-version checks. Safe internal
+return paths preserve invitations and project links. Profile confirmation returns
+directly to its destination; upgrade presentation belongs to the private UI.
+Extensions use user IDs for cache isolation; authenticated server endpoints derive
+identity from the session. Account/Admin headings remain in normal page flow.
+
+## Workspace mutation policies
+
+[Workspace permissions](docs/workspace-permissions.md) documents plugin API v3's
+operation registry and required user/system actors. Gates wrap domain effects
+before external work and uploads; REST/MCP declares each mutation's canonical
+boundary. Existing SQL identity/role/scope guards remain authoritative at commit.
+Queue admission and productive claims both check policy; observations, completion,
+cleanup and certificate renewal continue. Coverage tests classify server actions
+and writable routes and trace declared operations to their canonical gates.
+Policy failures can carry deliberately public text/recovery URLs without exposing
+ordinary provider exceptions. Core contains no subscription-specific decisions.
+
+### Runtime log ingestion budgets
+
+An optional exclusive `runtimeLogLimits(teamId)` plugin service supplies generic
+workspace minute/day byte and daily row allowances. Core authenticates the agent
+and checks runtime ownership before reserving budgets atomically in the existing
+rate-limit table. Hosted defaults/configuration live in its private plugin. OSS
+without a provider keeps its existing per-runtime cap and retention.
+
+Stored-batch retries are deduplicated before budgeting; concurrent retries may
+reserve conservatively. Reservations are not refunded on database-write failure.
+Quota refusals acknowledge the original batch, emit a bounded log notice and drop
+its data so durable agent captures do not accumulate forever. No agent protocol
+change or database migration is needed. Byte allowances estimate stored payload,
+not SQLite/index size; UTC day windows plus retention bound admitted volume over
+time, while source-log retention remains controlled by Docker on the server.
+
+### Transactional email layout
+
+Sign-in, invitation, verification, address-change and plugin transactional-notification
+emails share one React Email layout. Email colors are sRGB equivalents of the
+light Taupe UI tokens because email clients cannot reliably render OKLCH/CSS
+variables. Plugin messages are rendered as escaped text, not injected HTML.
+
+Workspace plugin reads include optional image/color identity metadata. UI consumers can reuse the exported `devpush/resource-avatar` component rather than reproduce resource identity styling.
+
+### Background scheduling
+
+Production Node builds start a minute-aligned timer through a Nitro lifecycle plugin; development servers do not. The timer serializes runs, retries failures on the next minute, and drains active work on shutdown. Cloudflare retains its native scheduled handler. Both invoke `runScheduledTasks`: enabled backup schedules each tick and maintenance hourly (Node also runs maintenance on its first tick). HTTP maintenance endpoints remain optional authenticated operator entry points, not the built-in scheduler transport. Each Node process owns its timer; run one control-plane process per installation, as with the supplied Compose deployment.
+
+### Operational notifications
+
+The public app owns operational category definitions, personal account preferences, workspace/project mutes, incident observation and a per-recipient database outbox. Build-time client extensions may contribute additional preference fields to the same form; the core does not know their copy or persistence. Generic server context methods list current owners, send a transactional message to an active user, or report a server issue. Extensions retain responsibility for their recipient policy.
+
+Persisted resource state is the source of truth. Immediate observation follows completion, domain verification and heartbeats; the minute-based scheduled task rotates through projects and servers in bounded batches to repair interruptions, then retries due delivery. Repeated observation repairs an interruption between incident persistence and recipient insertion. Only linked numeric GitHub sender identities are resolved; deployment authorization continues using the original creator field.
+
+Outbox claims use conditional leases and stable provider keys. Delivery rechecks membership, active resources, recipient eligibility, preferences and hierarchical mutes. Incident revisions suppress repeat failures; recovery uses delivered failure recipients. Pending failures that are already resolved are discarded. Sender acceptance is tracked, not downstream inbox delivery or bounces. Retry logs expose notification IDs only. Prior incident history is pruned after 30 days; current incident records preserve recovery eligibility.
+
+### Cleanup and execution invariants
+
+Plugin providers initialize lazily once per request or scheduled invocation. Async-local scopes prevent provider instances from leaking between Worker invocations; unscoped calls retain fresh construction. Environment and policy inputs are frozen snapshots. Policy callbacks cannot run after return, and core awaits and returns the actual mutation result even when a provider forgets to await it. A policy refusal after a successful mutation is an internal failure rather than an upgrade/recovery refusal. Independent maintenance providers are all attempted before an aggregate error is reported.
+
+Node scheduling catches synchronous and asynchronous failures without overlapping runs. Successful hourly maintenance is remembered even when an unrelated minute task fails; failed maintenance remains retryable. Shutdown waits for active work rather than abandoning a destructive operation.
+
+Direct GitHub calls and transactional email requests have ten-second deadlines. Email diagnostics retain HTTP status and sanitized source frames, never upstream bodies or recipient/message content. Outbox delivery keeps its stable idempotency keys. Personal sign-in/invitation requests remain direct sends.
+
+The project repository picker uses a scoped query cache, keeps recently loaded repositories for thirty seconds, and cancels an in-flight request when closed. Canceled requests cannot replace a later selection. Tests exercise the real query observer rather than mocking its loading flags.
+
+Volume restores journal container IDs/restart policies before disabling auto-restart and stopping applications. Synced recovery archives precede a durable replacing phase; destructive helpers use deterministic names. Every claim pass removes orphan helpers and resumes rollback for replacing journals, or only restarts committed restores. Recovery persists the committed phase before restarting, and durably removes the journal before deleting copies. A recovery failure blocks claims and retains evidence. Pinned deployment checkouts initialize an empty Git repository and fetch the requested commit directly; branch lookup is used only without a pinned SHA. The provider must still retain and authorize access to that commit.
+
+Transactional plugin notifications can prepare a complete sender/destination/subject/text/HTML snapshot for durable retry storage. Delivery rechecks that the user is active and still owns the snapshot mailbox; an obsolete mailbox is discarded, never rewritten under the same provider key. This interface contains no commercial recipient policy.
+
+Deployment log ingestion uses stable sequences with a configurable maximum row
+count and UTF-8 byte limit per line. A single reserved sequence contains the
+truncation notice; repeated over-limit uploads are acknowledged without growing
+the store or blocking completion. Agent command logs separately cap retained
+rows/bytes with a ring buffer and iterate output lines without allocating a full
+split array. Incomplete leading tail lines are dropped before credential redaction.
+Structured inventory overflow fails closed rather than reporting partial state.
+Agent subprocesses use separate process groups; cancellation kills descendants,
+pipe draining is bounded, and failed commands clean up remaining descendants.
+Operational email retry windows start at the persisted first attempt, with complete
+sender/recipient/rendered snapshots. Lease claims and pre-send ownership checks
+use the database clock; stale workers cannot freeze or send payloads. Provider
+JSON bodies are capped before parsing.
+The Node image runs as UID/GID 1000 with only its data/upload/backup directories
+writable. Worker S3 transports are invocation-owned; Node may reuse its client.

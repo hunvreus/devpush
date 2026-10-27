@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { db } from '@/server/db'
-import { rateLimits } from '@/server/db/schema'
+import { db } from '#devpush/server/db'
+import { rateLimits } from '#devpush/server/db/schema'
 import { enforceRateLimit } from './rate-limit'
 
 function request(path: string, ip: string) {

@@ -1,7 +1,7 @@
-import { settingsVersionSchema } from '@/lib/settings-version'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
 import { z } from 'zod'
-import { avatarDataUrlSchema } from '@/lib/avatar-schema'
-import { projectRuntimeConfigSchema } from '@/lib/project-runtime-config'
+import { avatarDataUrlSchema } from '#devpush/lib/avatar-schema'
+import { projectRuntimeConfigSchema } from '#devpush/lib/project-runtime-config'
 import { formErrors } from './form-errors'
 import type { FormErrors } from './form-errors'
 

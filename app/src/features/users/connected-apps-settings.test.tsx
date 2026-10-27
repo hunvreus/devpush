@@ -3,8 +3,8 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, test, vi } from 'vitest'
-import { scopesForApiPreset } from '@/lib/api-key-schema'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { scopesForApiPreset } from '#devpush/lib/api-key-schema'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import { ConnectedAppsSettings } from './connected-apps-settings'
 
 const mocks = vi.hoisted(() => ({
@@ -13,11 +13,12 @@ const mocks = vi.hoisted(() => ({
   revoke: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { error: mocks.error, success: vi.fn() } }))
-vi.mock('@/server/mcp/functions', () => ({
+vi.mock('#devpush/server/mcp/functions', () => ({
   getMcpConnectionsAction: mocks.list,
   revokeMcpConnectionAction: mocks.revoke,
 }))
-vi.mock('@/lib/action-feedback', () => ({
+vi.mock('#devpush/lib/action-feedback', () => ({
+  mutationErrorOptions: () => [],
   afterMutation: async (task: () => Promise<unknown>) => task(),
 }))
 const cleanup: Array<() => Promise<void>> = []

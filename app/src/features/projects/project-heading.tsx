@@ -1,8 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { cn } from '@/lib/utils'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import { cn } from '#devpush/lib/utils'
 
 type HeadingProject = {
   avatarUrl?: string | null

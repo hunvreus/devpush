@@ -4,27 +4,124 @@ All notable changes to devpush will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Operational email alerts for deployment, backup/restore, domain/HTTPS and server failures, with recovery notices, saved account preferences and personal workspace/project mutes.
+- Durable per-recipient delivery, retries, access rechecks and reliable GitHub sender attribution separate from deployment authorization. Apply the new notification and provider-identity migrations; no agent protocol change is required.
+
+### Fixed
+
+- Guard OSS publication and packed archives against local credentials, uploads and generated state; expand Git/Docker exclusions and remove private production-vault notes.
+
+- Preserve explicit GitHub response types after bounded JSON reads.
+- Remove an unreachable restore helper and an unused public email-logo asset; run integration/security CI on `development` pushes.
+
+- Update vulnerable JavaScript dependencies and the agent's Go toolchain; refresh pinned Node/Go container images and check Go advisories in CI.
+- Run the production Node app and maintenance commands without root privileges. Existing data volumes must be writable by UID/GID 1000 before upgrading.
+- Bound stored deployment logs by line count and UTF-8 line size, with visible truncation; cap agent command diagnostics, reject oversized inventories, and stop descendant processes on cancellation. Prevent truncated command output from exposing credential fragments.
+- Start operational email retry windows at first attempt and freeze sender/payload data. Apply `0002_notification_delivery_window.sql`.
+- Bound GitHub response bodies, isolate Worker S3 transports, and sanitize agent/background failure diagnostics.
+
+- Keep plugin account settings and navigation immediately before Danger, including loading placeholders.
+
+- Recover interrupted volume restores from durable journals before claiming more work; preserve container restart policies and block jobs when recovery fails. Requires the updated agent; no protocol change.
+- Redeploy pinned commits without requiring their original branch to exist.
+- Expose generic prepared transactional messages for stable retries and reject snapshots targeting a changed account email.
+
+- Reuse plugin providers within each request/tick; freeze policy inputs, reject late callbacks and await actual mutation results. Attempt independent plugin maintenance after another provider fails.
+- Keep the Node scheduler alive after synchronous failures and avoid repeating successful hourly maintenance because a minute task failed.
+- Bound GitHub and email requests to ten seconds; remove the email SDK and keep upstream error bodies out of diagnostics.
+- Bound agent control-plane responses to 16 MiB and reject trailing JSON. Install the updated agent; no protocol or schema migration is required.
+- Reuse cached repository-picker results and cancel closed-dialog requests; remove obsolete owner-broadcast delivery and its implementation-only tests.
+
+- Remove the obsolete workspace-policy connection callback. Plugin API v3 requires policies to implement only `run`; update composed plugins together. No agent protocol or database change.
+
+- Remove obsolete local email/billing previews and disposable delivery scripts; keep internal helpers out of the exported API.
+
+- Keep background email delivery compatible with Node development when no Cloudflare execution context exists. Show a spinner while saving notification mutes.
+
+- Save personal workspace/project notification mutes immediately with a switch; retain checkbox drafts and Save/Cancel for account categories.
+
+- Run Node background scheduling inside the app process instead of a separate Compose scheduler service. Cloudflare retains its native Cron Trigger and shares the task runner.
+
+- Standardize alerts with subtle matching borders, a transparent default and tinted amber warning and red error backgrounds.
+
+- Group the account email address under General, with verification actions shown only when it changes.
+
+- Show the standard loading spinner while resending a sign-in code.
+
+- Continue owner notification delivery after an individual recipient fails, retaining stable retry keys.
+
+- Keep commercial wording out of public policy tests and release notes.
+
+- Keep repository selection loading until the selected GitHub installation resolves, and reuse cached repository lists during refresh.
+
+- Recover volume restores after graceful cancellation using a separate bounded context. Stop named Docker writers before rollback, restart partially stopped applications and retain recovery archives when rollback fails. Restore staging now lives under the agent state directory. Install the rebuilt agent to receive this fix; the protocol is unchanged.
+
+- Enforce workspace policy for REST server creation, guard agent registration against concurrent lifecycle/credential changes, isolate GitHub push fan-out failures and continue independent token maintenance after plugin cleanup errors.
+
+- Use the browser origin for invitation emails in split-origin development, and omit exception messages and causes from unexpected server-action logs.
+
+- Apply pending database migrations before source development startup, preventing GitHub and Google login failures on existing checkouts missing the profile-onboarding column.
+
+- Restore source-checkout development startup with pnpm-hoisted Nitro dependencies by preserving Vite's workspace-root file access. Add source development smoke coverage to CI.
+
+- Save the generated agent installer correctly when enrolling a local VM with `pnpm vm:install`.
+
 ### Changed
 
-- Hosted builds can add account email preferences through deployment UI API v9. Account/Admin back buttons are compact; their headings remain in normal page flow.
+- Reduce the sign-in email code size and letter spacing.
+
+- Center email branding, headings and actions, and use the orange login logo badge.
+
+- Use one branded Taupe email layout for sign-in, invitations, address verification/changes and workspace-owner notifications.
+- Add an optional runtime-log budget policy with atomic workspace counters, retry deduplication and visible drop notices. OSS defaults remain unchanged; hosted consumers need the matching app package for this additive hook. No schema or agent protocol change is required.
+
+- Separate package installation from source development in the README and OSS guides; consolidate release and product backlogs.
+
+- Use a compact 280px sign-in layout with the smaller orange devpush logo centered above the heading that opens the About dialog, including while loading.
+
+- Slightly narrow the login form and its loading layout.
+
+- Cloudflare image storage is optional; uploads are hidden and rejected without storage. Agent downloads use pinned GitHub Releases instead of R2.
+
+- Enforce generic workspace policies across settings, projects, environments, domains, servers, credentials and backups, including scheduled admission and productive agent claims. Preserve recovery/cleanup and running-job completion. Strengthen browser backup and install-token write authorization, and expose deliberate public policy explanations with recovery links. Breaking plugin API v2 requires matching core/plugin builds; no migration or agent upgrade is required.
+
+- Extend generic workspace policies to server deletion and actor-aware server creation, with a server-count change timestamp for provider reconciliation. OSS stays unrestricted; hosted consumers must use the matching application package. No core database or agent migration is required.
+
+- Consolidate main and log migration histories into one initial migration per store, preserving all schema guards. Breaking pre-release reset: old databases require fresh stores; no upgrade path is retained.
+
+- Extend installed-package runtime checks to composed local/npm policies, authorization ordering, rejected writes and agent certificate/lifecycle providers on Node and Workers.
+
+- Configuration validation accepts pinned release downloads without a local agent directory, while still checking explicitly configured offline binaries.
+
+- Include the complete `tslib` runtime in source-checkout Node builds, matching installed-package builds and fixing production-image SSR startup.
+
+- Pin shared agent releases by version, protocol, capabilities and verified artifact hashes. Hubs can fetch GitHub assets and cache them under immutable mirror keys; explicit local binaries remain available for custom/offline installs. Republish old unversioned mirrors. Add JSON version metadata and a tag release workflow for agent assets and the app tarball; no agent protocol or database change is required.
+
+- Replace deployment aliases/API v12 with static plugin API v2 and generic settings, profile and workspace contributions. Remove product-specific errors and the legacy extension HTTP route. Matching consumers must register plugins and use `/api/plugins/{id}/*`; the optional onboarding route is now `/onboarding/workspace`. No database or agent-protocol migration is required.
+
+- Add static plugin declarations with separate server and server-rendered UI entries, namespaced HTTP dispatch and browser import protection.
+
+- Extract a consumer-aware source-package build preset and Node migration entry. Add an isolated tarball/runtime proof.
+
+- Align server Host details and loading labels with Installation summary styling, retaining two columns for longer system values.
+
+- Remove visible required-field suffixes while retaining validation. Stack account General labels above full-width controls and align member action buttons with table padding.
+
+- Account/Admin back buttons are compact; their headings remain in normal page flow.
 
 - Profile onboarding uses a compact Card with horizontal fields. Onboarding and account settings share clickable picture upload, drag-and-drop, and remove/reset controls.
 
-- New accounts confirm their name and picture before entering a workspace, preserving invitation destinations. Deployment UI API v8 supports hosted-only newsletter and plan onboarding; apply core migration 0003 with a matching hosted build. Existing accounts are marked complete.
+- New accounts confirm their name and picture before entering a workspace, preserving invitation destinations.
 
 - Card outlines use the same theme border color as header and footer separators in light and dark mode.
 
-- Hosted billing notices use relative trial countdowns across all team pages. The badge and approaching-expiry notice use translucent amber; expired/restricted notices use destructive colors. Triangle/circle icons distinguish warning/error states. Removed the pretrial welcome banner. Deployment UI API v7 removes the obsolete overview flag; no schema or agent migration is needed.
-
-- Hosted trials include one server, start on first agent connection and use plain Trial labels. The workspace badge uses translucent brand orange while usable and destructive styling for restricted access. Trial explanations appear on the workspace overview and in server setup; notices moved below navigation into page content. Deployment UI API v6 requires matching core/hosted builds; OSS defaults remain empty and unrestricted. No agent or database migration is required.
-
-- Hosted workspace trial status now follows the breadcrumb. Trials last seven days; failed renewal immediately restricts new operations. Hosted migration 0002 shortens existing trial deadlines and removes payment grace; deploy it with the matching hosted build. Running apps and agent connections remain available.
-
-- Billing uses matching loading skeletons in settings, concise plan and usage details, and urgent-only workspace notices. Deployment UI API v5 adds the settings pending export; matching core/hosted builds are required, with no database or agent upgrade.
-
 ### Added
 
-- Build-time deployments can add workspace access rules, authenticated endpoints and settings UI. The default self-hosted build remains unrestricted. Hosted-only billing uses these boundaries without adding payment providers to core.
+- Expose workspace image/color metadata and the existing resource avatar component to plugins.
+
+- Build-time deployments can add workspace access rules, authenticated endpoints and settings UI. The default self-hosted build remains unrestricted.
 
 - Shared-agent support for hub-issued wildcard certificates: durable local
   keys/CSRs, bounded polling, certificate validation, atomic Traefik file loading
@@ -42,11 +139,8 @@ All notable changes to devpush will be documented in this file.
 
 - Optional public sign-in notice via `DEVPUSH_SIGN_IN_MESSAGE`, displayed in an
   informational alert with safe web links. Unset or blank hides it. The Admin
-  editor and its settings-version counter have been removed. Before applying
-  `0002_remove_installation_settings`, move any saved message to the environment
-  variable; the migration drops its former table. Existing migration history is
-  preserved. Restart/redeploy the control plane after configuring the message;
-  no agent upgrade is required.
+  editor and its settings-version counter have been removed. Sign-in messages are configured through the environment; the initial database
+  baseline contains no installation settings table.
 
 - Installation-operator deletion recovery CLI: inspect blocked resources, retry
   container cleanup, remove intentionally retained runtimes through normal agent
@@ -67,9 +161,7 @@ All notable changes to devpush will be documented in this file.
   refresh protection. Keep the secret stable and upgrade control-plane instances
   together; older binaries cannot read rewritten tokens.
 
-
 - Flat documentation with product, operations, reference and developer navigation groups; focused local setup, configuration, testing and agent-maintenance guides. `pnpm docs:check` validates navigation and local links.
-
 
 - `pnpm secrets:pull` restores local configuration from individual fields in the
   tagged `devpush (local)` 1Password API Credentials item, using a Keychain-held service-account
@@ -211,7 +303,7 @@ All notable changes to devpush will be documented in this file.
 
 - Optional workspace settings appear after Members. Deployment UI API v4 adds
   workspace status, notices and a contextual action for allowance-blocked server
-  creation; self-hosted builds continue without billing UI or limits.
+  creation; default builds remain unrestricted.
 
 - Reorganize documentation around first deployment, app management, installation
   operations and development. Add step-by-step domain/HTTPS and self-hosting
@@ -720,7 +812,6 @@ All notable changes to devpush will be documented in this file.
 - Redeploy and rollback resolve current routing without reviving removed hostnames, and reject environments moved to another server.
 - Agent execution persists an interruption fallback before running; restart reports failure instead of leaving jobs running until timeout. Credential rotation drains active work and guards concurrent credential changes. Requires updated agents; no protocol or schema change.
 - Local setup and secret synchronization share Node's environment-file parsing and round-trip-safe encoding, including multiline credentials.
-
 
 - Close project creation immediately after a successful save, before refreshing
   cached data and navigating, so the repository-selection skeleton cannot flash

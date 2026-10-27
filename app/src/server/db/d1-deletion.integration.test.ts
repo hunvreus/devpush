@@ -1,22 +1,22 @@
-import { pruneDeletedResources } from '@/server/deleted-resources'
-import { required } from '@/test/required'
+import { pruneDeletedResources } from '#devpush/server/deleted-resources'
+import { required } from '#devpush/test/required'
 import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { replacePendingIdentity } from '@/server/auth/provider-identity'
-import { createD1TestStores } from '@/test/d1'
+import { replacePendingIdentity } from '#devpush/server/auth/provider-identity'
+import { createD1TestStores } from '#devpush/test/d1'
 import * as schema from './schema'
-import { deleteProjectState } from '@/server/projects/deletion-state'
-import { deleteTeamState } from '@/server/teams/deletion-state'
+import { deleteProjectState } from '#devpush/server/projects/deletion-state'
+import { deleteTeamState } from '#devpush/server/teams/deletion-state'
 import {
   deleteUserState,
   cleanupDeletedUserState,
-} from '@/server/users/deletion-state'
-import type { UserCleanupJobPayload } from '@/server/users/deletion-state'
+} from '#devpush/server/users/deletion-state'
+import type { UserCleanupJobPayload } from '#devpush/server/users/deletion-state'
 import {
   leaveMembership,
   mutateTeamMembership,
   mutateTeamOwnership,
-} from '@/server/teams/membership'
+} from '#devpush/server/teams/membership'
 
 let stores: Awaited<ReturnType<typeof createD1TestStores>>
 let dispose = async () => {}

@@ -18,6 +18,7 @@
         "servers",
         "backups",
         "accounts-and-teams",
+        "notifications",
         "api-and-mcp"
       ]
     },
@@ -26,11 +27,13 @@
       "label": "Run devpush",
       "items": [
         "self-hosting",
+        "package-installation",
         "production-operations",
         "cloudflare-deployment",
         "administration",
         "agent-maintenance",
-        "deletion-recovery"
+        "deletion-recovery",
+        "security"
       ]
     },
     {
@@ -49,7 +52,9 @@
       "items": [
         "local-setup",
         "testing",
+        "workspace-permissions",
         "agent-protocol",
+        "agent-releases",
         {
           "label": "Architecture",
           "url": "https://github.com/hunvreus/devpush/blob/main/ARCHITECTURE.md"

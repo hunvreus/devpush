@@ -1,7 +1,7 @@
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
-import { closeDb, db } from '@/server/db'
+import { closeDb, db } from '#devpush/server/db'
 import {
   agentJobs,
   agentRuntimeObservations,
@@ -10,7 +10,7 @@ import {
   servers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import { reconcileReportedRuntimes } from './reconciliation'
 
 const touchedObservationIds: Array<string> = []
@@ -34,31 +34,27 @@ describe('agent runtime reconciliation', () => {
     const { projectId, serverId } = await createFixture()
     const environmentId = crypto.randomUUID()
     touchedEnvironmentIds.push(environmentId)
-    await db
-      .insert(environments)
-      .values({
-        id: environmentId,
-        projectId,
-        serverId,
-        name: 'Production',
-        slug: 'production',
-        branch: 'main',
-        runtimeId: 'dp_reused',
-      })
+    await db.insert(environments).values({
+      id: environmentId,
+      projectId,
+      serverId,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      runtimeId: 'dp_reused',
+    })
     const id = crypto.randomUUID()
     touchedObservationIds.push(id)
     const old = new Date('2026-05-01')
-    await db
-      .insert(agentRuntimeObservations)
-      .values({
-        id,
-        serverId,
-        runtimeId: 'dp_reused',
-        firstSeenAt: old,
-        lastSeenAt: old,
-        cleanupQueuedAt: old,
-        purgeQueuedAt: old,
-      })
+    await db.insert(agentRuntimeObservations).values({
+      id,
+      serverId,
+      runtimeId: 'dp_reused',
+      firstSeenAt: old,
+      lastSeenAt: old,
+      cleanupQueuedAt: old,
+      purgeQueuedAt: old,
+    })
     const now = new Date('2026-06-01')
     expect(
       await reconcileReportedRuntimes({

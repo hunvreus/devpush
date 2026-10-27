@@ -1,13 +1,13 @@
-import { hasPlanOnboarding } from '#devpush/deployment/ui'
+import { hasWorkspaceOnboarding } from '#devpush/features/plugins/contributions'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { LoaderIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { createTeamSchema } from '@/lib/team-forms-schema'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { afterMutation } from '@/lib/action-feedback'
-import { createTeamAction } from '@/server/teams/functions'
-import { Button } from '@/components/ui/button'
+import { createTeamSchema } from '#devpush/lib/team-forms-schema'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { afterMutation } from '#devpush/lib/action-feedback'
+import { createTeamAction } from '#devpush/server/teams/functions'
+import { Button } from '#devpush/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -15,9 +15,9 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
-import { Field, FieldError, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/dialog'
+import { Field, FieldError, FieldLabel } from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 
 export function NewTeamDialogLauncher({
   children,
@@ -49,9 +49,9 @@ export function NewTeamDialogLauncher({
       setName('')
       setOpen(false)
       toast.success('Team created.')
-      if (hasPlanOnboarding()) {
+      if (hasWorkspaceOnboarding()) {
         window.location.assign(
-          `/onboarding/plans?team=${encodeURIComponent(team.slug)}`,
+          `/onboarding/workspace?team=${encodeURIComponent(team.slug)}`,
         )
         return
       }
@@ -91,7 +91,7 @@ export function NewTeamDialogLauncher({
             </DialogDescription>
           </DialogHeader>
           <Field data-invalid={Boolean(nameError)}>
-            <FieldLabel htmlFor="new-team-name">Name (required)</FieldLabel>
+            <FieldLabel htmlFor="new-team-name">Name</FieldLabel>
             <Input
               aria-invalid={Boolean(nameError)}
               id="new-team-name"

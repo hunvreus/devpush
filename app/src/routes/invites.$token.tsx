@@ -1,8 +1,11 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { getCurrentUserContext } from '@/server/auth/context'
-import { TeamInvite, TeamInvitePending } from '@/features/teams/team-invite'
+import { getCurrentUserContext } from '#devpush/server/auth/context'
+import {
+  TeamInvite,
+  TeamInvitePending,
+} from '#devpush/features/teams/team-invite'
 
 export const Route = createFileRoute('/invites/$token')({
   ssr: false,

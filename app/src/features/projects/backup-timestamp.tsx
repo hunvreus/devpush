@@ -2,8 +2,8 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
+} from '#devpush/components/ui/tooltip'
+import { cn } from '#devpush/lib/utils'
 import { formatBackupAge, formatBackupUtc } from './project-backup-utils'
 
 export function BackupTimestamp({

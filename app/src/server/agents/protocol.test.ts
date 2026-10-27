@@ -255,3 +255,27 @@ describe('agent protocol', () => {
     expect(called).toBe(false)
   })
 })
+
+test('enrollment policy denials return a public 403 with recovery details', async () => {
+  const { PublicError } = await import('#devpush/lib/public-error')
+  const response = await handleAgentRequest(
+    new Request('http://localhost/api/agents/register', {
+      method: 'POST',
+      body: '{}',
+    }),
+    z.object({}),
+    async () => {
+      throw new PublicError('WORKSPACE_RESTRICTED', undefined, {
+        message: 'This workspace is archived. Restore it to connect this server.',
+        recoveryUrl: '/acme/settings#general',
+      })
+    },
+    'Unable to register agent.',
+  )
+  expect(response.status).toBe(403)
+  expect(await response.json()).toMatchObject({
+    code: 'WORKSPACE_RESTRICTED',
+    error: 'This workspace is archived. Restore it to connect this server.',
+    policy: { recoveryUrl: '/acme/settings#general' },
+  })
+})

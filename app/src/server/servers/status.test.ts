@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getEffectiveServerStatus } from '@/server/servers/status'
+import { getEffectiveServerStatus } from '#devpush/server/servers/status'
 
 describe('getEffectiveServerStatus', () => {
   const now = new Date('2026-06-19T12:00:00.000Z')

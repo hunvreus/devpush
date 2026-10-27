@@ -2,7 +2,7 @@ import type {
   BackupCleanupJobPayload,
   BackupJobPayload,
   BackupRestoreJobPayload,
-} from '@/server/backups/service'
+} from '#devpush/server/backups/service'
 import type { DeprovisionJobPayload } from './cleanup'
 
 export function parseDeprovisionPayload(

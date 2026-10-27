@@ -1,4 +1,4 @@
-import { db } from '@/server/db'
+import { db } from '#devpush/server/db'
 import { reconcileRuntimeState } from './runtime-state'
 
 type ReportedRuntimeService = {

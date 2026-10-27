@@ -1,18 +1,19 @@
-import { getDeploymentServices } from '@/deployment/services.server'
-import { encryptExistingProviderTokens } from '@/server/auth/provider-tokens'
-import { pruneDeletedResources } from '@/server/deleted-resources'
-import { pruneApiHistory } from '@/server/api/retention'
+import { pruneOperationalNotifications } from '#devpush/server/notifications/outbox'
+import { getPluginServices } from '#devpush/server/plugins/services.server'
+import { encryptExistingProviderTokens } from '#devpush/server/auth/provider-tokens'
+import { pruneDeletedResources } from '#devpush/server/deleted-resources'
+import { pruneApiHistory } from '#devpush/server/api/retention'
 import {
   failStaleRunningDeployments,
   failStaleAgentJobs,
-} from '@/server/agents/jobs'
-import { queueBackupRetentionCleanupJobs } from '@/server/backups/service'
-import { cleanupExpiredRateLimits } from '@/server/http/rate-limit'
-import { cleanupExpiredTeamInvites } from '@/server/teams/service'
-import { runQueuedUserCleanupJobs } from '@/server/users/service'
-import { pruneServerMonitoring } from '@/server/servers/monitoring'
-import { pruneExpiredRuntimeLogs } from '@/server/logs/retention'
-import { pruneOrphanDeploymentLogs } from '@/server/logs/cleanup'
+} from '#devpush/server/agents/jobs'
+import { queueBackupRetentionCleanupJobs } from '#devpush/server/backups/service'
+import { cleanupExpiredRateLimits } from '#devpush/server/http/rate-limit'
+import { cleanupExpiredTeamInvites } from '#devpush/server/teams/service'
+import { runQueuedUserCleanupJobs } from '#devpush/server/users/service'
+import { pruneServerMonitoring } from '#devpush/server/servers/monitoring'
+import { pruneExpiredRuntimeLogs } from '#devpush/server/logs/retention'
+import { pruneOrphanDeploymentLogs } from '#devpush/server/logs/cleanup'
 
 export async function runMaintenance() {
   const [
@@ -37,11 +38,18 @@ export async function runMaintenance() {
     pruneExpiredRuntimeLogs(),
     pruneOrphanDeploymentLogs(),
     pruneApiHistory(),
+    pruneOperationalNotifications(),
   ])
 
-  await getDeploymentServices().serverLifecycle?.maintain()
+  let providerTokens
+  try {
+    await getPluginServices().serverLifecycle?.maintain()
+  } finally {
+    // Token rewrites are independent, but resource deletion must still wait for
+    // provider cleanup to succeed so reconciliation retains its source records.
+    providerTokens = await encryptExistingProviderTokens()
+  }
   const deletedResources = await pruneDeletedResources()
-  const providerTokens = await encryptExistingProviderTokens()
 
   return {
     deletedResources,

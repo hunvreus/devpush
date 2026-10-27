@@ -1,7 +1,7 @@
 import { NewProjectPendingContent } from './new-project-pending'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
-import { createProjectSchema } from '@/lib/project-creation-schema'
-import { afterMutation } from '@/lib/action-feedback'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
+import { createProjectSchema } from '#devpush/lib/project-creation-schema'
+import { afterMutation } from '#devpush/lib/action-feedback'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from '@tanstack/react-router'
 import {
@@ -19,7 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -27,53 +27,53 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '#devpush/components/ui/dropdown-menu'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
-import { RepositoryListPending } from '@/features/repositories/repository-list-pending'
-import { ServerAvatar } from '@/features/servers/server-avatar'
-import { authClient } from '@/lib/auth/client'
-import { getErrorMessage } from '@/lib/error-message'
-import { repositorySelectionQueryOptions } from '@/lib/repository-selection-query'
-import { teamShellQueryOptions } from '@/lib/team-context-query'
+} from '#devpush/components/ui/select'
+import { Textarea } from '#devpush/components/ui/textarea'
+import { RepositoryListPending } from '#devpush/features/repositories/repository-list-pending'
+import { ServerAvatar } from '#devpush/features/servers/server-avatar'
+import { authClient } from '#devpush/lib/auth/client'
+import { getErrorMessage } from '#devpush/lib/error-message'
+import { repositorySelectionQueryOptions } from '#devpush/lib/repository-selection-query'
+import { teamShellQueryOptions } from '#devpush/lib/team-context-query'
 import {
   createProject,
   getRepositorySelectionRepositories,
-} from '@/server/projects/functions'
-import type { RepositorySelectionContext } from '@/server/projects/types'
-import type { ServerSummary, TeamSummary } from '@/server/teams/types'
+} from '#devpush/server/projects/functions'
+import type { RepositorySelectionContext } from '#devpush/server/projects/types'
+import type { ServerSummary, TeamSummary } from '#devpush/server/teams/types'
 
 type Repository = Extract<
   RepositorySelectionContext['github'],
@@ -169,10 +169,8 @@ function NewProjectDialogContent({
     initialRepositories.some(
       (repo) => repo.installationId === initialInstallationId,
     )
-  const [repositories, setRepositories] =
-    useState<Array<Repository>>(initialRepositories)
   const [step, setStep] = useState<'repository' | 'configure'>('repository')
-  const [selectedInstallationId, setSelectedInstallationId] = useState<
+  const [chosenInstallationId, setSelectedInstallationId] = useState<
     number | null
   >(initialInstallationId)
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null)
@@ -191,82 +189,31 @@ function NewProjectDialogContent({
   const [fieldErrors, setFieldErrors] = useState<NewProjectFieldErrors>({})
   const [query, setQuery] = useState('')
   const searchQuery = query.trim().toLowerCase()
-  const [reposError, setReposError] = useState<string | null>(null)
-  const [reposAttempt, setReposAttempt] = useState(0)
-  const [isLoadingRepos, setIsLoadingRepos] = useState(
-    github.connected &&
-      github.appConfigured &&
-      installations.length > 0 &&
-      !hasInitialRepositories,
-  )
-  const [loadedInstallationId, setLoadedInstallationId] = useState<
-    number | null
-  >(hasInitialRepositories ? initialInstallationId : null)
   const [isCreating, setIsCreating] = useState(false)
-  const skippedInitialRepositoryFetch = useRef(false)
-
-  useEffect(() => {
-    if (!github.connected || !github.appConfigured || !selectedInstallationId) {
-      return
-    }
-
-    if (
-      !skippedInitialRepositoryFetch.current &&
-      hasInitialRepositories &&
-      selectedInstallationId === initialInstallationId
-    ) {
-      skippedInitialRepositoryFetch.current = true
-      setIsLoadingRepos(false)
-      return
-    }
-
-    skippedInitialRepositoryFetch.current = true
-    let cancelled = false
-
-    setRepositories([])
-    setReposError(null)
-    setIsLoadingRepos(true)
-
-    void getRepositorySelectionRepositories({
-      data: {
-        teamSlug: team.slug,
-        installationId: selectedInstallationId,
-      },
-    })
-      .then((nextRepositories) => {
-        if (!cancelled) {
-          setRepositories(nextRepositories)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setReposError(
-            getErrorMessage(
-              error,
-              'Unable to load repositories. Please try again.',
-            ),
-          )
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadedInstallationId(selectedInstallationId)
-          setIsLoadingRepos(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [
-    github.appConfigured,
-    github.connected,
-    hasInitialRepositories,
-    initialInstallationId,
-    selectedInstallationId,
-    reposAttempt,
-    team.slug,
-  ])
+  const selectedInstallationId = chosenInstallationId ?? initialInstallationId
+  const repositoryQuery = useQuery({
+    queryKey: ['installation-repositories', team.slug, selectedInstallationId],
+    queryFn: () =>
+      getRepositorySelectionRepositories({
+        data: { teamSlug: team.slug, installationId: selectedInstallationId! },
+      }),
+    enabled:
+      github.connected &&
+      github.appConfigured &&
+      selectedInstallationId !== null,
+    initialData:
+      hasInitialRepositories && selectedInstallationId === initialInstallationId
+        ? initialRepositories
+        : undefined,
+    staleTime: 30_000,
+  })
+  const repositories = repositoryQuery.data ?? []
+  const reposError = repositoryQuery.error
+    ? getErrorMessage(
+        repositoryQuery.error,
+        'Unable to load repositories. Please try again.',
+      )
+    : null
 
   const selectedInstallation = installations.find(
     (installation) => installation.id === selectedInstallationId,
@@ -433,13 +380,9 @@ function NewProjectDialogContent({
             filteredRepos={filteredRepos}
             installUrl={getInstallGitHubAppUrl()}
             installations={installations}
-            isLoading={
-              isLoadingRepos ||
-              (selectedInstallationId !== null &&
-                loadedInstallationId !== selectedInstallationId)
-            }
+            isLoading={repositoryQuery.isPending}
             error={reposError}
-            onRetry={() => setReposAttempt((attempt) => attempt + 1)}
+            onRetry={() => void repositoryQuery.refetch()}
             onInstallAccountChange={(installationId) => {
               setSelectedInstallationId(installationId)
               setSelectedRepo(null)
@@ -956,9 +899,7 @@ function ConfigureStep({
       </div>
 
       <Field data-invalid={Boolean(fieldErrors.projectName)}>
-        <FieldLabel htmlFor="new-project-name">
-          Project name (required)
-        </FieldLabel>
+        <FieldLabel htmlFor="new-project-name">Project name</FieldLabel>
         <Input
           aria-invalid={Boolean(fieldErrors.projectName)}
           id="new-project-name"

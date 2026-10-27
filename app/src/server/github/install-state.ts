@@ -1,7 +1,7 @@
 import { jwtVerify, SignJWT } from 'jose'
 
-import { config } from '@/server/config'
-import { getSafeRedirectPath } from '@/lib/internal-redirect'
+import { config } from '#devpush/server/config'
+import { getSafeRedirectPath } from '#devpush/lib/internal-redirect'
 
 const audience = 'devpush:github-installation'
 const issuer = 'devpush'

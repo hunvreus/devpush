@@ -8,28 +8,28 @@ import {
   CardDescription,
   CardContent,
   CardFooter,
-} from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+} from '#devpush/components/ui/card'
+import { Button } from '#devpush/components/ui/button'
 import {
   Field,
   FieldGroup,
   FieldLabel,
   FieldError,
-} from '@/components/ui/field'
+} from '#devpush/components/ui/field'
 import {
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
-} from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Skeleton } from '@/components/ui/skeleton'
-import { LogoMark } from '@/components/logo-mark'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { apiKeyPresets } from '@/lib/api-key-schema'
-import type { getMcpConsentAction } from '@/server/mcp/functions'
-import { completeMcpConsentAction } from '@/server/mcp/functions'
+} from '#devpush/components/ui/select'
+import { Checkbox } from '#devpush/components/ui/checkbox'
+import { Skeleton } from '#devpush/components/ui/skeleton'
+import { LogoMark } from '#devpush/components/logo-mark'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { apiKeyPresets } from '#devpush/lib/api-key-schema'
+import type { getMcpConsentAction } from '#devpush/server/mcp/functions'
+import { completeMcpConsentAction } from '#devpush/server/mcp/functions'
 
 type Consent = NonNullable<Awaited<ReturnType<typeof getMcpConsentAction>>>
 export function McpConsentPending() {

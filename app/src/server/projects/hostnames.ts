@@ -1,10 +1,10 @@
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import { isIP } from 'node:net'
 import { and, eq, ne } from 'drizzle-orm'
 
-import { config } from '@/server/config'
-import { db } from '@/server/db'
-import { aliases, domains } from '@/server/db/schema'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
+import { aliases, domains } from '#devpush/server/db/schema'
 
 function slugify(value: string) {
   const slug = value

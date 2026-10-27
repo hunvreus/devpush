@@ -1,5 +1,8 @@
-import { PublicError } from '@/lib/public-error'
-import { getObjectStore } from '@/server/storage/object-store'
+import { PublicError } from '#devpush/lib/public-error'
+import {
+  getObjectStore,
+  isObjectStorageConfigured,
+} from '#devpush/server/storage/object-store'
 
 export type AvatarOwner = {
   filePrefix: 'user' | 'team' | 'project'
@@ -27,6 +30,9 @@ export async function resolveAvatarUpdate({
     return null
   }
 
+  if (!isObjectStorageConfigured()) {
+    throw new PublicError('AVATAR_STORAGE_UNAVAILABLE')
+  }
   const parsed = parseAvatarDataUrl(avatarDataUrl)
   if (!/^[A-Za-z0-9_-]+$/.test(resourceId))
     throw new Error('Invalid avatar owner.')

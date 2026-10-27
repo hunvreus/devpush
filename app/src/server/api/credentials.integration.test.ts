@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { db } from '@/server/db'
-import type { AtomicStore } from '@/server/db/atomic'
-import { createD1TestStores } from '@/test/d1'
-import { getResourceColor } from '@/server/resources/color'
+import { db } from '#devpush/server/db'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { createD1TestStores } from '#devpush/test/d1'
+import { getResourceColor } from '#devpush/server/resources/color'
 import {
   createApiKey,
   createApiGrant,

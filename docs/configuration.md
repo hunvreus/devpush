@@ -31,7 +31,7 @@ Before starting a public installation, configure:
 | Sign-in | At least one of Resend email codes, Google credentials or GitHub App OAuth credentials. There is no development bypass. |
 | GitHub deployment access | GitHub App ID, name, client ID/secret, private key and webhook secret; see Authentication below. |
 | Data storage | Separate main and log databases, selected by the target's setup wizard. |
-| Scheduler authentication | `DEVPUSH_CRON_SECRET` for production Compose; Worker cron does not need it. |
+| Scheduler authentication | `DEVPUSH_CRON_SECRET` only for optional external maintenance calls. |
 
 The wizard prepares configuration; the [installation guides](/docs/self-hosting/)
 explain how to start or deploy it. Optional settings follow below.
@@ -47,14 +47,14 @@ explain how to start or deploy it. Optional settings follow below.
 | `DEVPUSH_SECRET_ENCRYPTION_KEY` | Encrypts stored credentials and project secrets. |
 | `DEVPUSH_ADMIN_EMAIL` | Installation administrator; otherwise the earliest-created user is selected. |
 | `DEVPUSH_SIGN_IN_MESSAGE` | Optional public login notice, plain text up to 1,000 characters. Blank hides it. Restart/redeploy after changing; access restrictions remain in the allowlist. |
-| `DEVPUSH_CRON_SECRET` | Authenticates the external scheduler; required for production Compose. Worker cron invokes services directly. |
+| `DEVPUSH_CRON_SECRET` | Authenticates optional external maintenance calls. Built-in Node scheduling and Worker cron invoke services directly. |
 
 Public origins require HTTPS. Origins must not contain a path, credentials, query
 or fragment; the MCP setting must end in `/mcp`. Localhost and Lima development
 origins may use HTTP. Changing the MCP endpoint requires OAuth clients to reconnect;
 API-key clients need the updated URL.
 
-Generate authentication, encryption and scheduler secrets independently, for example
+Generate authentication and encryption secrets (and an external scheduler secret if used) independently, for example
 with `openssl rand -base64 32`. Public installations reject weak or example secrets.
 Keep the authentication and encryption keys stable across upgrades. Changing the
 encryption key makes saved secrets unreadable. Changing `BETTER_AUTH_SECRET` also
@@ -127,11 +127,11 @@ changing them does not migrate data. Supported schemes are `libsql`, `https` and
 Apply both migration sets with the command for your deployment target. See
 [Production operations](/docs/production-operations/) before changing stores or upgrading.
 
-## Uploads and published agent binaries
+## Image uploads and agent downloads
 
 Node stores uploaded objects under `app/public/uploads` by default; production
-Compose persists this in its uploads volume. Workers use the `DEVPUSH_OBJECTS`
-R2 binding. Either target can use S3-compatible storage by supplying the endpoint, bucket and
+Compose persists this in its uploads volume. Workers optionally use the `DEVPUSH_OBJECTS`
+R2 binding. Without object storage, image upload controls are hidden and uploads are rejected; provider avatars and generated fallbacks remain available. Either target can use S3-compatible storage by supplying the endpoint, bucket and
 credentials when no R2 binding is present. An R2 binding takes precedence. Region is optional (default
 `auto`):
 
@@ -146,19 +146,28 @@ DEVPUSH_STORAGE_SECRET_ACCESS_KEY=your-secret-key
 This installation storage is independent of team backup destinations configured
 in the UI. Preserve uploaded objects as well as databases during recovery.
 
+Agents come from the package’s pinned GitHub Release. The hub redirects download
+requests to that release; installers verify the pinned checksum. Image storage is
+not used for agent downloads. See [Agent releases](/docs/agent-releases/) for
+release publication and offline Node overrides.
+
 ## Agents, monitoring and backups
 
 | Setting | Purpose/default |
 | --- | --- |
-| `DEVPUSH_AGENT_BINARY_DIR` | Directory containing published Linux agent binaries and checksums; set this explicitly to the absolute `bin/` path after a local build. |
+| `DEVPUSH_AGENT_BINARY_DIR` | Trusted custom/offline Linux binaries; overrides pinned release downloads on Node. Set the absolute `bin/` path after a local build. Docker sets this automatically. Do not set it on Workers; use GitHub Release assets instead. |
 | `DEVPUSH_TRAEFIK_EMAIL` | Optional ACME contact passed to new installers. |
 | `DEVPUSH_AGENT_AUTO_UPDATE` | Enable daily updater timers in newly generated installations; default `false`. |
 | `DEVPUSH_RECOMMENDED_AGENT_VERSION` | Optional update recommendation; protocol capabilities determine job compatibility. |
+| `DEVPUSH_DEPLOYMENT_LOG_MAX_LINES` | Maximum retained output lines per deployment, default 5000; range 1–100000. Further output is acknowledged and omitted with one visible notice. |
+| `DEVPUSH_DEPLOYMENT_LOG_LINE_BYTES` | UTF-8 bytes retained per deployment line, default 2048; range 64–65536. Long lines receive a truncation suffix. Search storage duplicates retained content. |
 | `DEVPUSH_MONITORING_RETENTION_DAYS` | Raw monitoring retention, default 7 days; range 2–3650. Charts show 24 hours. |
 | `DEVPUSH_BACKUPS_ENABLED` | Enable application backups; default `false`. |
 | `VITE_DEVPUSH_BACKUPS_ENABLED` | Matching client build flag; production Compose derives it from the server flag. Set both for local Vite development. |
 
-The bundled agent version comes from `app/package.json`; an optional
+The served agent version comes from the `app/agent-release.json` pin, which
+release verification checks against `app/package.json`. Docker stamps its local
+build with that package version. An optional
 `DEVPUSH_VERSION_FILE` supplies installation version metadata. See
 [Servers](/docs/servers/), [Backups](/docs/backups/) and [Agent maintenance](/docs/agent-maintenance/)
 for behavior and recovery.
@@ -203,3 +212,25 @@ A TLS-terminating proxy must also overwrite `X-Forwarded-Proto` and
 `X-Forwarded-Host` with the external origin. Only configured app/auth/MCP origins
 are trusted. Forward WebSocket upgrades for `/api/workspaces/updates`.
 Workers use Cloudflare's client address automatically.
+
+## Runtime log budgets
+
+OSS retains runtime logs for 24 hours and keeps at most 10,000 rows per runtime.
+Agents send bounded batches. An optional plugin `runtimeLogLimits(teamId)` policy
+can supply minute/day byte and daily row allowances; without it, no workspace
+budget is imposed. See [Architecture](https://github.com/hunvreus/devpush/blob/main/ARCHITECTURE.md)
+for plugin composition.
+
+Budget counters are atomic and persistent in the main database, shared across
+servers in the workspace. Byte accounting includes UTF-8 content, its search copy
+and 256 bytes of metadata allowance per row; it is not an exact database-size or
+provider-billing measurement. Windows reset at UTC minute/day boundaries. Failed
+writes retain reservations conservatively. Already stored retries are not charged
+again; concurrent replays can reserve conservatively before deduplication.
+
+When over budget, the batch is acknowledged but not stored. The agent releases
+its durable capture instead of retrying indefinitely. A workspace receives at
+most one visible `devpush` log-limit notice per UTC day. Collection resumes when
+the limiting window resets. Existing applications and deployments keep running;
+dropped logs cannot be recovered from the dashboard. Deployment/build logs use
+their existing separate ingestion path and are not subject to this runtime policy.

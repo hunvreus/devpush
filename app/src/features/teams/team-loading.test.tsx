@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { expect, test, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import { TeamLayoutPending, TeamSettingsPending } from './team-route-pending'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { projectContext } from '@/test/project-context'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+import { projectContext } from '#devpush/test/project-context'
 
 vi.mock('@tanstack/react-router', () => ({
   useHydrated: () => true,
@@ -17,11 +17,11 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('./team-header', () => ({
   TeamPage: ({ children }: { children: ReactNode }) => <main>{children}</main>,
 }))
-vi.mock('@/features/servers/team-servers', () => ({
+vi.mock('#devpush/features/servers/team-servers', () => ({
   AddServerDialog: () => null,
   TeamServers: () => null,
 }))
-vi.mock('@/features/repositories/new-project-dialog-launcher', () => ({
+vi.mock('#devpush/features/repositories/new-project-dialog-launcher', () => ({
   NewProjectDialogLauncher: () => null,
 }))
 

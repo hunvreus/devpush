@@ -1,3 +1,5 @@
+import { getStorageCapabilities } from '#devpush/server/storage/capabilities'
+import { ImageUploadsContext } from '#devpush/components/storage-capabilities'
 import {
   HeadContent,
   Outlet,
@@ -12,9 +14,9 @@ import type { ReactNode } from 'react'
 import {
   RouteErrorState,
   RouteNotFoundState,
-} from '@/components/route-error-state'
-import { Toaster } from '@/components/ui/sonner'
-import { TooltipProvider } from '@/components/ui/tooltip'
+} from '#devpush/components/route-error-state'
+import { Toaster } from '#devpush/components/ui/sonner'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import appCss from '../styles.css?url'
 
 const appName = 'devpush'
@@ -26,6 +28,7 @@ type RouterContext = {
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+  loader: () => getStorageCapabilities(),
   head: () => ({
     meta: [
       {
@@ -129,11 +132,14 @@ function RootDocument({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext()
+  const { imageUploads } = Route.useLoaderData()
 
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Outlet />
+        <ImageUploadsContext.Provider value={imageUploads}>
+          <Outlet />
+        </ImageUploadsContext.Provider>
       </TooltipProvider>
     </QueryClientProvider>
   )

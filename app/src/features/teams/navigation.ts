@@ -1,6 +1,6 @@
-import type { SectionNavigationItem } from '@/components/section-navigation'
+import type { SectionNavigationItem } from '#devpush/components/section-navigation'
 
-import { backupsEnabled } from '@/lib/backup-feature'
+import { backupsEnabled } from '#devpush/lib/backup-feature'
 
 export const teamSettingsNavigationItems: Array<SectionNavigationItem> = [
   { href: '#general', label: 'General' },
@@ -8,6 +8,7 @@ export const teamSettingsNavigationItems: Array<SectionNavigationItem> = [
   ...(backupsEnabled
     ? [{ href: '#backup-storage' as const, label: 'Backup storage' }]
     : []),
+  { href: '#notifications', label: 'My notifications' },
   { href: '#danger', label: 'Danger', destructive: true },
 ]
 

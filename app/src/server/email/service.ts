@@ -1,14 +1,19 @@
-import { config } from '@/server/config'
+import { safeErrorDiagnostics } from '#devpush/server/http/error-diagnostics'
+import { config } from '#devpush/server/config'
 
 type EmailPayload = {
+  from?: string
   html: string
   subject: string
   text: string
   to: string
 }
 
-async function sendEmail({ html, subject, text, to }: EmailPayload) {
-  if (!config.EMAIL_FROM) {
+export async function sendEmail(
+  { from = config.EMAIL_FROM, html, subject, text, to }: EmailPayload,
+  idempotencyKey?: string,
+) {
+  if (!from) {
     throw new Error('EMAIL_FROM is not configured.')
   }
 
@@ -16,19 +21,34 @@ async function sendEmail({ html, subject, text, to }: EmailPayload) {
     throw new Error('RESEND_API_KEY is not configured.')
   }
 
-  const { Resend } = await import('resend')
-  const resend = new Resend(config.RESEND_API_KEY)
-
-  const result = await resend.emails.send({
-    from: config.EMAIL_FROM,
-    html,
-    subject,
-    text,
-    to,
-  })
-
-  if (result.error) {
-    throw new Error(`Resend failed to send email: ${result.error.message}`)
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        Authorization: `Bearer ${config.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+      },
+      body: JSON.stringify({
+        from,
+        html,
+        subject,
+        text,
+        to,
+      }),
+    })
+    // Only provider acceptance matters here; never retain or surface its body.
+    await response.body?.cancel().catch(() => undefined)
+    if (!response.ok) {
+      console.warn('Email provider rejected delivery.', {
+        status: response.status,
+      })
+      throw new Error('Email provider rejected delivery.')
+    }
+  } catch (error) {
+    console.warn('Email delivery failed.', safeErrorDiagnostics(error))
+    throw new Error('Unable to deliver email.')
   }
 }
 
@@ -52,7 +72,7 @@ export async function sendEmailChangeEmail({
   newEmail: string
   verifyUrl: string
 }) {
-  const message = buildEmailChangeMessage({
+  const message = await buildEmailChangeMessage({
     currentEmail,
     newEmail,
     verifyUrl,
@@ -66,7 +86,7 @@ export async function sendEmailChangeEmail({
   })
 }
 
-export function buildEmailChangeMessage({
+export async function buildEmailChangeMessage({
   currentEmail,
   newEmail,
   verifyUrl,
@@ -77,7 +97,12 @@ export function buildEmailChangeMessage({
 }) {
   return {
     subject: 'Confirm your devpush email change',
-    html: `<p>Confirm that you want to use ${escapeHtml(newEmail)} for devpush.</p><p><a href="${escapeHtml(verifyUrl)}">Confirm email change</a></p><p>After confirmation, we will ask you to verify the new address.</p>`,
+    html: await renderNotificationEmail({
+      title: 'Confirm your devpush email change',
+      to: currentEmail,
+      message: `Confirm that you want to use ${newEmail} for devpush.\nAfter confirmation, we will ask you to verify the new address.`,
+      action: { label: 'Confirm email change', url: verifyUrl },
+    }),
     text: `Confirm that you want to use ${newEmail} for devpush.
 
 Confirm email change: ${verifyUrl}
@@ -93,7 +118,7 @@ export async function sendEmailVerificationEmail({
   email: string
   verifyUrl: string
 }) {
-  const message = buildEmailVerificationMessage({ email, verifyUrl })
+  const message = await buildEmailVerificationMessage({ email, verifyUrl })
 
   await sendEmail({
     to: email,
@@ -103,7 +128,7 @@ export async function sendEmailVerificationEmail({
   })
 }
 
-export function buildEmailVerificationMessage({
+export async function buildEmailVerificationMessage({
   email,
   verifyUrl,
 }: {
@@ -112,7 +137,12 @@ export function buildEmailVerificationMessage({
 }) {
   return {
     subject: 'Verify your devpush email address',
-    html: `<p>Verify your email address for devpush.</p><p><a href="${escapeHtml(verifyUrl)}">Verify email address</a></p>`,
+    html: await renderNotificationEmail({
+      title: 'Verify your devpush email address',
+      to: email,
+      message: 'Verify your email address for devpush.',
+      action: { label: 'Verify email address', url: verifyUrl },
+    }),
     text: `Verify your email address for devpush.
 
 Verify email address: ${verifyUrl}
@@ -124,7 +154,7 @@ This email was intended for ${email}. If you think this is a mistake, you can sa
 export async function buildOtpEmailMessage(email: string, otp: string) {
   const [{ render }, { OtpEmailTemplate }] = await Promise.all([
     import('@react-email/render'),
-    import('@/server/email/otp-template'),
+    import('#devpush/server/email/otp-template'),
   ])
   const subject = `Your temporary code is ${otp}`
   const html = await render(
@@ -148,12 +178,17 @@ This email was intended for ${email}. If you think this is a mistake, you can sa
   }
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+export async function renderNotificationEmail(input: {
+  title: string
+  message: string
+  to: string
+  action?: { label: string; url: string }
+}) {
+  const [{ render }, { NotificationEmailTemplate }] = await Promise.all([
+    import('@react-email/render'),
+    import('./notification-template'),
+  ])
+  return render(NotificationEmailTemplate(input))
 }
 
 export async function sendTeamInviteEmail({
@@ -190,7 +225,7 @@ export async function buildTeamInviteEmailMessage({
 }) {
   const [{ render }, { TeamInviteEmailTemplate }] = await Promise.all([
     import('@react-email/render'),
-    import('@/server/email/team-invite-template'),
+    import('#devpush/server/email/team-invite-template'),
   ])
   const subject = `Join ${teamName} on devpush`
   const html = await render(

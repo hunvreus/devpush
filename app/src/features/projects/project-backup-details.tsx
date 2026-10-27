@@ -1,13 +1,13 @@
-import { isValidCron } from '@/lib/backup-cron'
-import { showSettingsConflict } from '@/lib/settings-conflict'
+import { mutationErrorOptions, afterMutation  } from '#devpush/lib/action-feedback'
+import { isValidCron } from '#devpush/lib/backup-cron'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
 import { BackupTargetList } from './backup-target-list'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { canManageTeamSettings } from '@/lib/team-role'
+import { Alert, AlertDescription } from '#devpush/components/ui/alert'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
 import { BackupPolicyDeleteDialog } from './backup-policy-delete-dialog'
-import { backupConfigSchema } from '@/lib/backup-policy-schema'
-import { formErrors } from '@/lib/form-errors'
-import type { FormErrors } from '@/lib/form-errors'
-import { afterMutation } from '@/lib/action-feedback'
+import { backupConfigSchema } from '#devpush/lib/backup-policy-schema'
+import { formErrors } from '#devpush/lib/form-errors'
+import type { FormErrors } from '#devpush/lib/form-errors'
 import { Link, useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -19,54 +19,54 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
+import { Button } from '#devpush/components/ui/button'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '#devpush/components/ui/tooltip'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupInput,
   InputGroupAddon,
-} from '@/components/ui/input-group'
-import { SettingsLayout } from '@/components/settings-layout'
+} from '#devpush/components/ui/input-group'
+import { SettingsLayout } from '#devpush/components/settings-layout'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
+} from '#devpush/components/ui/select'
+import { Switch } from '#devpush/components/ui/switch'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
 import { ProjectHeading } from './project-heading'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { setProjectContextQueryData } from '@/lib/project-context-query'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { setProjectContextQueryData } from '#devpush/lib/project-context-query'
 import {
   saveProjectBackupPolicyAction,
   deleteProjectBackupPolicyAction,
-} from '@/server/projects/functions'
+} from '#devpush/server/projects/functions'
 import type {
   ProjectBackupConfig,
   ProjectContext,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 
 import {
   backupCronPresets as cronPresets,
@@ -433,6 +433,7 @@ export function ProjectBackupDetails({
           error,
           'Unable to save backup policy. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSaving(false)
@@ -571,7 +572,7 @@ export function ProjectBackupDetails({
                   data-invalid={fieldError?.field === 'name' ? true : undefined}
                 >
                   <FieldLabel htmlFor={`backup-policy-name-${backup.id}`}>
-                    Name (required)
+                    Name
                   </FieldLabel>
                   <Input
                     id={`backup-policy-name-${backup.id}`}

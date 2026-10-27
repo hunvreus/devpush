@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   warning: vi.fn(),
 }))
-vi.mock('@/server/teams/functions', () => ({
+vi.mock('#devpush/server/teams/functions', () => ({
   acceptTeamInviteAction: mocks.accept,
   declineTeamInviteAction: mocks.decline,
 }))
@@ -95,7 +95,7 @@ test('pending acceptance blocks cancellation and duplicate submissions, then per
   await view.close()
 })
 
-vi.mock('@/lib/resource-cache', () => ({
+vi.mock('#devpush/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
 

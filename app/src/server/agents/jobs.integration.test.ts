@@ -1,6 +1,6 @@
 import { finishContainerCleanup } from './container-cleanup-state'
-import { required } from '@/test/required'
-import * as realtime from '@/server/realtime/service'
+import { required } from '#devpush/test/required'
+import * as realtime from '#devpush/server/realtime/service'
 import { createHash } from 'node:crypto'
 
 import { eq, inArray } from 'drizzle-orm'
@@ -9,8 +9,8 @@ import { claimDeployment } from './claims'
 import * as ClaimsModule from './claims'
 import { failRunningDeployments } from './deployment-state'
 
-import { closeDb, db, logsDb } from '@/server/db'
-import { deploymentLogs } from '@/server/db/log-schema'
+import { closeDb, db, logsDb } from '#devpush/server/db'
+import { deploymentLogs } from '#devpush/server/db/log-schema'
 import {
   deploymentEvents,
   agentJobs,
@@ -25,18 +25,18 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
-import { insertDeploymentEvents } from '@/test/deployment-events'
-import { appendDeploymentLogs } from '@/server/logs/deployments'
-import { pruneOrphanDeploymentLogs } from '@/server/logs/cleanup'
+} from '#devpush/server/db/schema'
+import { insertDeploymentEvents } from '#devpush/test/deployment-events'
+import { appendDeploymentLogs } from '#devpush/server/logs/deployments'
+import { pruneOrphanDeploymentLogs } from '#devpush/server/logs/cleanup'
 import {
   readProjectDeploymentLogs,
   projectHasDeploymentLogs,
-} from '@/server/projects/deployment-logs'
+} from '#devpush/server/projects/deployment-logs'
 import {
   getProjectLogsSectionContext,
   getDeploymentLogsContext,
-} from '@/server/projects/context'
+} from '#devpush/server/projects/context'
 import { currentAgentCapabilities } from './compatibility'
 import {
   claimNextAgentJob,
@@ -49,7 +49,7 @@ import {
   completeRestoreJob,
   recordDeploymentProgress,
 } from './jobs'
-import { encryptDeploymentEnvVars } from '@/server/projects/deployment-config'
+import { encryptDeploymentEnvVars } from '#devpush/server/projects/deployment-config'
 
 const touchedArtifactIds: Array<string> = []
 const touchedAgentJobIds: Array<string> = []

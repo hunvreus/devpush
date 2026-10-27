@@ -6,11 +6,13 @@ const mocks = vi.hoisted(() => ({
   namespace: vi.fn(),
   rows: vi.fn(),
 }))
-vi.mock('@/server/auth/better-auth', () => ({ auth: { api: { getSession: mocks.auth } } }))
-vi.mock('@/server/runtime/platform-env', () => ({
+vi.mock('#devpush/server/auth/better-auth', () => ({
+  auth: { api: { getSession: mocks.auth } },
+}))
+vi.mock('#devpush/server/runtime/platform-env', () => ({
   getWorkspaceUpdates: mocks.namespace,
 }))
-vi.mock('@/server/db', () => ({
+vi.mock('#devpush/server/db', () => ({
   db: {
     select: () => ({
       from: () => ({

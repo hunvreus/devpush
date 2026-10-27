@@ -6,8 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { ReactNode, Ref } from 'react'
 import { TeamPage } from './team-header'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { projectContext } from '@/test/project-context'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+import { projectContext } from '#devpush/test/project-context'
 
 const hydration = vi.hoisted(() => ({ ready: true }))
 const navigation = vi.hoisted(() => ({ deploymentId: '' }))
@@ -15,7 +15,7 @@ const inviteActions = vi.hoisted(() => ({
   decline: vi.fn(),
   invalidate: vi.fn(),
 }))
-vi.mock('@/server/teams/functions', () => ({
+vi.mock('#devpush/server/teams/functions', () => ({
   acceptUserTeamInviteAction: vi.fn(),
   declineUserTeamInviteAction: inviteActions.decline,
 }))
@@ -50,10 +50,10 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }))
 vi.mock('./new-team-dialog', () => ({ NewTeamDialogLauncher: () => null }))
-vi.mock('@/features/repositories/new-project-dialog-launcher', () => ({
+vi.mock('#devpush/features/repositories/new-project-dialog-launcher', () => ({
   NewProjectDialogLauncher: () => null,
 }))
-vi.mock('@/features/auth/sign-out-menu-item', () => ({
+vi.mock('#devpush/features/auth/sign-out-menu-item', () => ({
   SignOutMenuItem: () => null,
 }))
 

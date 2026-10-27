@@ -6,14 +6,16 @@ const mocks = vi.hoisted(() => ({
   session: vi.fn(),
   userContext: vi.fn(),
 }))
-vi.mock('@/server/config', () => ({ config: mocks.config }))
-vi.mock('@/server/auth/auth-methods', () => ({
+vi.mock('#devpush/server/config', () => ({ config: mocks.config }))
+vi.mock('#devpush/server/auth/auth-methods', () => ({
   getAuthMethods: () => ({ email: true, github: false, google: false }),
 }))
-vi.mock('@/server/auth/session.server', () => ({
+vi.mock('#devpush/server/auth/session.server', () => ({
   getAuthSession: mocks.session,
 }))
-vi.mock('@/server/teams/service', () => ({ getUserContext: mocks.userContext }))
+vi.mock('#devpush/server/teams/service', () => ({
+  getUserContext: mocks.userContext,
+}))
 vi.mock('@tanstack/react-start', () => ({
   createServerFn: () => ({ handler: (handler: () => unknown) => handler }),
 }))

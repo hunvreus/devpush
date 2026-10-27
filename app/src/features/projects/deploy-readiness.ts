@@ -1,4 +1,4 @@
-import type { ProjectContext } from '@/server/projects/types'
+import type { ProjectContext } from '#devpush/server/projects/types'
 
 export function getDeployBlockReason(
   environment: ProjectContext['environment'],

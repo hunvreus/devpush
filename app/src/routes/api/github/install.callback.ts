@@ -1,11 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { auth } from '@/server/auth/better-auth'
+import { auth } from '#devpush/server/auth/better-auth'
 import {
   getAppInstallation,
   upsertGitHubInstallation,
-} from '@/server/github/service'
-import { verifyGitHubInstallState } from '@/server/github/install-state'
+} from '#devpush/server/github/service'
+import { verifyGitHubInstallState } from '#devpush/server/github/install-state'
 
 export const Route = createFileRoute('/api/github/install/callback')({
   server: {

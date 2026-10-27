@@ -2,10 +2,10 @@ import {
   advanceProjectSettings,
   projectSettingsGuard,
   rethrowSettingsConflict,
-} from '@/server/settings-version'
+} from '#devpush/server/settings-version'
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import { aliases, domains } from '@/server/db/schema'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { aliases, domains } from '#devpush/server/db/schema'
 
 export async function replaceProjectDomains(
   store: AtomicStore,

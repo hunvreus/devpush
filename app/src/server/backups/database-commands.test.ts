@@ -7,7 +7,7 @@ import {
 import {
   backupDatabaseEngines,
   databaseArtifactTarget,
-} from '@/lib/backup-database'
+} from '#devpush/lib/backup-database'
 
 test.each(backupDatabaseEngines)(
   '$label generates syntactically valid paired commands',

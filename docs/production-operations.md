@@ -4,8 +4,8 @@ description: Run, upgrade and recover a Docker Compose control plane.
 
 # Install with Docker Compose
 
-The Docker Compose deployment runs the Node app, a one-shot migrator and an
-external scheduler. Applications run on separate agent-managed servers.
+The Docker Compose deployment runs the Node app with its built-in scheduler and a
+one-shot migrator. Applications run on separate agent-managed servers.
 
 ## Install
 
@@ -43,33 +43,36 @@ curl --fail http://localhost:7429/api/health
 
 If you changed `DEVPUSH_HTTP_PORT`, use that port in the health request.
 Expect a successful health response, then sign in at the configured public URL.
-Check the app, migration and scheduler logs if startup fails:
+Check the app and migration logs if startup fails:
 
 ```sh
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml logs --tail=100 app migrate scheduler
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml logs --tail=100 app migrate
 ```
 
 Restrict access in [Admin](/docs/administration/), arrange installation backups,
 then [connect a server and deploy an app](/docs/getting-started/).
 
+## Runtime permissions
+
+The application, migrator and optional database-backup service run as the image's
+unprivileged `node` user (UID/GID 1000). New named volumes inherit writable storage
+directory ownership. Existing volumes or bind mounts created by older root-based
+images must grant UID/GID 1000 access to the database, upload and backup paths
+before upgrading. Stop the app and back up the volumes before changing ownership;
+do not make them world-writable or recursively change unrelated host paths.
+
 ## Deploy and upgrade
 
-Main and log databases start at their respective `0000_initial` release baselines
-and upgrade forward from there. Databases from the older chain predating
-`0000_initial` need backup/export and fresh stores; the post-baseline migrations
-listed below are supported upgrades.
-
-If upgrading from the Admin-editable sign-in message, copy its text to
-`DEVPUSH_SIGN_IN_MESSAGE` before applying `0002_remove_installation_settings`.
-That migration removes the old message table. Pass the variable into the app's
-environment; see [Sign-in message](/docs/administration/#sign-in-message).
+Fresh databases start from `0000_initial`; later schema changes are additive
+migrations. Apply the migration files shipped with the same application version,
+and never edit a migration already recorded as applied.
 
 Pin the image or source revision you deploy. Before every upgrade, create a
 backup of both SQLite stores and review the new SQL files under
 `app/src/server/db/migrations-sqlite` and `migrations-logs`. A one-shot `migrate` Compose service runs
-the bundled migration runner and publishes agent binaries to configured object
-storage before the app starts. The app process never mutates the schema and
-production never runs `drizzle-kit push`. Both maintenance runners are bundled
+the bundled migration runner before the app starts. Agent downloads use pinned
+GitHub Release assets; the Docker image also contains its offline Linux binaries. The app process never mutates the schema and
+production never runs `drizzle-kit push`. Migration and database-backup runners are bundled
 during the image build, so the runtime does not contain the development
 dependency tree or require `tsx`.
 
@@ -91,7 +94,7 @@ the reviewed release revision, then run:
 ```sh
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
 curl --fail http://localhost:7429/api/health
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml logs --tail=100 app migrate scheduler
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml logs --tail=100 app migrate
 ```
 
 Use the configured `DEVPUSH_HTTP_PORT` if changed. For prebuilt images, set
@@ -102,19 +105,15 @@ and app health before opening traffic. Never replace encryption keys on upgrade.
 
 ### Release database baseline
 
-The main database starts with `0000_initial.sql`, containing the application/OAuth
-schema, indexes, backup-storage safeguards, settings-version triggers and credential
-revocation triggers. Supported later migrations apply in order:
-`0001_installation_settings` added the old message table, and
-`0002_remove_installation_settings` removes it in favor of environment configuration. The logs database has its
-own `0000_initial.sql` baseline for deployment/runtime/operation logs and cleanup
-positions. Drizzle snapshots/journals match these baselines; subsequent schema
-changes must add migrations without rewriting applied files.
+The main database's sole `0000_initial.sql` contains the complete current
+application/OAuth schema, profile onboarding, indexes, backup-storage safeguards,
+settings-version triggers and credential-revocation triggers. The logs database
+has its own single `0000_initial.sql` for deployment/runtime/operation logs and
+cleanup positions. Drizzle snapshots and journals match these baselines.
+Future schema changes append migrations rather than rewriting an applied baseline.
 
-The earlier chain predating `0000_initial` is retired. This is different from the
-supported `0001`/`0002` migrations following that baseline. Do not apply this baseline
-to a database created by that chain. Stop the app and scheduler, back up/export
-both stores, and prepare fresh databases before switching to this release.
+All earlier pre-release chains are retired. Even an old `0000_initial` filename
+does not establish compatibility: the recorded migration checksum must match.
 SQLite/libSQL runners reject an unknown or missing migration history on a
 populated database before applying SQL. For D1, use fresh main/log databases and
 update their bindings. There is no automatic pre-release data conversion.
@@ -128,14 +127,17 @@ protocol.
 ## Health and maintenance
 
 `GET /api/health` returns 200 only when the app can query the main database. The
-production Compose healthcheck uses it. The scheduler calls an authenticated
-maintenance endpoint hourly to expire invites, process account cleanup, and prune monitoring, logs and API/OAuth history in bounded batches. Monitoring retention defaults to seven days and is configurable with `DEVPUSH_MONITORING_RETENTION_DAYS`.
+production Compose healthcheck uses it. The production Node app runs a minute-aligned
+in-process scheduler. It queues due backups each minute when enabled and runs
+maintenance on its first tick, then once per UTC hour after success. Failed runs
+log an error and retry on the next minute tick. Runs do not overlap within the
+process, and shutdown stops the timer and waits for active work. Maintenance expires
+invites, processes cleanup, and prunes monitoring, logs and API/OAuth history.
+Monitoring retention defaults to seven days and is configurable with
+`DEVPUSH_MONITORING_RETENTION_DAYS`. Development servers do not start the timer.
 
-The Compose scheduler calls maintenance on its first minute tick and once per UTC
-hour after success. Failed calls log an error and retry on the next minute tick;
-backup scheduling failures do not prevent maintenance. Each request has a
-five-second connection timeout and a 45-second overall timeout.
-`DEVPUSH_CRON_SECRET` is required by production Compose.
+Cloudflare keeps its native Cron Trigger. Both targets invoke the same background
+functions directly; neither needs an HTTP request or cron secret for built-in scheduling.
 
 API replay records become eligible for pruning after 24 hours and accepted
 operation audit records after 30 days. Expired OAuth access/refresh tokens are
@@ -157,8 +159,8 @@ cleanup needs operator resolution before collection can finish.
 
 ### Custom scheduler
 
-The supplied Compose companion calls these endpoints automatically. If replacing
-it, send `Authorization: Bearer YOUR_CRON_SECRET` to:
+The built-in scheduler does not use these endpoints. For manual or external
+invocations, configure `DEVPUSH_CRON_SECRET` and send `Authorization: Bearer YOUR_CRON_SECRET` to:
 
 | Endpoint | Cadence |
 | --- | --- |
@@ -210,18 +212,18 @@ stores. Snapshots remain in `control_plane_backups` for
 `DEVPUSH_DB_BACKUP_RETENTION_DAYS` days (default seven). The backup API includes
 committed WAL data; copying only a live `.sqlite` file is unsafe. Each snapshot
 is consistent independently, but the pair is not an atomic cross-store snapshot.
-For a coordinated snapshot, stop the app and scheduler before backing up.
+For a coordinated snapshot, stop the app before backing up.
 Copy backups off-host and test restoration.
 
 This profile backs up databases only. The separate `app_uploads` volume contains
-local avatars and published agent binaries; database snapshots do not contain
-those files. Preserve that volume and installation configuration/secrets with
-your host backup tooling. For a coordinated recovery point, stop the app and
-scheduler while snapshotting both database stores and uploads. If object storage
+local avatars; database snapshots do not contain those files. Agent binaries
+come from the pinned release or the built image, not this volume. Preserve that volume and installation configuration/secrets with
+your host backup tooling. For a coordinated recovery point, stop the app
+while snapshotting both database stores and uploads. If object storage
 is configured, use its backup/versioning tooling instead. Restore uploads before
 reopening the app so database object references remain valid.
 
-To restore, stop the app, scheduler, and backup service; replace both database
+To restore, stop the app and backup service; replace both database
 files in `control_plane_data` with the selected snapshots, remove obsolete WAL
 and SHM files while all connections are closed, then start the pinned image.
 Do not restore over an open SQLite connection. D1 installations use D1 recovery and

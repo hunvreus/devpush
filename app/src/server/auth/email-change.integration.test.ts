@@ -2,16 +2,16 @@ import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { makeSignature } from 'better-auth/crypto'
 import { SignJWT } from 'jose'
-import { db, closeDb } from '@/server/db'
-import { allowlist, session, user } from '@/server/db/schema'
-import { config } from '@/server/config'
+import { db, closeDb } from '#devpush/server/db'
+import { allowlist, session, user } from '#devpush/server/db/schema'
+import { config } from '#devpush/server/config'
 import { auth } from './better-auth'
 
 const email = vi.hoisted(() => ({
   change: vi.fn().mockResolvedValue(undefined),
   verify: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/server/email/service', () => ({
+vi.mock('#devpush/server/email/service', () => ({
   sendEmailChangeEmail: email.change,
   sendEmailVerificationEmail: email.verify,
   sendOtpEmail: vi.fn(),

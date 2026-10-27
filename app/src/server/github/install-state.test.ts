@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { SignJWT } from 'jose'
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 
 import {
   createGitHubInstallState,

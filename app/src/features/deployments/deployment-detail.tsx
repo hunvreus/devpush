@@ -16,35 +16,35 @@ import {
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Alert,
   AlertTitle,
   AlertDescription,
   AlertAction,
-} from '@/components/ui/alert'
+} from '#devpush/components/ui/alert'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { ProjectHeading } from '@/features/projects/project-heading'
-import { routeUrl } from '@/lib/urls'
+} from '#devpush/components/ui/dropdown-menu'
+import { ProjectHeading } from '#devpush/features/projects/project-heading'
+import { routeUrl } from '#devpush/lib/urls'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import { DeploymentActions } from '@/features/deployments/deployment-actions'
-import { LogScrollArea } from '@/features/logs/log-scroll-area'
-import { ServerAvatar } from '@/features/servers/server-avatar'
+} from '#devpush/components/ui/tooltip'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import { DeploymentActions } from '#devpush/features/deployments/deployment-actions'
+import { LogScrollArea } from '#devpush/features/logs/log-scroll-area'
+import { ServerAvatar } from '#devpush/features/servers/server-avatar'
 import type {
-  DeploymentContext,
+  PluginContext,
   DeploymentSummary,
-} from '@/server/projects/types'
-import { deploymentLogsQueryOptions } from '@/lib/deployment-logs-query'
+} from '#devpush/server/projects/types'
+import { deploymentLogsQueryOptions } from '#devpush/lib/deployment-logs-query'
 
-export function DeploymentDetail({ context }: { context: DeploymentContext }) {
+export function DeploymentDetail({ context }: { context: PluginContext }) {
   const { deployment, project } = context
   const queryClient = useQueryClient()
   const [now, setNow] = useState(() => Date.now())
@@ -417,7 +417,7 @@ export function DeploymentLogsPending() {
 function DeploymentStatus({
   status,
 }: {
-  status: DeploymentContext['deployment']['status']
+  status: PluginContext['deployment']['status']
 }) {
   if (status === 'succeeded') {
     return (
@@ -474,7 +474,7 @@ function formatDuration({
   finishedAt: string | null
   now: number
   startedAt: string | null
-  status: DeploymentContext['deployment']['status']
+  status: PluginContext['deployment']['status']
 }) {
   const start = new Date(startedAt ?? createdAt).getTime()
   const end =
@@ -527,9 +527,7 @@ function shortDeploymentId(id: string) {
   return id.slice(0, 7)
 }
 
-function getDeploymentFallbackMessage(
-  deployment: DeploymentContext['deployment'],
-) {
+function getDeploymentFallbackMessage(deployment: PluginContext['deployment']) {
   if (deployment.errorMessage) {
     return deployment.errorMessage
   }

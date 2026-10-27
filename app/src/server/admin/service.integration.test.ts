@@ -1,9 +1,9 @@
 import { isInstallationAdmin } from './access'
-import { required } from '@/test/required'
+import { required } from '#devpush/test/required'
 import { eq, sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeEach, expect, test } from 'vitest'
-import { config } from '@/server/config'
-import { closeDb, db } from '@/server/db'
+import { config } from '#devpush/server/config'
+import { closeDb, db } from '#devpush/server/db'
 import {
   allowlist,
   session,
@@ -11,9 +11,9 @@ import {
   userCleanupJobs,
   teams,
   teamMembers,
-} from '@/server/db/schema'
-import { deleteUserState } from '@/server/users/deletion-state'
-import { deleteUserAccount } from '@/server/users/service'
+} from '#devpush/server/db/schema'
+import { deleteUserState } from '#devpush/server/users/deletion-state'
+import { deleteUserAccount } from '#devpush/server/users/service'
 import {
   banUser,
   unbanUser,
@@ -135,14 +135,12 @@ test('ban and unban preserve the default team', async () => {
   await db
     .insert(teams)
     .values({ id: teamId, name: 'Default team', slug: teamId })
-  await db
-    .insert(teamMembers)
-    .values({
-      id: crypto.randomUUID(),
-      teamId,
-      userId: 'target',
-      role: 'owner',
-    })
+  await db.insert(teamMembers).values({
+    id: crypto.randomUUID(),
+    teamId,
+    userId: 'target',
+    role: 'owner',
+  })
   await db
     .update(user)
     .set({ defaultTeamId: teamId })

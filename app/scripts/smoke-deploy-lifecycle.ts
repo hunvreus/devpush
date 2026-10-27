@@ -1,4 +1,4 @@
-import { buildRuntimeId } from '@/lib/runtime-id'
+import { buildRuntimeId } from '#devpush/lib/runtime-id'
 import { randomUUID } from 'node:crypto'
 
 import { eq } from 'drizzle-orm'
@@ -8,14 +8,14 @@ import {
   completeDeploymentJob,
   failStaleRunningDeployments,
   recordDeploymentProgress,
-} from '@/server/agents/jobs'
+} from '#devpush/server/agents/jobs'
 import {
   currentAgentCapabilities,
   currentAgentProtocolVersion,
-} from '@/server/agents/compatibility'
-import { readProjectDeploymentLogs } from '@/server/projects/deployment-logs'
-import { db, logsDb } from '@/server/db'
-import { deploymentLogs, runtimeLogs } from '@/server/db/log-schema'
+} from '#devpush/server/agents/compatibility'
+import { readProjectDeploymentLogs } from '#devpush/server/projects/deployment-logs'
+import { db, logsDb } from '#devpush/server/db'
+import { deploymentLogs, runtimeLogs } from '#devpush/server/db/log-schema'
 import {
   aliases,
   environments,
@@ -26,19 +26,19 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   createDeploymentsForGitHubPush,
   createManualDeployment,
-} from '@/server/projects/deployments'
-import { encryptDeploymentEnvVars } from '@/server/projects/deployment-config'
-import { encryptProjectEnvVars } from '@/server/projects/project-env-vars'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+} from '#devpush/server/projects/deployments'
+import { encryptDeploymentEnvVars } from '#devpush/server/projects/deployment-config'
+import { encryptProjectEnvVars } from '#devpush/server/projects/project-env-vars'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
 import {
   createPendingServer,
   recordAgentHeartbeat,
   registerAgent,
-} from '@/server/servers/service'
+} from '#devpush/server/servers/service'
 
 function extractAgentToken(installCommand: string) {
   const match = installCommand.match(/\/api\/install\/agent\/([^'\s|]+)/)

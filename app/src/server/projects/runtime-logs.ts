@@ -1,9 +1,9 @@
 import { and, desc, eq, gte, like, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
-import { db, logsDb } from '@/server/db'
-import { runtimeLogs } from '@/server/db/log-schema'
-import { environments, projects } from '@/server/db/schema'
+import { db, logsDb } from '#devpush/server/db'
+import { runtimeLogs } from '#devpush/server/db/log-schema'
+import { environments, projects } from '#devpush/server/db/schema'
 
 type Filters = {
   projectId: string

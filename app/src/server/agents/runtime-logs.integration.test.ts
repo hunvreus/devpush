@@ -1,10 +1,10 @@
-import { required } from '@/test/required'
+import { required } from '#devpush/test/required'
 import { createHash } from 'node:crypto'
 
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
-import { closeDb, db, logsDb } from '@/server/db'
+import { closeDb, db, logsDb } from '#devpush/server/db'
 import {
   deployments,
   environments,
@@ -13,11 +13,12 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
-import { runtimeLogs } from '@/server/db/log-schema'
-import { getProjectLogsSectionContext } from '@/server/projects/context'
-import { recordAgentHeartbeat } from '@/server/servers/service'
+} from '#devpush/server/db/schema'
+import { runtimeLogs } from '#devpush/server/db/log-schema'
+import { getProjectLogsSectionContext } from '#devpush/server/projects/context'
+import { recordAgentHeartbeat } from '#devpush/server/servers/service'
 import { recordRuntimeLogs } from './runtime-logs'
+import * as pluginServices from '#devpush/server/plugins/services.server'
 
 const touchedRuntimeLogIds: Array<string> = []
 const touchedEnvironmentIds: Array<string> = []
@@ -36,6 +37,48 @@ afterAll(async () => {
 })
 
 describe('runtime log ingestion', () => {
+  test('quota refusals acknowledge the whole batch, store a visible notice and deduplicate retries without spending allowance', async () => {
+    const { serverId, token } = await createFixture()
+    const runtimeId = 'dp_project_production'
+    vi.spyOn(pluginServices, 'getPluginServices').mockReturnValue({
+      runtimeLogLimits: () => ({
+        bytesPerMinute: 1000,
+        bytesPerDay: 1000,
+        rowsPerDay: 1,
+      }),
+    })
+    const first = {
+      runtimeId,
+      service: 'web',
+      observedAt: new Date().toISOString(),
+      content: 'one',
+    }
+    expect(
+      await recordRuntimeLogs({ serverId, token, logs: [first] }),
+    ).toMatchObject({ accepted: 1, inserted: 1 })
+    expect(
+      await recordRuntimeLogs({ serverId, token, logs: [first] }),
+    ).toMatchObject({ accepted: 1, inserted: 0 })
+    const second = { ...first, content: 'two' }
+    expect(
+      await recordRuntimeLogs({ serverId, token, logs: [second] }),
+    ).toMatchObject({ ok: true, accepted: 1, dropped: 1 })
+    const stored = await logsDb
+      .select()
+      .from(runtimeLogs)
+      .where(eq(runtimeLogs.serverId, serverId))
+    expect(stored.some((row) => row.content === 'two')).toBe(false)
+    expect(
+      stored.some(
+        (row) =>
+          row.service === 'devpush' && row.content.includes('limit reached'),
+      ),
+    ).toBe(true)
+    expect(
+      await recordRuntimeLogs({ serverId, token, logs: [second] }),
+    ).toMatchObject({ ok: true, accepted: 1, inserted: 0, dropped: 1 })
+  })
+
   test.each(['replaced', 'deleted'] as const)(
     'delivers captured %s-runtime logs only from their historical server',
     async (state) => {

@@ -1,8 +1,8 @@
 import { and, eq, or, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
-import type { AtomicStore } from '@/server/db/atomic'
-import { deployments, deploymentEvents } from '@/server/db/schema'
-import * as schema from '@/server/db/schema'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { deployments, deploymentEvents } from '#devpush/server/db/schema'
+import * as schema from '#devpush/server/db/schema'
 
 export async function finishDeployment(
   store: Pick<BaseSQLiteDatabase<'async', unknown, typeof schema>, 'update'> &

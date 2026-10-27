@@ -9,7 +9,7 @@ This checks the production Compose file, builds the app image, and verifies that
 the runtime image contains:
 
 - the bundled Linux devpush-agent binary used by the server installer
-- the standalone migration and agent-publication runners, plus SQL migrations
+- the standalone migration and database-backup runners, plus SQL migrations
 - the built TanStack Start server entrypoint
 - no development dependency tree or TypeScript runtime
 
@@ -70,6 +70,9 @@ compose --env-file "$env_file" -f deploy/compose.production.yml build app
 step "Checking production runtime image"
 docker run --rm "$image" sh -lc '
   set -euo pipefail
+  test "$(id -u)" -ne 0
+  test -w /app/storage
+  test -w /repo/app/public/uploads
   test -x /repo/bin/devpush-agent-linux-amd64
   test -x /repo/bin/devpush-agent-linux-arm64
   case "$(uname -m)" in
@@ -80,19 +83,18 @@ docker run --rm "$image" sh -lc '
   test -f /repo/app/.output/server/index.mjs
   test -f /repo/app/.maintenance/migrate.mjs
   test -f /repo/app/.maintenance/migrate.mjs.map
-  test -f /repo/app/.maintenance/sync-agent-binaries.mjs
-  test -f /repo/app/.maintenance/sync-agent-binaries.mjs.map
   test -f /repo/app/src/server/db/migrations-sqlite/meta/_journal.json
   test -f /repo/app/src/server/db/migrations-logs/meta/_journal.json
   test -f /repo/app/.maintenance/backup-sqlite.mjs
   test ! -e /repo/node_modules
   test -L /repo/app/node_modules
   test ! -e /repo/app/scripts/migrate.ts
+  ! command -v npm >/dev/null
+  ! command -v yarn >/dev/null
+  ! command -v corepack >/dev/null
   ! command -v pnpm >/dev/null
   ! command -v tsx >/dev/null
   node --check /repo/app/.maintenance/migrate.mjs
-  node --check /repo/app/.maintenance/sync-agent-binaries.mjs
-  node /repo/app/.maintenance/sync-agent-binaries.mjs
 '
 
 missing_database_output="$(docker run --rm "$image" node .maintenance/migrate.mjs 2>&1 || true)"
@@ -105,8 +107,8 @@ step "Exercising production migrations and health check"
 probe_id="devpush-production-probe-${RANDOM:-0}-$$"
 probe_network="${probe_id}-net"
 probe_volume="${probe_id}-data"
-probe_store="${probe_id}-store"
 probe_app="${probe_id}-app"
+probe_cron_secret="production-image-validation-cron-secret"
 probe_dir="$(mktemp -d)"
 
 # Keep real operator configuration out of the disposable Compose probe.
@@ -117,10 +119,10 @@ probe_compose() (
   export DEVPUSH_PRODUCTION_IMAGE="$image"
   compose -p "$probe_id" --env-file "$probe_dir/compose.env" -f deploy/compose.production.yml "$@"
 )
-cat > "$probe_dir/compose.env" <<'EOF'
+cat > "$probe_dir/compose.env" <<EOF
 BETTER_AUTH_SECRET=production-image-validation-auth-secret
 DEVPUSH_SECRET_ENCRYPTION_KEY=production-image-validation-encryption-secret
-DEVPUSH_CRON_SECRET=production-image-validation-cron-secret
+DEVPUSH_CRON_SECRET=$probe_cron_secret
 DEVPUSH_BASE_URL=http://localhost:3000
 DEVPUSH_HTTP_PORT=127.0.0.1:0
 DEVPUSH_SIGN_IN_MESSAGE="Compose probe: sign in with your work email."
@@ -129,7 +131,7 @@ EOF
 cleanup_probe() {
   probe_compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$probe_dir"
-  docker rm -f "$probe_app" "$probe_store" >/dev/null 2>&1 || true
+  docker rm -f "$probe_app" >/dev/null 2>&1 || true
   docker volume rm "$probe_volume" >/dev/null 2>&1 || true
   docker network rm "$probe_network" >/dev/null 2>&1 || true
 }
@@ -138,14 +140,6 @@ trap cleanup_probe EXIT INT TERM
 docker network create "$probe_network" >/dev/null
 docker volume create "$probe_volume" >/dev/null
 
-docker run -d \
-  --name "$probe_store" \
-  --network "$probe_network" \
-  --network-alias object-store \
-  --network-alias devpush.object-store \
-  "$image" \
-  node -e "const fs=require('node:fs');require('node:http').createServer((request,response)=>{let size=0;request.on('data',chunk=>{size+=chunk.length});request.on('end',()=>{const signed=request.headers.authorization?.startsWith('AWS4-HMAC-SHA256 ')?'signed':'unsigned';if(request.method==='PUT')fs.appendFileSync('/tmp/requests',request.method+' '+request.url+' '+size+' '+signed+'\\n');response.statusCode=200;response.end()})}).listen(9000,'0.0.0.0')" >/dev/null
-
 docker run --rm \
   --network "$probe_network" \
   -v "$probe_volume:/app/storage" \
@@ -153,37 +147,6 @@ docker run --rm \
   -e DEVPUSH_LOG_DATABASE_PATH=/app/storage/logs.sqlite \
   "$image" \
   node --enable-source-maps /repo/app/.maintenance/migrate.mjs
-
-store_ready=false
-for _ in $(seq 1 30); do
-  if docker exec "$probe_store" wget -qO- http://127.0.0.1:9000 >/dev/null 2>&1; then
-    store_ready=true
-    break
-  fi
-  sleep 1
-done
-if [[ "$store_ready" != "true" ]]; then
-  docker logs "$probe_store" >&2
-  echo "Production validation object store did not become ready." >&2
-  exit 1
-fi
-
-docker run --rm \
-  --network "$probe_network" \
-  -e DEVPUSH_STORAGE_ENDPOINT=http://object-store:9000 \
-  -e DEVPUSH_STORAGE_REGION=auto \
-  -e DEVPUSH_STORAGE_BUCKET=devpush \
-  -e DEVPUSH_STORAGE_ACCESS_KEY_ID=validation \
-  -e DEVPUSH_STORAGE_SECRET_ACCESS_KEY=validation-secret \
-  "$image" \
-  node --enable-source-maps /repo/app/.maintenance/sync-agent-binaries.mjs
-
-docker exec "$probe_store" sh -ec '
-  test "$(wc -l < /tmp/requests)" -eq 2
-  grep -q "devpush-agent-linux-amd64" /tmp/requests
-  grep -q "devpush-agent-linux-arm64" /tmp/requests
-  awk "\$1 != \"PUT\" || \$3 <= 0 || \$4 != \"signed\" { exit 1 }" /tmp/requests
-'
 
 docker run -d \
   --name "$probe_app" \
@@ -216,7 +179,7 @@ fi
 step "Checking login and scheduled maintenance"
 docker exec "$probe_app" curl --fail --silent http://127.0.0.1:3000/auth/login >/dev/null
 docker exec "$probe_app" curl --fail --silent --request POST \
-  --header 'Authorization: Bearer production-image-validation-cron-secret' \
+  --header "Authorization: Bearer $probe_cron_secret" \
   http://127.0.0.1:3000/api/cron/maintenance >/dev/null
 
 step "Checking online backups and restored snapshots"

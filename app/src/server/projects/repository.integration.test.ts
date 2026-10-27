@@ -1,17 +1,17 @@
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { closeDb, db } from '@/server/db'
+import { closeDb, db } from '#devpush/server/db'
 import {
   projects,
   teams,
   teamMembers,
   user,
   githubInstallations,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import { createProjectFromGitHub } from './repository'
 
 const github = vi.hoisted(() => ({ detect: vi.fn(), file: vi.fn() }))
-vi.mock('@/server/github/service', () => ({
+vi.mock('#devpush/server/github/service', () => ({
   getGitHubAccount: vi.fn().mockResolvedValue({ accessToken: 'fixture' }),
   listUserInstallations: vi.fn().mockResolvedValue([{ id: 42 }]),
   upsertGitHubInstallation: vi.fn(),

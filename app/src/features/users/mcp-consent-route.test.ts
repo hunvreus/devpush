@@ -1,11 +1,11 @@
 import { expect, test, vi } from 'vitest'
-import { Route } from '@/routes/oauth.consent'
+import { Route } from '#devpush/routes/oauth.consent'
 
 const mocks = vi.hoisted(() => ({
   consent: vi.fn(),
   redirect: vi.fn((options: unknown) => options),
 }))
-vi.mock('@/server/mcp/functions', () => ({
+vi.mock('#devpush/server/mcp/functions', () => ({
   getMcpConsentAction: mocks.consent,
   completeMcpConsentAction: vi.fn(),
 }))

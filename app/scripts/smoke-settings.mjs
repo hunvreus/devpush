@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { makeSignature } from 'better-auth/crypto'
 
 import { createSmokeRpc } from './smoke-rpc.mjs'
+import { smokeRealtime } from './smoke-realtime.mjs'
 
 /** Exercise the actual Start HTTP transport against the disposable Node fixture. */
 export async function smokeSettings({
@@ -11,6 +12,7 @@ export async function smokeSettings({
   query,
   appDir,
   development = false,
+  modulePrefix = 'src',
 }) {
   const userId = randomUUID(),
     teamId = randomUUID(),
@@ -59,13 +61,15 @@ export async function smokeSettings({
     accept: 'application/json',
     'x-tsr-serverFn': 'true',
   }
+  if (development)
+    await smokeRealtime({ origin, teamSlug: teamId, cookie: headers.cookie })
   const save = await createSmokeRpc({
     origin,
     headers,
     appDir,
     development,
     name: 'saveProjectSettings',
-    modulePath: 'src/server/projects/functions.ts',
+    modulePath: `${modulePrefix}/server/projects/functions.ts`,
   })
   const draft = {
     teamSlug: teamId,

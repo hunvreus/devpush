@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent } from '#devpush/components/ui/dialog'
 import { NewProjectPendingContent } from './new-project-pending'
 
 const NewProjectDialogOverlayContent = lazy(() =>

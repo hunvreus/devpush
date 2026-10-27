@@ -1,3 +1,4 @@
+import { useImageUploads } from '#devpush/components/storage-capabilities'
 import { useRef, useState } from 'react'
 import {
   ImageUpIcon,
@@ -5,14 +6,18 @@ import {
   Trash2Icon,
   Undo2Icon,
 } from 'lucide-react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from '#devpush/components/ui/avatar'
+import { Button } from '#devpush/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider,
-} from '@/components/ui/tooltip'
+} from '#devpush/components/ui/tooltip'
 
 export function ProfilePicture({
   image,
@@ -33,6 +38,7 @@ export function ProfilePicture({
   onChange: (image: string | null) => void
   id?: string
 }) {
+  const imageUploads = useImageUploads()
   const input = useRef<HTMLInputElement>(null)
   const uploading = useRef(false)
   const [removed, setRemoved] = useState<string | null>(null)
@@ -48,6 +54,19 @@ export function ProfilePicture({
       uploading.current = false
     }
   }
+  if (!imageUploads)
+    return (
+      <Avatar className="size-9">
+        <AvatarImage
+          src={image ?? undefined}
+          alt={name || email}
+          referrerPolicy="no-referrer"
+        />
+        <AvatarFallback>
+          {(name || email).trim().slice(0, 1).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+    )
   return (
     <TooltipProvider>
       <div className="flex items-center gap-3">

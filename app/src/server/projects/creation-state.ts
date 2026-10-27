@@ -1,9 +1,9 @@
 import { sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
-import type { AtomicStore } from '@/server/db/atomic'
-import * as schema from '@/server/db/schema'
-import type { ApiMutationAdmission } from '@/server/api/admission'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import * as schema from '#devpush/server/db/schema'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
 
 export async function insertProject(
   store: Pick<BaseSQLiteDatabase<'async', unknown, typeof schema>, 'insert'> &

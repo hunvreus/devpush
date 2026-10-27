@@ -18,23 +18,45 @@ data/
 backups/
 !app/src/server/backups/
 !app/src/server/backups/**
-__pycache__/
 
 # Dependencies and build output
 node_modules/
 .pnpm-store/
 .output/
 .tanstack/
+.devpush/
 .tmp/
 dist/
 coverage/
-
-# Python
-*.py[cod]
-*$py.class
 
 # Go
 bin/
 agent/devpush-agent
 *.test
 .data/
+
+# Credentials and generated artifacts, at any depth
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+id_ecdsa
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+*.tgz
+*.tar
+*.tar.gz
+/release/
+.wrangler/
+.nitro/
+.cache/
+.cloudflare-secrets*.json
+.cloudflare-database.env

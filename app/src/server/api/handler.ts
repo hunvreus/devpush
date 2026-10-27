@@ -1,10 +1,10 @@
 import { ZodError } from 'zod'
-import { PublicError } from '@/lib/public-error'
-import { enforceRateLimit } from '@/server/http/rate-limit'
+import { PublicError } from '#devpush/lib/public-error'
+import { enforceRateLimit } from '#devpush/server/http/rate-limit'
 import {
   readRequestText,
   RequestBodyTooLargeError,
-} from '@/server/http/request-body'
+} from '#devpush/server/http/request-body'
 import { authenticateApiKey } from './credentials'
 import { ApiError } from './errors'
 import {
@@ -13,7 +13,7 @@ import {
 } from './operation-contract'
 import type { PublicApiOperation } from './operation-contract'
 import { executeApiOperation } from './operations'
-import { safeErrorDiagnostics } from '@/server/http/error-diagnostics'
+import { safeErrorDiagnostics } from '#devpush/server/http/error-diagnostics'
 
 const apiBodyLimit = 128 * 1024
 
@@ -206,10 +206,10 @@ function apiErrorStatus(error: unknown) {
     return 403
   if (error.code === 'RATE_LIMITED') return 429
   if (
-    error.code === 'SUBSCRIPTION_REQUIRED' ||
-    error.code === 'PLAN_LIMIT_REACHED'
+    error.code === 'WORKSPACE_RESTRICTED' ||
+    error.code === 'WORKSPACE_LIMIT_REACHED'
   )
-    return 402
+    return 403
   if (error.code === 'RESOURCE_BUSY') return 409
   if (
     error.code.endsWith('_NOT_FOUND') ||
@@ -229,7 +229,16 @@ function apiErrorStatus(error: unknown) {
 
 export function apiErrorBody(error: unknown, requestId: string) {
   if (error instanceof ApiError || error instanceof PublicError)
-    return { error: { code: error.code, message: error.message, requestId } }
+    return {
+      error: {
+        code: error.code,
+        message: error.message,
+        requestId,
+        ...(error instanceof PublicError && error.policy
+          ? { policy: error.policy }
+          : {}),
+      },
+    }
   if (error instanceof RequestBodyTooLargeError)
     return {
       error: {

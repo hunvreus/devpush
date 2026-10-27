@@ -1,6 +1,5 @@
+import agentRelease from '../../agent-release.json'
 import { z } from 'zod'
-
-import packageMetadata from '../../package.json'
 
 function normalizeOptional(value: unknown) {
   if (value === '') {
@@ -78,6 +77,18 @@ const envSchema = z
     DEVPUSH_CLIENT_IP_HEADER: z
       .enum(['x-forwarded-for', 'x-real-ip'])
       .default('x-forwarded-for'),
+    DEVPUSH_DEPLOYMENT_LOG_MAX_LINES: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100_000)
+      .default(5_000),
+    DEVPUSH_DEPLOYMENT_LOG_LINE_BYTES: z.coerce
+      .number()
+      .int()
+      .min(64)
+      .max(65_536)
+      .default(2_048),
     DEVPUSH_MONITORING_RETENTION_DAYS: z.coerce
       .number()
       .int()
@@ -258,4 +269,4 @@ export function assertRuntimeSecurity(value: ReturnType<typeof parseConfig>) {
 
 export const config = parseConfig(process.env)
 
-export const currentAgentVersion = packageMetadata.version
+export const currentAgentVersion = agentRelease.version

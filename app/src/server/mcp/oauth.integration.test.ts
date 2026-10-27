@@ -4,12 +4,17 @@ import {
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client'
 import { eq, sql } from 'drizzle-orm'
-import { apiGrants, projects, teamMembers, teams } from '@/server/db/schema'
+import {
+  apiGrants,
+  projects,
+  teamMembers,
+  teams,
+} from '#devpush/server/db/schema'
 import { makeSignature } from 'better-auth/crypto'
-import { auth } from '@/server/auth/better-auth'
-import { db } from '@/server/db'
-import { createApiKey, revokeApiGrant } from '@/server/api/credentials'
-import { getResourceColor } from '@/server/resources/color'
+import { auth } from '#devpush/server/auth/better-auth'
+import { db } from '#devpush/server/db'
+import { createApiKey, revokeApiGrant } from '#devpush/server/api/credentials'
+import { getResourceColor } from '#devpush/server/resources/color'
 import {
   getMcpConsent,
   completeMcpConsent,

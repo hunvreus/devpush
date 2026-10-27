@@ -38,9 +38,9 @@ describe('project query invalidation', () => {
 
 it('refreshes stale shared project data when refreshing a section', async () => {
   const { projectShellQueryOptions } = await import('./project-context-query')
-  const { projectContext } = await import('@/test/project-context')
+  const { projectContext } = await import('#devpush/test/project-context')
   const { getProject, getProjectSection } =
-    await import('@/server/projects/functions')
+    await import('#devpush/server/projects/functions')
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: 30_000, retry: false } },
   })
@@ -67,7 +67,7 @@ it('refreshes stale shared project data when refreshing a section', async () => 
   queryClient.clear()
 })
 
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   getProject: vi.fn(),
   getProjectSection: vi.fn(),
   getProjectLogs: vi.fn(),
@@ -93,11 +93,11 @@ it('runtime logs keep polling after deployments finish', async () => {
 })
 
 it('completed deployment selectors keep discovering new deployments without WebSocket', async () => {
-  const { deploymentContextQueryOptions } =
+  const { pluginContextQueryOptions } =
     await import('./project-context-query')
   const { setWorkspaceConnected } = await import('./workspace-updates')
   const client = new QueryClient()
-  const options = deploymentContextQueryOptions(
+  const options = pluginContextQueryOptions(
     { teamSlug: 'selector-test', projectName: 'p', deploymentId: 'd' },
     client,
   )
@@ -117,7 +117,7 @@ it('completed deployment selectors keep discovering new deployments without WebS
 })
 
 it('backup failure alerts refresh during jobs and while idle without WebSocket', async () => {
-  const { projectContext } = await import('@/test/project-context')
+  const { projectContext } = await import('#devpush/test/project-context')
   const client = new QueryClient()
   const options = projectContextQueryOptions(
     { teamSlug: 'backup-refresh', projectName: 'p', scope: 'backups' },
@@ -161,7 +161,7 @@ it('backup failure alerts refresh during jobs and while idle without WebSocket',
 it.each(['queued', 'running', 'succeeded', 'failed'] as const)(
   'restore %s controls backup fallback polling',
   async (status) => {
-    const { projectContext } = await import('@/test/project-context')
+    const { projectContext } = await import('#devpush/test/project-context')
     const client = new QueryClient()
     const options = projectContextQueryOptions(
       { teamSlug: 'restore-refresh', projectName: 'p', scope: 'backups' },

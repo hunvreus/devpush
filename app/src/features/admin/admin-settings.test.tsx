@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import type { AdminOverview } from '@/server/admin/service'
+import type { AdminOverview } from '#devpush/server/admin/service'
 import { act } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { AdminSettings } from './admin-settings'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 
 const mocks = vi.hoisted(() => ({
   ban: vi.fn(),
@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
 }))
-vi.mock('@/server/admin/functions', () => ({
+vi.mock('#devpush/server/admin/functions', () => ({
   addAllowlistRuleAction: mocks.add,
   importAllowlistEmailsAction: mocks.importEmails,
   banUserAction: mocks.ban,
@@ -33,7 +33,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: undefined }),
 }))
-vi.mock('@/components/settings-layout', () => ({
+vi.mock('#devpush/components/settings-layout', () => ({
   StandaloneSettingsLayout: ({ children }: { children: ReactNode }) => (
     <main>{children}</main>
   ),
@@ -41,7 +41,7 @@ vi.mock('@/components/settings-layout', () => ({
 vi.mock('sonner', () => ({
   toast: { error: mocks.error, success: mocks.success },
 }))
-vi.mock('@/components/ui/dropdown-menu', () => ({
+vi.mock('#devpush/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
     <>{children}</>

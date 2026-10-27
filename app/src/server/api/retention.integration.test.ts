@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { db } from '@/server/db'
+import { db } from '#devpush/server/db'
 import { API_AUDIT_RETENTION_MS, pruneApiHistory } from './retention'
 
 test('API history maintenance is bounded and preserves unexpired refresh reuse records', async () => {

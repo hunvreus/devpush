@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 
 export async function replacePendingIdentity(
   store: AtomicStore,

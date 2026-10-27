@@ -11,11 +11,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+const restoreRecoveryTimeout = 10 * time.Minute
 
 const volumeUtilityImage = "alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"
 
@@ -244,8 +245,21 @@ func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) (result r
 		return fail(err)
 	}
 
-	workdir, err := os.MkdirTemp("", "devpush-restore-*")
-	if err != nil {
+	if !jobLogID.MatchString(job.ID) || runner.cfg.StateDir == "" {
+		return fail(errors.New("restore requires a valid job id and agent state directory"))
+	}
+	restoreRoot := filepath.Join(runner.cfg.StateDir, "restores")
+	if err := os.MkdirAll(restoreRoot, 0700); err != nil {
+		return fail(err)
+	}
+	jobDir := filepath.Join(restoreRoot, job.ID)
+	// Never overwrite recovery data retained by an earlier interrupted attempt.
+	if err := os.Mkdir(jobDir, 0700); err != nil {
+		return fail(fmt.Errorf("reserve restore directory %s: %w", jobDir, err))
+	}
+	defer func() { _ = os.Remove(jobDir) }() // Only remove an empty job directory.
+	workdir := filepath.Join(jobDir, "artifacts")
+	if err := os.Mkdir(workdir, 0700); err != nil {
 		return fail(err)
 	}
 	defer os.RemoveAll(workdir)
@@ -277,57 +291,8 @@ func (runner *Runner) runRestoreJob(ctx context.Context, job agentJob) (result r
 		}
 	}
 
-	var stoppedContainers []string
 	if len(volumeArtifacts) > 0 {
-		writeJobProgress(ctx, "Stopping application containers for volume restoration.")
-		stoppedContainers, err = runner.stopRuntimeContainers(ctx, job.Restore.RuntimeID)
-		if err != nil {
-			return fail(err)
-		}
-		recoveryDir, err := os.MkdirTemp("", "devpush-volume-recovery-*")
-		if err != nil {
-			_ = runner.startContainers(ctx, stoppedContainers)
-			return fail(err)
-		}
-		defer os.RemoveAll(recoveryDir)
-
-		prepared := make([]preparedVolumeRestore, 0, len(volumeArtifacts))
-		for index, artifact := range volumeArtifacts {
-			writeJobProgress(ctx, fmt.Sprintf("Preparing restore for volume %s.", artifact.TargetVolume))
-			restore, prepareErr := runner.prepareVolumeRestore(
-				ctx,
-				job.Restore.RuntimeID,
-				localPaths[artifact.ID],
-				artifact.TargetVolume,
-				recoveryDir,
-				index,
-			)
-			if prepareErr != nil {
-				_ = runner.startContainers(ctx, stoppedContainers)
-				return fail(prepareErr)
-			}
-			prepared = append(prepared, restore)
-		}
-
-		for index, restore := range prepared {
-			if err := runner.replaceVolumeContents(ctx, restore.volumeName, restore.artifactPath); err != nil {
-				recoveryErrors := []error{}
-				for recoveryIndex := index; recoveryIndex >= 0; recoveryIndex-- {
-					previous := prepared[recoveryIndex]
-					if recoveryErr := runner.replaceVolumeContents(ctx, previous.volumeName, previous.recoveryPath); recoveryErr != nil {
-						recoveryErrors = append(recoveryErrors, fmt.Errorf("recover volume %s: %w", previous.targetVolume, recoveryErr))
-					}
-				}
-				if startErr := runner.startContainers(ctx, stoppedContainers); startErr != nil {
-					recoveryErrors = append(recoveryErrors, fmt.Errorf("restart containers: %w", startErr))
-				}
-				if len(recoveryErrors) > 0 {
-					return fail(fmt.Errorf("restore volume %s: %w; recovery failed: %v", restore.targetVolume, err, errors.Join(recoveryErrors...)))
-				}
-				return fail(fmt.Errorf("restore volume %s: %w; previous contents were restored", restore.targetVolume, err))
-			}
-		}
-		if err := runner.startContainers(ctx, stoppedContainers); err != nil {
+		if err := runner.restoreVolumes(ctx, job.ID, job.Restore.RuntimeID, volumeArtifacts, localPaths, filepath.Join(jobDir, "recovery")); err != nil {
 			return fail(err)
 		}
 	}
@@ -373,26 +338,109 @@ func (runner *Runner) restoreArtifactPath(ctx context.Context, destination backu
 	return path, nil
 }
 
-func (runner *Runner) stopRuntimeContainers(ctx context.Context, runtimeID string) ([]string, error) {
-	containerIDs, err := runner.dockerIDsByLabel(ctx, "ps", "-q", "--filter", "label=com.docker.compose.project="+runtimeID)
-	if err != nil {
-		return nil, err
-	}
-	if len(containerIDs) == 0 {
-		return []string{}, nil
-	}
-	if _, err := runner.commandOutput(ctx, "", "docker", append([]string{"stop"}, containerIDs...)...); err != nil {
-		return nil, err
-	}
-	return containerIDs, nil
-}
-
 func (runner *Runner) startContainers(ctx context.Context, containerIDs []string) error {
 	writeJobProgress(ctx, "Starting application containers.")
 	if len(containerIDs) == 0 {
 		return nil
 	}
 	if _, err := runner.commandOutput(ctx, "", "docker", append([]string{"start"}, containerIDs...)...); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Journal before stopping containers and before any destructive writes. Recovery is
+// repeatable across process restarts; unresolved journals block subsequent claims.
+func (runner *Runner) restoreVolumes(ctx context.Context, jobID, runtimeID string, artifacts []restoreArtifact, localPaths map[string]string, recoveryDir string) (result error) {
+	if err := os.Mkdir(recoveryDir, 0700); err != nil {
+		return err
+	}
+	journalSaved := false
+	defer func() {
+		if !journalSaved {
+			_ = os.RemoveAll(recoveryDir)
+		}
+	}()
+	journal := restoreJournal{JobID: jobID, RuntimeID: runtimeID, Phase: "stopping"}
+	containerIDs, err := runner.dockerIDsByLabel(ctx, "ps", "-q", "--filter", "label=com.docker.compose.project="+runtimeID)
+	if err != nil {
+		_ = os.RemoveAll(recoveryDir)
+		return err
+	}
+	journal.Containers = containerIDs
+	journal.RestartPolicies = map[string]restoreRestartPolicy{}
+	for _, id := range containerIDs {
+		body, err := runner.commandOutput(ctx, "", "docker", "inspect", "--format", "{{json .HostConfig.RestartPolicy}}", id)
+		if err != nil {
+			return err
+		}
+		var policy restoreRestartPolicy
+		if err := json.Unmarshal([]byte(body), &policy); err != nil {
+			return err
+		}
+		switch policy.Name {
+		case "", "no":
+			policy.Name = "no"
+		case "always", "unless-stopped", "on-failure":
+		default:
+			return errors.New("unsupported container restart policy")
+		}
+		journal.RestartPolicies[id] = policy
+	}
+	if err := saveRestoreJournal(recoveryDir, journal); err != nil {
+		return err
+	}
+	journalSaved = true
+	defer func() {
+		recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreRecoveryTimeout)
+		defer cancel()
+		if err := runner.recoverVolumeRestore(recoveryCtx, recoveryDir); err != nil {
+			result = fmt.Errorf("restore/recovery failed: %w; recovery data retained at %s; application must remain stopped", errors.Join(result, err), recoveryDir)
+		} else if result != nil && journal.Phase == "replacing" {
+			result = fmt.Errorf("%w; previous contents were restored", result)
+		}
+	}()
+	// Disable daemon auto-restarts before destructive work. The original policies
+	// are durable already, so a reboot cannot start partially restored volumes.
+	for _, id := range containerIDs {
+		if _, err := runner.commandOutput(ctx, "", "docker", "update", "--restart=no", id); err != nil {
+			return err
+		}
+	}
+	writeJobProgress(ctx, "Stopping application containers for volume restoration.")
+	if len(containerIDs) > 0 {
+		if _, err := runner.commandOutput(ctx, "", "docker", append([]string{"stop"}, containerIDs...)...); err != nil {
+			return err
+		}
+	}
+	prepared := make([]preparedVolumeRestore, 0, len(artifacts))
+	seen := map[string]bool{}
+	for index, artifact := range artifacts {
+		restore, err := runner.prepareVolumeRestore(ctx, runtimeID, localPaths[artifact.ID], artifact.TargetVolume, recoveryDir, index)
+		if err != nil {
+			return err
+		}
+		if seen[restore.volumeName] {
+			return fmt.Errorf("duplicate restore target volume %s", restore.volumeName)
+		}
+		seen[restore.volumeName] = true
+		if err := syncRestoreFile(restore.recoveryPath); err != nil {
+			return err
+		}
+		prepared = append(prepared, restore)
+		journal.Volumes = append(journal.Volumes, restoreJournalVolume{Name: restore.volumeName, Backup: filepath.Base(restore.recoveryPath)})
+	}
+	journal.Phase = "replacing"
+	if err := saveRestoreJournal(recoveryDir, journal); err != nil {
+		return err
+	}
+	for index, restore := range prepared {
+		if err := runner.replaceVolumeContents(ctx, restore.volumeName, restore.artifactPath, fmt.Sprintf("devpush-restore-%s-%d", jobID, index)); err != nil {
+			return err
+		}
+	}
+	journal.Phase = "committed"
+	if err := saveRestoreJournal(recoveryDir, journal); err != nil {
 		return err
 	}
 	return nil
@@ -429,22 +477,38 @@ func (runner *Runner) prepareVolumeRestore(ctx context.Context, runtimeID string
 	}, nil
 }
 
-func (runner *Runner) replaceVolumeContents(ctx context.Context, volumeName string, artifactPath string) error {
+// Docker CLI cancellation does not stop daemon-side work. Create before starting
+// so cancellation never leaves an unknown, destructive helper racing rollback.
+func (runner *Runner) replaceVolumeContents(ctx context.Context, volumeName string, artifactPath string, helperName string) (result error) {
+	setupCtx, cancelSetup := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+	defer cancelSetup()
 	args := []string{
-		"run",
-		"--rm",
-		"-v",
-		volumeName + ":/volume_data",
-		"-v",
-		filepath.Dir(artifactPath) + ":/restore:ro",
-		volumeUtilityImage,
-		"sh",
-		"-lc",
-		"find /volume_data -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar xzf /restore/" + shellQuote(filepath.Base(artifactPath)) + " -C /volume_data",
+		"create", "--name", helperName,
+		"-v", volumeName + ":/volume_data",
+		"-v", filepath.Dir(artifactPath) + ":/restore:ro",
+		volumeUtilityImage, "sh", "-lc",
+		"find /volume_data -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar xzf /restore/" + shellQuote(filepath.Base(artifactPath)) + " -C /volume_data && sync",
 	}
-	output, err := runner.commandOutput(ctx, "", "docker", args...)
-	if err != nil {
-		return fmt.Errorf("replace volume contents: %w: %s", err, strings.TrimSpace(output))
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		defer cancel()
+		if err := runner.removeRestoreHelper(cleanupCtx, helperName); err != nil {
+			result = errors.Join(result, err)
+		}
+	}()
+	if _, err := runner.commandOutput(setupCtx, "", "docker", args...); err != nil {
+		return fmt.Errorf("create restore helper %s: %w", helperName, err)
+	}
+	if _, err := runner.commandOutput(ctx, "", "docker", "start", "--attach", helperName); err != nil {
+		return fmt.Errorf("replace volume contents: %w", err)
+	}
+	return nil
+}
+
+func (runner *Runner) removeRestoreHelper(ctx context.Context, name string) error {
+	_, err := runner.commandOutput(ctx, "", "docker", "rm", "-f", name)
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such container") {
+		return fmt.Errorf("stop restore helper %s: %w", name, err)
 	}
 	return nil
 }
@@ -482,7 +546,7 @@ func (runner *Runner) restoreDatabaseArtifact(ctx context.Context, runtimeID str
 		"-lc",
 		restoreCommand,
 	)
-	cmd := exec.CommandContext(ctx, composeName, args...)
+	cmd := agentCommand(ctx, composeName, args...)
 	cmd.Stdin = gzipReader
 	cmd.Stdout = jobDiagnostics(ctx, io.Discard)
 	var stderr bytes.Buffer
@@ -561,7 +625,7 @@ func (runner *Runner) writeDatabaseDump(ctx context.Context, runtimeID string, s
 		"-lc",
 		command,
 	)
-	cmd := exec.CommandContext(ctx, composeName, args...)
+	cmd := agentCommand(ctx, composeName, args...)
 	gzipWriter := gzip.NewWriter(file)
 	cmd.Stdout = gzipWriter
 	var stderr bytes.Buffer

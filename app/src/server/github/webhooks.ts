@@ -1,8 +1,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 
 export type GitHubPushWebhookPayload = {
+  sender?: { id?: number } | null
   ref?: string
   head_commit?: {
     id?: string

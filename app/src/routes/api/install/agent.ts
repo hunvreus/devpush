@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { AGENT_INSTALL_SCRIPT } from '@/server/install/agent-script'
+import { AGENT_INSTALL_SCRIPT } from '#devpush/server/install/agent-script'
 
 export const Route = createFileRoute('/api/install/agent')({
   server: {

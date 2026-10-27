@@ -1,10 +1,10 @@
-import { useSettingsVersion } from '@/lib/use-settings-version'
-import { showSettingsConflict } from '@/lib/settings-conflict'
-import { CopyButton } from '@/components/copy-button'
+import { mutationErrorOptions, afterMutation  } from '#devpush/lib/action-feedback'
+import { useSettingsVersion } from '#devpush/lib/use-settings-version'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
+import { CopyButton } from '#devpush/components/copy-button'
 import { useQueryClient } from '@tanstack/react-query'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
-import { serverNameSchema } from '@/lib/server-name-schema'
-import { afterMutation } from '@/lib/action-feedback'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
+import { serverNameSchema } from '#devpush/lib/server-name-schema'
 import { Link, useRouter } from '@tanstack/react-router'
 import {
   BanIcon,
@@ -15,7 +15,11 @@ import {
 import { useRef, useState, lazy, Suspense } from 'react'
 import { toast } from 'sonner'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '#devpush/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,10 +30,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
+} from '#devpush/components/ui/alert-dialog'
+import { Button } from '#devpush/components/ui/button'
+import { Badge } from '#devpush/components/ui/badge'
+import { Checkbox } from '#devpush/components/ui/checkbox'
 
 import {
   Field,
@@ -37,30 +41,33 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
-import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
-import { TeamHeading } from '@/features/teams/team-heading'
-import { ServerAvatar } from '@/features/servers/server-avatar'
+} from '#devpush/components/ui/input-group'
+import {
+  SettingsLayout,
+  SettingsSection,
+} from '#devpush/components/settings-layout'
+import { TeamHeading } from '#devpush/features/teams/team-heading'
+import { ServerAvatar } from '#devpush/features/servers/server-avatar'
 import {
   ServerMetricsPending,
   ServerMetricsEmpty,
 } from './server-metrics-pending'
 import { formatBytes } from './server-metric-format'
 
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { canManageTeamSettings } from '@/lib/team-role'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
 import {
   formatAge,
   formatServerStatus,
   getInstallDescription,
   InstallCommand,
-} from '@/features/servers/team-servers'
+} from '#devpush/features/servers/team-servers'
 import {
   createInstallCommand,
   deleteServer,
@@ -68,14 +75,14 @@ import {
   enableServer,
   getDeleteServerDiagnostic,
   updateServer,
-} from '@/server/servers/functions'
+} from '#devpush/server/servers/functions'
 
 import type {
   ServerDeleteDiagnostic,
   ServerDetail as ServerDetailData,
   ServerInstallCommand,
-} from '@/server/servers/service'
-import type { TeamSummary } from '@/server/teams/types'
+} from '#devpush/server/servers/service'
+import type { TeamSummary } from '#devpush/server/teams/types'
 
 const ServerMetrics = lazy(() =>
   import('./server-metrics').then((module) => ({
@@ -144,7 +151,10 @@ export function ServerDetail({
       }, 'The action completed, but refreshing the page failed. Please reload.')
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to save server.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to save server.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setIsSaving(false)
     }
@@ -281,7 +291,7 @@ export function ServerDetail({
           >
             <FieldGroup>
               <Field data-invalid={Boolean(nameError)}>
-                <FieldLabel htmlFor="server-name">Name (required)</FieldLabel>
+                <FieldLabel htmlFor="server-name">Name</FieldLabel>
                 <Input
                   id="server-name"
                   required
@@ -328,7 +338,7 @@ export function ServerDetail({
           title="Host"
           description="System information reported by the agent."
         >
-          <dl className="grid gap-x-8 gap-y-5 text-sm md:grid-cols-2">
+          <dl className="grid gap-6 text-sm sm:grid-cols-2">
             <ServerDetailField label="Public IPv4">
               {server.publicIpv4 ?? 'Not reported'}
             </ServerDetailField>
@@ -428,6 +438,7 @@ export function ServerInstallCallout({
       if (showSettingsConflict(cause)) return
       toast.error(
         getPublicErrorMessage(cause, 'Unable to create install command.'),
+        ...mutationErrorOptions(cause),
       )
     } finally {
       setIsCreating(false)
@@ -537,6 +548,7 @@ export function ServerDangerSection({
           error,
           isDisabled ? 'Unable to enable server.' : 'Unable to disable server.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsChangingStatus(false)
@@ -599,7 +611,10 @@ export function ServerDangerSection({
       }, 'The action completed, but opening the next page failed. Please reload.')
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to delete server.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to delete server.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setIsDeleting(false)
     }
@@ -819,9 +834,9 @@ function ServerDetailField({
   label: string
 }) {
   return (
-    <div className="space-y-1">
-      <dt className="font-medium">{label}</dt>
-      <dd className="text-muted-foreground">{children}</dd>
+    <div className="min-w-0 space-y-1.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-sm break-words">{children}</dd>
     </div>
   )
 }

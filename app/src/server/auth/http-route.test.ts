@@ -1,11 +1,13 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import { Route } from '@/routes/api/auth/$'
+import { Route } from '#devpush/routes/api/auth/$'
 
 const mocks = vi.hoisted(() => ({ handler: vi.fn(), limit: vi.fn() }))
-vi.mock('@/server/auth/better-auth', () => ({
+vi.mock('#devpush/server/auth/better-auth', () => ({
   auth: { handler: mocks.handler },
 }))
-vi.mock('@/server/http/rate-limit', () => ({ enforceRateLimit: mocks.limit }))
+vi.mock('#devpush/server/http/rate-limit', () => ({
+  enforceRateLimit: mocks.limit,
+}))
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
 }))

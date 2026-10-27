@@ -5,25 +5,23 @@ import {
   listUserInstallationsPage,
 } from './service'
 
-vi.mock('@/server/db', () => ({ db: {} }))
-vi.mock('@/server/config', () => ({ config: {} }))
+vi.mock('#devpush/server/db', () => ({ db: {} }))
+vi.mock('#devpush/server/config', () => ({ config: {} }))
 afterEach(() => vi.unstubAllGlobals())
 
 test('installation discovery fetches only the requested provider page', async () => {
-  const fetch = vi
-    .fn()
-    .mockResolvedValue(
-      Response.json({
-        total_count: 51,
-        installations: [
-          {
-            id: 11,
-            account: { id: 12, login: 'owner', type: 'Organization' },
-            repository_selection: 'selected',
-          },
-        ],
-      }),
-    )
+  const fetch = vi.fn().mockResolvedValue(
+    Response.json({
+      total_count: 51,
+      installations: [
+        {
+          id: 11,
+          account: { id: 12, login: 'owner', type: 'Organization' },
+          repository_selection: 'selected',
+        },
+      ],
+    }),
+  )
   vi.stubGlobal('fetch', fetch)
   const page = await listUserInstallationsPage({
     accessToken: 'private-token',
@@ -49,25 +47,23 @@ test('installation discovery fetches only the requested provider page', async ()
 })
 
 test('repository discovery retains provider continuation without collecting other pages', async () => {
-  const fetch = vi
-    .fn()
-    .mockResolvedValue(
-      Response.json({
-        total_count: 200,
-        repositories: [
-          {
-            id: 1,
-            name: 'repo',
-            full_name: 'owner/repo',
-            private: true,
-            default_branch: 'main',
-            updated_at: '2026-10-13T00:00:00Z',
-            owner: { login: 'owner' },
-            permissions: { push: true },
-          },
-        ],
-      }),
-    )
+  const fetch = vi.fn().mockResolvedValue(
+    Response.json({
+      total_count: 200,
+      repositories: [
+        {
+          id: 1,
+          name: 'repo',
+          full_name: 'owner/repo',
+          private: true,
+          default_branch: 'main',
+          updated_at: '2026-10-13T00:00:00Z',
+          owner: { login: 'owner' },
+          permissions: { push: true },
+        },
+      ],
+    }),
+  )
   vi.stubGlobal('fetch', fetch)
   const page = await listInstallationRepositoriesPage({
     accessToken: 'private-token',

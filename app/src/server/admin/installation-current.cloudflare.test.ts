@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { readCurrentInstallation } from './installation-current.cloudflare'
 
 const metadata = vi.hoisted(() => vi.fn())
-vi.mock('@/server/runtime/platform-env', () => ({
+vi.mock('#devpush/server/runtime/platform-env', () => ({
   getWorkerVersionMetadata: metadata,
 }))
 afterEach(() => metadata.mockReset())

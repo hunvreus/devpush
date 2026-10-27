@@ -7,18 +7,18 @@ import {
   useQuery,
 } from '@tanstack/react-query'
 import { afterEach, expect, test, vi } from 'vitest'
-import { serverContextQueryOptions } from '@/lib/server-context-query'
-import { teamSectionQueryOptions } from '@/lib/team-context-query'
-import { setWorkspaceConnected } from '@/lib/workspace-updates'
+import { serverContextQueryOptions } from '#devpush/lib/server-context-query'
+import { teamSectionQueryOptions } from '#devpush/lib/team-context-query'
+import { setWorkspaceConnected } from '#devpush/lib/workspace-updates'
 import { useWorkspaceUpdates } from './use-workspace-updates'
 
 const source = vi.hoisted(() => ({ status: 'disconnected' }))
-vi.mock('@/server/servers/functions', () => ({
+vi.mock('#devpush/server/servers/functions', () => ({
   getTeamServerContext: vi.fn(async () => ({
     server: { status: source.status },
   })),
 }))
-vi.mock('@/server/teams/functions', () => ({
+vi.mock('#devpush/server/teams/functions', () => ({
   getTeamSectionContext: vi.fn(async () => ({
     section: 'servers',
     servers: [{ status: source.status }],

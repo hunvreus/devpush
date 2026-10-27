@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
 }))
-vi.mock('@/server/teams/functions', () => ({ createTeamAction: mocks.create }))
+vi.mock('#devpush/server/teams/functions', () => ({
+  createTeamAction: mocks.create,
+}))
 vi.mock('sonner', () => ({
   toast: { success: mocks.success, warning: mocks.warning },
 }))

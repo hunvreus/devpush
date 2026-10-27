@@ -2,7 +2,7 @@ import { backupDatabaseSchema } from './backup-database'
 import { backupStorageReferenceSchema } from './backup-storage-schema'
 import { z } from 'zod'
 import { backupResourceNameSchema } from './backup-resource-schema'
-import { isValidCron } from '@/lib/backup-cron'
+import { isValidCron } from '#devpush/lib/backup-cron'
 
 export const backupScheduleSchema = z.object({
   cron: z

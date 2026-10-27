@@ -1,18 +1,19 @@
+import { withWorkspaceAccess } from '#devpush/server/plugins/workspace-access'
 import { resolveGeneratedHostname } from './generated-hostname'
 import { getProjectSettingsContext } from './settings-context'
-import type { ApiMutationAdmission } from '@/server/api/admission'
-import { PublicError } from '@/lib/public-error'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
+import { PublicError } from '#devpush/lib/public-error'
 import {
   EnvironmentStateChanged,
   replaceProjectEnvironments,
 } from './environment-state'
 import { and, eq, sql } from 'drizzle-orm'
-import { projectSettingsGuard } from '@/server/settings-version'
+import { projectSettingsGuard } from '#devpush/server/settings-version'
 
-import { db } from '@/server/db'
-import { aliases, environments, projects } from '@/server/db/schema'
+import { db } from '#devpush/server/db'
+import { aliases, environments, projects } from '#devpush/server/db/schema'
 import { getProjectContext } from './context'
-import { buildRuntimeId } from '@/lib/runtime-id'
+import { buildRuntimeId } from '#devpush/lib/runtime-id'
 import { resolveAvailableAliasHostname } from './hostnames'
 import { findDuplicate } from './mappers'
 import { encryptProjectEnvVars } from './project-env-vars'
@@ -57,19 +58,25 @@ export async function updateProjectEnvironments({
     projectName,
     scope: 'shell',
   })
+  return withWorkspaceAccess(
+    context.team.id,
+    'environment.update',
+    async () => {
+      return updateProjectEnvironmentsWithContext({
+        context,
+        userId,
+        teamSlug,
+        projectName,
+        projectEnvironments,
+        defaultServerId,
+        admission,
+        settingsVersion,
 
-  return updateProjectEnvironmentsWithContext({
-    context,
-    userId,
-    teamSlug,
-    projectName,
-    projectEnvironments,
-    defaultServerId,
-    admission,
-    settingsVersion,
-
-    mutationTime,
-  })
+        mutationTime,
+      })
+    },
+    { kind: 'user', userId },
+  )
 }
 
 async function updateProjectEnvironmentsWithContext({
@@ -273,60 +280,67 @@ export async function updateProjectEnvironmentServers({
     projectName,
     scope: 'shell',
   })
-  const duplicateEnvironment = findDuplicate(
-    environmentServers.map((assignment) => assignment.environmentId),
-  )
+  return withWorkspaceAccess(
+    context.team.id,
+    'environment.update',
+    async () => {
+      const duplicateEnvironment = findDuplicate(
+        environmentServers.map((assignment) => assignment.environmentId),
+      )
 
-  if (duplicateEnvironment !== null) {
-    throw new PublicError('PROJECT_ENVIRONMENT_SERVER_DUPLICATED')
-  }
+      if (duplicateEnvironment !== null) {
+        throw new PublicError('PROJECT_ENVIRONMENT_SERVER_DUPLICATED')
+      }
 
-  if (
-    defaultServerId &&
-    !context.servers.some((server) => server.id === defaultServerId)
-  ) {
-    throw new PublicError('PROJECT_DEFAULT_SERVER_INVALID')
-  }
+      if (
+        defaultServerId &&
+        !context.servers.some((server) => server.id === defaultServerId)
+      ) {
+        throw new PublicError('PROJECT_DEFAULT_SERVER_INVALID')
+      }
 
-  for (const assignment of environmentServers) {
-    const environment = context.environments.find(
-      (candidate) => candidate.id === assignment.environmentId,
-    )
-    const server = assignment.serverId
-      ? context.servers.find(
-          (candidate) => candidate.id === assignment.serverId,
+      for (const assignment of environmentServers) {
+        const environment = context.environments.find(
+          (candidate) => candidate.id === assignment.environmentId,
         )
-      : null
+        const server = assignment.serverId
+          ? context.servers.find(
+              (candidate) => candidate.id === assignment.serverId,
+            )
+          : null
 
-    if (!environment || (assignment.serverId && !server)) {
-      throw new PublicError('PROJECT_SERVER_ASSIGNMENT_INVALID')
-    }
-  }
+        if (!environment || (assignment.serverId && !server)) {
+          throw new PublicError('PROJECT_SERVER_ASSIGNMENT_INVALID')
+        }
+      }
 
-  const serverByEnvironment = new Map(
-    environmentServers.map((assignment) => [
-      assignment.environmentId,
-      assignment.serverId,
-    ]),
+      const serverByEnvironment = new Map(
+        environmentServers.map((assignment) => [
+          assignment.environmentId,
+          assignment.serverId,
+        ]),
+      )
+
+      return updateProjectEnvironmentsWithContext({
+        context,
+        userId,
+        teamSlug,
+        projectName,
+        defaultServerId,
+        admission,
+        settingsVersion,
+
+        mutationTime,
+        projectEnvironments: context.environments.map((environment) => ({
+          ...environment,
+          serverId: serverByEnvironment.has(environment.id)
+            ? (serverByEnvironment.get(environment.id) ?? null)
+            : environment.serverId,
+        })),
+      })
+    },
+    { kind: 'user', userId },
   )
-
-  return updateProjectEnvironmentsWithContext({
-    context,
-    userId,
-    teamSlug,
-    projectName,
-    defaultServerId,
-    admission,
-    settingsVersion,
-
-    mutationTime,
-    projectEnvironments: context.environments.map((environment) => ({
-      ...environment,
-      serverId: serverByEnvironment.has(environment.id)
-        ? (serverByEnvironment.get(environment.id) ?? null)
-        : environment.serverId,
-    })),
-  })
 }
 
 export async function updateProjectEnvVars({
@@ -352,45 +366,59 @@ export async function updateProjectEnvVars({
     projectName,
     scope: 'shell',
   })
-  const expectedVersion = settingsVersion ?? context.project.settingsVersion
-  if (expectedVersion !== context.project.settingsVersion)
-    throw new PublicError('SETTINGS_CONFLICT')
-  const normalizedEnvVars = envVars.filter((item) => item.key.trim() !== '')
-  const duplicateKey = findDuplicate(
-    normalizedEnvVars.map((item) => `${item.environment ?? ''}:${item.key}`),
-  )
-
-  if (duplicateKey) {
-    throw new PublicError('PROJECT_VARIABLE_DUPLICATED')
-  }
-
-  if (
-    normalizedEnvVars.some(
-      (item) =>
-        item.environment &&
-        !context.environments.some(
-          (environment) => environment.id === item.environment,
+  return withWorkspaceAccess(
+    context.team.id,
+    'variable.update',
+    async () => {
+      const expectedVersion = settingsVersion ?? context.project.settingsVersion
+      if (expectedVersion !== context.project.settingsVersion)
+        throw new PublicError('SETTINGS_CONFLICT')
+      const normalizedEnvVars = envVars.filter((item) => item.key.trim() !== '')
+      const duplicateKey = findDuplicate(
+        normalizedEnvVars.map(
+          (item) => `${item.environment ?? ''}:${item.key}`,
         ),
-    )
-  ) {
-    throw new PublicError('PROJECT_VARIABLE_ENVIRONMENT_INVALID')
-  }
+      )
 
-  const changed = await db
-    .update(projects)
-    .set({
-      settingsVersion: sql`${projects.settingsVersion} + 1`,
-      envVarsEncrypted: encryptProjectEnvVars(normalizedEnvVars),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(projects.id, context.project.id),
-        projectSettingsGuard(context.project.id, userId, expectedVersion),
-      ),
-    )
-    .returning({ id: projects.id })
-  if (!changed.length) throw new PublicError('SETTINGS_CONFLICT')
+      if (duplicateKey) {
+        throw new PublicError('PROJECT_VARIABLE_DUPLICATED')
+      }
 
-  return getProjectContext({ userId, teamSlug, projectName, scope: 'settings' })
+      if (
+        normalizedEnvVars.some(
+          (item) =>
+            item.environment &&
+            !context.environments.some(
+              (environment) => environment.id === item.environment,
+            ),
+        )
+      ) {
+        throw new PublicError('PROJECT_VARIABLE_ENVIRONMENT_INVALID')
+      }
+
+      const changed = await db
+        .update(projects)
+        .set({
+          settingsVersion: sql`${projects.settingsVersion} + 1`,
+          envVarsEncrypted: encryptProjectEnvVars(normalizedEnvVars),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(projects.id, context.project.id),
+            projectSettingsGuard(context.project.id, userId, expectedVersion),
+          ),
+        )
+        .returning({ id: projects.id })
+      if (!changed.length) throw new PublicError('SETTINGS_CONFLICT')
+
+      return getProjectContext({
+        userId,
+        teamSlug,
+        projectName,
+        scope: 'settings',
+      })
+    },
+    { kind: 'user', userId },
+  )
 }

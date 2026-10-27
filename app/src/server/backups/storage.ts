@@ -1,20 +1,21 @@
+import { withWorkspaceAccess } from '#devpush/server/plugins/workspace-access'
 import {
   saveBackupStorageState,
   deleteBackupStorageState,
 } from './storage-state'
-import { requireBackupsEnabled } from '@/server/backups/feature'
-import { PublicError } from '@/lib/public-error'
+import { requireBackupsEnabled } from '#devpush/server/backups/feature'
+import { PublicError } from '#devpush/lib/public-error'
 import { and, asc, eq } from 'drizzle-orm'
-import { backupStorageSchema } from '@/lib/backup-storage-schema'
+import { backupStorageSchema } from '#devpush/lib/backup-storage-schema'
 import type {
   BackupStorageInput,
   BackupStorageSummary,
   BackupStorageReference,
-} from '@/lib/backup-storage-schema'
-import { db } from '@/server/db'
-import { backupStorage } from '@/server/db/schema'
-import { encryptSecret } from '@/server/secrets/crypto'
-import { requireTeam, requireTeamManager } from '@/server/teams/service'
+} from '#devpush/lib/backup-storage-schema'
+import { db } from '#devpush/server/db'
+import { backupStorage } from '#devpush/server/db/schema'
+import { encryptSecret } from '#devpush/server/secrets/crypto'
+import { requireTeam, requireTeamManager } from '#devpush/server/teams/service'
 import type { BackupDestination } from './service'
 
 export async function listBackupStorage(
@@ -65,24 +66,31 @@ export async function saveBackupStorage({
 }) {
   requireBackupsEnabled()
   const team = await requireTeamManager(userId, teamSlug)
-  const prepared = await prepareBackupStorage({
-    teamId: team.id,
-    input,
-    settingsVersion,
-  })
-  const changed = await saveBackupStorageState(db, {
-    teamId: team.id,
-    userId,
-    storageId: prepared.id,
-    settingsVersion: prepared.settingsVersion,
-    values: prepared.values,
-    now: new Date(),
-  })
-  if (!changed)
-    throw new PublicError(
-      prepared.settingsVersion === null ? 'FORBIDDEN' : 'SETTINGS_CONFLICT',
-    )
-  return listBackupStorage(team.id, true)
+  return withWorkspaceAccess(
+    team.id,
+    'backup.storage.save',
+    async () => {
+      const prepared = await prepareBackupStorage({
+        teamId: team.id,
+        input,
+        settingsVersion,
+      })
+      const changed = await saveBackupStorageState(db, {
+        teamId: team.id,
+        userId,
+        storageId: prepared.id,
+        settingsVersion: prepared.settingsVersion,
+        values: prepared.values,
+        now: new Date(),
+      })
+      if (!changed)
+        throw new PublicError(
+          prepared.settingsVersion === null ? 'FORBIDDEN' : 'SETTINGS_CONFLICT',
+        )
+      return listBackupStorage(team.id, true)
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function resolveBackupDestination(
@@ -142,25 +150,32 @@ export async function deleteBackupStorage({
 }) {
   requireBackupsEnabled()
   const team = await requireTeamManager(userId, teamSlug)
-  const current = await getOwnedBackupStorage(team.id, storageId)
-  if (!current) throw new PublicError('BACKUP_STORAGE_NOT_FOUND')
-  const expectedVersion = settingsVersion ?? current.settingsVersion
-  if (expectedVersion !== current.settingsVersion)
-    throw new PublicError('SETTINGS_CONFLICT')
-  const changed = await deleteBackupStorageState(db, {
-    teamId: team.id,
-    userId,
-    storageId,
-    settingsVersion: expectedVersion,
-  })
-  if (!changed) {
-    await requireTeamManager(userId, teamSlug)
-    const latest = await getOwnedBackupStorage(team.id, storageId)
-    if (!latest || latest.settingsVersion !== expectedVersion)
-      throw new PublicError('SETTINGS_CONFLICT')
-    throw new PublicError('BACKUP_STORAGE_IN_USE')
-  }
-  return listBackupStorage(team.id, true)
+  return withWorkspaceAccess(
+    team.id,
+    'backup.storage.delete',
+    async () => {
+      const current = await getOwnedBackupStorage(team.id, storageId)
+      if (!current) throw new PublicError('BACKUP_STORAGE_NOT_FOUND')
+      const expectedVersion = settingsVersion ?? current.settingsVersion
+      if (expectedVersion !== current.settingsVersion)
+        throw new PublicError('SETTINGS_CONFLICT')
+      const changed = await deleteBackupStorageState(db, {
+        teamId: team.id,
+        userId,
+        storageId,
+        settingsVersion: expectedVersion,
+      })
+      if (!changed) {
+        await requireTeamManager(userId, teamSlug)
+        const latest = await getOwnedBackupStorage(team.id, storageId)
+        if (!latest || latest.settingsVersion !== expectedVersion)
+          throw new PublicError('SETTINGS_CONFLICT')
+        throw new PublicError('BACKUP_STORAGE_IN_USE')
+      }
+      return listBackupStorage(team.id, true)
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function getOwnedBackupStorage(teamId: string, storageId: string) {

@@ -1,5 +1,5 @@
-import { PublicError } from '@/lib/public-error'
-import { db } from '@/server/db'
+import { PublicError } from '#devpush/lib/public-error'
+import { db } from '#devpush/server/db'
 import {
   agentJobs,
   backupRuns,
@@ -9,7 +9,7 @@ import {
   servers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import { and, eq, sql } from 'drizzle-orm'
 import type { ApiPrincipal } from './authorization'
 import { apiAuthorizationCondition, requireApiProject } from './authorization'

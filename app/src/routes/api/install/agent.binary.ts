@@ -4,14 +4,18 @@ import {
   AgentBinaryNotConfiguredError,
   AgentBinaryUnsupportedPlatformError,
   getAgentBinary,
-} from '@/server/install/agent-binary'
+  getAgentReleaseDownloadUrl,
+  getAgentBinaryMetadata,
+} from '#devpush/server/install/agent-binary'
 
 export const Route = createFileRoute('/api/install/agent/binary')({
   server: {
     handlers: {
       HEAD: async ({ request }) => {
         try {
-          const { size, filename } = await getAgentBinary(
+          const url = getAgentReleaseDownloadUrl(getRequestedPlatform(request))
+          if (url) return Response.redirect(url, 302)
+          const { size, filename } = await getAgentBinaryMetadata(
             getRequestedPlatform(request),
           )
 
@@ -24,6 +28,8 @@ export const Route = createFileRoute('/api/install/agent/binary')({
       },
       GET: async ({ request }) => {
         try {
+          const url = getAgentReleaseDownloadUrl(getRequestedPlatform(request))
+          if (url) return Response.redirect(url, 302)
           const { body, filename, size } = await getAgentBinary(
             getRequestedPlatform(request),
           )

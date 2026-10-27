@@ -1,15 +1,20 @@
-import { readProviderToken } from '@/server/auth/provider-tokens'
+import { fetchGitHub, readGitHubJson } from '#devpush/server/github/http'
+import { readProviderToken } from '#devpush/server/auth/provider-tokens'
 import { and, desc, eq } from 'drizzle-orm'
 import { createPrivateKey } from 'node:crypto'
 import { SignJWT } from 'jose'
 import { isAPIError } from 'better-auth/api'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 
-import { config } from '@/server/config'
-import { db } from '@/server/db'
-import { account, githubInstallations, projects } from '@/server/db/schema'
-import { getGitHubInstallationChange } from '@/server/github/webhooks'
-import type { GitHubInstallationWebhookEvent } from '@/server/github/webhooks'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
+import {
+  account,
+  githubInstallations,
+  projects,
+} from '#devpush/server/db/schema'
+import { getGitHubInstallationChange } from '#devpush/server/github/webhooks'
+import type { GitHubInstallationWebhookEvent } from '#devpush/server/github/webhooks'
 
 const githubApiBaseUrl = 'https://api.github.com'
 const composeCandidates = [
@@ -167,7 +172,7 @@ export async function getGitHubAccount(
     githubAccount.accessTokenExpiresAt &&
     githubAccount.accessTokenExpiresAt.getTime() - Date.now() < 5_000
   ) {
-    const { auth } = await import('@/server/auth/better-auth')
+    const { auth } = await import('#devpush/server/auth/better-auth')
     try {
       const refreshed = await auth.api.getAccessToken({
         body: { accountId: githubAccount.id, userId },
@@ -340,7 +345,7 @@ export async function detectComposePath({
   ref: string
 }) {
   for (const path of composeCandidates) {
-    const response = await fetch(
+    const response = await fetchGitHub(
       `${githubApiBaseUrl}/repos/${encodeURIComponentRepoName(repo)}/contents/${path}?ref=${encodeURIComponent(ref)}`,
       {
         headers: githubHeaders(accessToken),
@@ -671,7 +676,7 @@ async function requestInstallationAccessToken({
   repositoryId: number | null
 }) {
   const jwt = await getGitHubAppJwt()
-  const response = await fetch(
+  const response = await fetchGitHub(
     `${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`,
     {
       method: 'POST',
@@ -693,10 +698,9 @@ async function requestInstallationAccessToken({
     throw new GitHubApiError(response.status, await readGitHubError(response))
   }
 
-  const data = (await response.json()) as {
-    token: string
-    expires_at: string
-  }
+  const data = await readGitHubJson<{ token: string; expires_at: string }>(
+    response,
+  )
 
   return {
     token: data.token,
@@ -726,7 +730,7 @@ function mapCommit(commit: GitHubCommitResponse) {
 }
 
 async function githubRequest<T>(path: string, accessToken: string): Promise<T> {
-  const response = await fetch(`${githubApiBaseUrl}${path}`, {
+  const response = await fetchGitHub(`${githubApiBaseUrl}${path}`, {
     headers: githubHeaders(accessToken),
   })
 
@@ -734,7 +738,7 @@ async function githubRequest<T>(path: string, accessToken: string): Promise<T> {
     throw new Error(await readGitHubError(response))
   }
 
-  return response.json() as Promise<T>
+  return readGitHubJson<T>(response)
 }
 
 function githubHeaders(accessToken: string) {
@@ -806,7 +810,7 @@ function normalizePrivateKey(value: string) {
 
 async function readGitHubError(response: Response) {
   try {
-    const body = (await response.json()) as { message?: string }
+    const body = await readGitHubJson<{ message?: string }>(response)
 
     if (body.message) {
       return body.message

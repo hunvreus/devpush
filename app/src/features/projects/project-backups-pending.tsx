@@ -1,10 +1,14 @@
 import type { ReactNode } from 'react'
 import { ClockIcon, PlusIcon, EllipsisVerticalIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
-import { Switch } from '@/components/ui/switch'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Select, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '#devpush/components/ui/button'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
+import { Switch } from '#devpush/components/ui/switch'
+import { Skeleton } from '#devpush/components/ui/skeleton'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+} from '#devpush/components/ui/select'
 
 export function ProjectBackupsPending({
   heading,

@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { createClient } from '@libsql/client'
-import { openLibsql } from '@/server/db/libsql-connection'
+import { openLibsql } from '#devpush/server/db/libsql-connection'
 import { afterAll, expect, test } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { createD1TestStores } from '@/test/d1'
-import { closeDb, db } from '@/server/db'
+import { createD1TestStores } from '#devpush/test/d1'
+import { closeDb, db } from '#devpush/server/db'
 import {
   deletionRecoveryPlan,
   inspectDeletion,

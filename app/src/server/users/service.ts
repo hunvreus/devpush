@@ -1,23 +1,27 @@
-import { PublicError } from '@/lib/public-error'
-import { leaveMembership } from '@/server/teams/membership'
+import { withWorkspaceAccess } from '#devpush/server/plugins/workspace-access'
+import { PublicError } from '#devpush/lib/public-error'
+import { leaveMembership } from '#devpush/server/teams/membership'
 import { and, asc, desc, eq, inArray, lte, or, sql } from 'drizzle-orm'
 
-import { authMethods } from '@/server/auth/better-auth'
-import { getGitHubOAuthCredentials } from '@/server/auth/auth-methods'
-import type { TeamRole } from '@/lib/team-role'
+import { authMethods } from '#devpush/server/auth/better-auth'
+import { getGitHubOAuthCredentials } from '#devpush/server/auth/auth-methods'
+import type { TeamRole } from '#devpush/lib/team-role'
 import { deleteUserState, cleanupDeletedUserState } from './deletion-state'
 import type { UserCleanupJobPayload } from './deletion-state'
-import { db } from '@/server/db'
+import { db } from '#devpush/server/db'
 import {
   account,
   teamMembers,
   teams,
   user,
   userCleanupJobs,
-} from '@/server/db/schema'
-import { getResourceColor } from '@/server/resources/color'
-import { assertOtherOwner } from '@/server/teams/service'
-import { removeOwnedAvatar, resolveAvatarUpdate } from '@/server/uploads/avatar'
+} from '#devpush/server/db/schema'
+import { getResourceColor } from '#devpush/server/resources/color'
+import { assertOtherOwner } from '#devpush/server/teams/service'
+import {
+  removeOwnedAvatar,
+  resolveAvatarUpdate,
+} from '#devpush/server/uploads/avatar'
 
 export type AuthAccountSummary = {
   id: string
@@ -311,7 +315,14 @@ export async function leaveTeam({
     .limit(1)
   if (!membership) throw new PublicError('ACCOUNT_MEMBERSHIP_NOT_FOUND')
   if (membership.role === 'owner') await assertOtherOwner(db, teamId, userId)
-  if (!(await leaveMembership(db, { userId, teamId }))) {
+  if (
+    !(await withWorkspaceAccess(
+      teamId,
+      'workspace.leave',
+      () => leaveMembership(db, { userId, teamId }),
+      { kind: 'user', userId },
+    ))
+  ) {
     throw new PublicError('TEAM_MEMBERSHIP_CHANGED')
   }
 

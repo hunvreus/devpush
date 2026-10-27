@@ -1,4 +1,4 @@
-import { Skeleton } from '@/components/ui/skeleton'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 import { LoaderIcon } from 'lucide-react'
 
 export function ServerMetricChartPending({

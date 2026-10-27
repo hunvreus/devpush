@@ -1,15 +1,15 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
-import { config } from '@/server/config'
-import { db } from '@/server/db'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
 import {
   agentJobs,
   deployments,
   environments,
   projects,
   servers,
-} from '@/server/db/schema'
-import { AgentRequestError } from '@/server/agents/protocol'
+} from '#devpush/server/db/schema'
+import { AgentRequestError } from '#devpush/server/agents/protocol'
 
 function sign(value: string) {
   return createHmac('sha256', config.BETTER_AUTH_SECRET)

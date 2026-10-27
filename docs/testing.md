@@ -19,6 +19,7 @@ fixtures; do not point them at an installation's live data.
 | `pnpm --dir app test:integration:libsql` | Shared service suite through the libSQL adapter |
 | `pnpm agent:test` | Go agent tests; real Docker tests are opt-in |
 | `pnpm build` | Production Node build |
+| `pnpm test:package` | Installed tarball on Node and Workers, in development and production |
 | `DEVPUSH_WRANGLER_CONFIG=wrangler.template.jsonc pnpm --dir app build:cloudflare` | Worker build against the non-deployable template |
 | `pnpm audit:dependencies` | Dependency vulnerability audit |
 
@@ -66,11 +67,24 @@ opt-in agent smoke against that host. Do not run it on a Docker daemon serving
 other devpush agents. Compose interpolation tests can use a standalone binary
 through `DEVPUSH_COMPOSE_TEST_BINARY` without a running daemon.
 
+`pnpm vm:test` also checks managed HTTPS through real Traefik and verifies that an
+atomic certificate replacement is served without restarting the proxy. It uses
+an isolated test certificate, not live DNS/CA credentials. The shared agent unit
+tests cover key persistence, certificate validation and per-route resolver choice.
+
 ## Control-plane smoke tests
 
+- `pnpm test:package` creates an independent consumer with disposable stores.
+  It checks migrations, SSR, CSS/assets, server functions, API/MCP authorization
+  and WebSockets. Local/npm fixtures also exercise mutation policy ordering, RBAC,
+  rejected writes, lifecycle fan-out and authenticated certificate dispatch. Installed
+  source must remain unchanged and unoptimized.
 - `pnpm build && pnpm smoke:node` exercises the freshly built production Node server with isolated
   stores and a fixture GitHub provider.
-- `pnpm --dir app smoke:worker` builds and exercises the Worker locally with
+- `pnpm smoke:dev` exercises the source checkout's development server with isolated
+  stores, including fresh baseline initialization through `npm run dev` and
+  pnpm-hoisted runtime dependencies outside `app/`.
+- `pnpm --dir app smoke:worker d1` builds and exercises the Worker locally with
   temporary D1/R2 bindings. Migrations and fixture setup complete before requests.
 - `pnpm smoke:deploy` checks the queue/agent deployment lifecycle using the current
   database configuration. It creates fixture users, teams and deployments there.
@@ -145,23 +159,17 @@ Check findings against dynamic entrypoints, scripts, templates and assets before
 removing anything. Keep `robots.txt`, runtime uploads, local databases and
 installation credentials. Put temporary review reports under `.tmp/`, not docs.
 
-
 ## Private application composition
 
-Core's versioned server contract is in `app/src/deployment/contract.ts` and
-`app/deployment-api.json`. The default entry has no overrides. A private build
-selects its entry using `DEVPUSH_DEPLOYMENT_SERVER` at build time; this is not a
-runtime setting. See [Architecture](https://github.com/hunvreus/devpush/blob/main/ARCHITECTURE.md#build-time-application-composition)
-for the service boundaries and credential rules.
+The application package exports static plugin declarations from `devpush/plugins`,
+server services from `devpush/plugins/server` and UI contributions from
+`devpush/plugins/client`. Consumers register local or npm plugins with
+`devpush({ plugins })`. Empty OSS registries enable no private behavior.
+See [Architecture](https://github.com/hunvreus/devpush/blob/main/ARCHITECTURE.md#static-application-plugins)
+for service boundaries and credential rules.
 
 Tests cover unchanged OSS hostname generation, invalid private output, agent
 certificate authorization and response limits, routing-state reads without
 credentials, and reconciliation before deletion pruning. Private repositories
-must additionally typecheck their entry against the pinned contract and build
+must additionally typecheck their entries against the pinned package and build
 both Node and Workers targets before publishing a hosted release.
-
-
-`pnpm vm:test` also checks managed HTTPS through real Traefik and verifies that an
-atomic certificate replacement is served without restarting the proxy. It uses
-an isolated test certificate, not live DNS/CA credentials. The shared agent unit
-tests cover key persistence, certificate validation and per-route resolver choice.

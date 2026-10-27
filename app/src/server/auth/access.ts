@@ -1,10 +1,10 @@
 import { eq, sql } from 'drizzle-orm'
-import { isValidAllowlistPattern } from '@/lib/allowlist-schema'
+import { isValidAllowlistPattern } from '#devpush/lib/allowlist-schema'
 
-import { db } from '@/server/db'
-import { allowlist, user } from '@/server/db/schema'
+import { db } from '#devpush/server/db'
+import { allowlist, user } from '#devpush/server/db/schema'
 
-export { isValidAllowlistPattern } from '@/lib/allowlist-schema'
+export { isValidAllowlistPattern } from '#devpush/lib/allowlist-schema'
 
 export async function assertEmailCanAuthenticate(
   email: string | null | undefined,

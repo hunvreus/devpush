@@ -3,8 +3,8 @@ import {
   readOperationLogs,
   uploadOperationLogs,
   operationLogUploadSchema,
-} from '@/server/logs/operations'
-import { handleAgentRequest } from '@/server/agents/protocol'
+} from '#devpush/server/logs/operations'
+import { handleAgentRequest } from '#devpush/server/agents/protocol'
 
 export const Route = createFileRoute('/api/agents/job-logs')({
   server: {

@@ -1,5 +1,5 @@
-import { closeDb } from '@/server/db'
-import { runQueuedUserCleanupJobs } from '@/server/users/service'
+import { closeDb } from '#devpush/server/db'
+import { runQueuedUserCleanupJobs } from '#devpush/server/users/service'
 
 async function main() {
   const results = await runQueuedUserCleanupJobs()

@@ -19,14 +19,16 @@ const mocks = vi.hoisted(() => ({
   error: vi.fn(),
   warning: vi.fn(),
 }))
-vi.mock('@/lib/auth/client', () => ({ authClient: { signOut: mocks.signOut } }))
+vi.mock('#devpush/lib/auth/client', () => ({
+  authClient: { signOut: mocks.signOut },
+}))
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ navigate: mocks.navigate }),
 }))
 vi.mock('sonner', () => ({
   toast: { error: mocks.error, warning: mocks.warning },
 }))
-vi.mock('@/components/ui/dropdown-menu', () => ({
+vi.mock('#devpush/components/ui/dropdown-menu', () => ({
   DropdownMenuItem: ({
     children,
     disabled,

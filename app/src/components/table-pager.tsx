@@ -5,12 +5,12 @@ import {
   ChevronsRightIcon,
 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Pagination,
   PaginationContent,
   PaginationItem,
-} from '@/components/ui/pagination'
+} from '#devpush/components/ui/pagination'
 
 const tablePageSize = 10
 

@@ -1,18 +1,26 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { ZodError } from 'zod'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import { publicErrorPayload, toPublicError } from './public-errors'
 
 afterEach(() => vi.restoreAllMocks())
 
 test('unexpected server failures are logged and never sent to the client', () => {
   const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-  const original = new Error('provider diagnostics and SQL query')
+  const original = new Error('SQL params: access-token-secret', {
+    cause: new Error('nested-provider-secret'),
+  })
   const result = toPublicError(original)
   expect(result.code).toBe('INTERNAL_ERROR')
   expect(result.message).not.toContain('SQL')
   expect(result.cause).toBeUndefined()
-  expect(log).toHaveBeenCalledWith('Server action failed', original)
+  expect(log).toHaveBeenCalledWith('Server action failed', {
+    errorName: 'Error',
+    stackFrames: expect.any(Array),
+  })
+  const diagnostics = JSON.stringify(log.mock.calls)
+  expect(diagnostics).not.toContain('access-token-secret')
+  expect(diagnostics).not.toContain('nested-provider-secret')
 })
 
 test('expected errors retain their code and input/access failures have safe messages', () => {

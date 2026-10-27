@@ -1,4 +1,4 @@
-import type { TeamRole } from '@/lib/team-role'
+import type { TeamRole } from '#devpush/lib/team-role'
 
 export function canDeleteTeam({
   defaultUserIds,

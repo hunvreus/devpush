@@ -1,8 +1,12 @@
+import { notifyAfterServerUpdate } from '#devpush/server/notifications/observe'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { getRequestPublicAddress } from '@/server/http/request-ip'
-import { handleAgentRequest, heartbeatSchema } from '@/server/agents/protocol'
-import { recordAgentHeartbeat } from '@/server/servers/service'
+import { getRequestPublicAddress } from '#devpush/server/http/request-ip'
+import {
+  handleAgentRequest,
+  heartbeatSchema,
+} from '#devpush/server/agents/protocol'
+import { recordAgentHeartbeat } from '#devpush/server/servers/service'
 
 export const Route = createFileRoute('/api/agents/heartbeat')({
   server: {
@@ -11,8 +15,8 @@ export const Route = createFileRoute('/api/agents/heartbeat')({
         return handleAgentRequest(
           request,
           heartbeatSchema,
-          (payload) =>
-            recordAgentHeartbeat({
+          async (payload) => {
+            const result = await recordAgentHeartbeat({
               serverId: payload.serverId,
               token: payload.token,
               agentVersion: payload.agentVersion,
@@ -26,7 +30,10 @@ export const Route = createFileRoute('/api/agents/heartbeat')({
               runtimes: payload.runtimes,
               system: payload.system,
               metricSamples: payload.metricSamples,
-            }),
+            })
+            await notifyAfterServerUpdate(payload.serverId)
+            return result
+          },
           'Unable to record agent heartbeat.',
         )
       },

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 import type { InstallationInfo } from './installation'
 
 const versionFileSchema = z

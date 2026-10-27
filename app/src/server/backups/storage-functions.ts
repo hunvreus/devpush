@@ -1,9 +1,9 @@
-import { settingsVersionSchema } from '@/lib/settings-version'
-import { publicErrorsMiddleware } from '@/server/http/public-errors'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
+import { publicErrorsMiddleware } from '#devpush/server/http/public-errors'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { backupStorageSchema } from '@/lib/backup-storage-schema'
-import { requireAuthSession } from '@/server/auth/session.server'
+import { backupStorageSchema } from '#devpush/lib/backup-storage-schema'
+import { requireAuthSession } from '#devpush/server/auth/session.server'
 import { saveBackupStorage, deleteBackupStorage } from './storage'
 import { requireBackupsEnabled } from './feature'
 

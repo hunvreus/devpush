@@ -1,5 +1,5 @@
 import type { SQL } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 
 // Domain services commit these statements in the same transaction as their
 // effect. The guard is checked by the effect itself, after any provider reads.

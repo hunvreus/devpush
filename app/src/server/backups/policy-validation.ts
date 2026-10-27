@@ -3,11 +3,11 @@ import { z } from 'zod'
 import {
   backupConfigSchema,
   normalizeBackupVolumes,
-} from '@/lib/backup-policy-schema'
-import { getDefaultBackupPrefix } from '@/lib/backup-paths'
-import { PublicError } from '@/lib/public-error'
-import { db } from '@/server/db'
-import { environments } from '@/server/db/schema'
+} from '#devpush/lib/backup-policy-schema'
+import { getDefaultBackupPrefix } from '#devpush/lib/backup-paths'
+import { PublicError } from '#devpush/lib/public-error'
+import { db } from '#devpush/server/db'
+import { environments } from '#devpush/server/db/schema'
 import { resolveBackupDestination } from './storage'
 
 const policySchema = backupConfigSchema.extend({ id: z.string().trim().min(1) })

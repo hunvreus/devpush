@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { claimNextAgentJob } from '@/server/agents/jobs'
+import { claimNextAgentJob } from '#devpush/server/agents/jobs'
 import {
   handleAgentRequest,
   nextAgentJobSchema,
-} from '@/server/agents/protocol'
+} from '#devpush/server/agents/protocol'
 
 export const Route = createFileRoute('/api/agents/jobs/next')({
   server: {

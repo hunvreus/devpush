@@ -8,13 +8,16 @@ import {
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { BetterAuthPlugin } from 'better-auth'
-import { apiKeyPresetSchema, scopesForApiPreset } from '@/lib/api-key-schema'
+import {
+  apiKeyPresetSchema,
+  scopesForApiPreset,
+} from '#devpush/lib/api-key-schema'
 
-import { config } from '@/server/config'
-import { db } from '@/server/db'
-import { apiGrants, oauthConsent } from '@/server/db/schema'
-import { resolveApiGrant } from '@/server/api/credentials'
-import { oauthDiscoveryPlugins } from '@/server/mcp/oauth-discovery'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
+import { apiGrants, oauthConsent } from '#devpush/server/db/schema'
+import { resolveApiGrant } from '#devpush/server/api/credentials'
+import { oauthDiscoveryPlugins } from '#devpush/server/mcp/oauth-discovery'
 
 export const mcpResource = config.DEVPUSH_MCP_URL
 export const mcpOAuthScopes = [

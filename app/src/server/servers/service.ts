@@ -1,9 +1,12 @@
-import { withWorkspaceAccess } from '@/deployment/workspace-access'
-import { deploymentContext } from '@/deployment/server-context'
-import { getDeploymentServices } from '@/deployment/services.server'
-import { recoverStaleCleanupJobs } from '@/server/agents/container-cleanup-state'
-import { teamSettingsAccess } from '@/server/settings-version'
-import { PublicError } from '@/lib/public-error'
+import {
+  withWorkspaceAccess,
+  checkWorkspaceAccess,
+} from '#devpush/server/plugins/workspace-access'
+import { pluginContext } from '#devpush/server/plugins/server-context'
+import { getPluginServices } from '#devpush/server/plugins/services.server'
+import { recoverStaleCleanupJobs } from '#devpush/server/agents/container-cleanup-state'
+import { teamSettingsAccess } from '#devpush/server/settings-version'
+import { PublicError } from '#devpush/lib/public-error'
 import { recordAgentMetricSamples } from './metric-history'
 import type { AgentMetricSample } from './metric-history-schema'
 import { deleteServerState, changeServerEnabled } from './lifecycle'
@@ -11,31 +14,30 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { and, eq, gt, inArray, ne, or, sql } from 'drizzle-orm'
 
-import { reconcileReportedRuntimes } from '@/server/agents/reconciliation'
-import type { ReportedRuntime } from '@/server/agents/reconciliation'
-import { getAgentUpdate } from '@/server/agents/compatibility'
-import type { AgentUpdate } from '@/server/agents/compatibility'
-import { AgentRequestError } from '@/server/agents/protocol'
-import { config, currentAgentVersion } from '@/server/config'
-import { db } from '@/server/db'
+import { reconcileReportedRuntimes } from '#devpush/server/agents/reconciliation'
+import type { ReportedRuntime } from '#devpush/server/agents/reconciliation'
+import { getAgentUpdate } from '#devpush/server/agents/compatibility'
+import type { AgentUpdate } from '#devpush/server/agents/compatibility'
+import { AgentRequestError } from '#devpush/server/agents/protocol'
+import { config, currentAgentVersion } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
 import {
   agentJobs,
   deployments,
   environments,
   projects,
-  serverAvailabilityWindows,
   servers,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   listServerMetricSeries,
   downsampleServerMetricSeries,
   listServerMonitoringSummaries,
   recordServerHeartbeat,
-} from '@/server/servers/monitoring'
-import type { ServerMonitoringSummary } from '@/server/servers/monitoring'
-import { requireTeam, requireTeamManager } from '@/server/teams/service'
-import { getEffectiveServerStatus } from '@/server/servers/status'
-import type { ServerStatus } from '@/server/servers/status'
+} from '#devpush/server/servers/monitoring'
+import type { ServerMonitoringSummary } from '#devpush/server/servers/monitoring'
+import { requireTeam, requireTeamManager } from '#devpush/server/teams/service'
+import { getEffectiveServerStatus } from '#devpush/server/servers/status'
+import type { ServerStatus } from '#devpush/server/servers/status'
 
 export type CreatedServer = {
   id: string
@@ -239,62 +241,70 @@ export async function updateTeamServer({
   const nextName = name.trim()
   validateServerMachineName(nextName)
   const team = await requireTeamManager(userId, teamSlug)
-  const existingRows = await db
-    .select({ id: servers.id, settingsVersion: servers.settingsVersion })
-    .from(servers)
-    .where(
-      and(
-        eq(servers.id, serverId),
-        eq(servers.teamId, team.id),
-        ne(servers.status, 'deleted'),
-      ),
-    )
-    .limit(1)
+  return withWorkspaceAccess(
+    team.id,
+    'server.update',
+    async () => {
+      const existingRows = await db
+        .select({ id: servers.id, settingsVersion: servers.settingsVersion })
+        .from(servers)
+        .where(
+          and(
+            eq(servers.id, serverId),
+            eq(servers.teamId, team.id),
+            ne(servers.status, 'deleted'),
+          ),
+        )
+        .limit(1)
 
-  if (!existingRows.at(0)) {
-    throw new PublicError('SERVER_NOT_FOUND')
-  }
+      if (!existingRows.at(0)) {
+        throw new PublicError('SERVER_NOT_FOUND')
+      }
 
-  const expectedVersion = settingsVersion ?? existingRows[0]!.settingsVersion
-  if (expectedVersion !== existingRows[0]!.settingsVersion)
-    throw new PublicError('SETTINGS_CONFLICT')
+      const expectedVersion =
+        settingsVersion ?? existingRows[0]!.settingsVersion
+      if (expectedVersion !== existingRows[0]!.settingsVersion)
+        throw new PublicError('SETTINGS_CONFLICT')
 
-  const duplicateRows = await db
-    .select({ id: servers.id })
-    .from(servers)
-    .where(
-      and(
-        eq(servers.teamId, team.id),
-        sql`lower(${servers.handle}) = lower(${nextName})`,
-        ne(servers.id, serverId),
-        ne(servers.status, 'deleted'),
-      ),
-    )
-    .limit(1)
+      const duplicateRows = await db
+        .select({ id: servers.id })
+        .from(servers)
+        .where(
+          and(
+            eq(servers.teamId, team.id),
+            sql`lower(${servers.handle}) = lower(${nextName})`,
+            ne(servers.id, serverId),
+            ne(servers.status, 'deleted'),
+          ),
+        )
+        .limit(1)
 
-  if (duplicateRows.at(0)) {
-    throw new PublicError('SERVER_NAME_CONFLICT')
-  }
+      if (duplicateRows.at(0)) {
+        throw new PublicError('SERVER_NAME_CONFLICT')
+      }
 
-  const changed = await db
-    .update(servers)
-    .set({
-      name: nextName,
-      handle: nextName,
-      settingsVersion: sql`${servers.settingsVersion} + 1`,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(servers.id, serverId),
-        eq(servers.settingsVersion, expectedVersion),
-        ne(servers.status, 'deleted'),
-        teamSettingsAccess(team.id, userId),
-      ),
-    )
-    .returning({ settingsVersion: servers.settingsVersion })
-  if (!changed.length) throw new PublicError('SETTINGS_CONFLICT')
-  return changed[0]!
+      const changed = await db
+        .update(servers)
+        .set({
+          name: nextName,
+          handle: nextName,
+          settingsVersion: sql`${servers.settingsVersion} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(servers.id, serverId),
+            eq(servers.settingsVersion, expectedVersion),
+            ne(servers.status, 'deleted'),
+            teamSettingsAccess(team.id, userId),
+          ),
+        )
+        .returning({ settingsVersion: servers.settingsVersion })
+      if (!changed.length) throw new PublicError('SETTINGS_CONFLICT')
+      return changed[0]!
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function disableTeamServer({
@@ -309,40 +319,47 @@ export async function disableTeamServer({
   serverId: string
 }) {
   const team = await requireTeamManager(userId, teamSlug)
-  const existingRows = await db
-    .select({ id: servers.id, name: servers.name })
-    .from(servers)
-    .where(
-      and(
-        eq(servers.id, serverId),
-        eq(servers.teamId, team.id),
-        ne(servers.status, 'deleted'),
-      ),
-    )
-    .limit(1)
+  return withWorkspaceAccess(
+    team.id,
+    'server.disable',
+    async () => {
+      const existingRows = await db
+        .select({ id: servers.id, name: servers.name })
+        .from(servers)
+        .where(
+          and(
+            eq(servers.id, serverId),
+            eq(servers.teamId, team.id),
+            ne(servers.status, 'deleted'),
+          ),
+        )
+        .limit(1)
 
-  const server = existingRows.at(0)
+      const server = existingRows.at(0)
 
-  if (!server) {
-    throw new PublicError('SERVER_NOT_FOUND')
-  }
+      if (!server) {
+        throw new PublicError('SERVER_NOT_FOUND')
+      }
 
-  if (confirmationName !== server.name) {
-    throw new PublicError('SERVER_DISABLE_CONFIRMATION')
-  }
+      if (confirmationName !== server.name) {
+        throw new PublicError('SERVER_DISABLE_CONFIRMATION')
+      }
 
-  const now = new Date()
-  if (
-    !(await changeServerEnabled(db, {
-      userId,
-      teamId: team.id,
-      serverId,
-      enabled: false,
-      now,
-    }))
-  ) {
-    throw new PublicError('SERVER_STATE_CHANGED')
-  }
+      const now = new Date()
+      if (
+        !(await changeServerEnabled(db, {
+          userId,
+          teamId: team.id,
+          serverId,
+          enabled: false,
+          now,
+        }))
+      ) {
+        throw new PublicError('SERVER_STATE_CHANGED')
+      }
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function enableTeamServer({
@@ -355,39 +372,46 @@ export async function enableTeamServer({
   serverId: string
 }) {
   const team = await requireTeamManager(userId, teamSlug)
-  const existingRows = await db
-    .select({ id: servers.id, status: servers.status })
-    .from(servers)
-    .where(
-      and(
-        eq(servers.id, serverId),
-        eq(servers.teamId, team.id),
-        ne(servers.status, 'deleted'),
-      ),
-    )
-    .limit(1)
+  return withWorkspaceAccess(
+    team.id,
+    'server.enable',
+    async () => {
+      const existingRows = await db
+        .select({ id: servers.id, status: servers.status })
+        .from(servers)
+        .where(
+          and(
+            eq(servers.id, serverId),
+            eq(servers.teamId, team.id),
+            ne(servers.status, 'deleted'),
+          ),
+        )
+        .limit(1)
 
-  const server = existingRows.at(0)
-  if (!server) {
-    throw new PublicError('SERVER_NOT_FOUND')
-  }
+      const server = existingRows.at(0)
+      if (!server) {
+        throw new PublicError('SERVER_NOT_FOUND')
+      }
 
-  if (server.status !== 'disabled') {
-    throw new PublicError('SERVER_ENABLE_DISABLED_ONLY')
-  }
+      if (server.status !== 'disabled') {
+        throw new PublicError('SERVER_ENABLE_DISABLED_ONLY')
+      }
 
-  const now = new Date()
-  if (
-    !(await changeServerEnabled(db, {
-      userId,
-      teamId: team.id,
-      serverId,
-      enabled: true,
-      now,
-    }))
-  ) {
-    throw new PublicError('SERVER_STATE_CHANGED')
-  }
+      const now = new Date()
+      if (
+        !(await changeServerEnabled(db, {
+          userId,
+          teamId: team.id,
+          serverId,
+          enabled: true,
+          now,
+        }))
+      ) {
+        throw new PublicError('SERVER_STATE_CHANGED')
+      }
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function createPendingServer({
@@ -424,25 +448,20 @@ export async function createPendingServer({
   const enrollmentTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000)
 
   const now = new Date()
-  await withWorkspaceAccess(team.id, 'server.create', () =>
-    db.batch([
-      db.insert(servers).values({
-        id: serverId,
-        teamId: team.id,
-        name: nextName,
-        handle: nextName,
-        status: 'pending',
-        enrollmentTokenHash,
-        enrollmentTokenExpiresAt,
-        createdAt: now,
-        updatedAt: now,
-      }),
-      db.insert(serverAvailabilityWindows).values({
-        id: randomUUID(),
-        serverId,
-        startedAt: now,
-      }),
-    ]),
+  await withWorkspaceAccess(
+    team.id,
+    'server.create',
+    async () => {
+      const [created] = await db.batch([
+        db.all(sql`insert into servers (id,team_id,name,handle,status,enrollment_token_hash,enrollment_token_expires_at,created_at,updated_at)
+          select ${serverId},${team.id},${nextName},${nextName},'pending',${enrollmentTokenHash},${enrollmentTokenExpiresAt.getTime()},${now.getTime()},${now.getTime()}
+          where ${teamSettingsAccess(team.id, userId)} and exists(select 1 from team_members where team_id=${team.id} and user_id=${userId} and role=${team.role}) returning id`),
+        db.run(sql`insert into server_availability_windows (id,server_id,started_at)
+          select ${randomUUID()},${serverId},${now.getTime()} where changes()=1`),
+      ])
+      if (!created.length) throw new PublicError('FORBIDDEN')
+    },
+    { kind: 'user', userId },
   )
 
   return {
@@ -466,66 +485,85 @@ export async function createServerInstallCommand({
   serverId: string
 }): Promise<ServerInstallCommand> {
   const team = await requireTeamManager(userId, teamSlug)
-  const serverRows = await db
-    .select({
-      settingsVersion: servers.settingsVersion,
-      id: servers.id,
-      status: servers.status,
-      lastSeenAt: servers.lastSeenAt,
-    })
-    .from(servers)
-    .where(
-      and(
-        eq(servers.id, serverId),
-        eq(servers.teamId, team.id),
-        ne(servers.status, 'deleted'),
-      ),
-    )
-    .limit(1)
-  const server = serverRows.at(0)
+  return withWorkspaceAccess(
+    team.id,
+    'server.enroll',
+    async () => {
+      const serverRows = await db
+        .select({
+          settingsVersion: servers.settingsVersion,
+          id: servers.id,
+          status: servers.status,
+          lastSeenAt: servers.lastSeenAt,
+        })
+        .from(servers)
+        .where(
+          and(
+            eq(servers.id, serverId),
+            eq(servers.teamId, team.id),
+            ne(servers.status, 'deleted'),
+          ),
+        )
+        .limit(1)
+      const server = serverRows.at(0)
 
-  if (!server) {
-    throw new PublicError('SERVER_NOT_FOUND')
-  }
+      if (!server) {
+        throw new PublicError('SERVER_NOT_FOUND')
+      }
 
-  if (server.status === 'disabled') {
-    throw new PublicError('SERVER_DISABLED_ENROLLMENT')
-  }
+      if (server.status === 'disabled') {
+        throw new PublicError('SERVER_DISABLED_ENROLLMENT')
+      }
 
-  if (server.status === 'deleted') {
-    throw new PublicError('SERVER_DELETED_ENROLLMENT')
-  }
+      if (server.status === 'deleted') {
+        throw new PublicError('SERVER_DELETED_ENROLLMENT')
+      }
 
-  if (
-    getEffectiveServerStatus({
-      status: server.status,
-      lastSeenAt: server.lastSeenAt,
-    }) === 'connected'
-  ) {
-    throw new PublicError('SERVER_CONNECTED_ENROLLMENT')
-  }
+      if (
+        getEffectiveServerStatus({
+          status: server.status,
+          lastSeenAt: server.lastSeenAt,
+        }) === 'connected'
+      ) {
+        throw new PublicError('SERVER_CONNECTED_ENROLLMENT')
+      }
 
-  const enrollmentToken = `dps_${randomBytes(32).toString('base64url')}`
-  const enrollmentTokenHash = hashToken(enrollmentToken)
-  const enrollmentTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000)
-  const now = new Date()
+      const enrollmentToken = `dps_${randomBytes(32).toString('base64url')}`
+      const enrollmentTokenHash = hashToken(enrollmentToken)
+      const enrollmentTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000)
+      const now = new Date()
 
-  await db
-    .update(servers)
-    .set({
-      enrollmentTokenHash,
-      enrollmentTokenExpiresAt,
-      updatedAt: now,
-    })
-    .where(eq(servers.id, server.id))
+      const changed = await db
+        .update(servers)
+        .set({
+          enrollmentTokenHash,
+          enrollmentTokenExpiresAt,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(servers.id, server.id),
+            eq(servers.teamId, team.id),
+            ne(servers.status, 'deleted'),
+            ne(servers.status, 'disabled'),
+            teamSettingsAccess(team.id, userId),
+            eq(servers.settingsVersion, server.settingsVersion),
+            sql`(${servers.agentCredentialHash} is null or ${servers.status} <> 'connected')`,
+          ),
+        )
+        .returning({ id: servers.id })
+      if (!changed.length) throw new PublicError('SERVER_STATE_CHANGED')
 
-  return {
-    serverId: server.id,
-    installCommand: buildInstallCommand({
-      baseUrl: config.DEVPUSH_BASE_URL,
-      token: enrollmentToken,
-    }),
-  }
+      return {
+        serverId: server.id,
+        installCommand: buildInstallCommand({
+          baseUrl: config.DEVPUSH_BASE_URL,
+          token: enrollmentToken,
+        }),
+      }
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function registerAgent({
@@ -554,7 +592,11 @@ export async function registerAgent({
     throw new AgentRequestError(403, 'Server was deleted.')
   }
 
-  await getDeploymentServices().workspaceAccess?.connected(server.teamId)
+  if (auth.credentialType === 'enrollment')
+    await checkWorkspaceAccess(server.teamId, 'server.enroll', {
+      kind: 'system',
+      source: 'agent',
+    })
 
   const now = new Date()
   const credential =
@@ -574,7 +616,30 @@ export async function registerAgent({
     updatedAt: now,
   }
 
-  await db.update(servers).set(updates).where(eq(servers.id, server.id))
+  const updated = await db
+    .update(servers)
+    .set(updates)
+    .where(
+      and(
+        eq(servers.id, server.id),
+        ne(servers.status, 'disabled'),
+        ne(servers.status, 'deleted'),
+        auth.credentialType === 'enrollment'
+          ? and(
+              eq(servers.enrollmentTokenHash, hashToken(token)),
+              gt(servers.enrollmentTokenExpiresAt, now),
+            )
+          : eq(
+              auth.credentialType === 'pending'
+                ? servers.pendingAgentCredentialHash
+                : servers.agentCredentialHash,
+              hashToken(token),
+            ),
+      ),
+    )
+    .returning({ id: servers.id })
+  if (!updated.length)
+    throw new AgentRequestError(403, 'Server state or credential changed.')
   await recordServerHeartbeat({
     serverId: server.id,
     observedAt: now,
@@ -702,9 +767,9 @@ export async function recordAgentHeartbeat({
       ? undefined
       : await recordAgentMetricSamples(server.id, metricSamples ?? [], now)
 
-  const deploymentServices = getDeploymentServices()
+  const deploymentServices = getPluginServices()
   if (deploymentServices.serverLifecycle) {
-    const current = await deploymentContext.readServer(server.id)
+    const current = await pluginContext.readServer(server.id)
     if (current) {
       try {
         await deploymentServices.serverLifecycle.reconcile(current)
@@ -879,13 +944,19 @@ export async function deleteTeamServer({
 
   const now = new Date()
 
-  const changed = await deleteServerState(db, {
-    userId,
-    teamId: team.id,
-    serverId: server.id,
-    cancelOngoingDeployments,
-    now,
-  })
+  const changed = await withWorkspaceAccess(
+    team.id,
+    'server.delete',
+    () =>
+      deleteServerState(db, {
+        userId,
+        teamId: team.id,
+        serverId: server.id,
+        cancelOngoingDeployments,
+        now,
+      }),
+    { kind: 'user', userId: userId },
+  )
   if (!changed) throw new PublicError('SERVER_ACCESS_CHANGED')
 }
 

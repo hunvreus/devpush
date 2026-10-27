@@ -1,8 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
-import * as schema from '@/server/db/schema'
-import { isUniqueConstraintError } from '@/server/db/errors'
-import type { AtomicStore } from '@/server/db/atomic'
+import * as schema from '#devpush/server/db/schema'
+import { isUniqueConstraintError } from '#devpush/server/db/errors'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 
 type Store = Pick<BaseSQLiteDatabase<'async', unknown, typeof schema>, 'update'>
 

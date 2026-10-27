@@ -1,9 +1,9 @@
-import { isValidCron } from '@/lib/backup-cron'
+import { isValidCron } from '#devpush/lib/backup-cron'
 import { describe, expect, test } from 'vitest'
 import type {
   ProjectBackupRun,
   ProjectBackupRestore,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 
 import {
   formatBytes,

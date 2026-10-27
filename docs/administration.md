@@ -55,8 +55,8 @@ For the bundled Docker Compose deployment, set it in `deploy/.env.production`,
 then recreate the app container with the normal Compose command. Custom container
 deployments must also pass the variable into the app container.
 
-For an upgrade from an older message stored in the database, follow the
-[upgrade notes](/docs/production-operations/#deploy-and-upgrade) before migrating.
+Set `DEVPUSH_SIGN_IN_MESSAGE` in the deployment environment; there is no
+database row to migrate.
 
 ## Accounts
 

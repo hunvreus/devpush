@@ -1,7 +1,7 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { getCurrentUserContext } from '@/server/auth/context'
+import { getCurrentUserContext } from '#devpush/server/auth/context'
 
 export const Route = createFileRoute('/')({
   loader: async () => {

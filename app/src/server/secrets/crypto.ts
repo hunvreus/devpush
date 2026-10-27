@@ -5,7 +5,7 @@ import {
   randomBytes,
 } from 'node:crypto'
 
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 
 export function encryptSecret(value: string) {
   const iv = randomBytes(12)

@@ -1,6 +1,7 @@
 import { createMiddleware } from '@tanstack/react-start'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import { ZodError } from 'zod'
+import { safeErrorDiagnostics } from './error-diagnostics'
 
 export const publicErrorsMiddleware = createMiddleware({
   type: 'function',
@@ -30,7 +31,7 @@ export function toPublicError(error: unknown): PublicError {
       error.message.startsWith('Sign in before '))
   )
     return new PublicError('UNAUTHORIZED')
-  console.error('Server action failed', error)
+  console.error('Server action failed', safeErrorDiagnostics(error))
   return new PublicError('INTERNAL_ERROR')
 }
 
@@ -41,6 +42,7 @@ export function publicErrorPayload(error: unknown) {
     name: 'PublicError' as const,
     code: safe.code,
     message: safe.message,
+    ...(safe.policy ? { policy: safe.policy } : {}),
     ...(safe.reloadUrl ? { reloadUrl: safe.reloadUrl } : {}),
   }
 }

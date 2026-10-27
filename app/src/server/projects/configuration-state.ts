@@ -1,16 +1,16 @@
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import type { ApiMutationAdmission } from '@/server/api/admission'
-import type { ProjectRuntimeConfig } from '@/lib/project-runtime-config'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
+import type { ProjectRuntimeConfig } from '#devpush/lib/project-runtime-config'
 import {
   requireProjectRuntimeConfig,
   hostLifecycleCommandsChanged,
   hostLifecycleCommandsUseChangedSource,
-} from '@/lib/project-runtime-config'
+} from '#devpush/lib/project-runtime-config'
 import {
   projectSettingsGuard,
   rethrowSettingsConflict,
-} from '@/server/settings-version'
+} from '#devpush/server/settings-version'
 import type { ProjectRoute } from './types'
 
 export function invalidDomainBasePathCleanup(

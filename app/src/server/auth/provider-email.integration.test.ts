@@ -1,9 +1,9 @@
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { SignJWT } from 'jose'
-import { db, closeDb } from '@/server/db'
-import { verification } from '@/server/db/schema'
+import { db, closeDb } from '#devpush/server/db'
+import { verification } from '#devpush/server/db/schema'
 import { auth, getGitHubUserInfo, getGoogleUserInfo } from './better-auth'
-import { accountSettingsSchema } from '@/lib/account-settings-schema'
+import { accountSettingsSchema } from '#devpush/lib/account-settings-schema'
 
 afterEach(async () => {
   vi.unstubAllGlobals()

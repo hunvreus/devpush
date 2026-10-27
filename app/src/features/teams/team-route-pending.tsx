@@ -1,9 +1,10 @@
+import { ImageUploadControls } from '#devpush/components/storage-capabilities'
 import {
   WorkspaceSettingsPending,
   workspaceSettingsNavigation,
-} from '#devpush/deployment/ui'
-import { backupsEnabled } from '@/lib/backup-feature'
-import { CopyButton } from '@/components/copy-button'
+} from '#devpush/features/plugins/contributions'
+import { backupsEnabled } from '#devpush/lib/backup-feature'
+import { CopyButton } from '#devpush/components/copy-button'
 import {
   InfoIcon,
   PlusIcon,
@@ -11,37 +12,50 @@ import {
   Trash2Icon,
   UploadIcon,
 } from 'lucide-react'
-import { Field, FieldLabel, FieldDescription } from '@/components/ui/field'
+import {
+  Field,
+  FieldLabel,
+  FieldDescription,
+} from '#devpush/components/ui/field'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
-import { Alert, AlertTitle } from '@/components/ui/alert'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { canManageTeamSettings, canManageTeamMembers } from '@/lib/team-role'
+} from '#devpush/components/ui/input-group'
+import { Alert, AlertTitle } from '#devpush/components/ui/alert'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import {
+  canManageTeamSettings,
+  canManageTeamMembers,
+} from '#devpush/lib/team-role'
 import { TeamSettings } from './team-settings'
-import { Input } from '@/components/ui/input'
-import { DeploymentListPending } from '@/features/deployments/deployment-list'
+import { Input } from '#devpush/components/ui/input'
+import { DeploymentListPending } from '#devpush/features/deployments/deployment-list'
 import { useParams, useRouterState, useHydrated } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
-import { PendingList, PendingTable } from '@/components/pending-collection'
-import { TeamPage } from '@/features/teams/team-header'
-import { TeamHome, TeamProjects } from '@/features/teams/team-home'
-import { TeamServers } from '@/features/servers/team-servers'
-import { ProjectRoutePending } from '@/features/projects/project-route-pending'
-import { getProjectPendingSection } from '@/features/projects/pending-section'
-import { ServerDetailPending } from '@/features/servers/server-detail-pending'
-import { Button } from '@/components/ui/button'
-import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
-import { Skeleton } from '@/components/ui/skeleton'
+import {
+  PendingList,
+  PendingTable,
+} from '#devpush/components/pending-collection'
+import { TeamPage } from '#devpush/features/teams/team-header'
+import { TeamHome, TeamProjects } from '#devpush/features/teams/team-home'
+import { TeamServers } from '#devpush/features/servers/team-servers'
+import { ProjectRoutePending } from '#devpush/features/projects/project-route-pending'
+import { getProjectPendingSection } from '#devpush/features/projects/pending-section'
+import { ServerDetailPending } from '#devpush/features/servers/server-detail-pending'
+import { Button } from '#devpush/components/ui/button'
+import {
+  SettingsLayout,
+  SettingsSection,
+} from '#devpush/components/settings-layout'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 import {
   teamSectionQueryOptions,
   teamShellQueryOptions,
-} from '@/lib/team-context-query'
-import { displayNameFromSlug } from '@/lib/display-name'
+} from '#devpush/lib/team-context-query'
+import { displayNameFromSlug } from '#devpush/lib/display-name'
 import { getTeamPendingSection } from './pending-section'
 import { teamSettingsNavigationItems } from './navigation'
 import { TeamHeading } from './team-heading'
@@ -359,10 +373,12 @@ function TeamGeneralPending() {
             ) : (
               <Skeleton className="size-10 rounded-xl" />
             )}
-            <Button variant="outline" size="sm" disabled>
-              <UploadIcon data-icon="inline-start" />
-              Upload image
-            </Button>
+            <ImageUploadControls>
+              <Button variant="outline" size="sm" disabled>
+                <UploadIcon data-icon="inline-start" />
+                Upload image
+              </Button>
+            </ImageUploadControls>
             {context?.team.image ? (
               <Button
                 variant="destructive"
@@ -375,8 +391,8 @@ function TeamGeneralPending() {
             ) : null}
           </div>
         </Field>
-        <PendingField label="Display name (required)" />
-        <PendingField label="Slug (required)" />
+        <PendingField label="Display name" />
+        <PendingField label="Slug" />
         <Field>
           <FieldLabel>Team ID</FieldLabel>
           {context ? (

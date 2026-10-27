@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll } from 'vitest'
 
-import { migrateSqliteFile } from '@/server/db/migrate-sqlite'
+import { migrateSqliteFile } from '#devpush/server/db/migrate-sqlite'
 
 const path = join(tmpdir(), `devpush-test-${randomUUID()}.sqlite`)
 process.env.DEVPUSH_DATABASE_PATH = path

@@ -1,8 +1,8 @@
 import { and, eq, sql } from 'drizzle-orm'
 
-import { config } from '@/server/config'
-import { db } from '@/server/db'
-import { user } from '@/server/db/schema'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
+import { user } from '#devpush/server/db/schema'
 
 type AdminCandidate = {
   id: string

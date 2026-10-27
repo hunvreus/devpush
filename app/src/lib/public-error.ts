@@ -1,8 +1,8 @@
 export const publicErrorMessages = {
-  SUBSCRIPTION_REQUIRED:
-    'This workspace needs an active subscription. Open Billing in team settings to continue.',
-  PLAN_LIMIT_REACHED:
-    'This operation exceeds your workspace plan. Open Billing in team settings to update your plan or server allowance.',
+  WORKSPACE_RESTRICTED:
+    'This workspace does not currently allow this action. Review its settings to continue.',
+  WORKSPACE_LIMIT_REACHED:
+    'This action exceeds the workspace allowance. Review its settings to continue.',
   RESOURCE_BUSY: 'Another workspace change is in progress. Please try again.',
   SETTINGS_CONFLICT:
     'Settings changed since you started editing. Reload to load the latest settings.',
@@ -208,6 +208,8 @@ export const publicErrorMessages = {
     'Select a backup storage destination in this workspace.',
   BACKUP_STORAGE_IN_USE:
     'Storage cannot be removed while a policy, active backup or retained remote backup references it.',
+  AVATAR_STORAGE_UNAVAILABLE:
+    'Image uploads are not configured for this installation.',
   AVATAR_TYPE_UNSUPPORTED: 'Upload a PNG, JPEG, or WebP image.',
   AVATAR_TOO_LARGE: 'Avatars must be 2 MB or smaller.',
   AVATAR_CONTENT_MISMATCH: 'The uploaded file does not match its image type.',
@@ -233,23 +235,49 @@ export const publicErrorMessages = {
 
 export type PublicErrorCode = keyof typeof publicErrorMessages
 
+function isSafeLocalUrl(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.startsWith('/') &&
+    !value.startsWith('//') &&
+    !Array.from(value).some(
+      (character) =>
+        character === '\\' ||
+        character.charCodeAt(0) < 32 ||
+        character.charCodeAt(0) === 127,
+    )
+  )
+}
+
 // Server-function boundaries expose plain objects with registered public codes.
-// Client messages always come from this registry, never internal exceptions.
+// Deliberate plugin refusals may attach public text; ordinary exceptions never do.
 export class PublicError extends Error {
   readonly code: PublicErrorCode
+  readonly policy?: { message: string; recoveryUrl?: string }
   readonly reloadUrl?: string
-  constructor(code: PublicErrorCode, reloadUrl?: string) {
+  constructor(
+    code: PublicErrorCode,
+    reloadUrl?: string,
+    policy?: { message: string; recoveryUrl?: string },
+  ) {
     super(publicErrorMessages[code])
     this.name = 'PublicError'
     this.code = code
     if (
-      reloadUrl?.startsWith('/') &&
-      !reloadUrl.startsWith('//') &&
-      !reloadUrl.includes('\\') &&
-      !reloadUrl.includes('\r') &&
-      !reloadUrl.includes('\n')
-    )
-      this.reloadUrl = reloadUrl
+      (code === 'WORKSPACE_RESTRICTED' || code === 'WORKSPACE_LIMIT_REACHED') &&
+      policy &&
+      typeof policy.message === 'string' &&
+      policy.message.length > 0 &&
+      policy.message.length <= 400
+    ) {
+      const recoveryUrl = policy.recoveryUrl
+      this.policy = {
+        message: policy.message,
+        ...(isSafeLocalUrl(recoveryUrl) ? { recoveryUrl } : {}),
+      }
+      this.message = policy.message
+    }
+    if (isSafeLocalUrl(reloadUrl)) this.reloadUrl = reloadUrl
   }
 }
 
@@ -261,6 +289,7 @@ export function getPublicErrorMessage(error: unknown, fallback: string) {
       status?: unknown
       statusCode?: unknown
       message?: unknown
+      policy?: { message?: unknown }
     }
     if (candidate.status === 429 || candidate.statusCode === 429)
       return 'Too many attempts. Please wait a moment and try again.'
@@ -269,6 +298,13 @@ export function getPublicErrorMessage(error: unknown, fallback: string) {
       typeof candidate.code === 'string' &&
       Object.hasOwn(publicErrorMessages, candidate.code)
     ) {
+      if (
+        (candidate.code === 'WORKSPACE_RESTRICTED' ||
+          candidate.code === 'WORKSPACE_LIMIT_REACHED') &&
+        typeof candidate.policy?.message === 'string' &&
+        candidate.policy.message.length <= 400
+      )
+        return candidate.policy.message
       return candidate.code === 'INTERNAL_ERROR'
         ? fallback
         : publicErrorMessages[candidate.code as PublicErrorCode]
@@ -282,4 +318,20 @@ export function getPublicErrorMessage(error: unknown, fallback: string) {
       return 'Unable to connect. Check your connection and try again.'
   }
   return fallback
+}
+
+export function getPolicyRecoveryUrl(error: unknown): string | undefined {
+  if (
+    !error ||
+    typeof error !== 'object' ||
+    !('code' in error) ||
+    !['WORKSPACE_RESTRICTED', 'WORKSPACE_LIMIT_REACHED'].includes(
+      String(error.code),
+    ) ||
+    !('policy' in error)
+  )
+    return
+  const url = (error.policy as { recoveryUrl?: unknown } | undefined)
+    ?.recoveryUrl
+  return isSafeLocalUrl(url) ? url : undefined
 }

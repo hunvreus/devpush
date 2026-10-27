@@ -1,11 +1,11 @@
-import { PublicError, publicErrorMessages } from '@/lib/public-error'
+import { PublicError, publicErrorMessages } from '#devpush/lib/public-error'
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import { BackupStorageSettings } from './backup-storage-settings'
-import type { BackupStorageSummary } from '@/lib/backup-storage-schema'
+import type { BackupStorageSummary } from '#devpush/lib/backup-storage-schema'
 
 const mocks = vi.hoisted(() => ({
   error: vi.fn(),
@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidate }),
 }))
-vi.mock('@/server/backups/storage-functions', () => ({
+vi.mock('#devpush/server/backups/storage-functions', () => ({
   saveBackupStorageAction: mocks.save,
   deleteBackupStorageAction: mocks.remove,
 }))

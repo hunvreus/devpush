@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test, vi } from 'vitest'
-import { projectContext } from '@/test/project-context'
-import type { ServerSummary } from '@/server/teams/types'
-import { ProjectPage } from '@/features/projects/project-layout'
+import { projectContext } from '#devpush/test/project-context'
+import type { ServerSummary } from '#devpush/server/teams/types'
+import { ProjectPage } from '#devpush/features/projects/project-layout'
 import { ServerAvailabilityAlert } from './server-availability-alert'
 import { getServerAvailabilityNotice } from './server-availability'
 
@@ -28,7 +28,7 @@ vi.mock('@tanstack/react-router', () => ({
     </a>
   ),
 }))
-vi.mock('@/features/teams/team-header', () => ({
+vi.mock('#devpush/features/teams/team-header', () => ({
   TeamPage: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 

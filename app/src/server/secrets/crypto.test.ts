@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 import { decryptSecret, encryptSecret } from './crypto'
 
 let previousKey: string | undefined

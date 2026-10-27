@@ -1,6 +1,7 @@
-import { WorkspaceStatus, WorkspaceNotice } from '#devpush/deployment/ui'
-import { LogoMark } from '@/components/logo-mark'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
+import { mutationErrorOptions, afterMutation  } from '#devpush/lib/action-feedback'
+import { WorkspacePluginContributions } from '#devpush/features/plugins/contributions'
+import { LogoMark } from '#devpush/components/logo-mark'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
 import {
   Dialog,
   DialogContent,
@@ -8,11 +9,10 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
-import { HelpDialog } from './help-dialog'
+} from '#devpush/components/ui/dialog'
+import { AboutDialog } from '#devpush/components/about-dialog'
 import { NewTeamDialogLauncher } from './new-team-dialog'
-import { SignOutMenuItem } from '@/features/auth/sign-out-menu-item'
-import { afterMutation } from '@/lib/action-feedback'
+import { SignOutMenuItem } from '#devpush/features/auth/sign-out-menu-item'
 import {
   Link,
   useParams,
@@ -21,7 +21,7 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { deploymentContextQueryOptions } from '@/lib/project-context-query'
+import { pluginContextQueryOptions } from '#devpush/lib/project-context-query'
 import { useTheme } from 'next-themes'
 import {
   ArrowUpRightIcon,
@@ -39,23 +39,27 @@ import {
 import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { getCachedTeamContexts } from '@/lib/team-context-query'
+import { getCachedTeamContexts } from '#devpush/lib/team-context-query'
 
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { Button } from '@/components/ui/button'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from '#devpush/components/ui/avatar'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import { Button } from '#devpush/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { Skeleton } from '@/components/ui/skeleton'
-import { NewProjectDialogLauncher } from '@/features/repositories/new-project-dialog-launcher'
-import { getServerAvailabilityNotice } from '@/features/servers/server-availability'
-import { ServerAvailabilityAlert } from '@/features/servers/server-availability-alert'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { displayNameFromSlug } from '@/lib/display-name'
-import { cn } from '@/lib/utils'
+} from '#devpush/components/ui/tooltip'
+import { Skeleton } from '#devpush/components/ui/skeleton'
+import { NewProjectDialogLauncher } from '#devpush/features/repositories/new-project-dialog-launcher'
+import { getServerAvailabilityNotice } from '#devpush/features/servers/server-availability'
+import { ServerAvailabilityAlert } from '#devpush/features/servers/server-availability-alert'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { displayNameFromSlug } from '#devpush/lib/display-name'
+import { cn } from '#devpush/lib/utils'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,18 +67,18 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import type { AuthUserContext } from '@/server/auth/context'
-import type { ProjectContext } from '@/server/projects/types'
+} from '#devpush/components/ui/dropdown-menu'
+import type { AuthUserContext } from '#devpush/server/auth/context'
+import type { ProjectContext } from '#devpush/server/projects/types'
 import type {
   ProjectSummary,
   ServerSummary,
   TeamSummary,
-} from '@/server/teams/types'
+} from '#devpush/server/teams/types'
 import {
   acceptUserTeamInviteAction,
   declineUserTeamInviteAction,
-} from '@/server/teams/functions'
+} from '#devpush/server/teams/functions'
 import {
   isProjectTabActive,
   isTeamTabActive,
@@ -134,8 +138,8 @@ function TeamHeader({
     typeof params.deploymentId === 'string' ? params.deploymentId : undefined
   // Observe the detail route's query so both the current status and menu rows
   // receive the same workspace notifications, without a second request.
-  const { data: deploymentContext } = useQuery({
-    ...deploymentContextQueryOptions(
+  const { data: pluginContext } = useQuery({
+    ...pluginContextQueryOptions(
       {
         teamSlug,
         projectName: routeProjectName ?? '',
@@ -147,13 +151,13 @@ function TeamHeader({
   })
   const activeDeployment =
     currentDeployment ??
-    (hydrated ? deploymentContext?.deployment : undefined) ??
+    (hydrated ? pluginContext?.deployment : undefined) ??
     (routeDeploymentId
       ? { id: routeDeploymentId, status: undefined }
       : undefined)
   const activeDeployments =
-    hydrated && deploymentContext
-      ? deploymentContext.latestDeployments
+    hydrated && pluginContext
+      ? pluginContext.latestDeployments
       : currentDeployments
   const cachedProject = routeProjectName
     ? cachedTeamContexts
@@ -261,7 +265,13 @@ function TeamHeader({
             </>
           ) : null}
           {activeTeam && activeTeam.slug === teamSlug ? (
-            <WorkspaceStatus teamSlug={teamSlug} role={activeTeam.role} />
+            <>
+              <WorkspacePluginContributions
+                place="header"
+                teamSlug={teamSlug}
+                role={activeTeam.role}
+              />
+            </>
           ) : null}
         </nav>
 
@@ -386,7 +396,13 @@ export function TeamPage({
         aria-busy={pending || undefined}
       >
         {noticeTeam ? (
-          <WorkspaceNotice teamSlug={noticeTeam.slug} role={noticeTeam.role} />
+          <>
+            <WorkspacePluginContributions
+              place="notice"
+              teamSlug={noticeTeam.slug}
+              role={noticeTeam.role}
+            />
+          </>
         ) : null}
         {serverNotice && currentTeam && !currentProject ? (
           <ServerAvailabilityAlert notice={serverNotice} team={currentTeam} />
@@ -886,7 +902,10 @@ function NotificationsMenu({
         'The action completed, but opening the next page failed. Please reload.',
       )
     } catch (error) {
-      toast.error(getPublicErrorMessage(error, 'Unable to accept invitation.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to accept invitation.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyInviteId(null)
       setBusyInviteAction(null)
@@ -908,7 +927,10 @@ function NotificationsMenu({
         await router.invalidate()
       }, 'Invitation declined, but refreshing the page failed. Please reload.')
     } catch (error) {
-      toast.error(getPublicErrorMessage(error, 'Unable to decline invitation.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to decline invitation.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyInviteId(null)
       setBusyInviteAction(null)
@@ -1174,7 +1196,7 @@ function UserMenu({ userContext }: { userContext: AuthUserContext }) {
           <SignOutMenuItem />
         </DropdownMenuContent>
       </DropdownMenu>
-      <HelpDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </>
   )
 }

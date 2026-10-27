@@ -1,8 +1,8 @@
-import { releaseBackupCleanupRuns } from '@/server/backups/queue-state'
-import type { ApiMutationAdmission } from '@/server/api/admission'
+import { releaseBackupCleanupRuns } from '#devpush/server/backups/queue-state'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import { runtimeCleanupInsert } from '@/server/agents/cleanup'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { runtimeCleanupInsert } from '#devpush/server/agents/cleanup'
 
 export async function deleteProjectState(
   store: AtomicStore,

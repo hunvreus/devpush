@@ -537,6 +537,7 @@ CREATE UNIQUE INDEX `teams_slug_idx` ON `teams` (`slug`);--> statement-breakpoin
 CREATE TABLE `user` (
 	`id` text PRIMARY KEY NOT NULL,
 	`settings_version` integer DEFAULT 1 NOT NULL,
+	`profile_confirmed_at` integer,
 	`name` text NOT NULL,
 	`username` text NOT NULL,
 	`email` text NOT NULL,

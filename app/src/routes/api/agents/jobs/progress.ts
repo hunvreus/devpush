@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { recordDeploymentProgress } from '@/server/agents/jobs'
+import { recordDeploymentProgress } from '#devpush/server/agents/jobs'
 import {
   agentJobProgressSchema,
   handleAgentRequest,
-} from '@/server/agents/protocol'
+} from '#devpush/server/agents/protocol'
 
 export const Route = createFileRoute('/api/agents/jobs/progress')({
   server: {

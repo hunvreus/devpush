@@ -25,6 +25,7 @@ app/wrangler.pending.jsonc
 **/.output
 **/.nitro
 **/.tanstack
+**/.devpush
 **/dist
 **/coverage
 
@@ -33,3 +34,19 @@ data
 logs
 app/public/uploads
 backups
+
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/id_rsa
+**/id_ed25519
+**/id_ecdsa
+**/*.sqlite*
+**/*.db
+**/*.db-*
+**/*.log
+**/*.tgz
+**/*.tar
+**/*.tar.gz
+release

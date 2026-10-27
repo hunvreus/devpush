@@ -1,6 +1,6 @@
-import { PublicError } from '@/lib/public-error'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
-import type { ProjectContext } from '@/server/projects/types'
+import { PublicError } from '#devpush/lib/public-error'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
+import type { ProjectContext } from '#devpush/server/projects/types'
 // @vitest-environment jsdom
 import { act } from 'react'
 import type { ReactNode } from 'react'
@@ -8,9 +8,11 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import type * as EnvironmentSettings from './project-environment-settings'
 import { ProjectSettings } from './project-settings'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
-import { projectContext as context } from '@/test/project-context'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
+import { projectContext as context } from '#devpush/test/project-context'
+
+vi.mock('#devpush/features/notifications/email-preferences', () => ({ AccountEmailPreferences: () => null, NotificationMute: () => null }))
 
 const mocks = vi.hoisted(() => ({
   save: vi.fn(),
@@ -26,7 +28,7 @@ const mocks = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   saveProjectSettings: mocks.save,
   saveProjectEnvVars: mocks.envVars,
   saveProjectEnvironments: mocks.environments,
@@ -40,7 +42,7 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ navigate: mocks.navigate }),
 }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
-vi.mock('@/lib/project-context-query', () => ({
+vi.mock('#devpush/lib/project-context-query', () => ({
   setProjectContextQueryData: mocks.cache,
 }))
 vi.mock('sonner', () => ({
@@ -61,7 +63,7 @@ vi.mock('./repository-picker-dialog', () => ({
     <>{children}</>
   ),
 }))
-vi.mock('@/components/settings-layout', () => ({
+vi.mock('#devpush/components/settings-layout', () => ({
   SettingsLayout: ({ children }: { children: ReactNode }) => (
     <main>{children}</main>
   ),
@@ -609,7 +611,7 @@ test('project deletion requires exact confirmation, locks pending edits and clos
   expect(mocks.deleteProject).toHaveBeenCalledTimes(2)
 })
 
-vi.mock('@/lib/resource-cache', () => ({
+vi.mock('#devpush/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
 

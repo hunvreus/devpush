@@ -2,8 +2,8 @@ import { Link } from '@tanstack/react-router'
 import { ArrowLeftIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-import { SectionNavigation } from '@/components/section-navigation'
-import type { SectionNavigationItem } from '@/components/section-navigation'
+import { SectionNavigation } from '#devpush/components/section-navigation'
+import type { SectionNavigationItem } from '#devpush/components/section-navigation'
 import {
   Card,
   CardContent,
@@ -11,13 +11,13 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+} from '#devpush/components/ui/card'
+import { Button } from '#devpush/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '#devpush/components/ui/tooltip'
 
 export function StandaloneSettingsLayout({
   ariaLabel,

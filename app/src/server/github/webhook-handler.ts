@@ -1,4 +1,5 @@
-import { handleGitHubInstallationWebhook } from '@/server/github/service'
+import { notifyAfterProjectUpdate } from '#devpush/server/notifications/observe'
+import { handleGitHubInstallationWebhook } from '#devpush/server/github/service'
 import {
   getBranchFromGitHubRef,
   InvalidGitHubInstallationPayloadError,
@@ -7,13 +8,13 @@ import {
   requireGitHubWebhookConfiguration,
   validateGitHubWebhookHeaders,
   verifyGitHubWebhookSignature,
-} from '@/server/github/webhooks'
-import { createDeploymentsForGitHubPush } from '@/server/projects/deployments'
+} from '#devpush/server/github/webhooks'
+import { createDeploymentsForGitHubPush } from '#devpush/server/projects/deployments'
 import {
   RequestBodyTooLargeError,
   readRequestText,
-} from '@/server/http/request-body'
-import { enforceRateLimit } from '@/server/http/rate-limit'
+} from '#devpush/server/http/request-body'
+import { enforceRateLimit } from '#devpush/server/http/rate-limit'
 
 // GitHub permits larger payloads, but this endpoint buffers the body before
 // signature verification and only consumes compact push/installation fields.
@@ -180,7 +181,15 @@ export async function handleGitHubWebhook(request: Request) {
     authorName: payload.head_commit?.author?.name ?? null,
     authoredAt: payload.head_commit?.timestamp ?? null,
     commitUrl: payload.head_commit?.url ?? null,
+    githubSenderId:
+      Number.isSafeInteger(payload.sender?.id) && (payload.sender?.id ?? 0) > 0
+        ? String(payload.sender!.id)
+        : undefined,
   })
 
+  for (const projectId of new Set(
+    [...result.created, ...result.skipped].map((item) => item.projectId),
+  ))
+    await notifyAfterProjectUpdate(projectId)
   return Response.json({ ok: true, ...result })
 }

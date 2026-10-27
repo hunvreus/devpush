@@ -1,4 +1,4 @@
-import { required } from '@/test/required'
+import { required } from '#devpush/test/required'
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
 import { sql } from 'drizzle-orm'

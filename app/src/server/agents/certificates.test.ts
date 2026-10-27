@@ -8,14 +8,14 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   reconcile: vi.fn(),
 }))
-vi.mock('@/server/servers/service', () => ({
+vi.mock('#devpush/server/servers/service', () => ({
   requireAgentServer: mocks.authorize,
 }))
-vi.mock('@/deployment/services.server', () => ({
-  getDeploymentServices: mocks.services,
+vi.mock('#devpush/server/plugins/services.server', () => ({
+  getPluginServices: mocks.services,
 }))
-vi.mock('@/deployment/server-context', () => ({
-  deploymentContext: { readServer: mocks.readServer },
+vi.mock('#devpush/server/plugins/server-context', () => ({
+  pluginContext: { readServer: mocks.readServer },
 }))
 const server = {
   id: 'server',

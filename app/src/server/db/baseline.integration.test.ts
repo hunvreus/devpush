@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getTableName, is, sql, Table } from 'drizzle-orm'
 import { afterAll, beforeAll, expect, test } from 'vitest'
-import { createD1TestStores } from '@/test/d1'
+import { createD1TestStores } from '#devpush/test/d1'
 import type { AtomicStore } from './atomic'
 import { migrateSqliteFile } from './migrate-sqlite'
 import { openSqlite } from './sqlite-connection'
@@ -25,16 +25,14 @@ beforeAll(async () => {
     const journal = JSON.parse(
       readFileSync(join(directory, 'meta/_journal.json'), 'utf8'),
     )
-    expect(journal.entries.map((entry: { tag: string }) => entry.tag)).toEqual([
-      '0000_initial',
-      ...(folder === 'migrations-sqlite'
-        ? [
-            '0001_installation_settings',
-            '0002_remove_installation_settings',
-            '0003_puzzling_jane_foster',
-          ]
-        : []),
-    ])
+    expect(journal.entries[0].tag).toBe('0000_initial')
+    expect(
+      readdirSync(directory)
+        .filter((name) => name.endsWith('.sql'))
+        .sort(),
+    ).toEqual(
+      journal.entries.map((entry: { tag: string }) => `${entry.tag}.sql`),
+    )
     migrateSqliteFile(join(temporary, filename), directory)
     migrateSqliteFile(join(temporary, filename), directory)
   }
@@ -114,6 +112,12 @@ test.each(['SQLite', 'D1'] as const)(
     expect(
       await rows(
         stores.main,
+        sql`select profile_confirmed_at from user where id='baseline-user'`,
+      ),
+    ).toEqual([[null]])
+    expect(
+      await rows(
+        stores.main,
         sql`select expires_at from api_keys where id='baseline-key'`,
       ),
     ).toEqual([[null]])
@@ -149,7 +153,7 @@ test.each(['SQLite', 'D1'] as const)(
 
 test('SQLite migration journals apply each migration once after a second run', async () => {
   for (const [store, count] of [
-    [main.db, 4],
+    [main.db, 3],
     [logs.db, 1],
   ] as const)
     expect(

@@ -10,14 +10,23 @@
       "entry": [
         // The Worker entry stays live even before an installation is configured.
         "src/server.ts",
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "src/lib/*.d.mts",
+        // Node runtime entries are loaded by the package Vite plugin.
+        "src/server/realtime/node-handler.ts",
+        "src/server/runtime/node-scheduler-plugin.ts",
         "drizzle.logs.config.ts",
+        "vitest.integration.config.ts",
         "scripts/backup-sqlite.mjs",
         "src/server/**/*.cloudflare.ts"
       ],
       // Transport tests resolve the exact serializer/router used by Start,
       // rather than testing a separately installed copy of these dependencies.
       // cloudflare: imports are provided by the Workers runtime, not npm.
-      "ignoreDependencies": ["seroval", "@tanstack/router-core", "cloudflare"]
+      "ignoreDependencies": ["seroval", "@tanstack/router-core", "cloudflare"],
+      // Vitest resolves this setup path from the workspace root, not as an import.
+      "ignoreUnresolved": ["src/test/setup-sqlite.ts"]
     }
   }
 }

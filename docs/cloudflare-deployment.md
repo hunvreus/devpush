@@ -7,10 +7,12 @@ description: Deploy and operate the control plane on Cloudflare Workers.
 This installs the dashboard on Cloudflare Workers. Your application containers
 still run on Linux servers connected through the agent.
 
+For an application installed as a dependency, start with [Package installation](/docs/package-installation/). This guide documents the source-checkout setup wizard and the Cloudflare resources/configuration both paths need.
+
 ## Before you start
 
-- A Cloudflare account with Workers and R2 available; D1 is the default database option.
-- Node.js 22+, pnpm 10.17+ and Go 1.27+ to build the app and Linux agent binaries.
+- A Cloudflare account with Workers available; D1 is the default database option.
+- Node.js 22.12+ and pnpm 10.17+ to build the app.
 - A devpush source checkout and Wrangler signed in to the intended account.
 - A stable public origin and sign-in providers. A custom domain's zone must be
   active in that same Cloudflare account.
@@ -37,8 +39,8 @@ pnpm configure
 Choose **Cloudflare Workers**. The wizard reads the authenticated Cloudflare
 account and its `workers.dev` subdomain from Wrangler and Cloudflare, then
 constructs the selected Worker's public URL or configures a custom domain. It
-offers D1 or remote libSQL for storage. It creates or connects R2 and, when D1
-is selected, two distinct D1 databases. It records the installation-admin email and
+offers D1 or remote libSQL for storage. Image uploads are optional: enable R2 in setup or add a `DEVPUSH_OBJECTS` binding later. When D1
+is selected, setup creates two distinct D1 databases. It records the installation-admin email and
 optionally creates the GitHub App. Before any
 Cloudflare resources are created, it displays a confirmation prompt. It does
 not deploy the Worker.
@@ -88,9 +90,8 @@ when authentication must use a different origin. Set
 `DEVPUSH_BACKUPS_ENABLED=true` as a Worker secret and export
 `VITE_DEVPUSH_BACKUPS_ENABLED=true` while building if project backups should be
 visible. The Worker Cron Trigger calls maintenance services directly, so it does
-not require `DEVPUSH_CRON_SECRET`. That secret is still required by the
-self-hosted production Compose deployment, where it protects the HTTP
-maintenance endpoints.
+not require `DEVPUSH_CRON_SECRET`. Node also invokes services directly. The secret is only needed for optional
+external calls to the HTTP maintenance endpoints.
 
 `DEVPUSH_MCP_URL` is an optional public Worker variable naming the full canonical
 assistant endpoint. It defaults to `DEVPUSH_BASE_URL` plus `/mcp`. To expose MCP
@@ -135,8 +136,7 @@ pnpm deploy:cloudflare
 ```
 
 The deployment command first validates the generated configuration. It then
-applies reviewed SQL migrations to the selected main and log databases (D1 or libSQL), builds and
-publishes the Linux amd64 and arm64 agents to R2, builds the Worker with
+applies reviewed SQL migrations to the selected main and log databases (D1 or libSQL), then builds the Worker with
 `app/wrangler.jsonc`, and deploys it with `app/.cloudflare-secrets.json` in the
 same Wrangler operation. Migrations run before the new Worker because the new
 application version may depend on them; no manually repeated migration or agent
@@ -150,10 +150,10 @@ When backups are enabled, export `VITE_DEVPUSH_BACKUPS_ENABLED=true` for **every
 deployment build, as well as keeping the server backup flag enabled. Keep installation-specific bindings and deployment
 credentials in the deployment environment rather than committing them.
 
-The Worker reads agent binaries through its `DEVPUSH_OBJECTS` binding. The
-self-hosted app continues to use filesystem storage by default or the
-`DEVPUSH_STORAGE_*` S3-compatible variables when remote object storage is
-desired.
+Agent downloads redirect directly to the pinned GitHub Release. Installers verify
+its checksum against the bundled manifest. Publish that release before enrolling
+servers; no R2 bucket or binary upload is needed. Node installations can still use
+trusted local/offline binaries through `DEVPUSH_AGENT_BINARY_DIR`.
 
 After deployment, update any separately configured Google OAuth callbacks to
 the selected HTTPS origin, then exercise login,
@@ -211,6 +211,6 @@ proxies that reject WebSocket upgrades also fall back to HTTP polling.
 
 The Worker has no local-upload fallback. Configure the `DEVPUSH_OBJECTS` R2
 binding or the documented S3-compatible storage credentials before using object
-storage. Without either, writes fail explicitly. Installation information comes
+storage. Without either, image upload controls are hidden and upload requests are rejected. Provider avatars and generated fallbacks continue working. Installation information comes
 from `CF_VERSION_METADATA`; a missing binding returns no current installation
 metadata rather than attempting to read the Node installation’s version file.

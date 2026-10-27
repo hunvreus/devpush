@@ -7,12 +7,12 @@ import {
   AlertAction,
   AlertDescription,
   AlertTitle,
-} from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
-import { ServerAvailabilityAlert } from '@/features/servers/server-availability-alert'
-import { getServerAvailabilityNotice } from '@/features/servers/server-availability'
-import { TeamPage } from '@/features/teams/team-header'
-import type { ProjectContext } from '@/server/projects/types'
+} from '#devpush/components/ui/alert'
+import { Button } from '#devpush/components/ui/button'
+import { ServerAvailabilityAlert } from '#devpush/features/servers/server-availability-alert'
+import { getServerAvailabilityNotice } from '#devpush/features/servers/server-availability'
+import { TeamPage } from '#devpush/features/teams/team-header'
+import type { ProjectContext } from '#devpush/server/projects/types'
 
 type ProjectLayoutContext = Pick<
   ProjectContext,

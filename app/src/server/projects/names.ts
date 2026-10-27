@@ -1,8 +1,8 @@
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import { and, eq, ne, sql } from 'drizzle-orm'
 
-import type { db } from '@/server/db'
-import { projects } from '@/server/db/schema'
+import type { db } from '#devpush/server/db'
+import { projects } from '#devpush/server/db/schema'
 
 const projectMachineNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/
 

@@ -1,14 +1,14 @@
 import {
   encryptExistingProviderTokens,
   readProviderToken,
-} from '@/server/auth/provider-tokens'
+} from '#devpush/server/auth/provider-tokens'
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { db, closeDb } from '@/server/db'
-import { account, user } from '@/server/db/schema'
+import { db, closeDb } from '#devpush/server/db'
+import { account, user } from '#devpush/server/db/schema'
 import { getGitHubAccount } from './service'
 
-vi.mock('@/server/auth/auth-methods', () => ({
+vi.mock('#devpush/server/auth/auth-methods', () => ({
   getAuthMethods: () => ({ github: true, google: false, email: false }),
   getGitHubOAuthCredentials: () => ({
     clientId: 'fixture-client',

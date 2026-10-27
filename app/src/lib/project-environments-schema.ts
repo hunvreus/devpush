@@ -1,4 +1,4 @@
-import { settingsVersionSchema } from '@/lib/settings-version'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
 import { z } from 'zod'
 
 const projectEnvironmentSchema = z.object({

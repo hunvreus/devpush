@@ -125,17 +125,8 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 
 	addEvent("config_synced", "Deployment configuration received.")
 
-	cloneURL := runner.cloneURL(job.Repo)
-	if err := run(workdir, "git", "clone", "--depth", "1", "--branch", job.Repo.Branch, cloneURL, repoDir); err != nil {
-		return fail(fmt.Errorf("unable to fetch repository %s branch %s. Check GitHub App repository access and branch name: %w", job.Repo.FullName, job.Repo.Branch, err))
-	}
-	if job.Repo.Sha != "" {
-		if err := run(repoDir, "git", "fetch", "--depth", "1", "origin", job.Repo.Sha); err != nil {
-			return fail(fmt.Errorf("unable to fetch commit %s: %w", job.Repo.Sha, err))
-		}
-		if err := run(repoDir, "git", "checkout", "--detach", job.Repo.Sha); err != nil {
-			return fail(fmt.Errorf("unable to checkout commit %s: %w", job.Repo.Sha, err))
-		}
+	if err := runner.checkoutRepository(workdir, repoDir, job.Repo, run); err != nil {
+		return fail(err)
 	}
 	addEvent("repo_fetched", fmt.Sprintf("Fetched %s:%s.", job.Repo.FullName, job.Repo.Branch))
 
@@ -372,4 +363,29 @@ func resolveLifecycleCommand(runtime runtimeConfig, action string) (string, stri
 		return runtime.RollbackCommand, "rollback"
 	}
 	return runtime.DeployCommand, "deploy"
+}
+
+func (runner *Runner) checkoutRepository(workdir, repoDir string, repository repo, run func(string, string, ...string) error) error {
+	cloneURL := runner.cloneURL(repository)
+	if repository.Sha != "" {
+		// A historical deployment must not depend on the source branch still existing.
+		if err := os.MkdirAll(repoDir, 0750); err != nil {
+			return err
+		}
+		if err := run(repoDir, "git", "init"); err != nil {
+			return err
+		}
+		if err := run(repoDir, "git", "remote", "add", "origin", cloneURL); err != nil {
+			return err
+		}
+		if err := run(repoDir, "git", "fetch", "--depth", "1", "origin", repository.Sha); err != nil {
+			return fmt.Errorf("unable to fetch commit %s: %w", repository.Sha, err)
+		}
+		if err := run(repoDir, "git", "checkout", "--detach", repository.Sha); err != nil {
+			return fmt.Errorf("unable to checkout commit %s: %w", repository.Sha, err)
+		}
+	} else if err := run(workdir, "git", "clone", "--depth", "1", "--branch", repository.Branch, cloneURL, repoDir); err != nil {
+		return fmt.Errorf("unable to fetch repository %s branch %s. Check GitHub App repository access and branch name: %w", repository.FullName, repository.Branch, err)
+	}
+	return nil
 }

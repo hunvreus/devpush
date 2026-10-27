@@ -1,6 +1,6 @@
-import { getCurrentUserContext } from '@/server/auth/context'
-import { pageHead } from '@/lib/page-head'
-import { useWorkspaceUpdates } from '@/features/teams/use-workspace-updates'
+import { getCurrentUserContext } from '#devpush/server/auth/context'
+import { pageHead } from '#devpush/lib/page-head'
+import { useWorkspaceUpdates } from '#devpush/features/teams/use-workspace-updates'
 import {
   Outlet,
   redirect,
@@ -10,9 +10,9 @@ import {
 } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 
-import { TeamPage } from '@/features/teams/team-header'
-import { TeamLayoutPending } from '@/features/teams/team-route-pending'
-import { teamShellQueryOptions } from '@/lib/team-context-query'
+import { TeamPage } from '#devpush/features/teams/team-header'
+import { TeamLayoutPending } from '#devpush/features/teams/team-route-pending'
+import { teamShellQueryOptions } from '#devpush/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug')({
   ssr: false,

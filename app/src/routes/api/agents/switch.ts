@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
-import { handleAgentRequest } from '@/server/agents/protocol'
-import { switchServerControlPlane } from '@/server/servers/switch'
+import { handleAgentRequest } from '#devpush/server/agents/protocol'
+import { switchServerControlPlane } from '#devpush/server/servers/switch'
 
 const schema = z.object({
   serverId: z.string().min(1),

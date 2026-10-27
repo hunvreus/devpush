@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import type { ApiMutationAdmission } from '@/server/api/admission'
-import { teamSettingsAccess } from '@/server/settings-version'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
+import { teamSettingsAccess } from '#devpush/server/settings-version'
 
 type StorageValues = {
   name: string

@@ -1,38 +1,41 @@
+import { notificationCategories } from '#devpush/lib/notification-preferences'
+import { Checkbox } from '#devpush/components/ui/checkbox'
 import {
   accountSettingsNavigation,
-  AccountEmailPreferencesPending,
-} from '#devpush/deployment/ui'
+  AccountSettingsPending,
+} from '#devpush/features/plugins/contributions'
 import { Fragment } from 'react'
 import type { ReactNode } from 'react'
 import { getRouteApi, useHydrated } from '@tanstack/react-router'
-import { AdminSettings } from '@/features/admin/admin-settings'
-import { UserSettings } from '@/features/users/user-settings'
+import { AdminSettings } from '#devpush/features/admin/admin-settings'
+import { UserSettings } from '#devpush/features/users/user-settings'
 import { ChevronDownIcon, PlusIcon, SearchIcon } from 'lucide-react'
 import {
   Field,
+  FieldContent,
   FieldLabel,
   FieldDescription,
   FieldGroup,
-} from '@/components/ui/field'
-import { ApiKeysPending } from '@/features/users/api-keys-settings'
+} from '#devpush/components/ui/field'
+import { ApiKeysPending } from '#devpush/features/users/api-keys-settings'
 import {
   ConnectedAppsDescription,
   ConnectedAppsPending,
-} from '@/features/users/connected-apps-settings'
-import { ButtonGroup } from '@/components/ui/button-group'
+} from '#devpush/features/users/connected-apps-settings'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
-import { PendingTable } from '@/components/pending-collection'
-import type { SectionNavigationItem } from '@/components/section-navigation'
+} from '#devpush/components/ui/input-group'
+import { PendingTable } from '#devpush/components/pending-collection'
+import type { SectionNavigationItem } from '#devpush/components/section-navigation'
 import {
   SettingsSection,
   StandaloneSettingsLayout,
-} from '@/components/settings-layout'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+} from '#devpush/components/settings-layout'
+import { Button } from '#devpush/components/ui/button'
+import { Skeleton } from '#devpush/components/ui/skeleton'
 
 const adminItems: Array<SectionNavigationItem> = [
   { href: '#installation', label: 'Installation' },
@@ -42,12 +45,12 @@ const adminItems: Array<SectionNavigationItem> = [
 
 const userItems: Array<SectionNavigationItem> = [
   { href: '#general', label: 'General' },
-  { href: '#email', label: 'Email' },
-  ...accountSettingsNavigation,
+  { href: '#email-preferences', label: 'Email preferences' },
   { href: '#authentication', label: 'Authentication' },
   { href: '#api-keys', label: 'API keys' },
   { href: '#connected-apps', label: 'Connected apps' },
   { href: '#teams', label: 'Teams' },
+  ...accountSettingsNavigation,
   { href: '#danger', label: 'Danger', destructive: true },
 ]
 
@@ -122,11 +125,11 @@ export function UserSettingsPending() {
           title: 'General',
         },
         {
+          title: 'Email preferences',
           description:
-            'The email address used for authentication and notifications.',
+            'Choose which emails you receive. Workspace and project mutes apply to operational alerts.',
           footer: true,
           kind: 'fields',
-          title: 'Email',
         },
         {
           description: 'Manage the ways you can sign in to your account.',
@@ -181,10 +184,10 @@ function SettingsPagePending({
     >
       {sections.map((section) => (
         <Fragment key={section.title}>
-          <PendingSettingsCard section={section} />
-          {title === 'Account' && section.title === 'Email' ? (
-            <AccountEmailPreferencesPending />
+          {title === 'Account' && section.title === 'Danger' ? (
+            <AccountSettingsPending />
           ) : null}
+          <PendingSettingsCard section={section} />
         </Fragment>
       ))}
     </StandaloneSettingsLayout>
@@ -351,13 +354,25 @@ function PendingCardContent({
     )
   }
 
+  if (title === 'Email preferences')
+    return (
+      <FieldGroup>
+        {notificationCategories.map((category) => (
+          <Field key={category.id} orientation="horizontal">
+            <Checkbox checked disabled />
+            <FieldContent>
+              <FieldLabel>{category.label}</FieldLabel>
+              <FieldDescription>{category.description}</FieldDescription>
+            </FieldContent>
+          </Field>
+        ))}
+      </FieldGroup>
+    )
+
   if (title === 'General') {
     return (
       <FieldGroup>
-        <Field
-          orientation="horizontal"
-          className="grid items-center gap-3 sm:grid-cols-2"
-        >
+        <Field>
           <FieldLabel>Picture</FieldLabel>
           <Button
             variant="ghost"
@@ -369,15 +384,19 @@ function PendingCardContent({
             <Skeleton className="size-9 rounded-full" />
           </Button>
         </Field>
-        <PendingField label="Name (required)" horizontal />
-        <PendingField label="Username (required)" horizontal />
+        <PendingField label="Name" />
+        <PendingField label="Username" />
+        <PendingField
+          label="Email"
+          description="Verification is required before the new email is used for sign in."
+        />
       </FieldGroup>
     )
   }
 
   return (
     <PendingField
-      label="Email (required)"
+      label="Email"
       description="Verification is required before the new email is used for sign in."
     />
   )
@@ -386,19 +405,12 @@ function PendingCardContent({
 function PendingField({
   description,
   label,
-  horizontal = false,
 }: {
   description?: string
   label: string
-  horizontal?: boolean
 }) {
   return (
-    <Field
-      orientation={horizontal ? 'horizontal' : 'vertical'}
-      className={
-        horizontal ? 'grid items-center gap-3 sm:grid-cols-2' : undefined
-      }
-    >
+    <Field>
       <FieldLabel>{label}</FieldLabel>
       <Skeleton className="h-8 w-full" />
       {description ? <FieldDescription>{description}</FieldDescription> : null}

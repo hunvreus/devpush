@@ -1,11 +1,11 @@
-import { CopyButton } from '@/components/copy-button'
+import { CopyButton } from '#devpush/components/copy-button'
 import {
   allowlistRuleSchema,
   allowlistImportSchema,
-} from '@/lib/allowlist-schema'
-import { formErrors } from '@/lib/form-errors'
-import type { FormErrors } from '@/lib/form-errors'
-import { afterMutation } from '@/lib/action-feedback'
+} from '#devpush/lib/allowlist-schema'
+import { formErrors } from '#devpush/lib/form-errors'
+import type { FormErrors } from '#devpush/lib/form-errors'
+import { afterMutation } from '#devpush/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -20,8 +20,8 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { TablePager } from '@/components/table-pager'
-import { StandaloneSettingsLayout } from '@/components/settings-layout'
+import { TablePager } from '#devpush/components/table-pager'
+import { StandaloneSettingsLayout } from '#devpush/components/settings-layout'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,25 +32,29 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
+} from '#devpush/components/ui/alert-dialog'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from '#devpush/components/ui/avatar'
+import { Badge } from '#devpush/components/ui/badge'
+import { Button } from '#devpush/components/ui/button'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card'
+} from '#devpush/components/ui/card'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   Dialog,
   DialogContent,
@@ -58,33 +62,33 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '#devpush/components/ui/dropdown-menu'
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import {
   Table,
   TableBody,
@@ -92,14 +96,14 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from '#devpush/components/ui/table'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { Textarea } from '@/components/ui/textarea'
-import { getErrorMessage } from '@/lib/error-message'
+} from '#devpush/components/ui/tooltip'
+import { Textarea } from '#devpush/components/ui/textarea'
+import { getErrorMessage } from '#devpush/lib/error-message'
 import {
   addAllowlistRuleAction,
   banUserAction,
@@ -108,8 +112,8 @@ import {
   getInstallationReleaseStatus,
   importAllowlistEmailsAction,
   unbanUserAction,
-} from '@/server/admin/functions'
-import type { AdminOverview } from '@/server/admin/service'
+} from '#devpush/server/admin/functions'
+import type { AdminOverview } from '#devpush/server/admin/service'
 
 export function AdminSettings({
   currentUserId,
@@ -334,9 +338,7 @@ export function AdminSettings({
                 </DialogDescription>
               </DialogHeader>
               <Field>
-                <FieldLabel htmlFor="allowlist-value">
-                  Rule (required)
-                </FieldLabel>
+                <FieldLabel htmlFor="allowlist-value">Rule</FieldLabel>
                 <ButtonGroup className="w-full">
                   <Select
                     value={allowlistType}
@@ -438,7 +440,7 @@ export function AdminSettings({
               <FieldGroup>
                 <Field>
                   <FieldLabel htmlFor="allowlist-import-emails">
-                    Email addresses (required)
+                    Email addresses
                   </FieldLabel>
                   <Textarea
                     id="allowlist-import-emails"

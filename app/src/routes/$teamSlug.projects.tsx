@@ -1,9 +1,9 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 
-import { TeamProjects } from '@/features/teams/team-home'
-import { teamShellQueryOptions } from '@/lib/team-context-query'
+import { TeamProjects } from '#devpush/features/teams/team-home'
+import { teamShellQueryOptions } from '#devpush/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug/projects')({
   loader: ({ context, location, params }) => {

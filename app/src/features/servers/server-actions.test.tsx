@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { TeamServers } from './team-servers'
-import { projectContext } from '@/test/project-context'
+import { projectContext } from '#devpush/test/project-context'
 import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
@@ -10,7 +10,7 @@ import {
   ServerInstallCallout,
   ServerDangerSection,
 } from './server-detail'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 
 const mocks = vi.hoisted(() => ({
   error: vi.fn(),
@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
 }))
-vi.mock('@/server/servers/functions', () => ({
+vi.mock('#devpush/server/servers/functions', () => ({
   updateServer: mocks.update,
   createInstallCommand: mocks.install,
   disableServer: mocks.disable,
@@ -328,7 +328,7 @@ test('server name editing validates inline, locks pending edits, and preserves f
   expect(node.querySelector('#server-general-form [role="alert"]')).toBeNull()
 })
 
-vi.mock('@/lib/resource-cache', () => ({
+vi.mock('#devpush/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
 

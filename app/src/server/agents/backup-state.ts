@@ -1,6 +1,10 @@
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import { agentJobs, backupArtifacts, backupRuns } from '@/server/db/schema'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import {
+  agentJobs,
+  backupArtifacts,
+  backupRuns,
+} from '#devpush/server/db/schema'
 import type {
   AgentBackupCompletion,
   AgentBackupCleanupCompletion,

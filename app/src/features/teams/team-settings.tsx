@@ -1,25 +1,35 @@
-import DeploymentWorkspaceSettings, {
+import { NotificationMute } from '#devpush/features/notifications/email-preferences'
+import { useImageUploads } from '#devpush/components/storage-capabilities'
+import {
+  mutationErrorOptions,
+  afterMutation,
+  copyText,
+} from '#devpush/lib/action-feedback'
+import {
+  WorkspaceSettingsContributions,
   workspaceSettingsNavigation,
-} from '#devpush/deployment/ui'
+} from '#devpush/features/plugins/contributions'
 import {
   Empty,
   EmptyHeader,
   EmptyTitle,
   EmptyDescription,
-} from '@/components/ui/empty'
-import { useSettingsVersion } from '@/lib/use-settings-version'
-import { backupsEnabled } from '@/lib/backup-feature'
-import { showSettingsConflict } from '@/lib/settings-conflict'
-import { CopyButton } from '@/components/copy-button'
+} from '#devpush/components/ui/empty'
+import { useSettingsVersion } from '#devpush/lib/use-settings-version'
+import { backupsEnabled } from '#devpush/lib/backup-feature'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
+import { CopyButton } from '#devpush/components/copy-button'
 import { BackupStorageSettings } from './backup-storage-settings'
-import type { BackupStorageSummary } from '@/lib/backup-storage-schema'
-import { setTeamContextQueryData } from '@/lib/team-context-query'
-import { bulkInviteSchema, parseInviteEmails } from '@/lib/team-forms-schema'
-import { useAvatarInput } from '@/lib/use-avatar-input'
-import { afterMutation, copyText } from '@/lib/action-feedback'
-import { teamGeneralSchema } from '@/lib/team-settings-schema'
-import { formErrors } from '@/lib/form-errors'
-import type { FormErrors } from '@/lib/form-errors'
+import type { BackupStorageSummary } from '#devpush/lib/backup-storage-schema'
+import { setTeamContextQueryData } from '#devpush/lib/team-context-query'
+import {
+  bulkInviteSchema,
+  parseInviteEmails,
+} from '#devpush/lib/team-forms-schema'
+import { useAvatarInput } from '#devpush/lib/use-avatar-input'
+import { teamGeneralSchema } from '#devpush/lib/team-settings-schema'
+import { formErrors } from '#devpush/lib/form-errors'
+import type { FormErrors } from '#devpush/lib/form-errors'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -39,11 +49,14 @@ import {
   getPageCount,
   getPageItems,
   TablePager,
-} from '@/components/table-pager'
+} from '#devpush/components/table-pager'
 import { teamSettingsNavigationItems } from './navigation'
 import { TeamHeading } from './team-heading'
-import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
-import { Alert, AlertTitle } from '@/components/ui/alert'
+import {
+  SettingsLayout,
+  SettingsSection,
+} from '#devpush/components/settings-layout'
+import { Alert, AlertTitle } from '#devpush/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,9 +67,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
+} from '#devpush/components/ui/alert-dialog'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from '#devpush/components/ui/avatar'
+import { Button } from '#devpush/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -64,27 +81,27 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import {
   Table,
   TableBody,
@@ -92,21 +109,21 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { Textarea } from '@/components/ui/textarea'
+} from '#devpush/components/ui/table'
+import { Textarea } from '#devpush/components/ui/textarea'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { ResourceAvatar } from '@/components/resource-avatar'
+} from '#devpush/components/ui/tooltip'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
 import {
   canDeleteTeam as canDeleteTeamByRole,
   canManageTeamMembers,
-} from '@/lib/team-role'
-import type { TeamRole } from '@/lib/team-role'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
+} from '#devpush/lib/team-role'
+import type { TeamRole } from '#devpush/lib/team-role'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
 import {
   createTeamInvitesAction,
   deleteTeamAction,
@@ -116,12 +133,12 @@ import {
   transferTeamOwnershipAction,
   updateTeamGeneralAction,
   updateTeamMemberRoleAction,
-} from '@/server/teams/functions'
+} from '#devpush/server/teams/functions'
 import type {
   TeamInviteSummary,
   TeamMemberSummary,
   TeamSummary,
-} from '@/server/teams/types'
+} from '#devpush/server/teams/types'
 
 export function TeamSettings({
   backupStorage = [],
@@ -141,6 +158,7 @@ export function TeamSettings({
   team: TeamSummary
 }) {
   const router = useRouter()
+  const imageUploads = useImageUploads()
   const queryClient = useQueryClient()
 
   async function refreshTeam() {
@@ -338,6 +356,7 @@ export function TeamSettings({
       if (showSettingsConflict(error)) return
       toast.error(
         getPublicErrorMessage(error, 'Unable to save team. Please try again.'),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSavingGeneral(false)
@@ -412,6 +431,7 @@ export function TeamSettings({
           error,
           'Unable to send invites. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsBulkInviting(false)
@@ -432,7 +452,10 @@ export function TeamSettings({
       setPendingRoleChange(null)
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to update member.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to update member.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyId(null)
     }
@@ -454,7 +477,10 @@ export function TeamSettings({
       await refreshTeam()
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to remove member.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to remove member.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyId(null)
     }
@@ -474,7 +500,10 @@ export function TeamSettings({
       await refreshTeam()
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to transfer ownership.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to transfer ownership.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyId(null)
     }
@@ -493,7 +522,10 @@ export function TeamSettings({
       await refreshTeam()
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to resend invite.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to resend invite.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyId(null)
     }
@@ -528,7 +560,10 @@ export function TeamSettings({
       await refreshTeam()
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to revoke invite.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to revoke invite.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setBusyId(null)
     }
@@ -563,7 +598,10 @@ export function TeamSettings({
       )
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to delete team.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to delete team.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setIsDeletingTeam(false)
     }
@@ -613,20 +651,22 @@ export function TeamSettings({
                   color={team.color}
                   size="md"
                 />
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  disabled={!canManageMembers || isSavingGeneral}
-                  aria-label="Team avatar"
-                  aria-describedby="team-avatar-error"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(event) => {
-                    void chooseAvatar(event.target.files?.[0])
-                    event.target.value = ''
-                  }}
-                />
-                {canManageMembers ? (
+                {imageUploads ? (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    disabled={!canManageMembers || isSavingGeneral}
+                    aria-label="Team avatar"
+                    aria-describedby="team-avatar-error"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(event) => {
+                      void chooseAvatar(event.target.files?.[0])
+                      event.target.value = ''
+                    }}
+                  />
+                ) : null}
+                {imageUploads && canManageMembers ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -677,10 +717,7 @@ export function TeamSettings({
             </Field>
 
             <Field data-invalid={Boolean(generalErrors.name)}>
-              <FieldLabel htmlFor="team-name">
-                Display name{' '}
-                <span className="text-muted-foreground">(required)</span>
-              </FieldLabel>
+              <FieldLabel htmlFor="team-name">Display name</FieldLabel>
               <Input
                 id="team-name"
                 readOnly={!canManageMembers}
@@ -702,9 +739,7 @@ export function TeamSettings({
             </Field>
 
             <Field data-invalid={Boolean(generalErrors.slug)}>
-              <FieldLabel htmlFor="team-slug">
-                Slug <span className="text-muted-foreground">(required)</span>
-              </FieldLabel>
+              <FieldLabel htmlFor="team-slug">Slug</FieldLabel>
               <Input
                 id="team-slug"
                 readOnly={!canManageMembers}
@@ -979,9 +1014,9 @@ export function TeamSettings({
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="pr-4 text-right">
                               <div className="ml-auto">
-                                <div className="-mr-2 flex items-center justify-end gap-1">
+                                <div className="flex items-center justify-end gap-1">
                                   {canTransferToMember ? (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1160,9 +1195,9 @@ export function TeamSettings({
                           <TableCell className="text-muted-foreground">
                             {formatInviteDate(invite.expiresAt)}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="pr-4 text-right">
                             <div className="ml-auto">
-                              <div className="-mr-2 flex items-center justify-end gap-1">
+                              <div className="flex items-center justify-end gap-1">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Button
@@ -1365,11 +1400,11 @@ export function TeamSettings({
             </AlertDialog>
           </div>
         </SettingsSection>
-
-        <DeploymentWorkspaceSettings teamSlug={team.slug} role={team.role} />
+        <WorkspaceSettingsContributions teamSlug={team.slug} role={team.role} />
         {backupsEnabled ? (
           <BackupStorageSettings team={team} storage={backupStorage} />
         ) : null}
+        <NotificationMute scope={{ kind: 'workspace', id: team.id }} />
         <SettingsSection
           id="danger"
           title="Danger zone"

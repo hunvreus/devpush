@@ -14,11 +14,12 @@
     "audit:dependencies": "pnpm audit --audit-level=high",
     "typecheck": "pnpm --dir app typecheck",
     "lint": "pnpm --dir app lint",
-    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs scripts/setup-hetzner.test.mjs scripts/local-stop.test.mjs scripts/local-secrets.test.mjs scripts/local-vm.test.mjs scripts/scheduler.test.mjs scripts/production-compose.test.mjs app/scripts/github-app.test.mjs",
+    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs scripts/setup-hetzner.test.mjs scripts/local-stop.test.mjs scripts/local-secrets.test.mjs scripts/local-vm.test.mjs scripts/scheduler.test.mjs scripts/production-compose.test.mjs app/scripts/github-app.test.mjs scripts/agent-release.test.mjs scripts/validate-config.test.mjs scripts/validate-public-files.test.mjs",
     "test:integration": "pnpm --dir app test:integration",
     "smoke:deploy": "pnpm --dir app smoke:deploy",
     "smoke:node": "pnpm --dir app smoke:node",
-    "smoke:agent": "GOCACHE=$PWD/.tmp/go-build-cache DEVPUSH_RUN_DOCKER_SMOKE=1 go test ./agent/internal/agent -run 'TestRunDeploymentJob(RunsRealDockerCompose|RoutesThroughRealTraefik)' -count=1 -v",
+    "smoke:dev": "pnpm --dir app smoke:dev",
+    "smoke:agent": "GOCACHE=$PWD/.tmp/go-build-cache DEVPUSH_RUN_DOCKER_SMOKE=1 DEVPUSH_RUN_DOCKER_TESTS=1 go test ./agent/internal/agent -run 'TestRunDeploymentJob(RunsRealDockerCompose|RoutesThroughRealTraefik)|TestRestartRecoveryWithRealDocker|TestRestoreHelperDocker' -count=1 -v",
     "validate:local": "scripts/validate-local.sh",
     "validate:config": "node scripts/validate-config.mjs",
     "validate:production": "scripts/validate-production-image.sh",
@@ -28,9 +29,8 @@
     "agent:build:linux": "pnpm agent:build:linux:amd64 && pnpm agent:build:linux:arm64",
     "agent:build:linux:amd64": "GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=amd64 node scripts/build-agent.mjs bin/devpush-agent-linux-amd64",
     "agent:build:linux:arm64": "GOCACHE=$PWD/.tmp/go-build-cache GOOS=linux GOARCH=arm64 node scripts/build-agent.mjs bin/devpush-agent-linux-arm64",
-    "publish:agents:cloudflare": "node scripts/publish-cloudflare-agents.mjs",
     "validate:cloudflare": "pnpm --dir app validate:cloudflare",
-    "deploy:cloudflare": "pnpm --dir app validate:cloudflare:config && pnpm --dir app db:migrate:cloudflare && pnpm agent:build:linux && pnpm publish:agents:cloudflare && pnpm --dir app deploy:cloudflare:worker",
+    "deploy:cloudflare": "pnpm --dir app validate:cloudflare:config && pnpm --dir app db:migrate:cloudflare && pnpm --dir app deploy:cloudflare:worker",
     "agent:test": "GOCACHE=$PWD/.tmp/go-build-cache go test ./agent/...",
     "setup:github-app": "node app/scripts/setup-github-app.mjs",
     "setup:hetzner": "node scripts/setup-hetzner.mjs",
@@ -39,7 +39,11 @@
     "vm:test": "scripts/local-vm.sh test",
     "vm:stop": "scripts/local-vm.sh stop",
     "vm:destroy": "scripts/local-vm.sh destroy",
-    "cleanup:recover": "pnpm --dir app cleanup:recover"
+    "cleanup:recover": "pnpm --dir app cleanup:recover",
+    "test:package": "pnpm --dir app test:package",
+    "agent:release:prepare": "GOCACHE=$PWD/.tmp/go-build-cache node scripts/agent-release.mjs",
+    "agent:release:verify": "node scripts/verify-agent-release.mjs",
+    "release:check": "node scripts/validate-public-files.mjs"
   },
   "devDependencies": {
     "@clack/prompts": "^1.7.0",
@@ -52,10 +56,11 @@
       "sharp": "0.35.5",
       "browserslist": "4.28.7",
       "esbuild": "0.28.1",
-      "fast-uri": "3.1.8",
+      "fast-uri": "3.1.9",
       "qs": "6.16.0",
       "minimatch>brace-expansion": "5.0.12",
-      "xmlbuilder2>js-yaml": "4.3.2"
+      "xmlbuilder2>js-yaml": "4.3.2",
+      "undici": "7.30.1"
     }
   }
 }

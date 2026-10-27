@@ -7,7 +7,7 @@ import {
   ComboboxList,
   ComboboxEmpty,
   ComboboxItem,
-} from '@/components/ui/combobox'
+} from '#devpush/components/ui/combobox'
 
 export function ComposeServiceInput({
   services,

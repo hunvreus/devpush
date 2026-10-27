@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { getObjectStore } from '@/server/storage/object-store'
+import { getObjectStore } from '#devpush/server/storage/object-store'
 
 const avatarNamePattern =
   /^(?:user|team|project)_[A-Za-z0-9_-]+(?:~[a-f0-9]{32})?\.(?:png|jpe?g|webp)$/

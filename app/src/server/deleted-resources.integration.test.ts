@@ -1,7 +1,7 @@
-import { mockObjectStore } from '@/test/object-store'
+import { mockObjectStore } from '#devpush/test/object-store'
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { closeDb, db } from '@/server/db'
+import { closeDb, db } from '#devpush/server/db'
 import {
   agentJobs,
   backupArtifacts,
@@ -13,7 +13,7 @@ import {
   user,
   userCleanupJobs,
   apiAudit,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   deletedResourceRetentionMs,
   pruneDeletedResources,
@@ -260,18 +260,16 @@ test('storage errors preserve the avatar reference for the next cleanup sweep', 
 
 test('canceling a cleanup before its first attempt does not prove containers were removed', async () => {
   const f = await fixture()
-  await db
-    .insert(agentJobs)
-    .values({
-      id: crypto.randomUUID(),
-      type: 'purge',
-      serverId: f.serverId,
-      projectId: f.projectId,
-      payload: {},
-      status: 'canceled',
-      attempt: 0,
-      finishedAt: old,
-      updatedAt: old,
-    })
+  await db.insert(agentJobs).values({
+    id: crypto.randomUUID(),
+    type: 'purge',
+    serverId: f.serverId,
+    projectId: f.projectId,
+    payload: {},
+    status: 'canceled',
+    attempt: 0,
+    finishedAt: old,
+    updatedAt: old,
+  })
   expect((await pruneDeletedResources({ now })).projects).toBe(0)
 })

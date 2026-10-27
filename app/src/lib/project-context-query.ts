@@ -9,13 +9,13 @@ import {
   getProject,
   getProjectLogs,
   getProjectSection,
-} from '@/server/projects/functions'
+} from '#devpush/server/projects/functions'
 import type {
-  DeploymentContext,
+  PluginContext,
   ProjectContext,
   ProjectLogsContext,
   ProjectSectionContext,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 
 export type ProjectContextKeyParams = {
   projectName: string
@@ -81,7 +81,7 @@ export function projectShellQueryOptions(params: ProjectContextKeyParams) {
   })
 }
 
-export function deploymentContextQueryOptions(
+export function pluginContextQueryOptions(
   params: ProjectContextKeyParams & { deploymentId: string },
   queryClient: QueryClient,
 ) {
@@ -98,7 +98,7 @@ export function deploymentContextQueryOptions(
       params.projectName,
       params.deploymentId,
     ],
-    queryFn: async (): Promise<DeploymentContext> => {
+    queryFn: async (): Promise<PluginContext> => {
       const [shell, section] = await loadProjectSection(
         queryClient,
         params,

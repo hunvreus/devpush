@@ -1,17 +1,17 @@
 import {
   allowlistRuleSchema,
   allowlistImportSchema,
-} from '@/lib/allowlist-schema'
-import { adminSearchSchema } from '@/lib/admin-search-schema'
-import { formErrors } from '@/lib/form-errors'
+} from '#devpush/lib/allowlist-schema'
+import { adminSearchSchema } from '#devpush/lib/admin-search-schema'
+import { formErrors } from '#devpush/lib/form-errors'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
 import {
   getAuthSession,
   requireAuthSession,
-} from '@/server/auth/session.server'
-import { requireInstallationAdmin } from '@/server/admin/access'
+} from '#devpush/server/auth/session.server'
+import { requireInstallationAdmin } from '#devpush/server/admin/access'
 import {
   addAllowlistRule,
   banUser,
@@ -20,9 +20,9 @@ import {
   getAdminOverview,
   importAllowlistEmails,
   unbanUser,
-} from '@/server/admin/service'
-import { getUserContext } from '@/server/teams/service'
-import { getInstallationInfo } from '@/server/admin/installation'
+} from '#devpush/server/admin/service'
+import { getUserContext } from '#devpush/server/teams/service'
+import { getInstallationInfo } from '#devpush/server/admin/installation'
 
 const idSchema = z.object({
   id: z.string().min(1),

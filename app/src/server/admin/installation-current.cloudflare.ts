@@ -1,4 +1,4 @@
-import { getWorkerVersionMetadata } from '@/server/runtime/platform-env'
+import { getWorkerVersionMetadata } from '#devpush/server/runtime/platform-env'
 import type { InstallationInfo } from './installation'
 
 export async function readCurrentInstallation(): Promise<

@@ -8,29 +8,29 @@ import {
   SettingsIcon,
 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '#devpush/components/ui/button'
+import { Badge } from '#devpush/components/ui/badge'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import { ProjectHeading } from './project-heading'
 import {
   DeploymentList,
   DeploymentListPending,
-} from '@/features/deployments/deployment-list'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import { ManualDeployDialog } from '@/features/projects/manual-deploy-dialog'
-import { formatAge } from '@/features/servers/team-servers'
+} from '#devpush/features/deployments/deployment-list'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import { ManualDeployDialog } from '#devpush/features/projects/manual-deploy-dialog'
+import { formatAge } from '#devpush/features/servers/team-servers'
 import {
   getDeployBlockReason,
   hasActiveDeployment,
-} from '@/features/projects/deploy-readiness'
-import { routeUrl } from '@/lib/urls'
-import type { ProjectContext } from '@/server/projects/types'
+} from '#devpush/features/projects/deploy-readiness'
+import { routeUrl } from '#devpush/lib/urls'
+import type { ProjectContext } from '#devpush/server/projects/types'
 
 export function ProjectOverview({
   context,

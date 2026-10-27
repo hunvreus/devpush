@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 
-import { cn } from '@/lib/utils'
+import { cn } from '#devpush/lib/utils'
 
 type LogScrollAreaProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode

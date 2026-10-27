@@ -2,9 +2,9 @@ import type { AgentMetricSample } from './metric-history-schema'
 import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 
-import { config } from '@/server/config'
-import { db } from '@/server/db'
-import type { AtomicStore } from '@/server/db/atomic'
+import { config } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 
 // Samples have stable random identities, so retries and clock changes cannot
 // collide. Namespace them by the authenticated server using the existing PK.

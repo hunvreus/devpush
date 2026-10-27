@@ -151,7 +151,9 @@ export const user = sqliteTable(
   {
     id: text('id').primaryKey(),
     settingsVersion: integer('settings_version').notNull().default(1),
-    profileConfirmedAt: integer('profile_confirmed_at', { mode: 'timestamp_ms' }),
+    profileConfirmedAt: integer('profile_confirmed_at', {
+      mode: 'timestamp_ms',
+    }),
     name: text('name').notNull(),
     username: text('username').notNull(),
     email: text('email').notNull().unique(),
@@ -239,6 +241,10 @@ export const account = sqliteTable(
   (table) => [
     ...enumChecks(table),
     index('account_user_id_idx').on(table.userId),
+    index('account_provider_identity_idx').on(
+      table.providerId,
+      table.accountId,
+    ),
   ],
 )
 
@@ -1094,4 +1100,112 @@ export const domains = sqliteTable(
     index('domains_project_idx').on(table.projectId),
     index('domains_environment_idx').on(table.environmentId),
   ],
+)
+
+export const notificationPreferences = sqliteTable('notification_preferences', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  preferences: text('preferences', { mode: 'json' })
+    .notNull()
+    .$type<Record<string, boolean>>(),
+  version: integer('version').notNull().default(1),
+})
+
+export const notificationMutes = sqliteTable(
+  'notification_mutes',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    projectId: text('project_id').references(() => projects.id, {
+      onDelete: 'cascade',
+    }),
+  },
+  (table) => [
+    index('notification_mutes_user_scope_idx').on(
+      table.userId,
+      table.teamId,
+      table.projectId,
+    ),
+  ],
+)
+
+export const notificationIncidents = sqliteTable('notification_incidents', {
+  id: text('id').primaryKey(),
+  teamId: text('team_id')
+    .notNull()
+    .references(() => teams.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').references(() => projects.id, {
+    onDelete: 'cascade',
+  }),
+  category: text('category').notNull(),
+  sourceId: text('source_id').notNull(),
+  revision: text('revision').notNull(),
+  active: integer('active', { mode: 'boolean' }).notNull(),
+  actorId: text('actor_id'),
+  title: text('title').notNull(),
+  message: text('message').notNull(),
+  path: text('path').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+})
+
+export const notificationOutbox = sqliteTable(
+  'notification_outbox',
+  {
+    id: text('id').primaryKey(),
+    incidentId: text('incident_id')
+      .notNull()
+      .references(() => notificationIncidents.id, { onDelete: 'cascade' }),
+    payload: text('payload', { mode: 'json' })
+      .notNull()
+      .$type<{
+        from?: string
+        to: string
+        subject: string
+        text: string
+        html: string
+      }>(),
+    revision: text('revision').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    actor: integer('actor', { mode: 'boolean' }).notNull().default(false),
+    recovery: integer('recovery', { mode: 'boolean' }).notNull(),
+    createdAt: integer('created_at').notNull(),
+    firstAttemptAt: integer('first_attempt_at'),
+    deliveredAt: integer('delivered_at'),
+    discardedAt: integer('discarded_at'),
+    failedAt: integer('failed_at'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: integer('next_attempt_at').notNull().default(0),
+    leaseOwner: text('lease_owner'),
+    leaseUntil: integer('lease_until').notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex('notification_outbox_event_recipient_idx').on(
+      table.incidentId,
+      table.revision,
+      table.userId,
+      table.recovery,
+    ),
+    index('notification_outbox_due_idx').on(
+      table.deliveredAt,
+      table.discardedAt,
+      table.failedAt,
+      table.nextAttemptAt,
+    ),
+  ],
+)
+
+export const notificationScanCursors = sqliteTable(
+  'notification_scan_cursors',
+  {
+    source: text('source').primaryKey(),
+    afterId: text('after_id').notNull(),
+  },
 )

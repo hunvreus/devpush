@@ -1,5 +1,5 @@
-import { pageHead } from '@/lib/page-head'
-import { useRefreshError } from '@/lib/use-refresh-error'
+import { pageHead } from '#devpush/lib/page-head'
+import { useRefreshError } from '#devpush/lib/use-refresh-error'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
   Outlet,
@@ -8,10 +8,10 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 
-import { DeploymentsPage } from '@/features/deployments/deployments-page'
-import { ProjectSectionPending } from '@/features/projects/project-route-pending'
-import { projectContextQueryOptions } from '@/lib/project-context-query'
-import { stringSearchValidator } from '@/lib/search'
+import { DeploymentsPage } from '#devpush/features/deployments/deployments-page'
+import { ProjectSectionPending } from '#devpush/features/projects/project-route-pending'
+import { projectContextQueryOptions } from '#devpush/lib/project-context-query'
+import { stringSearchValidator } from '#devpush/lib/search'
 
 const validateSearch = stringSearchValidator([
   'branch',

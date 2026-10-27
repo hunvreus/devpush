@@ -1,22 +1,22 @@
 import type {
   BackupStorageReference,
   BackupStorageSummary,
-} from '@/lib/backup-storage-schema'
+} from '#devpush/lib/backup-storage-schema'
 import type {
   BackupDatabaseDump,
   BackupRetentionPolicy,
   BackupVolumeSelection,
-} from '@/server/backups/service'
-import type { getResourceColor } from '@/server/resources/color'
-import type { ServerStatus } from '@/server/servers/status'
+} from '#devpush/server/backups/service'
+import type { getResourceColor } from '#devpush/server/resources/color'
+import type { ServerStatus } from '#devpush/server/servers/status'
 import type {
   ProjectSummary,
   ServerSummary,
   TeamSummary,
   UserContext,
-} from '@/server/teams/types'
+} from '#devpush/server/teams/types'
 import type { ProjectComposeMetadata } from './compose-metadata'
-import type { ProjectRuntimeConfig } from '@/lib/project-runtime-config'
+import type { ProjectRuntimeConfig } from '#devpush/lib/project-runtime-config'
 
 export type RepositorySelectionContext = {
   github:
@@ -294,7 +294,7 @@ export type ProjectSectionContext =
       composeMetadata: ProjectContext['composeMetadata']
     }
 
-export type DeploymentContext = {
+export type PluginContext = {
   userContext: UserContext
   team: TeamSummary
   project: ProjectContext['project']

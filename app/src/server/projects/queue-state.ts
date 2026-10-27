@@ -1,10 +1,15 @@
-import { getDeploymentServices } from '@/deployment/services.server'
-import { withWorkspaceAccess } from '@/deployment/workspace-access'
-import { deploymentContext } from '@/deployment/server-context'
+import type { WorkspaceAdmission } from '#devpush/server/plugins/workspace-access'
+import { PublicError } from '#devpush/lib/public-error'
+import { getPluginServices } from '#devpush/server/plugins/services.server'
+import {
+  withWorkspaceAccess,
+  requireWorkspaceAdmission,
+} from '#devpush/server/plugins/workspace-access'
+import { pluginContext } from '#devpush/server/plugins/server-context'
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import type { deployments } from '@/server/db/schema'
-import type { ApiMutationAdmission } from '@/server/api/admission'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import type { deployments } from '#devpush/server/db/schema'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
 
 export type QueuedDeployment = Pick<
   typeof deployments.$inferSelect,
@@ -34,6 +39,7 @@ export async function enqueueDeployment(
     canceledMessage: string
     now: Date
     failureMessage?: string
+    workspaceAdmission?: WorkspaceAdmission
     admission?: ApiMutationAdmission
   },
 ) {
@@ -97,12 +103,27 @@ export async function enqueueDeployment(
       alias('deployment', input.hostname),
       ...(input.admission?.statements ?? []),
     ])
-  const access = getDeploymentServices().workspaceAccess
-    ? await deploymentContext.readServer(d.serverId)
+  const access = getPluginServices().workspaceAccess
+    ? await pluginContext.readServer(d.serverId)
     : null
+  if (getPluginServices().workspaceAccess && !access && !input.failureMessage)
+    throw new PublicError('SERVER_NOT_FOUND')
+  if (input.workspaceAdmission)
+    requireWorkspaceAdmission(
+      input.workspaceAdmission,
+      access?.teamId ?? input.workspaceAdmission.teamId,
+      'deployment.create',
+    )
   const [inserted] =
-    input.failureMessage || !access
+    input.failureMessage || input.workspaceAdmission || !access
       ? await action()
-      : await withWorkspaceAccess(access.teamId, 'deployment.create', action)
+      : await withWorkspaceAccess(
+          access.teamId,
+          'deployment.create',
+          action,
+          d.createdByUserId
+            ? { kind: 'user', userId: d.createdByUserId }
+            : { kind: 'system', source: 'github.push' },
+        )
   return inserted.length === 1
 }

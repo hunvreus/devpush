@@ -1,4 +1,4 @@
-import { settingsVersionSchema } from '@/lib/settings-version'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
 import { z } from 'zod'
 
 export const publicIdSchema = z.string().min(1).max(128)
@@ -119,6 +119,9 @@ export const publicErrorResponseSchema = z.strictObject({
   error: z.strictObject({
     code: z.string(),
     message: z.string(),
+    policy: z
+      .strictObject({ message: z.string(), recoveryUrl: z.string().optional() })
+      .optional(),
     requestId: z.string(),
     fieldErrors: z.record(z.string(), z.array(z.string())).optional(),
   }),

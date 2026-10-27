@@ -1,17 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { operationLogsQueryOptions } from '@/lib/operation-logs-query'
+import { operationLogsQueryOptions } from '#devpush/lib/operation-logs-query'
 import { useEffect, useState, useMemo } from 'react'
 import { AlertCircleIcon, LoaderIcon } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '#devpush/components/ui/alert'
+import { Button } from '#devpush/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog'
-import { LogScrollArea } from '@/features/logs/log-scroll-area'
+} from '#devpush/components/ui/dialog'
+import { LogScrollArea } from '#devpush/features/logs/log-scroll-area'
 
 export function BackupJobLogs({
   operation,

@@ -9,32 +9,47 @@ Run the control plane as a Node container or on Cloudflare Workers. Application
 containers run on your Linux servers. The public management API and MCP server
 are included.
 
-## Get started
+## Install devpush
 
-Requires Node.js 22+, pnpm 10.17+, and Go 1.27+ to build the agent.
+The current guided installation uses a source checkout and `pnpm configure`.
+Choose Cloudflare Workers or Docker Compose, configure authentication and storage,
+then run the target's deployment command. The setup wizard writes configuration;
+it does not deploy automatically.
+
+The application also supports composition as an installed dependency. This is an
+advanced preview until the first package and matching GitHub agent release are
+published; there is no packaged installer CLI. See
+[Package installation](docs/package-installation.md) for that manual path.
+
+- [Self-hosting](docs/self-hosting.md): choose Node/Docker or Cloudflare.
+- [Cloudflare deployment](docs/cloudflare-deployment.md): provision databases,
+  configure sign-in and deploy to your account. R2 is optional.
+- [Docker Compose operations](docs/production-operations.md): source-based
+  container build, HTTPS, backups and upgrades.
+- [Getting started](docs/getting-started.md): connect a server and deploy an app.
+
+The dashboard runs on Node or Workers; your application containers run on your
+Linux servers. Agents download from the pinned GitHub Release, with checksum
+verification. You do not need Go to install released agents.
+
+## Develop from source
+
+Use `development` for shared integration and CI. Releases are tagged from the
+exact validated commit; a branch push does not publish a release.
+
+Requires Node.js 22.12+, pnpm 10.17+ and the pinned Go compiler only when building
+agents. Clone this repository, then:
 
 ```sh
 pnpm install
 pnpm configure
-pnpm --dir app db:migrate
 pnpm dev
 ```
 
-Choose local development in the setup wizard, configure sign-in, then open
-`http://localhost:7429`. Setup writes configuration; it does not deploy the app.
-For existing maintainer credentials, use `pnpm secrets:pull` instead of generating
-new secrets; see [local development](docs/local-setup.md).
-
-To use an existing dashboard, follow [Getting started](docs/getting-started.md).
-To install your own, start with [Self-host devpush](docs/self-hosting.md).
-For production details, follow [Docker Compose operations](docs/production-operations.md)
-or [Cloudflare deployment](docs/cloudflare-deployment.md). The
-[configuration reference](docs/configuration.md) covers callback URLs, secrets,
-databases and storage.
-
-An optional `DEVPUSH_SIGN_IN_MESSAGE` displays a public login notice. Configure it
-in the deployment environment and restart/redeploy; blank hides it. See
-[Administration](docs/administration.md#sign-in-message).
+Choose local development, configure sign-in and open `http://localhost:7429`.
+Development startup applies local database migrations. The setup wizard writes
+configuration; it does not deploy the app. See [Local development](docs/local-setup.md)
+for maintainer credentials, the test VM and separate browser/agent origins.
 
 ## Test a deployment locally
 
@@ -60,6 +75,9 @@ Add a server in devpush and pass its generated installer URL to:
 pnpm vm:install 'http://host.lima.internal:7429/api/install/agent/INSTALL_TOKEN'
 ```
 
+Until the pinned release assets are published, use the local binary directory
+above.
+
 The [local VM guide](docs/local-setup.md#deploy-to-a-local-vm) explains the required
 app origins and complete enrollment flow. The VM receives its reachable private
 address automatically; Visit links use HTTP and nip.io. No local proxy, hosts-file
@@ -82,6 +100,8 @@ change or manual port mapping is required.
 | `pnpm typecheck` / `lint` / `test` | Check application code and script tests. |
 | `pnpm test:integration` | Run database integration tests against isolated stores. |
 | `pnpm agent:test` | Run Go agent tests. |
+| `pnpm test:package` | Verify an independently installed application package on Node and Workers. |
+| `pnpm agent:release:prepare` / `agent:release:verify` | Build and verify pinned release artifacts. |
 | `pnpm docs:check` | Check documentation navigation, local links and anchors. |
 | `pnpm cleanup:recover --help` | Inspect and resolve blocked deletions as an installation operator. |
 
@@ -112,7 +132,8 @@ Compose updates do not guarantee zero downtime. Deployed repositories are truste
 code with host-level Docker access; use separate servers for untrusted workloads.
 
 Main and log databases each start at a `0000_initial` release baseline.
-Pre-release migration histories are unsupported. Back up/export old data before
+All earlier pre-release migration histories are unsupported, including prior
+versions of the initial migration. Back up/export old data before
 creating fresh databases; a source update never resets an existing database.
 The clean remote deployment proof remains a release gate in TODO.
 
@@ -141,12 +162,9 @@ security add-generic-password -a service-account -s development-1password -w
 The pull replaces `app/.env` atomically with owner-only permissions. Save local
 changes to the corresponding vault fields first; synchronization is manual.
 Only **Local application** fields generate this file. **Local tooling** holds
-separate credentials such as `HETZNER_API_TOKEN`. The current maintainer production
-item is `devpush (production)` in Development, tagged `devpush` and `production`;
-its individual production fields are separate from retained legacy settings.
-`pnpm secrets:pull` loads only the local item. Vault permissions control access;
-project/environment tags only organize items. Use a dedicated vault and service
-account when production needs a separate access boundary.
+separate credentials such as `HETZNER_API_TOKEN`. The helper loads only the local
+application section. Keep production secrets in a separate vault/access boundary;
+do not put production credentials in source control or build arguments.
 
 ### Publish documentation
 

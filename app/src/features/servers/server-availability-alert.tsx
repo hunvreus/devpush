@@ -5,10 +5,10 @@ import {
   AlertAction,
   AlertDescription,
   AlertTitle,
-} from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
-import { canManageTeamSettings } from '@/lib/team-role'
-import type { TeamSummary } from '@/server/teams/types'
+} from '#devpush/components/ui/alert'
+import { Button } from '#devpush/components/ui/button'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
+import type { TeamSummary } from '#devpush/server/teams/types'
 import type { ServerAvailabilityNotice } from './server-availability'
 
 export function ServerAvailabilityAlert({

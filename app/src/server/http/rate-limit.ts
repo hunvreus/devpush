@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 
 import { lt, sql } from 'drizzle-orm'
 
-import { db } from '@/server/db'
-import { rateLimits } from '@/server/db/schema'
+import { db } from '#devpush/server/db'
+import { rateLimits } from '#devpush/server/db/schema'
 import { getRequestPublicAddress } from './request-ip'
 
 export async function enforceRateLimit({

@@ -1,11 +1,12 @@
-import { requireBackupsEnabled } from '@/server/backups/feature'
+import { withWorkspaceAccess } from '#devpush/server/plugins/workspace-access'
+import { requireBackupsEnabled } from '#devpush/server/backups/feature'
 import { getProjectSettingsContext } from './settings-context'
-import { PublicError } from '@/lib/public-error'
-import { prepareBackupPolicy } from '@/server/backups/policy-validation'
+import { PublicError } from '#devpush/lib/public-error'
+import { prepareBackupPolicy } from '#devpush/server/backups/policy-validation'
 
-import { canManageTeamSettings } from '@/lib/team-role'
-import type { TeamRole } from '@/lib/team-role'
-import { db } from '@/server/db'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
+import type { TeamRole } from '#devpush/lib/team-role'
+import { db } from '#devpush/server/db'
 import {
   saveProjectBackupPolicyState,
   deleteProjectBackupPolicyState,
@@ -13,7 +14,7 @@ import {
 import {
   queueBackupRestoreJob,
   queueEnvironmentBackup,
-} from '@/server/backups/service'
+} from '#devpush/server/backups/service'
 import { getProjectContext } from './context'
 import type { BackupDestinationInput, ProjectBackupConfig } from './types'
 
@@ -43,22 +44,34 @@ export async function saveProjectBackupPolicy({
     projectName,
     scope: 'shell',
   })
-  requireBackupManagement(context.team.role)
-  const normalized = await prepareBackupPolicy({
-    teamId: context.team.id,
-    projectId: context.project.id,
-    policy,
-  })
-  const changed = await saveProjectBackupPolicyState(db, {
-    projectId: context.project.id,
-    teamId: context.team.id,
-    userId,
-    settingsVersion,
-    policy: normalized,
-    now: new Date(),
-  })
-  if (!changed) throw new PublicError('SETTINGS_CONFLICT')
-  return getProjectContext({ userId, teamSlug, projectName, scope: 'backups' })
+  return withWorkspaceAccess(
+    context.team.id,
+    'backup.policy.save',
+    async () => {
+      requireBackupManagement(context.team.role)
+      const normalized = await prepareBackupPolicy({
+        teamId: context.team.id,
+        projectId: context.project.id,
+        policy,
+      })
+      const changed = await saveProjectBackupPolicyState(db, {
+        projectId: context.project.id,
+        teamId: context.team.id,
+        userId,
+        settingsVersion,
+        policy: normalized,
+        now: new Date(),
+      })
+      if (!changed) throw new PublicError('SETTINGS_CONFLICT')
+      return getProjectContext({
+        userId,
+        teamSlug,
+        projectName,
+        scope: 'backups',
+      })
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function deleteProjectBackupPolicy({
@@ -85,18 +98,30 @@ export async function deleteProjectBackupPolicy({
     projectName,
     scope: 'shell',
   })
-  requireBackupManagement(context.team.role)
-  if (
-    !(await deleteProjectBackupPolicyState(db, {
-      projectId: context.project.id,
-      teamId: context.team.id,
-      userId,
-      policyId,
-      settingsVersion,
-    }))
+  return withWorkspaceAccess(
+    context.team.id,
+    'backup.policy.delete',
+    async () => {
+      requireBackupManagement(context.team.role)
+      if (
+        !(await deleteProjectBackupPolicyState(db, {
+          projectId: context.project.id,
+          teamId: context.team.id,
+          userId,
+          policyId,
+          settingsVersion,
+        }))
+      )
+        throw new PublicError('SETTINGS_CONFLICT')
+      return getProjectContext({
+        userId,
+        teamSlug,
+        projectName,
+        scope: 'backups',
+      })
+    },
+    { kind: 'user', userId },
   )
-    throw new PublicError('SETTINGS_CONFLICT')
-  return getProjectContext({ userId, teamSlug, projectName, scope: 'backups' })
 }
 
 export async function createManualBackupRun({
@@ -127,6 +152,7 @@ export async function createManualBackupRun({
 
   requireBackupManagement(context.team.role)
   const queued = await queueEnvironmentBackup({
+    actor: { kind: 'user', userId: userId },
     backupConfigId,
     projectId: context.project.id,
     environmentId: backupConfig.environmentId,
@@ -177,6 +203,7 @@ export async function createBackupRestoreJob({
   requireBackupManagement(context.team.role)
 
   await queueBackupRestoreJob({
+    actor: { kind: 'user', userId: userId },
     projectId: context.project.id,
     backupRunId,
     artifacts,

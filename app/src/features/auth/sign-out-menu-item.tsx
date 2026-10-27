@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { authClient } from '@/lib/auth/client'
-import { afterMutation } from '@/lib/action-feedback'
-import { getErrorMessage } from '@/lib/error-message'
+import { DropdownMenuItem } from '#devpush/components/ui/dropdown-menu'
+import { authClient } from '#devpush/lib/auth/client'
+import { afterMutation } from '#devpush/lib/action-feedback'
+import { getErrorMessage } from '#devpush/lib/error-message'
 
 export function SignOutMenuItem() {
   const router = useRouter()

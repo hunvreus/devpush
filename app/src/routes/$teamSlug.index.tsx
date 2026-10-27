@@ -1,14 +1,14 @@
-import { pageHead } from '@/lib/page-head'
-import { useRefreshError } from '@/lib/use-refresh-error'
+import { pageHead } from '#devpush/lib/page-head'
+import { useRefreshError } from '#devpush/lib/use-refresh-error'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { TeamHome } from '@/features/teams/team-home'
-import { TeamOverviewPending } from '@/features/teams/team-route-pending'
+import { TeamHome } from '#devpush/features/teams/team-home'
+import { TeamOverviewPending } from '#devpush/features/teams/team-route-pending'
 import {
   teamSectionQueryOptions,
   teamShellQueryOptions,
-} from '@/lib/team-context-query'
+} from '#devpush/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug/')({
   loader: ({ context, params }) =>

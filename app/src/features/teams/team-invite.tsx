@@ -1,8 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Card,
   CardContent,
@@ -10,13 +10,13 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card'
+} from '#devpush/components/ui/card'
 import {
   acceptTeamInviteAction,
   declineTeamInviteAction,
-} from '@/server/teams/functions'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { afterMutation } from '@/lib/action-feedback'
+} from '#devpush/server/teams/functions'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { afterMutation } from '#devpush/lib/action-feedback'
 
 export function TeamInvite({ token }: { token: string }) {
   const navigate = useNavigate()

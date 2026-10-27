@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { getProjectDeployOptions } from '@/server/projects/functions'
+import { getProjectDeployOptions } from '#devpush/server/projects/functions'
 
 export function manualDeployOptionsQueryOptions(params: {
   teamSlug: string

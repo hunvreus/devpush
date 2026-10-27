@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { apiFingerprint, decodeApiCursor, encodeApiCursor } from './cursors'
 
-vi.mock('@/server/config', () => ({
+vi.mock('#devpush/server/config', () => ({
   config: { DEVPUSH_SECRET_ENCRYPTION_KEY: 'test-cursor-secret' },
 }))
 

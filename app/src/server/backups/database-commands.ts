@@ -1,5 +1,5 @@
-import { backupDatabaseSchema } from '@/lib/backup-database'
-import type { BackupDatabase } from '@/lib/backup-database'
+import { backupDatabaseSchema } from '#devpush/lib/backup-database'
+import type { BackupDatabase } from '#devpush/lib/backup-database'
 
 function quote(value: string) {
   return "'" + value.replaceAll("'", "'\\''") + "'"

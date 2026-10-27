@@ -1,6 +1,6 @@
-import { settingsVersionSchema } from '@/lib/settings-version'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
 import { z } from 'zod'
-import { avatarDataUrlSchema } from '@/lib/avatar-schema'
+import { avatarDataUrlSchema } from '#devpush/lib/avatar-schema'
 
 export const accountSettingsSchema = z.object({
   settingsVersion: settingsVersionSchema,

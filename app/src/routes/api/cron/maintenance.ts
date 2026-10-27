@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { config } from '@/server/config'
-import { matchesBearerSecret } from '@/server/http/auth'
-import { runMaintenance } from '@/server/maintenance'
+import { config } from '#devpush/server/config'
+import { matchesBearerSecret } from '#devpush/server/http/auth'
+import { runMaintenance } from '#devpush/server/maintenance'
 
 export const Route = createFileRoute('/api/cron/maintenance')({
   server: {

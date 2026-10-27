@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   commits: vi.fn(),
 }))
 vi.mock('./context', () => ({ getProjectContext: mocks.context }))
-vi.mock('@/server/github/service', () => ({
+vi.mock('#devpush/server/github/service', () => ({
   createInstallationAccessToken: mocks.token,
   listRepositoryBranches: mocks.branches,
   listBranchCommits: mocks.commits,

@@ -1,6 +1,7 @@
+import { readGitHubJson } from '#devpush/server/github/http'
 import { z } from 'zod'
 
-import { readCurrentInstallation } from '@/server/admin/installation-current'
+import { readCurrentInstallation } from '#devpush/server/admin/installation-current'
 
 export type InstallationInfo = {
   current: {
@@ -102,7 +103,7 @@ async function getLatestReleaseTag() {
       throw new Error(`GitHub API returned ${response.status}.`)
     }
 
-    const tags = tagSchema.parse(await response.json())
+    const tags = tagSchema.parse(await readGitHubJson(response))
     const latestTag =
       tags.find((tag) => /^v?\d+\.\d+\.\d+$/.test(tag.name))?.name ?? null
 

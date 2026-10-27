@@ -4,8 +4,11 @@ description: Run the control plane and deploy to a local Lima VM.
 
 # Local development
 
+`pnpm dev` and `npm run dev` apply pending Node database migrations before starting
+the development server. Existing data is retained; migration failures stop startup.
+
 This guide runs the Node control plane on your laptop and, optionally, an agent
-inside a Linux VM. For a hosted installation, use [Cloudflare](/docs/cloudflare-deployment/)
+inside a Linux VM. For a remote installation, use [Cloudflare](/docs/cloudflare-deployment/)
 or [Docker Compose](/docs/production-operations/).
 
 ## Requirements

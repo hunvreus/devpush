@@ -24,7 +24,7 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as InvitesTokenRouteImport } from './routes/invites.$token'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
-import { Route as OnboardingPlansRouteImport } from './routes/onboarding.plans'
+import { Route as OnboardingWorkspaceRouteImport } from './routes/onboarding.workspace'
 import { Route as TeamSlugProjectsProjectNameRouteImport } from './routes/$teamSlug.projects.$projectName'
 import { Route as TeamSlugServersIndexRouteImport } from './routes/$teamSlug.servers.index'
 import { Route as TeamSlugServersServerIdRouteImport } from './routes/$teamSlug.servers.$serverId'
@@ -38,10 +38,10 @@ import { Route as ApiAgentsSwitchRouteImport } from './routes/api/agents/switch'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronBackupsRouteImport } from './routes/api/cron/backups'
 import { Route as ApiCronMaintenanceRouteImport } from './routes/api/cron/maintenance'
-import { Route as ApiDeploymentSplatRouteImport } from './routes/api/deployment/$'
 import { Route as ApiGithubInstallRouteImport } from './routes/api/github/install'
 import { Route as ApiGithubWebhookRouteImport } from './routes/api/github/webhook'
 import { Route as ApiInstallAgentRouteImport } from './routes/api/install/agent'
+import { Route as ApiPluginsSplatRouteImport } from './routes/api/plugins/$'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiWorkspacesUpdatesRouteImport } from './routes/api/workspaces/updates'
 import { Route as UploadsAvatarsFileNameRouteImport } from './routes/uploads/avatars/$fileName'
@@ -137,9 +137,9 @@ const OauthConsentRoute = OauthConsentRouteImport.update({
   path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OnboardingPlansRoute = OnboardingPlansRouteImport.update({
-  id: '/plans',
-  path: '/plans',
+const OnboardingWorkspaceRoute = OnboardingWorkspaceRouteImport.update({
+  id: '/workspace',
+  path: '/workspace',
   getParentRoute: () => OnboardingRoute,
 } as any)
 const TeamSlugProjectsProjectNameRoute =
@@ -209,11 +209,6 @@ const ApiCronMaintenanceRoute = ApiCronMaintenanceRouteImport.update({
   path: '/api/cron/maintenance',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDeploymentSplatRoute = ApiDeploymentSplatRouteImport.update({
-  id: '/api/deployment/$',
-  path: '/api/deployment/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiGithubInstallRoute = ApiGithubInstallRouteImport.update({
   id: '/api/github/install',
   path: '/api/github/install',
@@ -227,6 +222,11 @@ const ApiGithubWebhookRoute = ApiGithubWebhookRouteImport.update({
 const ApiInstallAgentRoute = ApiInstallAgentRouteImport.update({
   id: '/api/install/agent',
   path: '/api/install/agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPluginsSplatRoute = ApiPluginsSplatRouteImport.update({
+  id: '/api/plugins/$',
+  path: '/api/plugins/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
@@ -349,7 +349,7 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/invites/$token': typeof InvitesTokenRoute
   '/oauth/consent': typeof OauthConsentRoute
-  '/onboarding/plans': typeof OnboardingPlansRoute
+  '/onboarding/workspace': typeof OnboardingWorkspaceRoute
   '/$teamSlug/': typeof TeamSlugIndexRoute
   '/$teamSlug/projects/$projectName': typeof TeamSlugProjectsProjectNameRouteWithChildren
   '/$teamSlug/servers/$serverId': typeof TeamSlugServersServerIdRoute
@@ -363,10 +363,10 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
-  '/api/deployment/$': typeof ApiDeploymentSplatRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/plugins/$': typeof ApiPluginsSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
@@ -401,7 +401,7 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/invites/$token': typeof InvitesTokenRoute
   '/oauth/consent': typeof OauthConsentRoute
-  '/onboarding/plans': typeof OnboardingPlansRoute
+  '/onboarding/workspace': typeof OnboardingWorkspaceRoute
   '/$teamSlug': typeof TeamSlugIndexRoute
   '/$teamSlug/projects/$projectName': typeof TeamSlugProjectsProjectNameRouteWithChildren
   '/$teamSlug/servers/$serverId': typeof TeamSlugServersServerIdRoute
@@ -415,10 +415,10 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
-  '/api/deployment/$': typeof ApiDeploymentSplatRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/plugins/$': typeof ApiPluginsSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
@@ -456,7 +456,7 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/invites/$token': typeof InvitesTokenRoute
   '/oauth/consent': typeof OauthConsentRoute
-  '/onboarding/plans': typeof OnboardingPlansRoute
+  '/onboarding/workspace': typeof OnboardingWorkspaceRoute
   '/$teamSlug/': typeof TeamSlugIndexRoute
   '/$teamSlug/projects/$projectName': typeof TeamSlugProjectsProjectNameRouteWithChildren
   '/$teamSlug/servers/$serverId': typeof TeamSlugServersServerIdRoute
@@ -470,10 +470,10 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/backups': typeof ApiCronBackupsRoute
   '/api/cron/maintenance': typeof ApiCronMaintenanceRoute
-  '/api/deployment/$': typeof ApiDeploymentSplatRoute
   '/api/github/install': typeof ApiGithubInstallRouteWithChildren
   '/api/github/webhook': typeof ApiGithubWebhookRoute
   '/api/install/agent': typeof ApiInstallAgentRouteWithChildren
+  '/api/plugins/$': typeof ApiPluginsSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
@@ -512,7 +512,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/invites/$token'
     | '/oauth/consent'
-    | '/onboarding/plans'
+    | '/onboarding/workspace'
     | '/$teamSlug/'
     | '/$teamSlug/projects/$projectName'
     | '/$teamSlug/servers/$serverId'
@@ -526,10 +526,10 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
-    | '/api/deployment/$'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/plugins/$'
     | '/api/v1/$'
     | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
@@ -564,7 +564,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/invites/$token'
     | '/oauth/consent'
-    | '/onboarding/plans'
+    | '/onboarding/workspace'
     | '/$teamSlug'
     | '/$teamSlug/projects/$projectName'
     | '/$teamSlug/servers/$serverId'
@@ -578,10 +578,10 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
-    | '/api/deployment/$'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/plugins/$'
     | '/api/v1/$'
     | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
@@ -618,7 +618,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/invites/$token'
     | '/oauth/consent'
-    | '/onboarding/plans'
+    | '/onboarding/workspace'
     | '/$teamSlug/'
     | '/$teamSlug/projects/$projectName'
     | '/$teamSlug/servers/$serverId'
@@ -632,10 +632,10 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/cron/backups'
     | '/api/cron/maintenance'
-    | '/api/deployment/$'
     | '/api/github/install'
     | '/api/github/webhook'
     | '/api/install/agent'
+    | '/api/plugins/$'
     | '/api/v1/$'
     | '/api/workspaces/updates'
     | '/uploads/avatars/$fileName'
@@ -679,10 +679,10 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronBackupsRoute: typeof ApiCronBackupsRoute
   ApiCronMaintenanceRoute: typeof ApiCronMaintenanceRoute
-  ApiDeploymentSplatRoute: typeof ApiDeploymentSplatRoute
   ApiGithubInstallRoute: typeof ApiGithubInstallRouteWithChildren
   ApiGithubWebhookRoute: typeof ApiGithubWebhookRoute
   ApiInstallAgentRoute: typeof ApiInstallAgentRouteWithChildren
+  ApiPluginsSplatRoute: typeof ApiPluginsSplatRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
   ApiWorkspacesUpdatesRoute: typeof ApiWorkspacesUpdatesRoute
   UploadsAvatarsFileNameRoute: typeof UploadsAvatarsFileNameRoute
@@ -801,11 +801,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/onboarding/plans': {
-      id: '/onboarding/plans'
-      path: '/plans'
-      fullPath: '/onboarding/plans'
-      preLoaderRoute: typeof OnboardingPlansRouteImport
+    '/onboarding/workspace': {
+      id: '/onboarding/workspace'
+      path: '/workspace'
+      fullPath: '/onboarding/workspace'
+      preLoaderRoute: typeof OnboardingWorkspaceRouteImport
       parentRoute: typeof OnboardingRoute
     }
     '/$teamSlug/projects/$projectName': {
@@ -899,13 +899,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCronMaintenanceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/deployment/$': {
-      id: '/api/deployment/$'
-      path: '/api/deployment/$'
-      fullPath: '/api/deployment/$'
-      preLoaderRoute: typeof ApiDeploymentSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/github/install': {
       id: '/api/github/install'
       path: '/api/github/install'
@@ -925,6 +918,13 @@ declare module '@tanstack/react-router' {
       path: '/api/install/agent'
       fullPath: '/api/install/agent'
       preLoaderRoute: typeof ApiInstallAgentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/plugins/$': {
+      id: '/api/plugins/$'
+      path: '/api/plugins/$'
+      fullPath: '/api/plugins/$'
+      preLoaderRoute: typeof ApiPluginsSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/$': {
@@ -1163,11 +1163,11 @@ const TeamSlugRouteWithChildren = TeamSlugRoute._addFileChildren(
 )
 
 interface OnboardingRouteChildren {
-  OnboardingPlansRoute: typeof OnboardingPlansRoute
+  OnboardingWorkspaceRoute: typeof OnboardingWorkspaceRoute
 }
 
 const OnboardingRouteChildren: OnboardingRouteChildren = {
-  OnboardingPlansRoute: OnboardingPlansRoute,
+  OnboardingWorkspaceRoute: OnboardingWorkspaceRoute,
 }
 
 const OnboardingRouteWithChildren = OnboardingRoute._addFileChildren(
@@ -1223,10 +1223,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronBackupsRoute: ApiCronBackupsRoute,
   ApiCronMaintenanceRoute: ApiCronMaintenanceRoute,
-  ApiDeploymentSplatRoute: ApiDeploymentSplatRoute,
   ApiGithubInstallRoute: ApiGithubInstallRouteWithChildren,
   ApiGithubWebhookRoute: ApiGithubWebhookRoute,
   ApiInstallAgentRoute: ApiInstallAgentRouteWithChildren,
+  ApiPluginsSplatRoute: ApiPluginsSplatRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
   ApiWorkspacesUpdatesRoute: ApiWorkspacesUpdatesRoute,
   UploadsAvatarsFileNameRoute: UploadsAvatarsFileNameRoute,

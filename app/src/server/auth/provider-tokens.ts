@@ -2,11 +2,11 @@ import { symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto'
 import { and, eq, or, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
-import type * as schema from '@/server/db/schema'
-import { config } from '@/server/config'
-import { safeErrorDiagnostics } from '@/server/http/error-diagnostics'
-import { db } from '@/server/db'
-import { account } from '@/server/db/schema'
+import type * as schema from '#devpush/server/db/schema'
+import { config } from '#devpush/server/config'
+import { safeErrorDiagnostics } from '#devpush/server/http/error-diagnostics'
+import { db } from '#devpush/server/db'
+import { account } from '#devpush/server/db/schema'
 
 // Better Auth's single-secret encryption format. Use the same key/codec as
 // encryptOAuthTokens so refresh and reconnect never switch storage formats.

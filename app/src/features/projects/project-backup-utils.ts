@@ -1,10 +1,10 @@
-import { buildRuntimeId } from '@/lib/runtime-id'
+import { buildRuntimeId } from '#devpush/lib/runtime-id'
 import type {
   ProjectBackupArtifact,
   ProjectBackupConfig,
   ProjectBackupRun,
   ProjectBackupRestore,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 
 export type BackupFilters = {
   policy?: string

@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from 'vitest'
 import { closeDb, db, logsDb } from './index'
 import { deploymentLogs, runtimeLogs } from './log-schema'
 import { teams } from './schema'
-import { pruneExpiredRuntimeLogs } from '@/server/logs/retention'
+import { pruneExpiredRuntimeLogs } from '#devpush/server/logs/retention'
 
 afterAll(closeDb)
 

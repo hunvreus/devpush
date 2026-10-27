@@ -1,12 +1,13 @@
-import { pruneDeletedResources } from '@/server/deleted-resources'
-import { saveBackupStorage } from '@/server/backups/storage'
-import { required } from '@/test/required'
-import { eq, inArray } from 'drizzle-orm'
+import * as GeneratedHostnameModule from './generated-hostname'
+import { pruneDeletedResources } from '#devpush/server/deleted-resources'
+import { saveBackupStorage } from '#devpush/server/backups/storage'
+import { required } from '#devpush/test/required'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 import * as ProjectContextModule from './context'
 
-import { closeDb, db } from '@/server/db'
-import { currentAgentCapabilities } from '@/server/agents/compatibility'
+import { closeDb, db } from '#devpush/server/db'
+import { currentAgentCapabilities } from '#devpush/server/agents/compatibility'
 import {
   agentJobs,
   aliases,
@@ -22,7 +23,7 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   createDeploymentsForGitHubPush,
   createRedeployDeployment,
@@ -55,7 +56,7 @@ import {
   parseDeploymentConfig,
 } from './deployment-config'
 import { encryptProjectEnvVars } from './project-env-vars'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
 import { resolveAvailableAliasHostname } from './hostnames'
 
 const touchedJobIds: Array<string> = []
@@ -71,6 +72,7 @@ const touchedTeamIds: Array<string> = []
 const touchedUserIds: Array<string> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await cleanupRows()
 })
 
@@ -1708,6 +1710,50 @@ describe('project settings integration', () => {
     expect(hostnameRows.at(0)?.hostname).toMatch(
       new RegExp(`^${redeploy.deploymentId.slice(0, 7)}-`),
     )
+  })
+
+  test('a hostname failure records a failed push and does not prevent other projects from deploying', async () => {
+    const first = await createProjectFixture()
+    await db
+      .update(deployments)
+      .set({ runtimeId: sql`${deployments.runtimeId} || ${deployments.id}` })
+      .where(eq(deployments.environmentId, first.environmentId))
+    const fixtures = [first, await createProjectFixture()]
+    const installationId = 456788
+    touchedInstallationIds.push(installationId)
+    await db.insert(githubInstallations).values({
+      installationId,
+      accountLogin: 'example',
+      accountType: 'Organization',
+      repositorySelection: 'selected',
+    })
+    for (const f of fixtures)
+      await db
+        .update(projects)
+        .set({ githubInstallationId: installationId, githubRepoId: 123 })
+        .where(eq(projects.id, f.projectId))
+    vi.spyOn(
+      GeneratedHostnameModule,
+      'resolveGeneratedHostname',
+    ).mockRejectedValueOnce(new Error('certificate pending'))
+    const deliveryId = crypto.randomUUID()
+    const result = await createDeploymentsForGitHubPush({
+      deliveryId,
+      installationId,
+      repositoryId: 123,
+      repositoryFullName: 'example/project',
+      branch: 'main',
+      gitSha: 'abc123',
+      message: 'Fan out',
+    })
+    const rows = await db
+      .select()
+      .from(deployments)
+      .where(eq(deployments.githubDeliveryId, deliveryId))
+    touchedDeploymentIds.push(...rows.map((row) => row.id))
+    expect(result.created).toHaveLength(1)
+    expect(result.skipped).toHaveLength(1)
+    expect(rows.map((row) => row.status).sort()).toEqual(['failed', 'queued'])
   })
 
   test.each(['server_disconnected', 'agent_update_required'] as const)(

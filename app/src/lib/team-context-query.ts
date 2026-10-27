@@ -1,5 +1,5 @@
 import { workspacePollInterval } from './workspace-updates'
-import type { TeamSummary } from '@/server/teams/types'
+import type { TeamSummary } from '#devpush/server/teams/types'
 import { queryOptions } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { redirect } from '@tanstack/react-router'
@@ -7,10 +7,10 @@ import { redirect } from '@tanstack/react-router'
 import {
   getTeamSectionContext,
   getTeamShellContext,
-} from '@/server/teams/functions'
-import type { TeamContextSection } from '@/lib/team-context-schema'
+} from '#devpush/server/teams/functions'
+import type { TeamContextSection } from '#devpush/lib/team-context-schema'
 
-export type { TeamContextSection } from '@/lib/team-context-schema'
+export type { TeamContextSection } from '#devpush/lib/team-context-schema'
 export type TeamShellContext = NonNullable<
   Awaited<ReturnType<typeof getTeamShellContext>>
 >

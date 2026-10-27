@@ -1,25 +1,32 @@
+import { safeErrorDiagnostics } from '#devpush/server/http/error-diagnostics'
+import {
+  withWorkspaceAccess,
+  isWorkspacePolicyRefusal,
+} from '#devpush/server/plugins/workspace-access'
+import type { WorkspaceActor } from '#devpush/plugins/operations'
+import { teamSettingsAccess } from '#devpush/server/settings-version'
 import { backupDestinationSnapshot } from './destination'
-import { requireBackupsEnabled } from '@/server/backups/feature'
-import { backupRestoreArtifactSchema as restoreArtifactSchema } from '@/lib/backup-restore-schema'
-import type { backupVolumesSchema } from '@/lib/backup-policy-schema'
+import { requireBackupsEnabled } from '#devpush/server/backups/feature'
+import { backupRestoreArtifactSchema as restoreArtifactSchema } from '#devpush/lib/backup-restore-schema'
+import type { backupVolumesSchema } from '#devpush/lib/backup-policy-schema'
 import {
   normalizeBackupVolumes,
   backupRetentionSchema,
   backupScheduleSchema,
-} from '@/lib/backup-policy-schema'
-import type { ApiMutationAdmission } from '@/server/api/admission'
-import { PublicError } from '@/lib/public-error'
+} from '#devpush/lib/backup-policy-schema'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
+import { PublicError } from '#devpush/lib/public-error'
 import {
   backupDatabaseSchema,
   storedBackupDatabaseSchema,
   databaseArtifactTarget,
-} from '@/lib/backup-database'
-import type { BackupDatabase } from '@/lib/backup-database'
+} from '#devpush/lib/backup-database'
+import type { BackupDatabase } from '#devpush/lib/backup-database'
 import {
   buildDatabaseBackupCommand,
   buildDatabaseRestoreCommand,
 } from './database-commands'
-import { backupStorageReferenceSchema } from '@/lib/backup-storage-schema'
+import { backupStorageReferenceSchema } from '#devpush/lib/backup-storage-schema'
 import { resolveBackupDestination, refreshBackupCredentials } from './storage'
 import {
   enqueueBackup,
@@ -40,7 +47,7 @@ import {
 } from 'drizzle-orm'
 import { z } from 'zod'
 
-import { db } from '@/server/db'
+import { db } from '#devpush/server/db'
 import {
   agentJobs,
   backupArtifacts,
@@ -49,8 +56,8 @@ import {
   environments,
   projects,
   servers,
-} from '@/server/db/schema'
-import { isCronDue } from '@/lib/backup-cron'
+} from '#devpush/server/db/schema'
+import { isCronDue } from '#devpush/lib/backup-cron'
 
 const s3DestinationSchema = z.object({
   storageId: z.string().optional(),
@@ -143,6 +150,7 @@ export async function queueEnvironmentBackup({
   scheduleKey,
   backupConfigId,
   admission,
+  actor,
 }: {
   projectId: string
   environmentId: string
@@ -151,6 +159,7 @@ export async function queueEnvironmentBackup({
   scheduleKey?: string
   backupConfigId?: string
   admission?: ApiMutationAdmission
+  actor: WorkspaceActor
 }) {
   requireBackupsEnabled()
   const rows = await db
@@ -190,90 +199,107 @@ export async function queueEnvironmentBackup({
   if (!row) {
     throw new PublicError('BACKUP_ENABLED_CONFIG_NOT_FOUND')
   }
+  return withWorkspaceAccess(
+    row.project.teamId,
+    'backup.run',
+    async () => {
+      admission = {
+        ...admission,
+        resourceId: admission?.resourceId ?? randomUUID(),
+        statements: admission?.statements ?? [],
+        guard: sql`${admission?.guard ?? sql`1`} and ${actor.kind === 'user' ? teamSettingsAccess(row.project.teamId, actor.userId) : sql`1`}`,
+      }
 
-  const serverId = row.environment.serverId ?? row.project.defaultServerId
+      const serverId = row.environment.serverId ?? row.project.defaultServerId
 
-  if (!serverId) {
-    throw new PublicError('BACKUP_SERVER_REQUIRED')
-  }
-  const reference = backupStorageReferenceSchema.parse(row.config.destination)
-  const retention = backupRetentionSchema.parse(row.config.retention)
-  const destination = retention.remote.enabled
-    ? normalizeS3Destination(
-        await resolveBackupDestination(row.project.teamId, reference),
+      if (!serverId) {
+        throw new PublicError('BACKUP_SERVER_REQUIRED')
+      }
+      const reference = backupStorageReferenceSchema.parse(
+        row.config.destination,
       )
-    : { bucket: 'local-backups', prefix: reference.prefix }
-  const volumes = normalizeBackupVolumes(row.config.volumes)
-  const databaseDumps = z
-    .array(databaseDumpSchema)
-    .parse(row.config.databaseDumps)
-  if (
-    databaseDumps.some((target) => target.engine === 'mongo') &&
-    !(row.serverCapabilities ?? []).includes('jobs.backup.archive.v1')
-  ) {
-    throw new PublicError('BACKUP_MONGODB_AGENT_UPDATE_REQUIRED')
-  }
-  const now = new Date()
-  const backupRunId = admission?.resourceId ?? randomUUID()
-  const agentJobId = admission?.secondaryResourceId ?? randomUUID()
-  const artifactPrefix = buildBackupArtifactPrefix({
-    destination,
-    projectId,
-    environmentId,
-    backupRunId,
-  })
-  const localBasePath = buildBackupLocalBasePath({
-    projectId,
-    environmentId,
-    backupRunId,
-  })
+      const retention = backupRetentionSchema.parse(row.config.retention)
+      const destination = retention.remote.enabled
+        ? normalizeS3Destination(
+            await resolveBackupDestination(row.project.teamId, reference),
+          )
+        : { bucket: 'local-backups', prefix: reference.prefix }
+      const volumes = normalizeBackupVolumes(row.config.volumes)
+      const databaseDumps = z
+        .array(databaseDumpSchema)
+        .parse(row.config.databaseDumps)
+      if (
+        databaseDumps.some((target) => target.engine === 'mongo') &&
+        !(row.serverCapabilities ?? []).includes('jobs.backup.archive.v1')
+      ) {
+        throw new PublicError('BACKUP_MONGODB_AGENT_UPDATE_REQUIRED')
+      }
+      const now = new Date()
+      const backupRunId = admission.resourceId
+      const agentJobId = admission.secondaryResourceId ?? randomUUID()
+      const artifactPrefix = buildBackupArtifactPrefix({
+        destination,
+        projectId,
+        environmentId,
+        backupRunId,
+      })
+      const localBasePath = buildBackupLocalBasePath({
+        projectId,
+        environmentId,
+        backupRunId,
+      })
 
-  const payload = {
-    schemaVersion: 1,
-    backupRunId,
-    artifactPrefix,
-    localBasePath,
-    projectId,
-    environmentId,
-    runtimeId: row.environment.runtimeId,
-    destination: buildBackupJobDestination({ destination, retention }),
-    retention,
-    volumes,
-    databaseDumps: databaseDumps.map((target) => ({
-      service: target.service,
-      command: buildDatabaseBackupCommand(target),
-      format: target.engine === 'mongo' ? 'archive' : 'sql',
-    })),
-  } satisfies BackupJobPayload
+      const payload = {
+        schemaVersion: 1,
+        backupRunId,
+        artifactPrefix,
+        localBasePath,
+        projectId,
+        environmentId,
+        runtimeId: row.environment.runtimeId,
+        destination: buildBackupJobDestination({ destination, retention }),
+        retention,
+        volumes,
+        databaseDumps: databaseDumps.map((target) => ({
+          service: target.service,
+          command: buildDatabaseBackupCommand(target),
+          format: target.engine === 'mongo' ? 'archive' : 'sql',
+        })),
+      } satisfies BackupJobPayload
 
-  const created = await enqueueBackup(db, {
-    backupRunId,
-    agentJobId,
-    configId: row.config.id,
-    projectId,
-    environmentId,
-    deploymentId: deploymentId ?? null,
-    serverId,
-    runtimeId: row.environment.runtimeId,
-    scheduleKey: scheduleKey ?? null,
-    manifest: {
-      ...(typeof manifest === 'object' && manifest !== null ? manifest : {}),
-      databaseTargets: databaseDumps,
+      const created = await enqueueBackup(db, {
+        backupRunId,
+        agentJobId,
+        configId: row.config.id,
+        projectId,
+        environmentId,
+        deploymentId: deploymentId ?? null,
+        serverId,
+        runtimeId: row.environment.runtimeId,
+        scheduleKey: scheduleKey ?? null,
+        manifest: {
+          ...(typeof manifest === 'object' && manifest !== null
+            ? manifest
+            : {}),
+          databaseTargets: databaseDumps,
+        },
+        payload,
+        now,
+        admission,
+      })
+
+      if (!created) {
+        return null
+      }
+
+      return {
+        backupRunId,
+        agentJobId,
+        payload,
+      }
     },
-    payload,
-    now,
-    admission,
-  })
-
-  if (!created) {
-    return null
-  }
-
-  return {
-    backupRunId,
-    agentJobId,
-    payload,
-  }
+    actor,
+  )
 }
 
 function buildBackupJobDestination({
@@ -301,11 +327,13 @@ export async function queueBackupRestoreJob({
   backupRunId,
   artifacts,
   admission,
+  actor,
 }: {
   projectId: string
   backupRunId: string
   artifacts: Array<BackupRestoreArtifactInput>
   admission?: ApiMutationAdmission
+  actor: WorkspaceActor
 }) {
   requireBackupsEnabled()
   const requestedArtifacts = artifacts.map((artifact) =>
@@ -342,119 +370,132 @@ export async function queueBackupRestoreJob({
   if (!row) {
     throw new PublicError('BACKUP_RUN_NOT_FOUND')
   }
+  return withWorkspaceAccess(
+    row.project.teamId,
+    'backup.restore',
+    async () => {
+      admission = {
+        ...admission,
+        resourceId: admission?.resourceId ?? randomUUID(),
+        statements: admission?.statements ?? [],
+        guard: sql`${admission?.guard ?? sql`1`} and ${actor.kind === 'user' ? teamSettingsAccess(row.project.teamId, actor.userId) : sql`1`}`,
+      }
 
-  const localRecovery =
-    row.run.status === 'failed' &&
-    row.run.manifest !== null &&
-    typeof row.run.manifest === 'object' &&
-    'localRecoveryAvailable' in row.run.manifest &&
-    row.run.manifest.localRecoveryAvailable === true
-  if (row.run.status !== 'succeeded' && !localRecovery) {
-    throw new PublicError('BACKUP_NO_RECOVERABLE_ARTIFACTS')
-  }
+      const localRecovery =
+        row.run.status === 'failed' &&
+        row.run.manifest !== null &&
+        typeof row.run.manifest === 'object' &&
+        'localRecoveryAvailable' in row.run.manifest &&
+        row.run.manifest.localRecoveryAvailable === true
+      if (row.run.status !== 'succeeded' && !localRecovery) {
+        throw new PublicError('BACKUP_NO_RECOVERABLE_ARTIFACTS')
+      }
 
-  const effectiveServerId =
-    row.environment.serverId ?? row.project.defaultServerId
+      const effectiveServerId =
+        row.environment.serverId ?? row.project.defaultServerId
 
-  if (!row.run.serverId || row.run.serverId !== effectiveServerId) {
-    throw new PublicError('BACKUP_SERVER_CHANGED')
-  }
+      if (!row.run.serverId || row.run.serverId !== effectiveServerId) {
+        throw new PublicError('BACKUP_SERVER_CHANGED')
+      }
 
-  const artifactRows = await db
-    .select()
-    .from(backupArtifacts)
-    .where(
-      and(
-        eq(backupArtifacts.backupRunId, backupRunId),
-        sql`${backupArtifacts.id} in (select value from json_each(${JSON.stringify(requestedArtifacts.map((artifact) => artifact.artifactId))}))`,
-      ),
-    )
-
-  if (
-    localRecovery &&
-    artifactRows.some((artifact) => artifact.storage !== 'local')
-  )
-    throw new PublicError('BACKUP_FAILED_REMOTE_RESTORE')
-
-  if (artifactRows.length !== requestedArtifacts.length) {
-    throw new PublicError('BACKUP_ARTIFACT_NOT_FOUND')
-  }
-
-  const requestedByArtifactId = new Map(
-    requestedArtifacts.map((artifact) => [artifact.artifactId, artifact]),
-  )
-  const restoreArtifacts: BackupRestoreJobPayload['artifacts'] = []
-  let needsRemoteDestination = false
-
-  for (const artifact of artifactRows) {
-    const requested = requestedByArtifactId.get(artifact.id)
-
-    if (!requested) {
-      continue
-    }
-
-    if (artifact.type !== requested.type) {
-      throw new PublicError('BACKUP_ARTIFACT_TYPE_MISMATCH')
-    }
-
-    if (artifact.storage === 'remote') {
-      needsRemoteDestination = true
-    }
-
-    if (requested.type === 'volume') {
-      restoreArtifacts.push({
-        id: artifact.id,
-        type: 'volume',
-        storage: artifact.storage,
-        objectKey: artifact.objectKey,
-        checksumSha256: artifact.checksumSha256,
-        targetVolume: requested.targetVolume,
-      })
-    } else {
-      restoreArtifacts.push({
-        id: artifact.id,
-        type: 'database',
-        storage: artifact.storage,
-        objectKey: artifact.objectKey,
-        checksumSha256: artifact.checksumSha256,
-        targetService: requested.targetService,
-        restoreCommand: buildDatabaseRestoreCommand(
-          requireDatabaseArtifactTarget(artifact.objectKey, row.run.manifest),
-        ),
-      })
-    }
-  }
-
-  const snapshot = row.run.destination
-    ? s3DestinationSchema.parse(row.run.destination)
-    : null
-  const destination =
-    needsRemoteDestination && snapshot
-      ? buildRestoreJobDestination(
-          await refreshBackupCredentials(row.project.teamId, snapshot),
+      const artifactRows = await db
+        .select()
+        .from(backupArtifacts)
+        .where(
+          and(
+            eq(backupArtifacts.backupRunId, backupRunId),
+            sql`${backupArtifacts.id} in (select value from json_each(${JSON.stringify(requestedArtifacts.map((artifact) => artifact.artifactId))}))`,
+          ),
         )
-      : undefined
-  if (needsRemoteDestination && !destination)
-    throw new PublicError('BACKUP_DESTINATION_UNAVAILABLE')
 
-  const now = new Date()
-  const jobId = admission?.resourceId ?? randomUUID()
-  const payload = {
-    schemaVersion: 1,
-    backupRunId,
-    projectId,
-    environmentId: row.run.environmentId,
-    runtimeId: row.run.runtimeId,
-    destination,
-    artifacts: restoreArtifacts,
-  } satisfies BackupRestoreJobPayload
+      if (
+        localRecovery &&
+        artifactRows.some((artifact) => artifact.storage !== 'local')
+      )
+        throw new PublicError('BACKUP_FAILED_REMOTE_RESTORE')
 
-  const [inserted] = await db.batch([
-    db.all(sql`insert into ${agentJobs}
+      if (artifactRows.length !== requestedArtifacts.length) {
+        throw new PublicError('BACKUP_ARTIFACT_NOT_FOUND')
+      }
+
+      const requestedByArtifactId = new Map(
+        requestedArtifacts.map((artifact) => [artifact.artifactId, artifact]),
+      )
+      const restoreArtifacts: BackupRestoreJobPayload['artifacts'] = []
+      let needsRemoteDestination = false
+
+      for (const artifact of artifactRows) {
+        const requested = requestedByArtifactId.get(artifact.id)
+
+        if (!requested) {
+          continue
+        }
+
+        if (artifact.type !== requested.type) {
+          throw new PublicError('BACKUP_ARTIFACT_TYPE_MISMATCH')
+        }
+
+        if (artifact.storage === 'remote') {
+          needsRemoteDestination = true
+        }
+
+        if (requested.type === 'volume') {
+          restoreArtifacts.push({
+            id: artifact.id,
+            type: 'volume',
+            storage: artifact.storage,
+            objectKey: artifact.objectKey,
+            checksumSha256: artifact.checksumSha256,
+            targetVolume: requested.targetVolume,
+          })
+        } else {
+          restoreArtifacts.push({
+            id: artifact.id,
+            type: 'database',
+            storage: artifact.storage,
+            objectKey: artifact.objectKey,
+            checksumSha256: artifact.checksumSha256,
+            targetService: requested.targetService,
+            restoreCommand: buildDatabaseRestoreCommand(
+              requireDatabaseArtifactTarget(
+                artifact.objectKey,
+                row.run.manifest,
+              ),
+            ),
+          })
+        }
+      }
+
+      const snapshot = row.run.destination
+        ? s3DestinationSchema.parse(row.run.destination)
+        : null
+      const destination =
+        needsRemoteDestination && snapshot
+          ? buildRestoreJobDestination(
+              await refreshBackupCredentials(row.project.teamId, snapshot),
+            )
+          : undefined
+      if (needsRemoteDestination && !destination)
+        throw new PublicError('BACKUP_DESTINATION_UNAVAILABLE')
+
+      const now = new Date()
+      const jobId = admission.resourceId
+      const payload = {
+        schemaVersion: 1,
+        backupRunId,
+        projectId,
+        environmentId: row.run.environmentId,
+        runtimeId: row.run.runtimeId,
+        destination,
+        artifacts: restoreArtifacts,
+      } satisfies BackupRestoreJobPayload
+
+      const [inserted] = await db.batch([
+        db.all(sql`insert into ${agentJobs}
       (id,type,status,server_id,team_id,project_id,payload,max_attempts,available_at,created_at,updated_at)
       select ${jobId},'restore','queued',${row.run.serverId},null,${projectId},${JSON.stringify(payload)},1,${now.getTime()},${now.getTime()},${now.getTime()}
       where exists(select 1 from ${agentJobs} where id = ${jobId}) or (
-        ${admission?.guard ?? sql`1`}
+        ${admission.guard}
         and exists(select 1 from ${backupRuns} as run
           join ${environments} as env on env.id = run.environment_id
           join ${projects} as project on project.id = env.project_id
@@ -467,14 +508,17 @@ export async function queueBackupRestoreJob({
           and status in ('queued','running') and project_id = ${projectId}
           and json_extract(payload,'$.runtimeId') = ${row.run.runtimeId})
       ) returning id`),
-    ...(admission?.statements ?? []),
-  ])
-  if (inserted.length !== 1) throw new PublicError('BACKUP_ALREADY_ACTIVE')
+        ...admission.statements,
+      ])
+      if (inserted.length !== 1) throw new PublicError('BACKUP_ALREADY_ACTIVE')
 
-  return {
-    agentJobId: jobId,
-    payload,
-  }
+      return {
+        agentJobId: jobId,
+        payload,
+      }
+    },
+    actor,
+  )
 }
 
 function buildRestoreJobDestination(
@@ -716,36 +760,44 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
   const queued: Array<{ backupRunId: string; agentJobId: string }> = []
 
   for (const row of configRows) {
-    const schedule = backupScheduleSchema.parse(row.config.schedule)
+    try {
+      const schedule = backupScheduleSchema.parse(row.config.schedule)
 
-    if (!isCronDue(schedule.cron, now)) {
-      continue
+      if (!isCronDue(schedule.cron, now)) {
+        continue
+      }
+
+      if (!(row.environment.serverId ?? row.project.defaultServerId)) {
+        continue
+      }
+
+      const queuedJob = await queueEnvironmentBackup({
+        actor: { kind: 'system', source: 'backup.schedule' },
+        projectId: row.config.projectId,
+        environmentId: row.config.environmentId,
+        backupConfigId: row.config.id,
+        manifest: {
+          trigger: 'schedule',
+          schedule,
+          scheduledAt: now.toISOString(),
+        },
+        scheduleKey: `${row.config.id}:${toUtcMinute(now)}`,
+      })
+      if (!queuedJob) {
+        continue
+      }
+
+      queued.push({
+        backupRunId: queuedJob.backupRunId,
+        agentJobId: queuedJob.agentJobId,
+      })
+    } catch (error) {
+      if (isWorkspacePolicyRefusal(error)) continue
+      console.error('Scheduled backup admission failed', {
+        policyId: row.config.id,
+        ...safeErrorDiagnostics(error),
+      })
     }
-
-    if (!(row.environment.serverId ?? row.project.defaultServerId)) {
-      continue
-    }
-
-    const queuedJob = await queueEnvironmentBackup({
-      projectId: row.config.projectId,
-      environmentId: row.config.environmentId,
-      backupConfigId: row.config.id,
-      manifest: {
-        trigger: 'schedule',
-        schedule,
-        scheduledAt: now.toISOString(),
-      },
-      scheduleKey: `${row.config.id}:${toUtcMinute(now)}`,
-    })
-
-    if (!queuedJob) {
-      continue
-    }
-
-    queued.push({
-      backupRunId: queuedJob.backupRunId,
-      agentJobId: queuedJob.agentJobId,
-    })
   }
 
   return queued

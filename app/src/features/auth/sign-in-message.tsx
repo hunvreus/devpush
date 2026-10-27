@@ -1,5 +1,5 @@
 import { InfoIcon } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '#devpush/components/ui/alert'
 
 export function SignInMessage({ message }: { message: string }) {
   if (!message.trim()) return null

@@ -1,3 +1,4 @@
+import { fetchGitHub, readGitHubJson } from '#devpush/server/github/http'
 import { readProviderToken, storeProviderToken } from './provider-tokens'
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { betterAuth } from 'better-auth'
@@ -10,28 +11,28 @@ import type { GithubProfile, GoogleProfile } from 'better-auth/social-providers'
 import {
   getAuthMethods,
   getGitHubOAuthCredentials,
-} from '@/server/auth/auth-methods'
-import { db } from '@/server/db'
-import { replacePendingIdentity } from '@/server/auth/provider-identity'
-import * as schema from '@/server/db/schema'
+} from '#devpush/server/auth/auth-methods'
+import { db } from '#devpush/server/db'
+import { replacePendingIdentity } from '#devpush/server/auth/provider-identity'
+import * as schema from '#devpush/server/db/schema'
 import {
   assertEmailCanAuthenticate,
   assertUserCanCreateSession,
-} from '@/server/auth/access'
+} from '#devpush/server/auth/access'
 import {
   sendEmailChangeEmail,
   sendEmailVerificationEmail,
   sendOtpEmail,
-} from '@/server/email/service'
-import { config } from '@/server/config'
-import { requireAuthEmailDelivery } from '@/server/auth/email-delivery'
+} from '#devpush/server/email/service'
+import { config } from '#devpush/server/config'
+import { requireAuthEmailDelivery } from '#devpush/server/auth/email-delivery'
 import {
   assertAllowedAuthEmailChange,
   requireAllowedEmailChanges,
-} from '@/server/auth/email-change'
-import { ensureUserBootstrap } from '@/server/teams/service'
-import { decryptSecret, encryptSecret } from '@/server/secrets/crypto'
-import { mcpOAuthPlugins } from '@/server/mcp/oauth-provider'
+} from '#devpush/server/auth/email-change'
+import { ensureUserBootstrap } from '#devpush/server/teams/service'
+import { decryptSecret, encryptSecret } from '#devpush/server/secrets/crypto'
+import { mcpOAuthPlugins } from '#devpush/server/mcp/oauth-provider'
 
 export const authMethods = getAuthMethods()
 const githubCredentials = getGitHubOAuthCredentials()
@@ -370,17 +371,17 @@ export async function getGitHubUserInfo(token: OAuthTokens) {
     'User-Agent': 'devpush',
   }
   const [userResponse, emailsResponse] = await Promise.all([
-    fetch('https://api.github.com/user', { headers }),
-    fetch('https://api.github.com/user/emails', { headers }),
+    fetchGitHub('https://api.github.com/user', { headers }),
+    fetchGitHub('https://api.github.com/user/emails', { headers }),
   ])
 
   if (!userResponse.ok) {
     return null
   }
 
-  const profile = (await userResponse.json()) as GitHubProfile
+  const profile = await readGitHubJson<GitHubProfile>(userResponse)
   if (!emailsResponse.ok) return null
-  const emails = (await emailsResponse.json()) as Array<GitHubEmail | null>
+  const emails = await readGitHubJson<Array<GitHubEmail | null>>(emailsResponse)
   if (!Array.isArray(emails)) return null
   const verified = emails.filter(
     (candidate): candidate is GitHubEmail =>

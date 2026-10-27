@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
-import { PublicError } from '@/lib/public-error'
-import { db } from '@/server/db'
-import { projects, teams, teamMembers, user } from '@/server/db/schema'
+import { PublicError } from '#devpush/lib/public-error'
+import { db } from '#devpush/server/db'
+import { projects, teams, teamMembers, user } from '#devpush/server/db/schema'
 import { getProjectContext } from './context'
 
 /** Resolve editable records by ID so a concurrent rename remains a conflict. */

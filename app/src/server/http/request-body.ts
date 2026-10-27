@@ -5,7 +5,10 @@ export class RequestBodyTooLargeError extends Error {
   }
 }
 
-export async function readRequestText(request: Request, maxBytes: number) {
+export async function readRequestText(
+  request: Pick<Request, 'headers' | 'body'>,
+  maxBytes: number,
+) {
   const declaredLength = request.headers.get('content-length')
 
   if (

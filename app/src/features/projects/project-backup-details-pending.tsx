@@ -1,23 +1,27 @@
 import { ComposeServiceInput } from './compose-service-input'
 import type { ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
+import { Button } from '#devpush/components/ui/button'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
+} from '#devpush/components/ui/tooltip'
+import { Input } from '#devpush/components/ui/input'
+import { Skeleton } from '#devpush/components/ui/skeleton'
+import { Switch } from '#devpush/components/ui/switch'
 import {
   Field,
   FieldLabel,
   FieldDescription,
   FieldGroup,
-} from '@/components/ui/field'
-import { SettingsLayout } from '@/components/settings-layout'
-import { Select, SelectTrigger, SelectValue } from '@/components/ui/select'
+} from '#devpush/components/ui/field'
+import { SettingsLayout } from '#devpush/components/settings-layout'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+} from '#devpush/components/ui/select'
 import { PlusIcon, SettingsIcon, TrashIcon } from 'lucide-react'
 import {
   BackupPolicySection,
@@ -70,7 +74,7 @@ export function ProjectBackupDetailsPending({
                 <Switch disabled aria-label="Enabled loading" />
                 <FieldLabel>Enabled</FieldLabel>
               </Field>
-              <PendingField label="Name (required)" />
+              <PendingField label="Name" />
               <PendingSelect label="Environment" />
               <Field>
                 <FieldLabel>Schedule</FieldLabel>

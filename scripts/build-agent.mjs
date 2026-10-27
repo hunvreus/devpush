@@ -18,13 +18,15 @@ const result = spawnSync(
   "go",
   [
     "build",
+    "-trimpath",
+    "-buildvcs=false",
     "-ldflags",
-    `-X github.com/devpush/devpush/agent/internal/agent.Version=${version}`,
+    `-s -w -buildid= -X github.com/devpush/devpush/agent/internal/agent.Version=${version}`,
     "-o",
     output,
     "./agent/cmd/devpush-agent",
   ],
-  { cwd: root, env: process.env, stdio: "inherit" },
+  { cwd: root, env: { ...process.env, CGO_ENABLED: "0" }, stdio: "inherit" },
 );
 
 if (result.error) {

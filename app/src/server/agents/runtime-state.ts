@@ -1,13 +1,13 @@
 import { sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 import {
   agentJobs,
   agentRuntimeObservations,
   deployments,
   environments,
   projects,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import { cleanupVolumeRetentionMs } from './cleanup'
 import type { ReportedRuntime } from './reconciliation'
 

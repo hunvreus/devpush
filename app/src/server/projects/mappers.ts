@@ -1,8 +1,8 @@
-import { isValidCron } from '@/lib/backup-cron'
-import { PublicError } from '@/lib/public-error'
+import { isValidCron } from '#devpush/lib/backup-cron'
+import { PublicError } from '#devpush/lib/public-error'
 import { z } from 'zod'
-import { storedBackupDatabaseSchema } from '@/lib/backup-database'
-import { backupStorageReferenceSchema } from '@/lib/backup-storage-schema'
+import { storedBackupDatabaseSchema } from '#devpush/lib/backup-database'
+import { backupStorageReferenceSchema } from '#devpush/lib/backup-storage-schema'
 import type {
   aliases,
   backupArtifacts,
@@ -13,13 +13,13 @@ import type {
   environments,
   projects,
   servers,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   backupRetentionSchema,
   normalizeBackupVolumes,
-} from '@/lib/backup-policy-schema'
-import { getResourceColor } from '@/server/resources/color'
-import { getEffectiveServerStatus } from '@/server/servers/status'
+} from '#devpush/lib/backup-policy-schema'
+import { getResourceColor } from '#devpush/server/resources/color'
+import { getEffectiveServerStatus } from '#devpush/server/servers/status'
 import { normalizeDeploymentCommitMeta } from './deployment-config'
 import type {
   ProjectBackupArtifact,

@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
-import { requireAuthSession } from '@/server/auth/session.server'
-import { publicErrorsMiddleware } from '@/server/http/public-errors'
-import { accountSettingsSchema } from '@/lib/account-settings-schema'
+import { requireAuthSession } from '#devpush/server/auth/session.server'
+import { publicErrorsMiddleware } from '#devpush/server/http/public-errors'
+import { accountSettingsSchema } from '#devpush/lib/account-settings-schema'
 import { updateUserGeneral } from './service'
 
 export const confirmProfile = createServerFn({ method: 'POST' })

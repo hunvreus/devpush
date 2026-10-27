@@ -6,11 +6,11 @@ import {
   PlusIcon,
   SearchIcon,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -18,33 +18,33 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '#devpush/components/ui/dropdown-menu'
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   RepositoryListPending,
   RepositoryToolbarPending,
-} from '@/features/repositories/repository-list-pending'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { repositorySelectionQueryOptions } from '@/lib/repository-selection-query'
-import { getRepositorySelectionRepositories } from '@/server/projects/functions'
-import type { RepositorySelectionContext } from '@/server/projects/types'
+} from '#devpush/features/repositories/repository-list-pending'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { repositorySelectionQueryOptions } from '#devpush/lib/repository-selection-query'
+import { getRepositorySelectionRepositories } from '#devpush/server/projects/functions'
+import type { RepositorySelectionContext } from '#devpush/server/projects/types'
 
 export type ProjectRepository = {
   fullName: string
@@ -74,28 +74,46 @@ export function RepositoryPickerDialog({
   teamSlug: string
 }) {
   const [open, setOpen] = useState(false)
-  const [repositories, setRepositories] = useState<Array<Repository>>([])
   const [chosenInstallationId, setSelectedInstallationId] = useState<
     number | null
   >(currentRepo.installationId)
   const [query, setQuery] = useState('')
-  const [isLoadingRepos, setIsLoadingRepos] = useState(false)
-  const [reposAttempt, setReposAttempt] = useState(0)
-  const [reposError, setReposError] = useState<string | null>(null)
   const repositorySelectionQuery = useQuery({
     ...repositorySelectionQueryOptions(teamSlug),
     enabled: open,
   })
-  const [loadedInstallationId, setLoadedInstallationId] = useState<
-    number | null
-  >(null)
   const github = repositorySelectionQuery.data?.github
   const installations = github?.connected ? github.installations : []
-  const selectedInstallationId =
-    chosenInstallationId ?? installations.at(0)?.id ?? null
+  const selectedInstallationId = installations.some(
+    (installation) => installation.id === chosenInstallationId,
+  )
+    ? chosenInstallationId
+    : (installations.at(0)?.id ?? null)
   const selectedInstallation = installations.find(
     (installation) => installation.id === selectedInstallationId,
   )
+  const client = useQueryClient()
+  const repositoriesQuery = useQuery({
+    queryKey: ['repository-picker', teamSlug, selectedInstallationId],
+    enabled:
+      open && Boolean(selectedInstallationId) && Boolean(github?.connected),
+    staleTime: 30_000,
+    retry: false,
+    queryFn: ({ signal }) => {
+      if (!selectedInstallationId) throw new Error('Select an installation.')
+      return getRepositorySelectionRepositories({
+        data: { teamSlug, installationId: selectedInstallationId },
+        signal,
+      })
+    },
+  })
+  const repositories = repositoriesQuery.data ?? []
+  const reposError = repositoriesQuery.error
+    ? getPublicErrorMessage(
+        repositoriesQuery.error,
+        'Unable to load repositories. Please try again.',
+      )
+    : null
   const filteredRepositories = repositories
     .filter((repo) => {
       if (repo.installationId !== selectedInstallationId) {
@@ -112,44 +130,12 @@ export function RepositoryPickerDialog({
     .slice(0, 5)
 
   useEffect(() => {
-    if (!open || !selectedInstallationId || !github?.connected) {
-      return
-    }
-
-    let cancelled = false
-    setIsLoadingRepos(true)
-    setRepositories([])
-    setReposError(null)
-
-    void getRepositorySelectionRepositories({
-      data: { teamSlug, installationId: selectedInstallationId },
-    })
-      .then((nextRepositories) => {
-        if (!cancelled) {
-          setRepositories(nextRepositories)
-        }
+    if (!open)
+      void client.cancelQueries({
+        queryKey: ['repository-picker', teamSlug, selectedInstallationId],
+        exact: true,
       })
-      .catch((error) => {
-        if (!cancelled) {
-          setReposError(
-            getPublicErrorMessage(
-              error,
-              'Unable to load repositories. Please try again.',
-            ),
-          )
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadedInstallationId(selectedInstallationId)
-          setIsLoadingRepos(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [github?.connected, open, selectedInstallationId, teamSlug, reposAttempt])
+  }, [open, client, teamSlug, selectedInstallationId])
 
   function selectRepository(repo: Repository) {
     onSelect({
@@ -217,12 +203,17 @@ export function RepositoryPickerDialog({
                 </InputGroup>
               </div>
 
+              {reposError && repositoriesQuery.data ? (
+                <p role="alert" className="text-sm text-destructive">
+                  Unable to refresh repositories. Displayed information may be
+                  out of date.
+                </p>
+              ) : null}
               <div>
-                {isLoadingRepos ||
-                (selectedInstallationId !== null &&
-                  loadedInstallationId !== selectedInstallationId) ? (
+                {selectedInstallationId !== null &&
+                repositoriesQuery.isPending ? (
                   <RepositoryListPending />
-                ) : reposError ? (
+                ) : reposError && !repositoriesQuery.data ? (
                   <div
                     role="alert"
                     className="space-y-2 text-sm text-destructive"
@@ -231,7 +222,7 @@ export function RepositoryPickerDialog({
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setReposAttempt((attempt) => attempt + 1)}
+                      onClick={() => void repositoriesQuery.refetch()}
                     >
                       Retry
                     </Button>

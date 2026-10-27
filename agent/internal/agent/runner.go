@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -394,6 +393,10 @@ func (runner *Runner) claimAndRunJob(ctx context.Context) {
 		return
 	}
 	defer unlockJob(lock)
+	if err := runner.recoverInterruptedRestores(ctx); err != nil {
+		runner.log.Error("restore recovery blocks job claims", "error", err)
+		return
+	}
 	if err := runner.flushPendingCompletions(ctx); err != nil {
 		runner.log.Warn("deliver pending completion failed", "error", err)
 		return
@@ -580,38 +583,62 @@ func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[
 	for index := range safeArgs {
 		safeArgs[index] = redactCommandOutput(safeArgs[index], secrets)
 	}
-	*logs = append(*logs, truncateLogLine(
-		"$ "+name+" "+strings.Join(safeArgs, " "),
-		maxDeploymentLogLineLen,
-	))
+	// Retain bounded diagnostics across all commands, without affecting execution.
+	const marker = "[deployment command logs truncated; execution continues]"
+	used := 0
+	truncated := false
+	for _, line := range *logs {
+		used += len(line)
+		truncated = truncated || line == marker
+	}
+	appendOutput := func(line string) {
+		if len(*logs) >= 10_000 || used+len(line) > (10<<20)-len(marker) {
+			if !truncated {
+				truncated = true
+				*logs = append(*logs, marker)
+				used += len(marker)
+			}
+			return
+		}
+		*logs = append(*logs, line)
+		used += len(line)
+	}
+	appendOutput(truncateLogLine("$ "+name+" "+strings.Join(safeArgs, " "), maxDeploymentLogLineLen))
 
-	command := exec.CommandContext(ctx, name, args...)
+	command := agentCommand(ctx, name, args...)
 	command.Dir = dir
 	command.Env = commandEnv
 	output := cappedTailBuffer{maxBytes: maxCommandOutputBytes}
 	command.Stdout = &output
 	command.Stderr = &output
 	err := command.Run()
-	outputLines := []string{}
-	if len(output.data) > 0 {
-		if output.truncated {
-			*logs = append(*logs, "[command output truncated to the last 4 MiB]")
+	lastOutput := ""
+	retained := output.Bytes()
+	if output.truncated {
+		appendOutput("[command output truncated to the last 4 MiB]")
+		// A tail may begin inside a credential. Never expose its partial line.
+		if newline := bytes.IndexByte(retained, '\n'); newline >= 0 {
+			retained = retained[newline+1:]
+		} else {
+			retained = nil
 		}
-		for _, line := range strings.Split(strings.TrimSpace(string(output.data)), "\n") {
+	}
+	if len(retained) > 0 {
+		for line := range strings.SplitSeq(strings.TrimSpace(string(retained)), "\n") {
 			if strings.TrimSpace(line) != "" {
 				redactedLine := truncateLogLine(
 					redactCommandOutput(line, secrets),
 					maxDeploymentLogLineLen,
 				)
-				outputLines = append(outputLines, redactedLine)
-				*logs = append(*logs, redactedLine)
+				lastOutput = redactedLine
+				appendOutput(redactedLine)
 			}
 		}
 	}
 	if err != nil {
 		message := fmt.Sprintf("%s %s: %v", name, strings.Join(safeArgs, " "), err)
-		if len(outputLines) > 0 {
-			message += ": " + outputLines[len(outputLines)-1]
+		if lastOutput != "" {
+			message += ": " + lastOutput
 		}
 
 		return fmt.Errorf("%s", message)
@@ -623,6 +650,7 @@ func (runner *Runner) runCommandWithEnv(ctx context.Context, dir string, logs *[
 type cappedTailBuffer struct {
 	data      []byte
 	maxBytes  int
+	head      int
 	truncated bool
 }
 
@@ -632,20 +660,32 @@ func (buffer *cappedTailBuffer) Write(value []byte) (int, error) {
 		return written, nil
 	}
 	if written >= buffer.maxBytes {
-		buffer.truncated = written > buffer.maxBytes || len(buffer.data) > 0
+		buffer.truncated = buffer.truncated || written > buffer.maxBytes || len(buffer.data) > 0
 		buffer.data = append(buffer.data[:0], value[written-buffer.maxBytes:]...)
+		buffer.head = 0
 		return written, nil
 	}
-
-	overflow := len(buffer.data) + written - buffer.maxBytes
-	if overflow > 0 {
-		copy(buffer.data, buffer.data[overflow:])
-		buffer.data = buffer.data[:len(buffer.data)-overflow]
-		buffer.truncated = true
+	if len(buffer.data) < buffer.maxBytes {
+		fill := min(buffer.maxBytes-len(buffer.data), len(value))
+		buffer.data = append(buffer.data, value[:fill]...)
+		value = value[fill:]
 	}
-	buffer.data = append(buffer.data, value...)
-
+	if len(value) > 0 {
+		buffer.truncated = true
+		first := copy(buffer.data[buffer.head:], value)
+		copy(buffer.data, value[first:])
+		buffer.head = (buffer.head + len(value)) % buffer.maxBytes
+	}
 	return written, nil
+}
+func (buffer *cappedTailBuffer) Bytes() []byte {
+	if buffer.head == 0 {
+		return buffer.data
+	}
+	result := make([]byte, len(buffer.data))
+	n := copy(result, buffer.data[buffer.head:])
+	copy(result[n:], buffer.data[:buffer.head])
+	return result
 }
 
 func truncateLogLine(value string, maxBytes int) string {
@@ -766,11 +806,22 @@ func (runner *Runner) postWithStatus(ctx context.Context, path string, payload a
 		return fmt.Errorf("control plane returned %s: %s", result.Status, strings.TrimSpace(string(body)))
 	}
 
-	return json.NewDecoder(result.Body).Decode(response)
+	const maxControlPlaneResponseBytes = 16 * 1024 * 1024
+	if result.ContentLength > maxControlPlaneResponseBytes {
+		return fmt.Errorf("control plane response exceeds %d bytes", maxControlPlaneResponseBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(result.Body, maxControlPlaneResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > maxControlPlaneResponseBytes {
+		return fmt.Errorf("control plane response exceeds %d bytes", maxControlPlaneResponseBytes)
+	}
+	return json.Unmarshal(data, response)
 }
 
 func (runner *Runner) commandSucceeds(ctx context.Context, dir string, name string, args ...string) bool {
-	command := exec.CommandContext(ctx, name, args...)
+	command := agentCommand(ctx, name, args...)
 	command.Dir = dir
 	command.Env = runner.commandEnv()
 	return command.Run() == nil

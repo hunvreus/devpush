@@ -4,21 +4,27 @@ import { beforeEach, expect, test, vi } from 'vitest'
 
 import { handleGitHubWebhook } from './webhook-handler'
 
+vi.mock('#devpush/server/notifications/observe', () => ({
+  notifyAfterProjectUpdate: vi.fn().mockResolvedValue(undefined),
+}))
+
 const mocks = vi.hoisted(() => ({
   deploy: vi.fn(),
   installation: vi.fn(),
   limit: vi.fn(),
 }))
-vi.mock('@/server/config', () => ({
+vi.mock('#devpush/server/config', () => ({
   config: { GITHUB_APP_WEBHOOK_SECRET: 'secret' },
 }))
-vi.mock('@/server/github/service', () => ({
+vi.mock('#devpush/server/github/service', () => ({
   handleGitHubInstallationWebhook: mocks.installation,
 }))
-vi.mock('@/server/projects/deployments', () => ({
+vi.mock('#devpush/server/projects/deployments', () => ({
   createDeploymentsForGitHubPush: mocks.deploy,
 }))
-vi.mock('@/server/http/rate-limit', () => ({ enforceRateLimit: mocks.limit }))
+vi.mock('#devpush/server/http/rate-limit', () => ({
+  enforceRateLimit: mocks.limit,
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -47,6 +53,7 @@ test('signed pushes bypass IP throttling and preserve commit metadata', async ()
   const response = await handleGitHubWebhook(
     delivery({
       ref: 'refs/heads/main',
+      sender: { id: 12345 },
       installation: { id: 1 },
       repository: { id: 2, full_name: 'acme/app' },
       head_commit: {
@@ -62,6 +69,7 @@ test('signed pushes bypass IP throttling and preserve commit metadata', async ()
   expect(mocks.limit).not.toHaveBeenCalled()
   expect(mocks.deploy).toHaveBeenCalledWith(
     expect.objectContaining({
+      githubSenderId: '12345',
       authorName: 'Ada',
       authoredAt: '2026-10-12T01:00:00Z',
       commitUrl: 'https://github.com/acme/app/commit/abc123',

@@ -1,53 +1,53 @@
 import {
-  requestWorkspaceUpgrade,
-  WorkspaceServerSetupNotice,
-} from '#devpush/deployment/ui'
-import { CopyButton } from '@/components/copy-button'
-import { serverNameSchema } from '@/lib/server-name-schema'
-import { afterMutation } from '@/lib/action-feedback'
+  requestWorkspaceAction,
+  useWorkspaceServerSetup,
+} from '#devpush/features/plugins/contributions'
+import { CopyButton } from '#devpush/components/copy-button'
+import { serverNameSchema } from '#devpush/lib/server-name-schema'
+import { afterMutation } from '#devpush/lib/action-feedback'
 import { Link, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { SettingsIcon, LoaderIcon, PlusIcon } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '#devpush/components/ui/button'
+import { Badge } from '#devpush/components/ui/badge'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
-import { Field, FieldError, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+} from '#devpush/components/ui/empty'
+import { Field, FieldError, FieldLabel } from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { TeamHeading } from '@/features/teams/team-heading'
-import { ServerAvatar } from '@/features/servers/server-avatar'
-import { getFieldErrorMessage } from '@/lib/error-message'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
-import { cn } from '@/lib/utils'
-import { canManageTeamSettings } from '@/lib/team-role'
-import { createServer } from '@/server/servers/functions'
-import type { CreatedServer } from '@/server/servers/service'
-import type { ServerSummary, TeamSummary } from '@/server/teams/types'
+} from '#devpush/components/ui/tooltip'
+import { TeamHeading } from '#devpush/features/teams/team-heading'
+import { ServerAvatar } from '#devpush/features/servers/server-avatar'
+import { getFieldErrorMessage } from '#devpush/lib/error-message'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
+import { cn } from '#devpush/lib/utils'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
+import { createServer } from '#devpush/server/servers/functions'
+import type { CreatedServer } from '#devpush/server/servers/service'
+import type { ServerSummary, TeamSummary } from '#devpush/server/teams/types'
 
 type ServerItem = ServerSummary | CreatedServer
 
@@ -269,12 +269,13 @@ export function AddServerDialog({
 }) {
   const [name, setName] = useState('')
   const [nameError, setNameError] = useState<string | null>(null)
+  const setup = useWorkspaceServerSetup({ teamSlug })
   const [isCreating, setIsCreating] = useState(false)
   const [createdServer, setCreatedServer] = useState<CreatedServer | null>(null)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (isCreating) return
+    if (isCreating || !setup.ready) return
     const parsed = serverNameSchema.safeParse(name)
     if (!parsed.success) {
       setNameError(
@@ -296,20 +297,7 @@ export function AddServerDialog({
       setCreatedServer(server)
       await onCreated(server)
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error.code === 'PLAN_LIMIT_REACHED' ||
-          error.code === 'SUBSCRIPTION_REQUIRED')
-      ) {
-        const handled = requestWorkspaceUpgrade({
-          teamSlug,
-          reason:
-            'Review your workspace allowance before adding another server.',
-        })
-        if (handled) onOpenChange(false)
-      }
+      if (requestWorkspaceAction({ teamSlug, error })) onOpenChange(false)
       setNameError(
         getFieldErrorMessage({
           error,
@@ -347,7 +335,7 @@ export function AddServerDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <WorkspaceServerSetupNotice teamSlug={teamSlug} />
+        {setup.fields}
         {createdServer ? (
           <div className="space-y-4">
             <InstallCommand command={createdServer.installCommand} />
@@ -364,7 +352,7 @@ export function AddServerDialog({
             onSubmit={(event) => void submit(event)}
           >
             <Field data-invalid={Boolean(nameError)}>
-              <FieldLabel htmlFor="server-name">Name (required)</FieldLabel>
+              <FieldLabel htmlFor="server-name">Name</FieldLabel>
               <Input
                 aria-invalid={Boolean(nameError)}
                 id="server-name"
@@ -390,7 +378,10 @@ export function AddServerDialog({
               >
                 Cancel
               </Button>
-              <Button disabled={!name || isCreating} type="submit">
+              <Button
+                disabled={!name || isCreating || !setup.ready}
+                type="submit"
+              >
                 {isCreating ? (
                   <LoaderIcon
                     data-icon="inline-start"

@@ -1,9 +1,9 @@
 import { and, desc, eq, gt, ne, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 
-import { getAgentUpdate } from '@/server/agents/compatibility'
-import { config, currentAgentVersion } from '@/server/config'
-import { db } from '@/server/db'
+import { getAgentUpdate } from '#devpush/server/agents/compatibility'
+import { config, currentAgentVersion } from '#devpush/server/config'
+import { db } from '#devpush/server/db'
 import {
   aliases,
   environments,
@@ -13,11 +13,11 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
-import { getResourceColor } from '@/server/resources/color'
-import { listServerMonitoringSummaries } from '@/server/servers/monitoring'
-import type { ServerMonitoringSummary } from '@/server/servers/monitoring'
-import { getEffectiveServerStatus } from '@/server/servers/status'
+} from '#devpush/server/db/schema'
+import { getResourceColor } from '#devpush/server/resources/color'
+import { listServerMonitoringSummaries } from '#devpush/server/servers/monitoring'
+import type { ServerMonitoringSummary } from '#devpush/server/servers/monitoring'
+import { getEffectiveServerStatus } from '#devpush/server/servers/status'
 import type {
   ProjectSummary,
   ServerSummary,

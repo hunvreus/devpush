@@ -1,9 +1,13 @@
 import { and, desc, eq, gte, inArray, like, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 
-import { db, logsDb } from '@/server/db'
-import { deploymentLogs } from '@/server/db/log-schema'
-import { deploymentEvents, deployments, environments } from '@/server/db/schema'
+import { db, logsDb } from '#devpush/server/db'
+import { deploymentLogs } from '#devpush/server/db/log-schema'
+import {
+  deploymentEvents,
+  deployments,
+  environments,
+} from '#devpush/server/db/schema'
 
 type Filters = {
   projectId: string

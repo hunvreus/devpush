@@ -1,4 +1,4 @@
-import { nodeBroadcaster } from '@/server/realtime/node-broadcaster'
+import { nodeBroadcaster } from '#devpush/server/realtime/node-broadcaster'
 
 export function isCloudflareRuntime() {
   return false

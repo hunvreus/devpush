@@ -1,8 +1,9 @@
-import { saveProjectBackupPolicy } from '@/server/projects/backups'
-import { config as installationConfig } from '@/server/config'
+import { WorkspacePolicyError } from '#devpush/plugins/server'
+import { saveProjectBackupPolicy } from '#devpush/server/projects/backups'
+import { config as installationConfig } from '#devpush/server/config'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { closeDb, db, logsDb } from '@/server/db'
+import { closeDb, db, logsDb } from '#devpush/server/db'
 import {
   apiAudit,
   apiIdempotency,
@@ -19,29 +20,39 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
-import { deploymentLogs } from '@/server/db/log-schema'
-import { currentAgentCapabilities } from '@/server/agents/compatibility'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+} from '#devpush/server/db/schema'
+import { deploymentLogs } from '#devpush/server/db/log-schema'
+import { currentAgentCapabilities } from '#devpush/server/agents/compatibility'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
 import {
   encryptProjectEnvVars,
   readProjectEnvVars,
-} from '@/server/projects/project-env-vars'
-import { scopesForApiPreset } from '@/lib/api-key-schema'
+} from '#devpush/server/projects/project-env-vars'
+import { scopesForApiPreset } from '#devpush/lib/api-key-schema'
 import type { ApiPrincipal } from './authorization'
 import { executeApiOperation } from './operations'
-import { updateProjectEnvVars } from '@/server/projects/environments'
-import type * as RepositoryModule from '@/server/projects/repository'
-import { fetchProjectComposeMetadata } from '@/server/projects/repository'
-import { updateProjectSettings } from '@/server/projects/settings'
+import { updateProjectEnvVars } from '#devpush/server/projects/environments'
+import type * as RepositoryModule from '#devpush/server/projects/repository'
+import { fetchProjectComposeMetadata } from '#devpush/server/projects/repository'
+import { updateProjectSettings } from '#devpush/server/projects/settings'
 import { handlePublicApiRequest } from './handler'
 import { hashApiSecret } from './credentials'
 
-vi.mock('@/server/realtime/service', () => ({
+const workspacePolicy = vi.hoisted(() => ({
+  run: vi.fn(async (_input: unknown, action: () => Promise<unknown>) =>
+    action(),
+  ),
+}))
+vi.mock('#devpush/server/plugins/services.server', () => ({
+  getPluginServices: () => ({
+    workspaceAccess: { run: workspacePolicy.run },
+  }),
+}))
+vi.mock('#devpush/server/realtime/service', () => ({
   notifyProject: vi.fn(),
   notifyWorkspace: vi.fn(),
 }))
-vi.mock('@/server/projects/repository', async (importOriginal) => ({
+vi.mock('#devpush/server/projects/repository', async (importOriginal) => ({
   ...(await importOriginal<typeof RepositoryModule>()),
   fetchProjectComposeMetadata: vi.fn(async () => null),
 }))
@@ -178,6 +189,45 @@ async function fixture() {
 }
 
 describe('public API operations integration', () => {
+  test('REST server creation enforces workspace policy without admitting rejected effects', async () => {
+    const f = await fixture()
+    workspacePolicy.run.mockRejectedValueOnce(
+      new WorkspacePolicyError('restricted'),
+    )
+    await expect(
+      f.execute('create_server', {
+        name: 'blocked-server',
+        idempotencyKey: 'blocked-server',
+      }),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_RESTRICTED' })
+    expect(workspacePolicy.run).toHaveBeenLastCalledWith(
+      {
+        teamId: f.teamId,
+        operation: 'server.create',
+        actor: { kind: 'user', userId: f.userId, roleCeiling: 'owner' },
+      },
+      expect.any(Function),
+    )
+    expect(
+      await db.select().from(servers).where(eq(servers.teamId, f.teamId)),
+    ).toHaveLength(1)
+    expect(
+      await db
+        .select()
+        .from(apiIdempotency)
+        .where(eq(apiIdempotency.credentialId, f.credentialId)),
+    ).toHaveLength(0)
+    await expect(
+      f.execute('create_server', {
+        name: 'blocked-server',
+        idempotencyKey: 'blocked-server',
+      }),
+    ).resolves.toBeDefined()
+    expect(
+      await db.select().from(servers).where(eq(servers.teamId, f.teamId)),
+    ).toHaveLength(2)
+  })
+
   test('rename collisions report the project name conflict without admitting work', async () => {
     const f = await fixture()
     await db.insert(projects).values({
@@ -1175,4 +1225,197 @@ test('retained remote artifacts protect storage after a local cleanup has finish
       .from(backupStorage)
       .where(eq(backupStorage.id, storageId)),
   ).toHaveLength(1)
+})
+
+test.each([
+  [
+    'deploy',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      branch: 'main',
+    }),
+  ],
+  [
+    'redeploy',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      deploymentId: f.deploymentId,
+    }),
+  ],
+  [
+    'rollback',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      deploymentId: f.deploymentId,
+      confirmation: 'rollback',
+    }),
+  ],
+  [
+    'rename_project',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      projectId: f.projectId,
+      name: 'blocked',
+      settingsVersion: 1,
+    }),
+  ],
+  [
+    'rename_server',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      serverId: f.serverId,
+      name: 'blocked',
+      settingsVersion: 1,
+    }),
+  ],
+  [
+    'update_variables',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      projectId: f.projectId,
+      changes: [{ key: 'BLOCKED', environmentId: null, value: 'secret' }],
+      settingsVersion: 1,
+    }),
+  ],
+  [
+    'disable_server',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      serverId: f.serverId,
+      confirmationName: 'server',
+    }),
+  ],
+  [
+    'delete_project',
+    (f: Awaited<ReturnType<typeof fixture>>) => ({
+      projectId: f.projectId,
+      confirmationName: 'project',
+      removeDeployments: false,
+    }),
+  ],
+] as const)(
+  'policy denial for %s never writes effects, audit or replay records',
+  async (operation, input) => {
+    const f = await fixture()
+    workspacePolicy.run.mockRejectedValueOnce(
+      new WorkspacePolicyError('restricted'),
+    )
+    await expect(
+      f.execute(operation, {
+        ...input(f),
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_RESTRICTED' })
+    expect(
+      await db
+        .select()
+        .from(apiIdempotency)
+        .where(eq(apiIdempotency.credentialId, f.credentialId)),
+    ).toHaveLength(0)
+    expect(
+      await db
+        .select()
+        .from(apiAudit)
+        .where(eq(apiAudit.credentialId, f.credentialId)),
+    ).toHaveLength(0)
+    expect(
+      (await db.select().from(servers).where(eq(servers.id, f.serverId)))[0]
+        ?.status,
+    ).toBe('connected')
+    expect(
+      (await db.select().from(projects).where(eq(projects.id, f.projectId)))[0]
+        ?.status,
+    ).toBe('active')
+  },
+)
+
+test('browser workspace policy runs before avatar upload or project provider changes', async () => {
+  const f = await fixture()
+  const { updateTeamGeneral } = await import('#devpush/server/teams/service')
+  workspacePolicy.run.mockRejectedValueOnce(
+    new WorkspacePolicyError('restricted'),
+  )
+  await expect(
+    updateTeamGeneral({
+      userId: f.userId,
+      teamSlug: `api-${f.teamId}`,
+      name: 'Blocked',
+      slug: `api-${f.teamId}`,
+      avatarDataUrl: 'invalid-image',
+    }),
+  ).rejects.toMatchObject({ code: 'WORKSPACE_RESTRICTED' })
+  expect(
+    (await db.select().from(teams).where(eq(teams.id, f.teamId)))[0]
+      ?.avatarPath,
+  ).toBeNull()
+  workspacePolicy.run.mockRejectedValueOnce(
+    new WorkspacePolicyError('restricted'),
+  )
+  await expect(
+    updateProjectSettings({
+      userId: f.userId,
+      teamSlug: `api-${f.teamId}`,
+      currentProjectName: 'api-project',
+      projectName: 'blocked',
+      repoFullName: 'owner/repo',
+      installationId: 1,
+      avatarDataUrl: 'invalid-image',
+      runtimeConfig: createComposeRuntimeConfig({ path: 'compose.yml' }),
+    }),
+  ).rejects.toMatchObject({ code: 'WORKSPACE_RESTRICTED' })
+  expect(
+    (await db.select().from(projects).where(eq(projects.id, f.projectId)))[0]
+      ?.name,
+  ).toBe('api-project')
+})
+
+test('expired queued deployments remain queued and never receive repository credentials', async () => {
+  const f = await fixture()
+  const { claimNextDeploymentJob } = await import('#devpush/server/agents/jobs')
+  await db
+    .update(deployments)
+    .set({ status: 'queued', phase: 'queued' })
+    .where(eq(deployments.id, f.deploymentId))
+  const createAccessToken = vi.fn()
+  workspacePolicy.run.mockRejectedValueOnce(
+    new WorkspacePolicyError('restricted'),
+  )
+  expect(
+    await claimNextDeploymentJob({
+      serverId: f.serverId,
+      token: 'unused',
+      skipAgentAuth: true,
+      createAccessToken,
+    }),
+  ).toBeNull()
+  expect(createAccessToken).not.toHaveBeenCalled()
+  expect(
+    (
+      await db
+        .select()
+        .from(deployments)
+        .where(eq(deployments.id, f.deploymentId))
+    )[0]?.status,
+  ).toBe('queued')
+})
+
+test('REST creation cannot commit after owner demotion during policy admission', async () => {
+  const f = await fixture()
+  workspacePolicy.run.mockImplementationOnce(async (_input, action) => {
+    await db
+      .update(teamMembers)
+      .set({ role: 'admin' })
+      .where(eq(teamMembers.id, f.membershipId))
+    return action()
+  })
+  await expect(
+    f.execute('create_server', {
+      name: 'must-not-charge',
+      idempotencyKey: crypto.randomUUID(),
+    }),
+  ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  expect(
+    await db.select().from(servers).where(eq(servers.teamId, f.teamId)),
+  ).toHaveLength(1)
+  expect(
+    await db
+      .select()
+      .from(apiIdempotency)
+      .where(eq(apiIdempotency.credentialId, f.credentialId)),
+  ).toHaveLength(0)
 })

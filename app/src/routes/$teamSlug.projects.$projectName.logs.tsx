@@ -1,11 +1,11 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { ProjectLogs } from '@/features/projects/project-logs'
-import { ProjectSectionPending } from '@/features/projects/project-route-pending'
-import { stringSearchValidator } from '@/lib/search'
-import { projectLogsQueryOptions } from '@/lib/project-context-query'
+import { ProjectLogs } from '#devpush/features/projects/project-logs'
+import { ProjectSectionPending } from '#devpush/features/projects/project-route-pending'
+import { stringSearchValidator } from '#devpush/lib/search'
+import { projectLogsQueryOptions } from '#devpush/lib/project-context-query'
 
 const validateSearch = stringSearchValidator([
   'branch',

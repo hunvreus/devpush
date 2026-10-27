@@ -1,8 +1,9 @@
-import { settingsVersionSchema } from '@/lib/settings-version'
-import { projectEnvironmentsSchema } from '@/lib/project-environments-schema'
-import { storedBackupDatabaseSchema } from '@/lib/backup-database'
+import type { WorkspaceOperation } from '#devpush/plugins/operations'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
+import { projectEnvironmentsSchema } from '#devpush/lib/project-environments-schema'
+import { storedBackupDatabaseSchema } from '#devpush/lib/backup-database'
 import { z } from 'zod'
-import type { TeamRole } from '@/lib/team-role'
+import type { TeamRole } from '#devpush/lib/team-role'
 import {
   publicBackupAcceptedSchema,
   publicBackupInputSchema,
@@ -22,15 +23,15 @@ import {
   publicServerInputSchema,
   publicServerSchema,
   publicTimestampSchema,
-} from '@/lib/public-api-schema'
-import { backupRestoreArtifactSchema } from '@/lib/backup-restore-schema'
-import { projectRoutesSchema } from '@/lib/project-routing-schema'
-import { createProjectSchema } from '@/lib/project-creation-schema'
-import { backupConfigSchema } from '@/lib/backup-policy-schema'
-import { backupStorageSchema } from '@/lib/backup-storage-schema'
-import { projectMachineNameSchema } from '@/lib/project-settings-schema'
-import { serverNameSchema } from '@/lib/server-name-schema'
-import { projectRuntimeConfigSchema } from '@/lib/project-runtime-config'
+} from '#devpush/lib/public-api-schema'
+import { backupRestoreArtifactSchema } from '#devpush/lib/backup-restore-schema'
+import { projectRoutesSchema } from '#devpush/lib/project-routing-schema'
+import { createProjectSchema } from '#devpush/lib/project-creation-schema'
+import { backupConfigSchema } from '#devpush/lib/backup-policy-schema'
+import { backupStorageSchema } from '#devpush/lib/backup-storage-schema'
+import { projectMachineNameSchema } from '#devpush/lib/project-settings-schema'
+import { serverNameSchema } from '#devpush/lib/server-name-schema'
+import { projectRuntimeConfigSchema } from '#devpush/lib/project-runtime-config'
 
 export type PublicApiOperation = {
   id: string
@@ -43,6 +44,10 @@ export type PublicApiOperation = {
   status: number
   mcp: boolean
   destructive: boolean
+  workspacePolicy: {
+    operation: WorkspaceOperation
+    boundary: 'domain' | 'dispatcher'
+  } | null
   readOnly: boolean
   requiresWholeTeam: boolean
   minimumRole: TeamRole
@@ -56,7 +61,16 @@ function operation(
     | 'readOnly'
     | 'requiresWholeTeam'
     | 'minimumRole'
+    | 'workspacePolicy'
+    | 'method'
   > &
+    (
+      | { method: 'GET'; workspacePolicy?: never }
+      | {
+          method: Exclude<PublicApiOperation['method'], 'GET'>
+          workspacePolicy: NonNullable<PublicApiOperation['workspacePolicy']>
+        }
+    ) &
     Partial<
       Pick<
         PublicApiOperation,
@@ -65,6 +79,7 @@ function operation(
     >,
 ) {
   return {
+    workspacePolicy: null,
     status: 200,
     mcp: true,
     destructive: false,
@@ -480,6 +495,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'deploy',
+    workspacePolicy: { operation: 'deployment.create', boundary: 'domain' },
     description:
       'Queue a deployment from a matching GitHub branch. Requires a unique idempotencyKey; returns acceptance, not execution success.',
     method: 'POST',
@@ -499,6 +515,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'redeploy',
+    workspacePolicy: { operation: 'deployment.create', boundary: 'domain' },
     description:
       'Queue the recorded commit and runtime settings with current routing.',
     method: 'POST',
@@ -512,6 +529,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'rollback',
+    workspacePolicy: { operation: 'deployment.create', boundary: 'domain' },
     description:
       'Queue a successful recorded commit and runtime settings with current routing.',
     method: 'POST',
@@ -527,6 +545,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'run_backup',
+    workspacePolicy: { operation: 'backup.run', boundary: 'domain' },
     description: 'Queue a manual run of an enabled backup policy.',
     method: 'POST',
     path: '/projects/{projectId}/backups',
@@ -545,6 +564,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'restore_backup',
+    workspacePolicy: { operation: 'backup.restore', boundary: 'domain' },
     description:
       'Queue a destructive restore into the current environment. Requires administrator role and explicit confirmation.',
     method: 'POST',
@@ -561,6 +581,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'rename_project',
+    workspacePolicy: { operation: 'project.update', boundary: 'dispatcher' },
     description:
       'Rename a project using its current settings version. Resource IDs stay unchanged.',
     method: 'PATCH',
@@ -575,6 +596,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'update_variables',
+    workspacePolicy: { operation: 'variable.update', boundary: 'dispatcher' },
     description:
       'Patch write-only variables. Omitted values are preserved; deleted names are removed only in their chosen environment scope.',
     method: 'PATCH',
@@ -607,6 +629,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'rename_server',
+    workspacePolicy: { operation: 'server.update', boundary: 'dispatcher' },
     description: 'Rename a server. Requires current team administrator role.',
     method: 'PATCH',
     path: '/servers/{serverId}',
@@ -621,6 +644,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'create_server',
+    workspacePolicy: { operation: 'server.create', boundary: 'domain' },
     description:
       'Create a pending server. Enrollment credentials are generated separately in the browser.',
     method: 'POST',
@@ -636,6 +660,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'update_project_configuration',
+    workspacePolicy: { operation: 'project.update', boundary: 'dispatcher' },
     description:
       'Replace Compose runtime configuration and routes with settings version protection. Host lifecycle command changes require their separate administrator scope.',
     method: 'PUT',
@@ -654,6 +679,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'delete_project',
+    workspacePolicy: { operation: 'project.delete', boundary: 'dispatcher' },
     description:
       'Delete a project and optionally queue deployed runtime removal. Requires current administrator role and the project name as confirmation.',
     method: 'DELETE',
@@ -672,6 +698,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'enable_server',
+    workspacePolicy: { operation: 'server.enable', boundary: 'dispatcher' },
     description:
       'Enable a disabled server. Requires current administrator role.',
     method: 'POST',
@@ -688,6 +715,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'disable_server',
+    workspacePolicy: { operation: 'server.disable', boundary: 'dispatcher' },
     description:
       'Disable a server using its name as confirmation. Requires current administrator role.',
     method: 'POST',
@@ -706,6 +734,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'delete_server',
+    workspacePolicy: { operation: 'server.delete', boundary: 'domain' },
     description:
       'Delete a server using its name as confirmation. Existing deployment cancellation is an explicit option.',
     method: 'DELETE',
@@ -740,6 +769,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'create_project',
+    workspacePolicy: { operation: 'project.create', boundary: 'domain' },
     description:
       'Create a Compose project from a repository accessible to the owner’s linked GitHub account. Browser GitHub connection and installation consent must already be complete.',
     method: 'POST',
@@ -788,6 +818,10 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'create_backup_policy',
+    workspacePolicy: {
+      operation: 'backup.policy.save',
+      boundary: 'dispatcher',
+    },
     description: 'Create a backup policy. Requires current administrator role.',
     method: 'POST',
     path: '/projects/{projectId}/backup-policies',
@@ -806,6 +840,10 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'update_backup_policy',
+    workspacePolicy: {
+      operation: 'backup.policy.save',
+      boundary: 'dispatcher',
+    },
     description:
       'Replace a backup policy using its current settings version. Requires current administrator role.',
     method: 'PUT',
@@ -826,6 +864,10 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'delete_backup_policy',
+    workspacePolicy: {
+      operation: 'backup.policy.delete',
+      boundary: 'dispatcher',
+    },
     description:
       'Remove a backup policy without deleting retained backup runs. Requires current administrator role.',
     method: 'DELETE',
@@ -846,6 +888,10 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'create_backup_storage',
+    workspacePolicy: {
+      operation: 'backup.storage.save',
+      boundary: 'dispatcher',
+    },
     description:
       'Create a team backup destination. Secret access keys are write-only. Requires current administrator role.',
     method: 'POST',
@@ -864,6 +910,10 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'update_backup_storage',
+    workspacePolicy: {
+      operation: 'backup.storage.save',
+      boundary: 'dispatcher',
+    },
     description:
       'Rename or rotate credentials of a team backup destination. Bucket, region, and endpoint are immutable.',
     method: 'PUT',
@@ -885,6 +935,10 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'delete_backup_storage',
+    workspacePolicy: {
+      operation: 'backup.storage.delete',
+      boundary: 'dispatcher',
+    },
     description:
       'Delete an unreferenced backup destination. Policies, active backups, and retained remote artifacts prevent deletion.',
     method: 'DELETE',
@@ -905,6 +959,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'update_environments',
+    workspacePolicy: { operation: 'environment.update', boundary: 'domain' },
     description:
       'Replace environment definitions with project settings version protection. Omitted server assignments are preserved. Production is required.',
     method: 'PUT',
@@ -923,6 +978,7 @@ export const publicApiOperations: PublicApiOperation[] = [
   }),
   operation({
     id: 'update_environment_servers',
+    workspacePolicy: { operation: 'environment.update', boundary: 'domain' },
     description:
       'Update default and per-environment server assignments, regenerating environment aliases. Unspecified environment assignments are preserved.',
     method: 'PUT',

@@ -1,5 +1,5 @@
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { Button } from '#devpush/components/ui/button'
+import { cn } from '#devpush/lib/utils'
 
 export type SectionNavigationItem = {
   href: `#${string}`

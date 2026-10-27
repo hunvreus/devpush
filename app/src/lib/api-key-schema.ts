@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { TeamRole } from '@/lib/team-role'
-import type { ResourceColor } from '@/server/resources/color'
+import type { TeamRole } from '#devpush/lib/team-role'
+import type { ResourceColor } from '#devpush/server/resources/color'
 
 export const apiScopeDefinitions = {
   'projects:read': { minimumRole: 'member', label: 'Read projects' },

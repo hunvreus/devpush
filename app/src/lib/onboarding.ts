@@ -9,11 +9,3 @@ export function onboardingDestination(
     ? `/${encodeURIComponent(teamSlug)}`
     : destination
 }
-
-export function shouldOfferPlan(
-  destination: string,
-  teamSlug: string,
-  role: string,
-) {
-  return role === 'owner' && destination === `/${encodeURIComponent(teamSlug)}`
-}

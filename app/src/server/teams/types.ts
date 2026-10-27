@@ -1,8 +1,8 @@
-import type { AgentUpdate } from '@/server/agents/compatibility'
-import type { TeamRole } from '@/lib/team-role'
-import type { getResourceColor } from '@/server/resources/color'
-import type { ServerMonitoringSummary } from '@/server/servers/monitoring'
-import type { ServerStatus } from '@/server/servers/status'
+import type { AgentUpdate } from '#devpush/server/agents/compatibility'
+import type { TeamRole } from '#devpush/lib/team-role'
+import type { getResourceColor } from '#devpush/server/resources/color'
+import type { ServerMonitoringSummary } from '#devpush/server/servers/monitoring'
+import type { ServerStatus } from '#devpush/server/servers/status'
 
 export type TeamSummary = {
   settingsVersion: number

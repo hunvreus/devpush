@@ -2,7 +2,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '#devpush/components/ui/dialog'
 import {
   RepositoryListPending,
   RepositoryToolbarPending,

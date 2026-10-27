@@ -1,25 +1,25 @@
 import { useDeferredValue, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Field, FieldLabel, FieldError } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { ResourceAvatar } from '@/components/resource-avatar'
+import { Field, FieldLabel, FieldError } from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
+import { Button } from '#devpush/components/ui/button'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import {
   getApiKeyTeamsAction,
   getApiKeyProjectsAction,
-} from '@/server/api/functions'
+} from '#devpush/server/api/functions'
 import type {
   ApiKeyProjectOption,
   ApiKeyTeamOption,
-} from '@/lib/api-key-schema'
-import { getPublicErrorMessage } from '@/lib/public-error'
+} from '#devpush/lib/api-key-schema'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
 
 export function ApiScopeSelection({
   userId,

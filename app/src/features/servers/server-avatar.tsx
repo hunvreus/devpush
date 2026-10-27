@@ -1,7 +1,7 @@
 import { ServerIcon, ServerOffIcon } from 'lucide-react'
 
-import type { ServerStatus } from '@/server/servers/status'
-import { cn } from '@/lib/utils'
+import type { ServerStatus } from '#devpush/server/servers/status'
+import { cn } from '#devpush/lib/utils'
 
 const statusTextColors: Record<ServerStatus, string> = {
   disabled: 'text-destructive',

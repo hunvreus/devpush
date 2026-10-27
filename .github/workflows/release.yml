@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      DEVPUSH_BASE_URL: http://localhost:7429
+      DEVPUSH_SECRET_ENCRYPTION_KEY: ci-release-secret-encryption-key
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - id: toolchain
+        run: |
+          node --input-type=module <<'JS' >> "$GITHUB_OUTPUT"
+          import {readFileSync} from 'node:fs';
+          import {validateAgentRelease} from './app/src/lib/agent-release.mjs';
+          const manifest=validateAgentRelease(JSON.parse(readFileSync('app/agent-release.json','utf8')));
+          console.log(`version=${manifest.goVersion.slice(2)}`);
+          JS
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ steps.toolchain.outputs.version }}
+          cache-dependency-path: agent/go.mod
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:check
+      - run: pnpm agent:test
+      - run: pnpm agent:release:prepare
+      - run: git diff --exit-code -- app/agent-release.json
+      - run: |
+          sudo apt-get update
+          sudo apt-get install --yes qemu-user
+          bin/devpush-agent-linux-amd64 version --json > bin/metadata-linux-amd64.json
+          qemu-aarch64 bin/devpush-agent-linux-arm64 version --json > bin/metadata-linux-arm64.json
+          node scripts/verify-agent-release.mjs --tag "$GITHUB_REF_NAME" --runtime
+      - run: pnpm typecheck && pnpm lint && pnpm docs:check && pnpm build
+      - run: pnpm smoke:node
+      - run: pnpm test && pnpm test:integration && pnpm test:package
+      - run: pnpm validate:production
+      - run: mkdir -p release && pnpm --dir app pack --pack-destination ../release
+      - name: Publish the verified release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            bin/devpush-agent-linux-amd64 bin/devpush-agent-linux-arm64 \
+            bin/agent-release.json bin/SHA256SUMS release/devpush-*.tgz \
+            --verify-tag --generate-notes

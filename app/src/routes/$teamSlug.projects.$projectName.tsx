@@ -1,5 +1,5 @@
-import { pageHead } from '@/lib/page-head'
-import { useRefreshError } from '@/lib/use-refresh-error'
+import { pageHead } from '#devpush/lib/page-head'
+import { useRefreshError } from '#devpush/lib/use-refresh-error'
 import {
   Outlet,
   createFileRoute,
@@ -8,15 +8,15 @@ import {
 } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { ProjectPage } from '@/features/projects/project-layout'
-import { ProjectOverview } from '@/features/projects/project-overview'
-import { ProjectRoutePending } from '@/features/projects/project-route-pending'
-import { getProjectPendingSection } from '@/features/projects/pending-section'
-import type { ProjectPendingSection } from '@/features/projects/pending-section'
+import { ProjectPage } from '#devpush/features/projects/project-layout'
+import { ProjectOverview } from '#devpush/features/projects/project-overview'
+import { ProjectRoutePending } from '#devpush/features/projects/project-route-pending'
+import { getProjectPendingSection } from '#devpush/features/projects/pending-section'
+import type { ProjectPendingSection } from '#devpush/features/projects/pending-section'
 import {
   projectContextQueryOptions,
   projectShellQueryOptions,
-} from '@/lib/project-context-query'
+} from '#devpush/lib/project-context-query'
 
 export const Route = createFileRoute('/$teamSlug/projects/$projectName')({
   loader: async ({ context, location, params }) => {

@@ -1,5 +1,5 @@
-import type { db } from '@/server/db'
-import { deploymentEvents } from '@/server/db/schema'
+import type { db } from '#devpush/server/db'
+import { deploymentEvents } from '#devpush/server/db/schema'
 
 type EventStore = Pick<typeof db, 'insert'>
 type Event = Omit<typeof deploymentEvents.$inferInsert, 'searchContent'>

@@ -1,8 +1,8 @@
-import { replaceProjectEnvironments } from '@/server/projects/environment-state'
-import type * as RepositoryModule from '@/server/projects/repository'
+import { replaceProjectEnvironments } from '#devpush/server/projects/environment-state'
+import type * as RepositoryModule from '#devpush/server/projects/repository'
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { closeDb, db } from '@/server/db'
+import { closeDb, db } from '#devpush/server/db'
 import {
   teams,
   user,
@@ -14,23 +14,23 @@ import {
   backupConfigs,
   backupStorage,
 } from './schema'
-import { updateUserGeneral } from '@/server/users/service'
-import { updateTeamGeneral } from '@/server/teams/service'
-import { updateTeamServer } from '@/server/servers/service'
+import { updateUserGeneral } from '#devpush/server/users/service'
+import { updateTeamGeneral } from '#devpush/server/teams/service'
+import { updateTeamServer } from '#devpush/server/servers/service'
 import {
   updateProjectEnvVars,
   updateProjectEnvironments,
-} from '@/server/projects/environments'
-import { getProjectContext } from '@/server/projects/context'
+} from '#devpush/server/projects/environments'
+import { getProjectContext } from '#devpush/server/projects/context'
 import {
   updateProjectRoutes,
   updateProjectSettings,
-} from '@/server/projects/settings'
-import { saveProjectBackupPolicy } from '@/server/projects/backups'
-import { saveBackupStorage } from '@/server/backups/storage'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+} from '#devpush/server/projects/settings'
+import { saveProjectBackupPolicy } from '#devpush/server/projects/backups'
+import { saveBackupStorage } from '#devpush/server/backups/storage'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
 
-vi.mock('@/server/projects/repository', async (original) => ({
+vi.mock('#devpush/server/projects/repository', async (original) => ({
   ...(await original<typeof RepositoryModule>()),
   fetchProjectComposeMetadata: vi.fn(async () => null),
 }))

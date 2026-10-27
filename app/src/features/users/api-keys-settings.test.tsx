@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   revoke: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { error: mocks.error, success: vi.fn() } }))
-vi.mock('@/server/api/functions', () => ({
+vi.mock('#devpush/server/api/functions', () => ({
   getApiKeyTeamsAction: async () => ({
     items: settings.teams,
     pagination: settings.pagination,
@@ -27,7 +27,8 @@ vi.mock('@/server/api/functions', () => ({
   rotateApiKeyAction: mocks.rotate,
   revokeApiKeyAction: mocks.revoke,
 }))
-vi.mock('@/lib/action-feedback', () => ({
+vi.mock('#devpush/lib/action-feedback', () => ({
+  mutationErrorOptions: () => [],
   afterMutation: async (task: () => Promise<unknown>) => task(),
 }))
 const key = {

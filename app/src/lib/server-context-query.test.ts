@@ -4,18 +4,18 @@ import { expect, test, vi } from 'vitest'
 import {
   getTeamServerContext,
   getTeamServerMetricHistory,
-} from '@/server/servers/functions'
+} from '#devpush/server/servers/functions'
 import {
   serverContextQueryOptions,
   serverMetricHistoryQueryOptions,
 } from './server-context-query'
 import { teamSectionQueryOptions } from './team-context-query'
 
-vi.mock('@/server/servers/functions', () => ({
+vi.mock('#devpush/server/servers/functions', () => ({
   getTeamServerContext: vi.fn(),
   getTeamServerMetricHistory: vi.fn(),
 }))
-vi.mock('@/server/teams/functions', () => ({
+vi.mock('#devpush/server/teams/functions', () => ({
   getTeamSectionContext: vi.fn(),
   getTeamShellContext: vi.fn(),
 }))

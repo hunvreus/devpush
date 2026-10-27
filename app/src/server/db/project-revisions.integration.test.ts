@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { db } from './index'
 import type { AtomicStore } from './atomic'
-import { createD1TestStores } from '@/test/d1'
+import { createD1TestStores } from '#devpush/test/d1'
 
 let d1: Awaited<ReturnType<typeof createD1TestStores>> | undefined
 beforeAll(async () => {

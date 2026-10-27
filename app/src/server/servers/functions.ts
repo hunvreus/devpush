@@ -1,5 +1,8 @@
-import { getAuthSession, requireAuthSession  } from '@/server/auth/session.server'
-import { requireTeam } from '@/server/teams/service'
+import {
+  getAuthSession,
+  requireAuthSession,
+} from '#devpush/server/auth/session.server'
+import { requireTeam } from '#devpush/server/teams/service'
 import {
   requireServerForTeam,
   requireServerMetricHistoryForTeam,
@@ -9,14 +12,13 @@ import {
   disableTeamServer,
   enableTeamServer,
   getServerDeleteDiagnostic,
-  updateTeamServer
-} from '@/server/servers/service'
-import { settingsVersionSchema } from '@/lib/settings-version'
-import { publicErrorsMiddleware } from '@/server/http/public-errors'
-import { serverNameSchema } from '@/lib/server-name-schema'
+  updateTeamServer,
+} from '#devpush/server/servers/service'
+import { settingsVersionSchema } from '#devpush/lib/settings-version'
+import { publicErrorsMiddleware } from '#devpush/server/http/public-errors'
+import { serverNameSchema } from '#devpush/lib/server-name-schema'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-
 
 const createServerSchema = z.object({
   teamSlug: z.string().min(1),

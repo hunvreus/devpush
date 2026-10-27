@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { useProfileOnboarding, hasPlanOnboarding } from '#devpush/deployment/ui'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { useProfileContributions } from '#devpush/features/plugins/contributions'
+import { Button } from '#devpush/components/ui/button'
+import { Input } from '#devpush/components/ui/input'
+import { Field, FieldLabel } from '#devpush/components/ui/field'
 import {
   Card,
   CardHeader,
@@ -10,14 +10,14 @@ import {
   CardDescription,
   CardContent,
   CardFooter,
-} from '@/components/ui/card'
+} from '#devpush/components/ui/card'
 import { ArrowRightIcon, LoaderCircleIcon } from 'lucide-react'
-import { ProfilePicture } from '@/features/users/profile-picture'
-import { useAvatarInput } from '@/lib/use-avatar-input'
-import { getErrorMessage } from '@/lib/error-message'
-import { onboardingDestination, shouldOfferPlan } from '@/lib/onboarding'
-import { confirmProfile } from '@/server/users/onboarding'
-import type { AuthUserContext } from '@/server/auth/context'
+import { ProfilePicture } from '#devpush/features/users/profile-picture'
+import { useAvatarInput } from '#devpush/lib/use-avatar-input'
+import { getErrorMessage } from '#devpush/lib/error-message'
+import { onboardingDestination } from '#devpush/lib/onboarding'
+import { confirmProfile } from '#devpush/server/users/onboarding'
+import type { AuthUserContext } from '#devpush/server/auth/context'
 
 export function ProfileOnboarding({
   context,
@@ -33,7 +33,7 @@ export function ProfileOnboarding({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const avatar = useAvatarInput()
-  const extra = useProfileOnboarding({ userId: user.id })
+  const extra = useProfileContributions({ userId: user.id })
   const image = removed ? null : (avatar.dataUrl ?? user.image)
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -53,13 +53,7 @@ export function ProfileOnboarding({
       setVersion(saved.settingsVersion)
       await extra.complete()
       const next = onboardingDestination(destination, defaultTeam.slug)
-      const plans =
-        hasPlanOnboarding() &&
-        context.invites.length === 0 &&
-        shouldOfferPlan(next, defaultTeam.slug, defaultTeam.role)
-      window.location.assign(
-        plans ? `/onboarding/plans?redirect=${encodeURIComponent(next)}` : next,
-      )
+      window.location.assign(next)
     } catch (cause) {
       setError(getErrorMessage(cause, 'Unable to save your profile.'))
       setBusy(false)

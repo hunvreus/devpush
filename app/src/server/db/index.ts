@@ -1,7 +1,7 @@
 import { createClient } from '@libsql/client/web'
 import { openLibsql } from './libsql-connection'
 import { remoteDatabaseConfig } from './remote-config'
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 import { openSqlite } from './sqlite-connection'
 import * as schema from './schema'
 import * as logSchema from './log-schema'

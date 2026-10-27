@@ -1,12 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { getRequestPublicAddress } from '@/server/http/request-ip'
+import { getRequestPublicAddress } from '#devpush/server/http/request-ip'
 import {
   handleAgentRequest,
   registerAgentSchema,
-} from '@/server/agents/protocol'
-import { registerAgent } from '@/server/servers/service'
-import { enforceRateLimit } from '@/server/http/rate-limit'
+} from '#devpush/server/agents/protocol'
+import { registerAgent } from '#devpush/server/servers/service'
+import { enforceRateLimit } from '#devpush/server/http/rate-limit'
 
 export const Route = createFileRoute('/api/agents/register')({
   server: {

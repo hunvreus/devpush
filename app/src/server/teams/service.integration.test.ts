@@ -1,8 +1,11 @@
-import { required } from '@/test/required'
+import { WorkspacePolicyError } from '#devpush/plugins/server'
+import type { PluginServices } from '#devpush/plugins/server'
+import { required } from '#devpush/test/required'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
-import { closeDb, db } from '@/server/db'
+import { closeDb, db } from '#devpush/server/db'
+import { config } from '#devpush/server/config'
 import {
   agentJobs,
   servers,
@@ -10,9 +13,9 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
-import { mockObjectStore } from '@/test/object-store'
-import { toPublicError } from '@/server/http/public-errors'
+} from '#devpush/server/db/schema'
+import { mockObjectStore } from '#devpush/test/object-store'
+import { toPublicError } from '#devpush/server/http/public-errors'
 import {
   acceptTeamInvite,
   acceptUserTeamInvite,
@@ -33,8 +36,20 @@ import {
 } from './service'
 import { listTeamInvites, listUserPendingTeamInvites } from './queries'
 
+const policy = vi.hoisted((): { services: PluginServices } => ({
+  services: {},
+}))
+vi.mock('#devpush/server/plugins/services.server', () => ({
+  getPluginServices: () => policy.services,
+}))
+const browserOrigins = {
+  DEVPUSH_BASE_URL: config.DEVPUSH_BASE_URL,
+  BETTER_AUTH_URL: config.BETTER_AUTH_URL,
+}
 const emailMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
-vi.mock('@/server/email/service', () => ({ sendTeamInviteEmail: emailMock }))
+vi.mock('#devpush/server/email/service', () => ({
+  sendTeamInviteEmail: emailMock,
+}))
 
 const touchedInviteIds: Array<string> = []
 const touchedTeamIds: Array<string> = []
@@ -43,6 +58,8 @@ const touchedServerIds: Array<string> = []
 const touchedJobIds: Array<string> = []
 
 afterEach(async () => {
+  Object.assign(config, browserOrigins)
+  policy.services = {}
   vi.restoreAllMocks()
   await cleanupRows()
 })
@@ -52,6 +69,111 @@ afterAll(async () => {
 })
 
 describe('team settings integration', () => {
+  test('invitation and resend links use the browser origin rather than the agent origin', async () => {
+    config.DEVPUSH_BASE_URL = 'http://host.lima.internal:7429'
+    config.BETTER_AUTH_URL = 'http://localhost:7429'
+    const { ownerId, teamId, teamSlug } = await createTeamWithMembers()
+    const result = await createTeamInvites({
+      userId: ownerId,
+      teamSlug,
+      emails: ['browser-origin@example.com'],
+      role: 'member',
+    })
+    expect(result.emailCount).toBe(1)
+    expect(new URL(result.inviteUrl!).origin).toBe(config.BETTER_AUTH_URL)
+    const [invite] = await db
+      .select()
+      .from(teamInvites)
+      .where(eq(teamInvites.teamId, teamId))
+    const resent = await resendTeamInvite({
+      userId: ownerId,
+      teamSlug,
+      inviteId: invite!.id,
+    })
+    expect(new URL(resent.inviteUrl).origin).toBe(config.BETTER_AUTH_URL)
+    expect(emailMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ inviteUrl: resent.inviteUrl }),
+    )
+  })
+
+  test('invitation writes run inside policy admission while email runs after release', async () => {
+    const { ownerId, teamId, teamSlug } = await createTeamWithMembers()
+    let active = false
+    const writes: number[] = []
+    policy.services = {
+      workspaceAccess: {
+        run: async (_input, action) => {
+          active = true
+          const before = (
+            await db
+              .select()
+              .from(teamInvites)
+              .where(eq(teamInvites.teamId, teamId))
+          ).length
+          try {
+            const result = await action()
+            writes.push(
+              (
+                await db
+                  .select()
+                  .from(teamInvites)
+                  .where(eq(teamInvites.teamId, teamId))
+              ).length - before,
+            )
+            return result
+          } finally {
+            active = false
+          }
+        },
+      },
+    }
+    emailMock.mockImplementationOnce(async () => {
+      expect(active).toBe(false)
+    })
+    const result = await createTeamInvites({
+      userId: ownerId,
+      teamSlug,
+      emails: ['policy@example.com'],
+      role: 'member',
+    })
+    expect(result.emailCount).toBe(1)
+    expect(writes).toEqual([1])
+  })
+  test('permissions precede policy callbacks and denial prevents invitation writes', async () => {
+    const { ownerId, memberId, teamId, teamSlug } =
+      await createTeamWithMembers()
+    let calls = 0
+    policy.services = {
+      workspaceAccess: {
+        run: async () => {
+          calls++
+          throw new WorkspacePolicyError('restricted')
+        },
+      },
+    }
+    await expect(
+      createTeamInvites({
+        userId: memberId,
+        teamSlug,
+        emails: ['denied@example.com'],
+        role: 'member',
+      }),
+    ).rejects.toThrow()
+    expect(calls).toBe(0)
+    const result = await createTeamInvites({
+      userId: ownerId,
+      teamSlug,
+      emails: ['denied@example.com'],
+      role: 'member',
+    })
+    expect(calls).toBe(1)
+    expect(result.emailCount).toBe(0)
+    expect(result.failedEmails).toHaveLength(1)
+    expect(
+      await db.select().from(teamInvites).where(eq(teamInvites.teamId, teamId)),
+    ).toEqual([])
+  })
+
   test.each(['expired', 'accepted', 'banned', 'changed-email', 'deleted-team'])(
     'decline preserves an ineligible invitation: %s',
     async (state) => {
@@ -1477,4 +1599,32 @@ test('a banned member cannot reuse a stale browser session to access a team', as
   await expect(requireTeam(ownerId, teamSlug)).rejects.toMatchObject({
     code: 'TEAM_NOT_FOUND',
   })
+})
+
+test('fresh invitations recheck manager permission after policy I/O', async () => {
+  const f = await createTeamWithMembers()
+  const sentBefore = emailMock.mock.calls.length
+  policy.services = {
+    workspaceAccess: {
+      run: async (_input, action) => {
+        await db
+          .update(teamMembers)
+          .set({ role: 'member' })
+          .where(eq(teamMembers.userId, f.ownerId))
+        return action()
+      },
+    },
+  }
+  const result = await createTeamInvites({
+    userId: f.ownerId,
+    teamSlug: f.teamSlug,
+    emails: ['late-denied@example.com'],
+    role: 'member',
+  })
+  expect(result.emailCount).toBe(0)
+  expect(result.failedEmails).toHaveLength(1)
+  expect(
+    await db.select().from(teamInvites).where(eq(teamInvites.teamId, f.teamId)),
+  ).toHaveLength(0)
+  expect(emailMock).toHaveBeenCalledTimes(sentBefore)
 })

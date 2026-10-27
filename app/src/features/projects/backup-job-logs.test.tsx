@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { BackupJobLogs } from './backup-job-logs'
 
-vi.mock('@/features/logs/log-scroll-area', () => ({
+vi.mock('#devpush/features/logs/log-scroll-area', () => ({
   LogScrollArea: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),

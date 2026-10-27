@@ -1,17 +1,17 @@
 import { verifyOAuthQueryParams } from '@better-auth/oauth-provider'
 import { and, count, desc, eq, isNotNull, sql } from 'drizzle-orm'
-import { auth } from '@/server/auth/better-auth'
-import { apiKeyPresetSchema } from '@/lib/api-key-schema'
-import type { ApiKeyPreset } from '@/lib/api-key-schema'
-import { PublicError } from '@/lib/public-error'
-import { config } from '@/server/config'
+import { auth } from '#devpush/server/auth/better-auth'
+import { apiKeyPresetSchema } from '#devpush/lib/api-key-schema'
+import type { ApiKeyPreset } from '#devpush/lib/api-key-schema'
+import { PublicError } from '#devpush/lib/public-error'
+import { config } from '#devpush/server/config'
 import {
   createApiGrant,
   getApiKeySettings,
   revokeApiGrant,
   resolveApiGrant,
-} from '@/server/api/credentials'
-import { db } from '@/server/db'
+} from '#devpush/server/api/credentials'
+import { db } from '#devpush/server/db'
 import {
   apiGrants,
   oauthAccessToken,
@@ -22,8 +22,8 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
-import { getResourceColor } from '@/server/resources/color'
+} from '#devpush/server/db/schema'
+import { getResourceColor } from '#devpush/server/resources/color'
 import { mcpResource } from './oauth-provider'
 
 async function readConsentQuery(oauthQuery: string) {

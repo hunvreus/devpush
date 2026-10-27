@@ -1,7 +1,7 @@
 import { backupDestinationSnapshot } from './destination'
 import { sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 import {
   agentJobs,
   backupConfigs,
@@ -9,9 +9,9 @@ import {
   environments,
   projects,
   servers,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import type { BackupDestination, BackupJobPayload } from './service'
-import type { ApiMutationAdmission } from '@/server/api/admission'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
 
 export const backupCleanupRetryDelayMs = 60 * 60 * 1000
 

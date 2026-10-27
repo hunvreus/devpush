@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, test, vi } from 'vitest'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import {
   AdminSettingsPending,
   UserSettingsPending,
@@ -23,9 +23,9 @@ test('account loading uses the loaded field spacing and known controls', () => {
     </TooltipProvider>,
   )
   expect(html).toContain('data-slot="field-group"')
-  expect(html).toContain('Name (required)')
-  expect(html).toContain('Username (required)')
-  expect(html).toContain('Email (required)')
+  expect(html).toContain('Name')
+  expect(html).toContain('Username')
+  expect(html).toContain('Email')
   expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Save<\/button>/)
   expect(html).toContain('Upload profile picture')
   expect(html).toContain('Loading sign-in methods…')

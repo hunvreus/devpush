@@ -1,5 +1,5 @@
-import { backupsEnabled } from '@/lib/backup-feature'
-import { pageHead } from '@/lib/page-head'
+import { backupsEnabled } from '#devpush/lib/backup-feature'
+import { pageHead } from '#devpush/lib/page-head'
 import {
   Outlet,
   createFileRoute,
@@ -9,10 +9,10 @@ import {
 } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { ProjectBackups } from '@/features/projects/project-backups'
-import { ProjectSectionPending } from '@/features/projects/project-route-pending'
-import { projectContextQueryOptions } from '@/lib/project-context-query'
-import { stringSearchValidator } from '@/lib/search'
+import { ProjectBackups } from '#devpush/features/projects/project-backups'
+import { ProjectSectionPending } from '#devpush/features/projects/project-route-pending'
+import { projectContextQueryOptions } from '#devpush/lib/project-context-query'
+import { stringSearchValidator } from '#devpush/lib/search'
 
 const validateSearch = stringSearchValidator([
   'policy',

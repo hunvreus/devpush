@@ -48,7 +48,7 @@ interface Env {
   DEVPUSH_LOG_DATABASE_URL?: string
   DEVPUSH_DATABASE_AUTH_TOKEN?: string
   DEVPUSH_LOG_DATABASE_AUTH_TOKEN?: string
-  DEVPUSH_OBJECTS: R2Bucket
+  DEVPUSH_OBJECTS?: R2Bucket
 }
 
 interface ExecutionContext {

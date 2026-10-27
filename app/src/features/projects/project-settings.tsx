@@ -1,18 +1,23 @@
-import { showSettingsConflict } from '@/lib/settings-conflict'
-import { CopyButton } from '@/components/copy-button'
-import { invalidateResourceQueries } from '@/lib/resource-cache'
+import { NotificationMute } from '#devpush/features/notifications/email-preferences'
+import { useImageUploads } from '#devpush/components/storage-capabilities'
+import {
+  mutationErrorOptions,
+  afterMutation,
+} from '#devpush/lib/action-feedback'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
+import { CopyButton } from '#devpush/components/copy-button'
+import { invalidateResourceQueries } from '#devpush/lib/resource-cache'
 import {
   projectRoutesSchema,
   projectDomainsSchema,
-} from '@/lib/project-routing-schema'
-import { formErrors } from '@/lib/form-errors'
+} from '#devpush/lib/project-routing-schema'
+import { formErrors } from '#devpush/lib/form-errors'
 import {
   projectSettingsSchema,
   projectValidationErrors,
-} from '@/lib/project-settings-schema'
-import type { FormErrors } from '@/lib/form-errors'
-import { useAvatarInput } from '@/lib/use-avatar-input'
-import { afterMutation } from '@/lib/action-feedback'
+} from '#devpush/lib/project-settings-schema'
+import type { FormErrors } from '#devpush/lib/form-errors'
+import { useAvatarInput } from '#devpush/lib/use-avatar-input'
 import { useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -23,7 +28,7 @@ import {
   UploadIcon,
 } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { useSettingsVersion } from '@/lib/use-settings-version'
+import { useSettingsVersion } from '#devpush/lib/use-settings-version'
 import { toast } from 'sonner'
 
 import {
@@ -36,9 +41,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
+} from '#devpush/components/ui/alert-dialog'
+import { Button } from '#devpush/components/ui/button'
+import { Checkbox } from '#devpush/components/ui/checkbox'
 import {
   Field,
   FieldContent,
@@ -46,32 +51,38 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+} from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
+import { Textarea } from '#devpush/components/ui/textarea'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { setProjectContextQueryData } from '@/lib/project-context-query'
-import { canManageTeamSettings } from '@/lib/team-role'
+} from '#devpush/components/ui/tooltip'
+import {
+  SettingsLayout,
+  SettingsSection,
+} from '#devpush/components/settings-layout'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { setProjectContextQueryData } from '#devpush/lib/project-context-query'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
 import {
   deleteProjectAction,
   saveProjectDomains,
   saveProjectRoutes,
   saveProjectSettings,
   verifyProjectDomainAction,
-} from '@/server/projects/functions'
-import type { ProjectContext, ProjectDomain } from '@/server/projects/types'
+} from '#devpush/server/projects/functions'
+import type {
+  ProjectContext,
+  ProjectDomain,
+} from '#devpush/server/projects/types'
 import {
   ProjectSettingsActionTooltip as IconActionTooltip,
   ProjectSettingsActions as SettingsActions,
@@ -102,6 +113,7 @@ const managedComposeCommand = 'docker compose up -d --no-build'
 
 export function ProjectSettings({ context }: { context: ProjectContext }) {
   const router = useRouter()
+  const imageUploads = useImageUploads()
   const queryClient = useQueryClient()
   const params = useParams({ strict: false })
   const { project } = context
@@ -393,6 +405,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           error,
           'Unable to save settings. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSaving(false)
@@ -505,6 +518,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           error,
           'Unable to delete project. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsDeletingProject(false)
@@ -609,6 +623,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           error,
           'Unable to save routes. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSaving(false)
@@ -669,6 +684,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           error,
           'Unable to save domains. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsSaving(false)
@@ -705,6 +721,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           error,
           'Unable to verify domain. Please try again.',
         ),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setVerifyingDomainId(null)
@@ -765,33 +782,37 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                     color={project.color}
                     size="md"
                   />
-                  <input
-                    ref={avatarInputRef}
-                    aria-label="Avatar image"
-                    aria-invalid={Boolean(generalErrors.avatarDataUrl)}
-                    aria-describedby="project-avatar-error"
-                    className="sr-only"
-                    type="file"
-                    disabled={isSaving}
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={(event) => {
-                      void chooseAvatar(event.target.files?.[0])
-                      event.target.value = ''
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    id="project-avatar-button"
-                    aria-invalid={Boolean(generalErrors.avatarDataUrl)}
-                    aria-describedby="project-avatar-error"
-                    disabled={isSaving}
-                    onClick={() => avatarInputRef.current?.click()}
-                  >
-                    <UploadIcon data-icon="inline-start" />
-                    Upload image
-                  </Button>
+                  {imageUploads ? (
+                    <input
+                      ref={avatarInputRef}
+                      aria-label="Avatar image"
+                      aria-invalid={Boolean(generalErrors.avatarDataUrl)}
+                      aria-describedby="project-avatar-error"
+                      className="sr-only"
+                      type="file"
+                      disabled={isSaving}
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(event) => {
+                        void chooseAvatar(event.target.files?.[0])
+                        event.target.value = ''
+                      }}
+                    />
+                  ) : null}
+                  {imageUploads ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                      id="project-avatar-button"
+                      aria-invalid={Boolean(generalErrors.avatarDataUrl)}
+                      aria-describedby="project-avatar-error"
+                      disabled={isSaving}
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      <UploadIcon data-icon="inline-start" />
+                      Upload image
+                    </Button>
+                  ) : null}
                   {avatarUrl ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -828,9 +849,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
               </Field>
 
               <Field data-invalid={Boolean(generalErrors['projectName'])}>
-                <FieldLabel htmlFor="project-name">
-                  Project name (required)
-                </FieldLabel>
+                <FieldLabel htmlFor="project-name">Project name</FieldLabel>
                 <Input
                   id="project-name"
                   required
@@ -1138,7 +1157,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
                   )}
                 >
                   <FieldLabel htmlFor="deploy-timeout">
-                    Command timeout (required)
+                    Command timeout
                   </FieldLabel>
                   <Input
                     id="deploy-timeout"
@@ -1295,6 +1314,7 @@ export function ProjectSettings({ context }: { context: ProjectContext }) {
           </form>
         </SettingsSection>
 
+        <NotificationMute scope={{ kind: 'project', id: project.id }} />
         <SettingsSection
           id="danger"
           title="Danger"

@@ -5,14 +5,14 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { expect, test, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { projectContext } from '@/test/project-context'
-import type { ServerDetail } from '@/server/servers/service'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+import { projectContext } from '#devpush/test/project-context'
+import type { ServerDetail } from '#devpush/server/servers/service'
 import { ServerDetailPending } from './server-detail-pending'
 import { ServerDetail as ServerDetailView } from './server-detail'
-import type { ServerSummary } from '@/server/teams/types'
+import type { ServerSummary } from '#devpush/server/teams/types'
 
-vi.mock('@/server/servers/functions', () => ({
+vi.mock('#devpush/server/servers/functions', () => ({
   getTeamServerMetricHistory: vi.fn(() => new Promise(() => {})),
 }))
 

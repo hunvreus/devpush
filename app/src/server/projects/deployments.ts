@@ -1,11 +1,17 @@
+import {
+  withWorkspaceAccess,
+  requireWorkspaceAdmission,
+} from '#devpush/server/plugins/workspace-access'
+import type { WorkspaceAdmission } from '#devpush/server/plugins/workspace-access'
 import { resolveGeneratedHostname } from './generated-hostname'
-import type { ApiMutationAdmission } from '@/server/api/admission'
-import { PublicError } from '@/lib/public-error'
-import { notifyProject } from '@/server/realtime/service'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
+import { PublicError, getPublicErrorMessage } from '#devpush/lib/public-error'
+import { safeErrorDiagnostics } from '#devpush/server/http/error-diagnostics'
+import { notifyProject } from '#devpush/server/realtime/service'
 import { enqueueDeployment } from './queue-state'
 import { and, asc, eq, sql } from 'drizzle-orm'
-import { db } from '@/server/db'
-import { canAgentRunDeployments } from '@/server/agents/compatibility'
+import { db } from '#devpush/server/db'
+import { canAgentRunDeployments } from '#devpush/server/agents/compatibility'
 import {
   aliases,
   deployments,
@@ -13,13 +19,13 @@ import {
   environments,
   projects,
   servers,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   createInstallationAccessToken,
   getBranchHeadCommit,
   listBranchCommits,
   listRepositoryBranches,
-} from '@/server/github/service'
+} from '#devpush/server/github/service'
 import {
   encryptDeploymentEnvVars,
   normalizeDeploymentCommitMeta,
@@ -36,8 +42,8 @@ import type {
   DeploymentConfig,
   DeploymentEnvVar,
 } from './deployment-config'
-import { getEffectiveServerStatus } from '@/server/servers/status'
-import { requireProjectRuntimeConfig } from '@/lib/project-runtime-config'
+import { getEffectiveServerStatus } from '#devpush/server/servers/status'
+import { requireProjectRuntimeConfig } from '#devpush/lib/project-runtime-config'
 import { getProjectContext } from './context'
 import {
   expandPublicRoutesFromHostnames,
@@ -73,110 +79,125 @@ export async function createManualDeployment({
     projectName,
     scope: 'shell',
   })
-  const environmentConfig = context.environments.find(
-    (environment) => environment.id === environmentId,
-  )
+  return withWorkspaceAccess(
+    context.team.id,
+    'deployment.create',
+    async (workspaceAdmission) => {
+      const environmentConfig = context.environments.find(
+        (environment) => environment.id === environmentId,
+      )
 
-  if (!environmentConfig) {
-    throw new PublicError('DEPLOYMENT_ENVIRONMENT_NOT_FOUND')
-  }
+      if (!environmentConfig) {
+        throw new PublicError('DEPLOYMENT_ENVIRONMENT_NOT_FOUND')
+      }
 
-  const matchedEnvironment = getEnvironmentForBranch(
-    gitBranch,
-    context.environments,
-  )
+      const matchedEnvironment = getEnvironmentForBranch(
+        gitBranch,
+        context.environments,
+      )
 
-  if (matchedEnvironment?.id !== environmentConfig.id) {
-    throw new PublicError('DEPLOYMENT_BRANCH_MISMATCH')
-  }
+      if (matchedEnvironment?.id !== environmentConfig.id) {
+        throw new PublicError('DEPLOYMENT_BRANCH_MISMATCH')
+      }
 
-  const environmentRows = await db
-    .select({ environment: environments, project: projects, server: servers })
-    .from(environments)
-    .innerJoin(projects, eq(projects.id, environments.projectId))
-    .leftJoin(
-      servers,
-      eq(
-        servers.id,
-        sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
-      ),
-    )
-    .where(
-      and(
-        eq(environments.id, environmentConfig.id),
-        eq(environments.projectId, context.project.id),
-      ),
-    )
-    .limit(1)
-  const environmentRow = environmentRows.at(0)
-
-  if (!environmentRow?.server) {
-    throw new PublicError('DEPLOYMENT_SERVER_REQUIRED')
-  }
-
-  if (
-    getEffectiveServerStatus({
-      status: environmentRow.server.status,
-      lastSeenAt: environmentRow.server.lastSeenAt,
-    }) !== 'connected'
-  ) {
-    throw new PublicError('DEPLOYMENT_SERVER_OFFLINE')
-  }
-
-  if (
-    !canAgentRunDeployments({
-      protocolVersion: environmentRow.server.agentProtocolVersion,
-      capabilities: environmentRow.server.agentCapabilities,
-    })
-  ) {
-    throw new PublicError('DEPLOYMENT_AGENT_UPDATE_REQUIRED')
-  }
-
-  if (!context.project.githubInstallationId || !context.project.githubRepoId) {
-    throw new PublicError('DEPLOYMENT_GITHUB_INSTALLATION_REQUIRED')
-  }
-
-  const installationToken = await createInstallationAccessToken({
-    installationId: context.project.githubInstallationId,
-    repositoryId: context.project.githubRepoId,
-    repositoryFullName: context.project.githubRepo,
-  })
-  const commit = gitSha
-    ? (
-        await listBranchCommits({
-          accessToken: installationToken.token,
-          branch: gitBranch,
-          repo: context.project.githubRepo,
-          perPage: 5,
+      const environmentRows = await db
+        .select({
+          environment: environments,
+          project: projects,
+          server: servers,
         })
-      ).find((candidate) => candidate.sha === gitSha)
-    : await getBranchHeadCommit({
-        accessToken: installationToken.token,
-        branch: gitBranch,
-        repo: context.project.githubRepo,
+        .from(environments)
+        .innerJoin(projects, eq(projects.id, environments.projectId))
+        .leftJoin(
+          servers,
+          eq(
+            servers.id,
+            sql`coalesce(${environments.serverId}, ${projects.defaultServerId})`,
+          ),
+        )
+        .where(
+          and(
+            eq(environments.id, environmentConfig.id),
+            eq(environments.projectId, context.project.id),
+          ),
+        )
+        .limit(1)
+      const environmentRow = environmentRows.at(0)
+
+      if (!environmentRow?.server) {
+        throw new PublicError('DEPLOYMENT_SERVER_REQUIRED')
+      }
+
+      if (
+        getEffectiveServerStatus({
+          status: environmentRow.server.status,
+          lastSeenAt: environmentRow.server.lastSeenAt,
+        }) !== 'connected'
+      ) {
+        throw new PublicError('DEPLOYMENT_SERVER_OFFLINE')
+      }
+
+      if (
+        !canAgentRunDeployments({
+          protocolVersion: environmentRow.server.agentProtocolVersion,
+          capabilities: environmentRow.server.agentCapabilities,
+        })
+      ) {
+        throw new PublicError('DEPLOYMENT_AGENT_UPDATE_REQUIRED')
+      }
+
+      if (
+        !context.project.githubInstallationId ||
+        !context.project.githubRepoId
+      ) {
+        throw new PublicError('DEPLOYMENT_GITHUB_INSTALLATION_REQUIRED')
+      }
+
+      const installationToken = await createInstallationAccessToken({
+        installationId: context.project.githubInstallationId,
+        repositoryId: context.project.githubRepoId,
+        repositoryFullName: context.project.githubRepo,
+      })
+      const commit = gitSha
+        ? (
+            await listBranchCommits({
+              accessToken: installationToken.token,
+              branch: gitBranch,
+              repo: context.project.githubRepo,
+              perPage: 5,
+            })
+          ).find((candidate) => candidate.sha === gitSha)
+        : await getBranchHeadCommit({
+            accessToken: installationToken.token,
+            branch: gitBranch,
+            repo: context.project.githubRepo,
+          })
+
+      if (!commit) {
+        throw new PublicError('DEPLOYMENT_COMMIT_UNAVAILABLE')
+      }
+
+      const logMessage = `Queued ${context.project.githubRepo} for ${environmentConfig.name}.`
+
+      const deployment = await createDeploymentForEnvironment({
+        workspaceAdmission,
+        deploymentId: admission?.resourceId,
+        admission,
+        environmentId: environmentConfig.id,
+        gitBranch,
+        gitSha: commit.sha,
+        trigger: admission ? 'api' : 'user',
+        commitMeta: toDeploymentCommitMeta(commit),
+        queuedMessage: logMessage,
+        createdByUserId: userId,
       })
 
-  if (!commit) {
-    throw new PublicError('DEPLOYMENT_COMMIT_UNAVAILABLE')
-  }
-
-  const logMessage = `Queued ${context.project.githubRepo} for ${environmentConfig.name}.`
-
-  const deployment = await createDeploymentForEnvironment({
-    deploymentId: admission?.resourceId,
-    admission,
-    environmentId: environmentConfig.id,
-    gitBranch,
-    gitSha: commit.sha,
-    trigger: admission ? 'api' : 'user',
-    commitMeta: toDeploymentCommitMeta(commit),
-    queuedMessage: logMessage,
-    createdByUserId: userId,
-  })
-
-  return {
-    deploymentId: deployment.deploymentId,
-  }
+      return {
+        deploymentId: deployment.deploymentId,
+      }
+    },
+    { kind: 'user', userId },
+  )
 }
 
 export async function createRollbackDeployment({
@@ -198,120 +219,128 @@ export async function createRollbackDeployment({
     projectName,
     scope: 'shell',
   })
-  const rows = await db
-    .select({
-      deployment: deployments,
-    })
-    .from(deployments)
-    .innerJoin(environments, eq(environments.id, deployments.environmentId))
-    .where(
-      and(
-        eq(deployments.id, deploymentId),
-        eq(environments.projectId, context.project.id),
-      ),
-    )
-    .limit(1)
-  const row = rows.at(0)
-  const source = row?.deployment
+  return withWorkspaceAccess(
+    context.team.id,
+    'deployment.create',
+    async (workspaceAdmission) => {
+      const rows = await db
+        .select({
+          deployment: deployments,
+        })
+        .from(deployments)
+        .innerJoin(environments, eq(environments.id, deployments.environmentId))
+        .where(
+          and(
+            eq(deployments.id, deploymentId),
+            eq(environments.projectId, context.project.id),
+          ),
+        )
+        .limit(1)
+      const row = rows.at(0)
+      const source = row?.deployment
 
-  if (!source) {
-    throw new PublicError('DEPLOYMENT_NOT_FOUND')
-  }
+      if (!source) {
+        throw new PublicError('DEPLOYMENT_NOT_FOUND')
+      }
 
-  if (source.status !== 'succeeded') {
-    throw new PublicError('DEPLOYMENT_ROLLBACK_UNSUCCESSFUL')
-  }
+      if (source.status !== 'succeeded') {
+        throw new PublicError('DEPLOYMENT_ROLLBACK_UNSUCCESSFUL')
+      }
 
-  const deploymentConfig = parseDeploymentConfig(source.config)
+      const deploymentConfig = parseDeploymentConfig(source.config)
 
-  if (!deploymentConfig) {
-    throw new PublicError('DEPLOYMENT_CONFIG_INVALID')
-  }
+      if (!deploymentConfig) {
+        throw new PublicError('DEPLOYMENT_CONFIG_INVALID')
+      }
 
-  const serverRows = await db
-    .select()
-    .from(servers)
-    .where(eq(servers.id, source.serverId))
-    .limit(1)
-  const deploymentServer = serverRows.at(0)
+      const serverRows = await db
+        .select()
+        .from(servers)
+        .where(eq(servers.id, source.serverId))
+        .limit(1)
+      const deploymentServer = serverRows.at(0)
 
-  if (!deploymentServer) {
-    throw new PublicError('DEPLOYMENT_SERVER_NOT_FOUND')
-  }
+      if (!deploymentServer) {
+        throw new PublicError('DEPLOYMENT_SERVER_NOT_FOUND')
+      }
 
-  const serverStatus = getEffectiveServerStatus({
-    status: deploymentServer.status,
-    lastSeenAt: deploymentServer.lastSeenAt,
-  })
+      const serverStatus = getEffectiveServerStatus({
+        status: deploymentServer.status,
+        lastSeenAt: deploymentServer.lastSeenAt,
+      })
 
-  if (serverStatus !== 'connected') {
-    throw new PublicError('DEPLOYMENT_ROLLBACK_SERVER_OFFLINE')
-  }
+      if (serverStatus !== 'connected') {
+        throw new PublicError('DEPLOYMENT_ROLLBACK_SERVER_OFFLINE')
+      }
 
-  if (
-    !canAgentRunDeployments({
-      protocolVersion: deploymentServer.agentProtocolVersion,
-      capabilities: deploymentServer.agentCapabilities,
-    })
-  ) {
-    throw new PublicError('DEPLOYMENT_ROLLBACK_AGENT_UPDATE_REQUIRED')
-  }
+      if (
+        !canAgentRunDeployments({
+          protocolVersion: deploymentServer.agentProtocolVersion,
+          capabilities: deploymentServer.agentCapabilities,
+        })
+      ) {
+        throw new PublicError('DEPLOYMENT_ROLLBACK_AGENT_UPDATE_REQUIRED')
+      }
 
-  const rollbackDeploymentId = admission?.resourceId ?? crypto.randomUUID()
-  const rollbackHost = await resolveGeneratedHostname({
-    kind: 'deployment',
-    serverId: deploymentServer.id,
-    deploymentId: rollbackDeploymentId,
-    projectName: context.project.name,
-    serverPublicAddress: deploymentServer.publicAddress,
-  })
-  const rollbackAliasHostname = rollbackHost.hostname
-  const rollbackConfig = await replayDeploymentConfig({
-    projectId: context.project.id,
-    environmentId: source.environmentId,
-    serverId: deploymentServer.id,
-    source: deploymentConfig,
-    gitBranch: source.gitBranch,
-    hostname: rollbackAliasHostname,
-    https: rollbackHost.https,
-  })
-  const now = new Date()
-  const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
-  const environmentName =
-    context.environments.find((item) => item.id === source.environmentId)
-      ?.name ?? 'environment'
+      const rollbackDeploymentId = admission?.resourceId ?? crypto.randomUUID()
+      const rollbackHost = await resolveGeneratedHostname({
+        kind: 'deployment',
+        serverId: deploymentServer.id,
+        deploymentId: rollbackDeploymentId,
+        projectName: context.project.name,
+        serverPublicAddress: deploymentServer.publicAddress,
+      })
+      const rollbackAliasHostname = rollbackHost.hostname
+      const rollbackConfig = await replayDeploymentConfig({
+        projectId: context.project.id,
+        environmentId: source.environmentId,
+        serverId: deploymentServer.id,
+        source: deploymentConfig,
+        gitBranch: source.gitBranch,
+        hostname: rollbackAliasHostname,
+        https: rollbackHost.https,
+      })
+      const now = new Date()
+      const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
+      const environmentName =
+        context.environments.find((item) => item.id === source.environmentId)
+          ?.name ?? 'environment'
 
-  const created = await enqueueDeployment(db, {
-    deployment: {
-      id: rollbackDeploymentId,
-      environmentId: source.environmentId,
-      serverId: deploymentServer.id,
-      trigger: 'rollback',
-      repoId: source.repoId,
-      repoFullName: source.repoFullName,
-      gitSha: source.gitSha,
-      gitBranch: source.gitBranch,
-      commitMeta,
-      config: rollbackConfig,
-      envVars: source.envVars,
-      runtimeId: source.runtimeId,
-      createdByUserId: userId,
+      const created = await enqueueDeployment(db, {
+        workspaceAdmission,
+        deployment: {
+          id: rollbackDeploymentId,
+          environmentId: source.environmentId,
+          serverId: deploymentServer.id,
+          trigger: 'rollback',
+          repoId: source.repoId,
+          repoFullName: source.repoFullName,
+          gitSha: source.gitSha,
+          gitBranch: source.gitBranch,
+          commitMeta,
+          config: rollbackConfig,
+          envVars: source.envVars,
+          runtimeId: source.runtimeId,
+          createdByUserId: userId,
+        },
+        projectId: context.project.id,
+        hostname: rollbackAliasHostname,
+        https: rollbackHost.https,
+        queuedMessage: `Queued rollback to ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
+        canceledMessage: 'Canceled because a rollback deployment was queued.',
+        now,
+        admission,
+      })
+
+      if (!created) throw new PublicError('DEPLOYMENT_ENVIRONMENT_INACTIVE')
+      await notifyProject(context.project.id)
+
+      return {
+        deploymentId: rollbackDeploymentId,
+      }
     },
-    projectId: context.project.id,
-    hostname: rollbackAliasHostname,
-    https: rollbackHost.https,
-    queuedMessage: `Queued rollback to ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
-    canceledMessage: 'Canceled because a rollback deployment was queued.',
-    now,
-    admission,
-  })
-
-  if (!created) throw new PublicError('DEPLOYMENT_ENVIRONMENT_INACTIVE')
-  await notifyProject(context.project.id)
-
-  return {
-    deploymentId: rollbackDeploymentId,
-  }
+    { kind: 'user', userId },
+  )
 }
 
 export async function createRedeployDeployment({
@@ -333,117 +362,125 @@ export async function createRedeployDeployment({
     projectName,
     scope: 'shell',
   })
-  const rows = await db
-    .select({ deployment: deployments })
-    .from(deployments)
-    .innerJoin(environments, eq(environments.id, deployments.environmentId))
-    .where(
-      and(
-        eq(deployments.id, deploymentId),
-        eq(environments.projectId, context.project.id),
-      ),
-    )
-    .limit(1)
-  const source = rows.at(0)?.deployment
+  return withWorkspaceAccess(
+    context.team.id,
+    'deployment.create',
+    async (workspaceAdmission) => {
+      const rows = await db
+        .select({ deployment: deployments })
+        .from(deployments)
+        .innerJoin(environments, eq(environments.id, deployments.environmentId))
+        .where(
+          and(
+            eq(deployments.id, deploymentId),
+            eq(environments.projectId, context.project.id),
+          ),
+        )
+        .limit(1)
+      const source = rows.at(0)?.deployment
 
-  if (!source) {
-    throw new PublicError('DEPLOYMENT_NOT_FOUND')
-  }
+      if (!source) {
+        throw new PublicError('DEPLOYMENT_NOT_FOUND')
+      }
 
-  if (source.status === 'queued' || source.status === 'running') {
-    throw new PublicError('DEPLOYMENT_REDEPLOY_ACTIVE')
-  }
+      if (source.status === 'queued' || source.status === 'running') {
+        throw new PublicError('DEPLOYMENT_REDEPLOY_ACTIVE')
+      }
 
-  const deploymentConfig = parseDeploymentConfig(source.config)
+      const deploymentConfig = parseDeploymentConfig(source.config)
 
-  if (!deploymentConfig) {
-    throw new PublicError('DEPLOYMENT_CONFIG_INVALID')
-  }
+      if (!deploymentConfig) {
+        throw new PublicError('DEPLOYMENT_CONFIG_INVALID')
+      }
 
-  const serverRows = await db
-    .select()
-    .from(servers)
-    .where(eq(servers.id, source.serverId))
-    .limit(1)
-  const deploymentServer = serverRows.at(0)
+      const serverRows = await db
+        .select()
+        .from(servers)
+        .where(eq(servers.id, source.serverId))
+        .limit(1)
+      const deploymentServer = serverRows.at(0)
 
-  if (!deploymentServer) {
-    throw new PublicError('DEPLOYMENT_SERVER_NOT_FOUND')
-  }
+      if (!deploymentServer) {
+        throw new PublicError('DEPLOYMENT_SERVER_NOT_FOUND')
+      }
 
-  const serverStatus = getEffectiveServerStatus({
-    status: deploymentServer.status,
-    lastSeenAt: deploymentServer.lastSeenAt,
-  })
+      const serverStatus = getEffectiveServerStatus({
+        status: deploymentServer.status,
+        lastSeenAt: deploymentServer.lastSeenAt,
+      })
 
-  if (serverStatus !== 'connected') {
-    throw new PublicError('DEPLOYMENT_REDEPLOY_SERVER_OFFLINE')
-  }
+      if (serverStatus !== 'connected') {
+        throw new PublicError('DEPLOYMENT_REDEPLOY_SERVER_OFFLINE')
+      }
 
-  if (
-    !canAgentRunDeployments({
-      protocolVersion: deploymentServer.agentProtocolVersion,
-      capabilities: deploymentServer.agentCapabilities,
-    })
-  ) {
-    throw new PublicError('DEPLOYMENT_REDEPLOY_AGENT_UPDATE_REQUIRED')
-  }
+      if (
+        !canAgentRunDeployments({
+          protocolVersion: deploymentServer.agentProtocolVersion,
+          capabilities: deploymentServer.agentCapabilities,
+        })
+      ) {
+        throw new PublicError('DEPLOYMENT_REDEPLOY_AGENT_UPDATE_REQUIRED')
+      }
 
-  const redeploymentId = admission?.resourceId ?? crypto.randomUUID()
-  const redeploymentHost = await resolveGeneratedHostname({
-    kind: 'deployment',
-    serverId: deploymentServer.id,
-    deploymentId: redeploymentId,
-    projectName: context.project.name,
-    serverPublicAddress: deploymentServer.publicAddress,
-  })
-  const redeploymentAliasHostname = redeploymentHost.hostname
-  const redeploymentConfig = await replayDeploymentConfig({
-    projectId: context.project.id,
-    environmentId: source.environmentId,
-    serverId: deploymentServer.id,
-    source: deploymentConfig,
-    gitBranch: source.gitBranch,
-    hostname: redeploymentAliasHostname,
-    https: redeploymentHost.https,
-  })
-  const now = new Date()
-  const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
-  const environmentName =
-    context.environments.find((item) => item.id === source.environmentId)
-      ?.name ?? 'environment'
+      const redeploymentId = admission?.resourceId ?? crypto.randomUUID()
+      const redeploymentHost = await resolveGeneratedHostname({
+        kind: 'deployment',
+        serverId: deploymentServer.id,
+        deploymentId: redeploymentId,
+        projectName: context.project.name,
+        serverPublicAddress: deploymentServer.publicAddress,
+      })
+      const redeploymentAliasHostname = redeploymentHost.hostname
+      const redeploymentConfig = await replayDeploymentConfig({
+        projectId: context.project.id,
+        environmentId: source.environmentId,
+        serverId: deploymentServer.id,
+        source: deploymentConfig,
+        gitBranch: source.gitBranch,
+        hostname: redeploymentAliasHostname,
+        https: redeploymentHost.https,
+      })
+      const now = new Date()
+      const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
+      const environmentName =
+        context.environments.find((item) => item.id === source.environmentId)
+          ?.name ?? 'environment'
 
-  const created = await enqueueDeployment(db, {
-    deployment: {
-      id: redeploymentId,
-      environmentId: source.environmentId,
-      serverId: deploymentServer.id,
-      trigger: admission ? 'api' : 'user',
-      repoId: source.repoId,
-      repoFullName: source.repoFullName,
-      gitSha: source.gitSha,
-      gitBranch: source.gitBranch,
-      commitMeta,
-      config: redeploymentConfig,
-      envVars: source.envVars,
-      runtimeId: source.runtimeId,
-      createdByUserId: userId,
+      const created = await enqueueDeployment(db, {
+        workspaceAdmission,
+        deployment: {
+          id: redeploymentId,
+          environmentId: source.environmentId,
+          serverId: deploymentServer.id,
+          trigger: admission ? 'api' : 'user',
+          repoId: source.repoId,
+          repoFullName: source.repoFullName,
+          gitSha: source.gitSha,
+          gitBranch: source.gitBranch,
+          commitMeta,
+          config: redeploymentConfig,
+          envVars: source.envVars,
+          runtimeId: source.runtimeId,
+          createdByUserId: userId,
+        },
+        projectId: context.project.id,
+        hostname: redeploymentAliasHostname,
+        https: redeploymentHost.https,
+        queuedMessage: `Queued redeploy of ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
+        canceledMessage: 'Canceled because a redeployment was queued.',
+        now,
+        admission,
+      })
+
+      if (!created) throw new PublicError('DEPLOYMENT_ENVIRONMENT_INACTIVE')
+      await notifyProject(context.project.id)
+
+      return {
+        deploymentId: redeploymentId,
+      }
     },
-    projectId: context.project.id,
-    hostname: redeploymentAliasHostname,
-    https: redeploymentHost.https,
-    queuedMessage: `Queued redeploy of ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
-    canceledMessage: 'Canceled because a redeployment was queued.',
-    now,
-    admission,
-  })
-
-  if (!created) throw new PublicError('DEPLOYMENT_ENVIRONMENT_INACTIVE')
-  await notifyProject(context.project.id)
-
-  return {
-    deploymentId: redeploymentId,
-  }
+    { kind: 'user', userId },
+  )
 }
 
 export async function getManualDeploymentOptions({
@@ -529,6 +566,7 @@ export async function createDeploymentsForGitHubPush({
   authorName = null,
   authoredAt = null,
   commitUrl = null,
+  githubSenderId,
 }: {
   deliveryId: string
   installationId: number
@@ -540,6 +578,7 @@ export async function createDeploymentsForGitHubPush({
   authorName?: string | null
   authoredAt?: string | null
   commitUrl?: string | null
+  githubSenderId?: string
 }) {
   const candidateRows = await db
     .select({
@@ -628,76 +667,122 @@ export async function createDeploymentsForGitHubPush({
     reason: string
   }> = []
 
+  let unrecordedFailure = false
   for (const row of rows) {
-    const serverStatus = row.server
-      ? getEffectiveServerStatus({
-          status: row.server.status,
-          lastSeenAt: row.server.lastSeenAt,
+    try {
+      const serverStatus = row.server
+        ? getEffectiveServerStatus({
+            status: row.server.status,
+            lastSeenAt: row.server.lastSeenAt,
+          })
+        : null
+
+      if (!row.server || row.server.status === 'deleted') {
+        skipped.push({
+          projectId: row.project.id,
+          environmentId: row.environment.id,
+          reason: 'server_disconnected',
         })
-      : null
+        continue
+      }
+      const skipReason =
+        serverStatus !== 'connected'
+          ? 'server_disconnected'
+          : !canAgentRunDeployments({
+                protocolVersion: row.server.agentProtocolVersion,
+                capabilities: row.server.agentCapabilities,
+              })
+            ? 'agent_update_required'
+            : null
+      const failureMessage =
+        skipReason === 'server_disconnected'
+          ? 'GitHub push could not deploy because the assigned server is disconnected.'
+          : skipReason === 'agent_update_required'
+            ? 'GitHub push could not deploy because the assigned agent requires an update.'
+            : undefined
 
-    if (!row.server) {
+      const deployment = await createDeploymentForEnvironment({
+        githubDeliveryId: deliveryId,
+        environmentId: row.environment.id,
+        gitBranch: branch,
+        gitSha,
+        trigger: 'webhook',
+        commitMeta: {
+          message,
+          authorName,
+          authoredAt,
+          url: commitUrl,
+          ...(githubSenderId ? { githubSenderId } : {}),
+        },
+        failureMessage,
+        queuedMessage:
+          failureMessage ??
+          `Queued ${repositoryFullName} from GitHub push to ${branch}.`,
+      })
+
+      if (deployment.status === 'created' && skipReason) {
+        skipped.push({
+          projectId: row.project.id,
+          environmentId: row.environment.id,
+          reason: skipReason,
+        })
+      } else if (deployment.status === 'created') {
+        created.push({
+          deploymentId: deployment.deploymentId,
+          projectId: row.project.id,
+          environmentId: row.environment.id,
+        })
+      } else {
+        skipped.push({
+          projectId: row.project.id,
+          environmentId: row.environment.id,
+          reason: 'duplicate_delivery',
+        })
+      }
+    } catch (error) {
+      // A bad environment must not discard this delivery for unrelated projects.
+      // Record a failed attempt without requiring hostname/certificate readiness.
+      const failureMessage = getPublicErrorMessage(
+        error,
+        'GitHub push could not deploy. Review workspace settings and assigned server readiness.',
+      )
+      try {
+        await createDeploymentForEnvironment({
+          githubDeliveryId: deliveryId,
+          environmentId: row.environment.id,
+          gitBranch: branch,
+          gitSha,
+          trigger: 'webhook',
+          commitMeta: {
+            message,
+            authorName,
+            authoredAt,
+            url: commitUrl,
+            ...(githubSenderId ? { githubSenderId } : {}),
+          },
+          failureMessage,
+          queuedMessage: failureMessage,
+        })
+      } catch (recordError) {
+        unrecordedFailure = true
+        console.error(
+          'Unable to record failed push deployment',
+          safeErrorDiagnostics(recordError),
+        )
+      }
+      console.error(
+        'Push deployment admission failed',
+        safeErrorDiagnostics(error),
+      )
       skipped.push({
         projectId: row.project.id,
         environmentId: row.environment.id,
-        reason: 'server_disconnected',
-      })
-      continue
-    }
-    const skipReason =
-      serverStatus !== 'connected'
-        ? 'server_disconnected'
-        : !canAgentRunDeployments({
-              protocolVersion: row.server.agentProtocolVersion,
-              capabilities: row.server.agentCapabilities,
-            })
-          ? 'agent_update_required'
-          : null
-    const failureMessage =
-      skipReason === 'server_disconnected'
-        ? 'GitHub push could not deploy because the assigned server is disconnected.'
-        : skipReason === 'agent_update_required'
-          ? 'GitHub push could not deploy because the assigned agent requires an update.'
-          : undefined
-
-    const deployment = await createDeploymentForEnvironment({
-      githubDeliveryId: deliveryId,
-      environmentId: row.environment.id,
-      gitBranch: branch,
-      gitSha,
-      trigger: 'webhook',
-      commitMeta: {
-        message,
-        authorName,
-        authoredAt,
-        url: commitUrl,
-      },
-      failureMessage,
-      queuedMessage:
-        failureMessage ??
-        `Queued ${repositoryFullName} from GitHub push to ${branch}.`,
-    })
-
-    if (deployment.status === 'created' && skipReason) {
-      skipped.push({
-        projectId: row.project.id,
-        environmentId: row.environment.id,
-        reason: skipReason,
-      })
-    } else if (deployment.status === 'created') {
-      created.push({
-        deploymentId: deployment.deploymentId,
-        projectId: row.project.id,
-        environmentId: row.environment.id,
-      })
-    } else {
-      skipped.push({
-        projectId: row.project.id,
-        environmentId: row.environment.id,
-        reason: 'duplicate_delivery',
+        reason: 'deployment_failed',
       })
     }
   }
+
+  if (unrecordedFailure) throw new PublicError('INTERNAL_ERROR')
 
   return {
     matched: rows.length,
@@ -718,6 +803,7 @@ async function createDeploymentForEnvironment({
   githubDeliveryId,
   failureMessage,
   admission,
+  workspaceAdmission: existingAdmission,
 }: {
   deploymentId?: string
   environmentId: string
@@ -730,6 +816,7 @@ async function createDeploymentForEnvironment({
   githubDeliveryId?: string
   failureMessage?: string
   admission?: ApiMutationAdmission
+  workspaceAdmission?: WorkspaceAdmission
 }): Promise<{
   status: 'created' | 'existing'
   deploymentId: string
@@ -757,128 +844,159 @@ async function createDeploymentForEnvironment({
   if (!environmentRow) {
     throw new PublicError('DEPLOYMENT_ENVIRONMENT_NOT_FOUND')
   }
+  const apply = async (
+    workspaceAdmission?: WorkspaceAdmission,
+  ): Promise<{ status: 'created' | 'existing'; deploymentId: string }> => {
+    if (!environmentRow.server) {
+      throw new PublicError('DEPLOYMENT_SERVER_REQUIRED')
+    }
+    if (!environmentRow.project.githubRepoId) {
+      throw new PublicError('PROJECT_REPOSITORY_MISSING')
+    }
+    const server = environmentRow.server
+    const repoId = environmentRow.project.githubRepoId
 
-  if (!environmentRow.server) {
-    throw new PublicError('DEPLOYMENT_SERVER_REQUIRED')
-  }
-  if (!environmentRow.project.githubRepoId) {
-    throw new PublicError('PROJECT_REPOSITORY_MISSING')
-  }
-  const server = environmentRow.server
-  const repoId = environmentRow.project.githubRepoId
+    if (server.status === 'deleted') {
+      throw new PublicError('DEPLOYMENT_SERVER_DELETED')
+    }
 
-  if (server.status === 'deleted') {
-    throw new PublicError('DEPLOYMENT_SERVER_DELETED')
-  }
-
-  const [aliasRows, domainRows] = await Promise.all([
-    db
-      .select()
-      .from(aliases)
-      .where(
-        and(
-          eq(aliases.projectId, environmentRow.project.id),
-          eq(aliases.environmentId, environmentRow.environment.id),
+    const [aliasRows, domainRows] = await Promise.all([
+      db
+        .select()
+        .from(aliases)
+        .where(
+          and(
+            eq(aliases.projectId, environmentRow.project.id),
+            eq(aliases.environmentId, environmentRow.environment.id),
+          ),
         ),
-      ),
-    db
-      .select()
-      .from(domains)
-      .where(
-        and(
-          eq(domains.projectId, environmentRow.project.id),
-          eq(domains.environmentId, environmentRow.environment.id),
+      db
+        .select()
+        .from(domains)
+        .where(
+          and(
+            eq(domains.projectId, environmentRow.project.id),
+            eq(domains.environmentId, environmentRow.environment.id),
+          ),
         ),
-      ),
-  ])
+    ])
 
-  const branchAlias = aliasRows.find(
-    (alias) => alias.type === 'branch' && alias.branch === gitBranch,
-  )
-  const generatedBranchHost = await resolveGeneratedHostname({
-    kind: 'branch',
-    serverId: server.id,
-    branch: gitBranch,
-    projectName: environmentRow.project.name,
-    serverPublicAddress: server.publicAddress,
-  })
-  const requestedBranchAliasHostname =
-    branchAlias?.hostname ?? generatedBranchHost.hostname
-  const branchAliasHostname = await resolveAvailableAliasHostname({
-    excludeAliasId: branchAlias?.id,
-    hostname: requestedBranchAliasHostname,
-    uniquenessKey: `${environmentRow.project.id}:${gitBranch}`,
-  })
-  const generatedDeploymentHost = await resolveGeneratedHostname({
-    kind: 'deployment',
-    serverId: server.id,
-    deploymentId,
-    projectName: environmentRow.project.name,
-    serverPublicAddress: server.publicAddress,
-  })
-  const requestedDeploymentAliasHostname = generatedDeploymentHost.hostname
-  const deploymentAliasHostname = await resolveAvailableAliasHostname({
-    hostname: requestedDeploymentAliasHostname,
-    uniquenessKey: deploymentId,
-  })
-  const deploymentConfig = createDeploymentConfig({
-    environment: environmentRow.environment,
-    aliasRows,
-    domainRows,
-    gitBranch,
-    extraHostnames: [
-      {
-        hostname: branchAliasHostname,
-        environmentId,
-        basePath: null,
-        https: generatedBranchHost.https,
-      },
-      {
-        hostname: deploymentAliasHostname,
-        environmentId,
-        basePath: null,
-        https: generatedDeploymentHost.https,
-      },
-    ],
-    project: environmentRow.project,
-  })
-  const envVars = encryptDeploymentEnvVars(
-    getDeploymentEnvVars({
+    const branchAlias = aliasRows.find(
+      (alias) => alias.type === 'branch' && alias.branch === gitBranch,
+    )
+    const generatedBranchHost = failureMessage
+      ? { hostname: '', https: false }
+      : await resolveGeneratedHostname({
+          kind: 'branch',
+          serverId: server.id,
+          branch: gitBranch,
+          projectName: environmentRow.project.name,
+          serverPublicAddress: server.publicAddress,
+        })
+    const requestedBranchAliasHostname =
+      branchAlias?.hostname ?? generatedBranchHost.hostname
+    const branchAliasHostname = failureMessage
+      ? ''
+      : await resolveAvailableAliasHostname({
+          excludeAliasId: branchAlias?.id,
+          hostname: requestedBranchAliasHostname,
+          uniquenessKey: `${environmentRow.project.id}:${gitBranch}`,
+        })
+    const generatedDeploymentHost = failureMessage
+      ? { hostname: '', https: false }
+      : await resolveGeneratedHostname({
+          kind: 'deployment',
+          serverId: server.id,
+          deploymentId,
+          projectName: environmentRow.project.name,
+          serverPublicAddress: server.publicAddress,
+        })
+    const requestedDeploymentAliasHostname = generatedDeploymentHost.hostname
+    const deploymentAliasHostname = failureMessage
+      ? ''
+      : await resolveAvailableAliasHostname({
+          hostname: requestedDeploymentAliasHostname,
+          uniquenessKey: deploymentId,
+        })
+    const deploymentConfig = createDeploymentConfig({
       environment: environmentRow.environment,
-      project: environmentRow.project,
-    }),
-  )
-
-  const created = await enqueueDeployment(db, {
-    deployment: {
-      id: deploymentId,
-      environmentId,
-      trigger,
-      githubDeliveryId,
-      serverId: server.id,
-      repoId,
-      repoFullName: environmentRow.project.githubRepo,
-      gitSha,
+      aliasRows,
+      domainRows,
       gitBranch,
-      commitMeta: normalizeDeploymentCommitMeta(commitMeta),
-      config: deploymentConfig,
-      envVars,
-      runtimeId: environmentRow.environment.runtimeId,
-      createdByUserId,
-    },
-    projectId: environmentRow.project.id,
-    hostname: deploymentAliasHostname,
-    branchHostname: branchAlias ? undefined : branchAliasHostname,
-    https: generatedDeploymentHost.https,
-    queuedMessage,
-    failureMessage,
-    canceledMessage: `Canceled because a newer ${trigger} deployment was queued.`,
-    now,
-    admission,
-  })
+      extraHostnames: failureMessage
+        ? []
+        : [
+            {
+              hostname: branchAliasHostname,
+              environmentId,
+              basePath: null,
+              https: generatedBranchHost.https,
+            },
+            {
+              hostname: deploymentAliasHostname,
+              environmentId,
+              basePath: null,
+              https: generatedDeploymentHost.https,
+            },
+          ],
+      project: environmentRow.project,
+    })
+    const envVars = encryptDeploymentEnvVars(
+      getDeploymentEnvVars({
+        environment: environmentRow.environment,
+        project: environmentRow.project,
+      }),
+    )
 
-  if (created) await notifyProject(environmentRow.project.id)
-  return { status: created ? 'created' : 'existing', deploymentId }
+    const created = await enqueueDeployment(db, {
+      workspaceAdmission,
+      deployment: {
+        id: deploymentId,
+        environmentId,
+        trigger,
+        githubDeliveryId,
+        serverId: server.id,
+        repoId,
+        repoFullName: environmentRow.project.githubRepo,
+        gitSha,
+        gitBranch,
+        commitMeta: normalizeDeploymentCommitMeta(commitMeta),
+        config: deploymentConfig,
+        envVars,
+        runtimeId: environmentRow.environment.runtimeId,
+        createdByUserId,
+      },
+      projectId: environmentRow.project.id,
+      hostname: deploymentAliasHostname,
+      branchHostname: branchAlias ? undefined : branchAliasHostname,
+      https: generatedDeploymentHost.https,
+      queuedMessage,
+      failureMessage,
+      canceledMessage: `Canceled because a newer ${trigger} deployment was queued.`,
+      now,
+      admission,
+    })
+
+    if (created) await notifyProject(environmentRow.project.id)
+    return { status: created ? 'created' : 'existing', deploymentId }
+  }
+  if (failureMessage) return apply()
+  if (existingAdmission) {
+    requireWorkspaceAdmission(
+      existingAdmission,
+      environmentRow.project.teamId,
+      'deployment.create',
+    )
+    return apply(existingAdmission)
+  }
+  return withWorkspaceAccess(
+    environmentRow.project.teamId,
+    'deployment.create',
+    apply,
+    createdByUserId
+      ? { kind: 'user', userId: createdByUserId }
+      : { kind: 'system', source: 'github.push' },
+  )
 }
 
 function createDeploymentConfig({

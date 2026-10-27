@@ -1,12 +1,12 @@
 import { LoaderIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '#devpush/components/ui/tooltip'
 
 export function ProjectSettingsActionTooltip({
   children,

@@ -1,5 +1,5 @@
 import { LogKeywordFilter } from './log-keyword-filter'
-import { navigateFilters, refreshView } from '@/lib/action-feedback'
+import { navigateFilters, refreshView } from '#devpush/lib/action-feedback'
 import {
   Link,
   useParams,
@@ -17,15 +17,15 @@ import {
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Badge } from '#devpush/components/ui/badge'
+import { Button } from '#devpush/components/ui/button'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import { ProjectHeading } from './project-heading'
 import {
   Select,
@@ -33,16 +33,16 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { LogScrollArea } from '@/features/logs/log-scroll-area'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import type { ProjectLogsContext } from '@/server/projects/types'
-import { invalidateProjectLogs } from '@/lib/project-context-query'
+} from '#devpush/components/ui/tooltip'
+import { LogScrollArea } from '#devpush/features/logs/log-scroll-area'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import type { ProjectLogsContext } from '#devpush/server/projects/types'
+import { invalidateProjectLogs } from '#devpush/lib/project-context-query'
 
 export function ProjectLogs({ context }: { context: ProjectLogsContext }) {
   const { deployments, filters, hasAnyLogs, logs, project } = context
@@ -384,41 +384,23 @@ function StatusFilterIcon({
   status: ProjectLogsContext['deployments'][number]['status']
 }) {
   if (status === 'succeeded') {
-    return (
-      <CircleCheckIcon
-        className="size-4 shrink-0 text-success"
-      />
-    )
+    return <CircleCheckIcon className="size-4 shrink-0 text-success" />
   }
 
   if (status === 'failed') {
-    return (
-      <CircleAlertIcon
-        className="size-4 shrink-0 text-destructive"
-      />
-    )
+    return <CircleAlertIcon className="size-4 shrink-0 text-destructive" />
   }
 
   if (status === 'canceled') {
-    return (
-      <CircleXIcon
-        className="size-4 shrink-0 text-muted-foreground"
-      />
-    )
+    return <CircleXIcon className="size-4 shrink-0 text-muted-foreground" />
   }
 
   if (status === 'queued') {
-    return (
-      <Clock3Icon
-        className="size-4 shrink-0 text-muted-foreground"
-      />
-    )
+    return <Clock3Icon className="size-4 shrink-0 text-muted-foreground" />
   }
 
   return (
-    <LoaderIcon
-      className="size-4 shrink-0 animate-spin text-muted-foreground"
-    />
+    <LoaderIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
   )
 }
 

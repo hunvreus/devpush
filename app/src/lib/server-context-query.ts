@@ -5,7 +5,7 @@ import { redirect } from '@tanstack/react-router'
 import {
   getTeamServerContext,
   getTeamServerMetricHistory,
-} from '@/server/servers/functions'
+} from '#devpush/server/servers/functions'
 
 export function serverContextQueryOptions(params: {
   serverId: string

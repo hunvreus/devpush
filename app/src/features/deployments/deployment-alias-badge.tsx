@@ -3,7 +3,7 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
-} from '@/components/ui/tooltip'
+} from '#devpush/components/ui/tooltip'
 
 export function DeploymentAliasBadge({
   alias,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getProjectPendingSection } from '@/features/projects/pending-section'
+import { getProjectPendingSection } from '#devpush/features/projects/pending-section'
 
 describe('getProjectPendingSection', () => {
   it.each([

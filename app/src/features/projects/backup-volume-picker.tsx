@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { Field, FieldLabel, FieldDescription } from '@/components/ui/field'
+import {
+  Field,
+  FieldLabel,
+  FieldDescription,
+} from '#devpush/components/ui/field'
 import {
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import {
   Combobox,
   ComboboxChips,
@@ -18,9 +22,9 @@ import {
   ComboboxEmpty,
   ComboboxItem,
   useComboboxAnchor,
-} from '@/components/ui/combobox'
-import { backupConfigSchema } from '@/lib/backup-policy-schema'
-import type { ProjectBackupConfig } from '@/server/projects/types'
+} from '#devpush/components/ui/combobox'
+import { backupConfigSchema } from '#devpush/lib/backup-policy-schema'
+import type { ProjectBackupConfig } from '#devpush/server/projects/types'
 
 type Volumes = ProjectBackupConfig['volumes']
 const modeLabels: Record<Volumes['mode'], string> = {

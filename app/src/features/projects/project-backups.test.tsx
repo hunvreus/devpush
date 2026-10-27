@@ -4,10 +4,10 @@ import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { ProjectBackups } from './project-backups'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { projectContext } from '@/test/project-context'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+import { projectContext } from '#devpush/test/project-context'
 import type { BackupFilters } from './project-backup-utils'
-import type { ProjectBackupConfig } from '@/server/projects/types'
+import type { ProjectBackupConfig } from '#devpush/server/projects/types'
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(),
   error: vi.fn(),
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   saveProjectBackupPolicyAction: mocks.save,
   deleteProjectBackupPolicyAction: mocks.save,
   runProjectBackup: mocks.run,
@@ -46,7 +46,7 @@ vi.mock('@tanstack/react-router', () => ({
     </a>
   ),
 }))
-vi.mock('@/lib/project-context-query', () => ({
+vi.mock('#devpush/lib/project-context-query', () => ({
   setProjectContextQueryData: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: mocks.error } }))
@@ -56,7 +56,7 @@ vi.mock('./project-backup-policy', () => ({
     <>{children}</>
   ),
 }))
-vi.mock('@/components/ui/dropdown-menu', () => ({
+vi.mock('#devpush/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),

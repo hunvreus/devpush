@@ -1,9 +1,11 @@
 import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { deploymentLogsQueryOptions } from './deployment-logs-query'
-import { getDeploymentLogs } from '@/server/projects/functions'
+import { getDeploymentLogs } from '#devpush/server/projects/functions'
 
-vi.mock('@/server/projects/functions', () => ({ getDeploymentLogs: vi.fn() }))
+vi.mock('#devpush/server/projects/functions', () => ({
+  getDeploymentLogs: vi.fn(),
+}))
 beforeEach(() => vi.mocked(getDeploymentLogs).mockReset())
 
 test('completion retains the running output when the final fetch fails', async () => {

@@ -13,8 +13,7 @@ const mocks = vi.hoisted(() => ({
   server: null as McpSdk.McpServer | null,
 }))
 vi.mock('@modelcontextprotocol/server', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof McpSdk>()
+  const actual = await importOriginal<typeof McpSdk>()
   return {
     ...actual,
     createMcpHandler: (
@@ -27,7 +26,7 @@ vi.mock('@modelcontextprotocol/server', async (importOriginal) => {
       }, options),
   }
 })
-vi.mock('@/server/api/operation-contract', () => ({
+vi.mock('#devpush/server/api/operation-contract', () => ({
   publicApiOperations: [
     {
       id: 'probe',
@@ -40,22 +39,24 @@ vi.mock('@/server/api/operation-contract', () => ({
     },
   ],
 }))
-vi.mock('@/server/api/operations', () => ({
+vi.mock('#devpush/server/api/operations', () => ({
   executeApiOperation: mocks.execute,
 }))
-vi.mock('@/server/api/authorization', () => ({ requireApiScope: () => {} }))
-vi.mock('@/server/api/credentials', () => ({
+vi.mock('#devpush/server/api/authorization', () => ({
+  requireApiScope: () => {},
+}))
+vi.mock('#devpush/server/api/credentials', () => ({
   authenticateApiKey: async () => ({ credentialId: 'test' }),
 }))
-vi.mock('@/server/http/rate-limit', () => ({
+vi.mock('#devpush/server/http/rate-limit', () => ({
   enforceRateLimit: async () => null,
 }))
-vi.mock('@/server/auth/better-auth', () => ({ auth: { api: {} } }))
+vi.mock('#devpush/server/auth/better-auth', () => ({ auth: { api: {} } }))
 vi.mock('./oauth-provider', () => ({
   mcpOAuthScopes: [],
   mcpResource: 'https://example.test/mcp',
 }))
-vi.mock('@/server/config', () => ({
+vi.mock('#devpush/server/config', () => ({
   config: {
     DEVPUSH_MCP_URL: 'https://example.test/mcp',
     DEVPUSH_BASE_URL: 'https://example.test',

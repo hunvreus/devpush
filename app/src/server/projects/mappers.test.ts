@@ -1,8 +1,8 @@
 import { expect, test, vi } from 'vitest'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import { parseBackupSchedule } from './mappers'
 
-vi.mock('@/server/config', () => ({ config: {} }))
+vi.mock('#devpush/server/config', () => ({ config: {} }))
 
 test.each(['61 * * * *', '* 24 * * *', '* * * 13 *', '*/0 * * * *'])(
   'stored backup schedule rejects an impossible cron expression: %s',

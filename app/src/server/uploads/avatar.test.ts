@@ -1,14 +1,20 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 import { removeOwnedAvatar, resolveAvatarUpdate } from './avatar'
 
-const mocks = vi.hoisted(() => ({ put: vi.fn(), delete: vi.fn() }))
-vi.mock('@/server/storage/object-store', () => ({
+const mocks = vi.hoisted(() => ({
+  put: vi.fn(),
+  delete: vi.fn(),
+  configured: vi.fn(() => true),
+}))
+vi.mock('#devpush/server/storage/object-store', () => ({
   getObjectStore: () => mocks,
+  isObjectStorageConfigured: () => mocks.configured(),
 }))
 const owner = { filePrefix: 'user', resourceId: 'owner' } as const
 const avatarDataUrl = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64')}`
 beforeEach(() => {
   vi.resetAllMocks()
+  mocks.configured.mockReturnValue(true)
   mocks.put.mockResolvedValue(undefined)
   mocks.delete.mockResolvedValue(undefined)
 })
@@ -68,3 +74,17 @@ test.each([
     expect(mocks.delete).toHaveBeenCalledWith(path.slice('/uploads/'.length))
   },
 )
+
+test('unconfigured storage rejects uploads but preserves provider images', async () => {
+  mocks.configured.mockReturnValue(false)
+  const input = {
+    ...owner,
+    currentAvatarPath: 'https://provider.test/avatar',
+    deleteAvatar: false,
+  }
+  expect(await resolveAvatarUpdate(input)).toBe(input.currentAvatarPath)
+  await expect(
+    resolveAvatarUpdate({ ...input, avatarDataUrl }),
+  ).rejects.toThrow('not configured')
+  expect(mocks.put).not.toHaveBeenCalled()
+})

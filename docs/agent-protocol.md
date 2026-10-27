@@ -545,7 +545,7 @@ Agents advertise the additive `ingress.certificates.v1` capability. A heartbeat
 response includes `managedCertificates: true` only when the application build
 provides a certificate service. Without it, the agent makes no certificate requests.
 This does not change `protocolVersion` or require an OSS operator to configure an
-issuer. Hosted builds require an agent with this capability for managed HTTPS.
+issuer. Builds with a certificate service require an agent with this capability for managed HTTPS.
 
 `POST /api/agents/certificates` authenticates `{serverId, token, csrPem?,
 installedCertificateSha256?}`. The JSON body is limited to 32 KiB and the CSR to
@@ -563,7 +563,7 @@ The response is one of:
 
 Successful responses use `Cache-Control: no-store`. Without a service, the endpoint returns HTTP 404;
 provider errors return a generic HTTP 503. Core authenticates before invoking any
-private service and does not pass agent credentials to it.
+plugin service and does not pass agent credentials to it.
 
 The host persists its own ECDSA key and CSR before requesting issuance. It checks
 that the chain matches its key, wildcard name and validity period, installs it,
@@ -582,5 +582,9 @@ container is replaced on its next routed deployment. Expect a brief ingress rest
 
 Issuer implementations must validate CSR signatures and restrict names to the
 server's allocated namespace. DNS and ACME account credentials stay on the hub.
-The OSS application ships no DNS/issuer implementation; those live in the private
-hosted application. No public database migration is required.
+The default application registers no hub certificate issuer. A composed plugin can
+supply one. No public database migration is required.
+
+## Response bounds
+
+The agent accepts at most 16 MiB in a successful control-plane POST response and requires a single valid JSON value. Oversized or trailing payloads fail before job execution. Non-success diagnostics remain capped at 4 KiB. This hardening requires an updated agent binary but does not change the protocol version or payload shapes.

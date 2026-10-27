@@ -1,5 +1,5 @@
-import type { ProjectContext } from '@/server/projects/types'
-import { createComposeRuntimeConfig } from '@/lib/project-runtime-config'
+import type { ProjectContext } from '#devpush/server/projects/types'
+import { createComposeRuntimeConfig } from '#devpush/lib/project-runtime-config'
 
 const team: ProjectContext['team'] = {
   settingsVersion: 1,

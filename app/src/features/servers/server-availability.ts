@@ -1,4 +1,4 @@
-import type { ServerSummary } from '@/server/teams/types'
+import type { ServerSummary } from '#devpush/server/teams/types'
 
 export type ServerAvailabilityNotice = {
   title: string

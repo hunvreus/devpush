@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import { teamMembers, teams, user } from '@/server/db/schema'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { teamMembers, teams, user } from '#devpush/server/db/schema'
 
 type TeamInput = {
   userId: string

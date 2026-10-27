@@ -124,6 +124,16 @@ Use Deployments, service health and application/database checks to inspect the
 runtime or restored data before retrying: a failed job can
 have completed some external effects. Recovery does not automatically repeat it.
 
+Volume restores also retain a journal and recovery archives under
+`<agent state directory>/restores/<job ID>/recovery`. Before accepting another
+job, the agent removes orphaned restore helpers and recovers interrupted writes.
+Containers' automatic restart policies stay disabled until recovery succeeds.
+A completed replacement is preserved; an interrupted replacement rolls back to
+the saved copies. If Docker or disk recovery fails, logs report that restore
+recovery blocks claims. Resolve that underlying error and let the next poll retry.
+Do not delete the journal or archives to bypass this protection. Database restores
+still require application-specific inspection after interruption.
+
 An unreachable agent's queued or running backup/restore work expires through
 control-plane maintenance after 25 hours. This releases blocked work; it does
 not prove that a host-side process stopped or that a partial restore was undone.

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,15 +14,32 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { parse } from 'jsonc-parser'
 import { createClient } from '@libsql/client/web'
 import { smokeMcp } from './smoke-mcp.mjs'
+import { smokeAssets } from './smoke-assets.mjs'
+import { smokePlugins } from './smoke-plugins.mjs'
+import { smokePluginServices } from './smoke-plugin-services.mjs'
 
-const appDir = fileURLToPath(new URL('../', import.meta.url))
+const appDir = resolve(
+  process.env.DEVPUSH_SMOKE_APP_DIR ||
+    fileURLToPath(new URL('../', import.meta.url)),
+)
+const consumer = Boolean(process.env.DEVPUSH_SMOKE_APP_DIR)
+const packageDir = consumer
+  ? realpathSync(resolve(appDir, 'node_modules/devpush'))
+  : appDir
+const development = process.env.DEVPUSH_SMOKE_DEVELOPMENT === '1'
+if (development && !consumer)
+  throw new Error(
+    'Worker development smoke requires a disposable package consumer.',
+  )
 const driver = process.argv[2]
 if (!['d1', 'libsql'].includes(driver)) throw new Error('Choose d1 or libsql.')
 mkdirSync(resolve(appDir, '.tmp'), { recursive: true })
 const directory = mkdtempSync(resolve(appDir, '.tmp/worker-smoke-'))
 const configPath = resolve(directory, 'wrangler.jsonc')
 const secretsPath = resolve(directory, 'secrets.json')
-const statePath = resolve(directory, 'state')
+const statePath = development
+  ? resolve(appDir, '.wrangler/state')
+  : resolve(directory, 'state')
 const listener = createServer()
 await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve))
 const { port } = listener.address()
@@ -25,9 +48,9 @@ await new Promise((resolve, reject) =>
 )
 const origin = `http://127.0.0.1:${port}`
 const config = parse(
-  readFileSync(resolve(appDir, 'wrangler.template.jsonc'), 'utf8'),
+  readFileSync(resolve(packageDir, 'wrangler.template.jsonc'), 'utf8'),
 )
-config.main = resolve(appDir, 'src/server.ts')
+config.main = resolve(packageDir, 'src/server.ts')
 config.vars = {
   DEVPUSH_BASE_URL: origin,
   BETTER_AUTH_URL: origin,
@@ -38,9 +61,7 @@ config.vars = {
   DEVPUSH_SECRET_ENCRYPTION_KEY:
     'worker-smoke-encryption-key-over-thirty-two-characters',
 }
-config.r2_buckets = [
-  { binding: 'DEVPUSH_OBJECTS', bucket_name: 'worker-smoke-objects' },
-]
+delete config.r2_buckets // Prove that a Worker can run without image storage.
 const clients = []
 if (driver === 'libsql') {
   delete config.d1_databases
@@ -58,12 +79,13 @@ if (driver === 'libsql') {
   }
 } else {
   for (const binding of config.d1_databases)
-    binding.migrations_dir = resolve(appDir, binding.migrations_dir)
+    binding.migrations_dir = resolve(packageDir, binding.migrations_dir)
 }
 writeFileSync(configPath, JSON.stringify(config))
 writeFileSync(secretsPath, '{}')
 const env = {
   ...process.env,
+  DEVPUSH_DEPLOY_TARGET: 'cloudflare',
   DEVPUSH_WRANGLER_CONFIG: configPath,
   DEVPUSH_CLOUDFLARE_SECRETS_FILE: secretsPath,
 }
@@ -141,11 +163,31 @@ try {
       }
     }
   }
-  run('pnpm', [
-    'db:migrate:cloudflare',
-    ...(driver === 'd1' ? ['--local', '--persist-to', statePath] : []),
-  ])
-  run('pnpm', ['build:cloudflare'])
+  if (consumer) {
+    assert.equal(driver, 'd1', 'Package proof uses disposable local D1')
+    for (const binding of config.d1_databases) {
+      run('pnpm', [
+        'exec',
+        'wrangler',
+        'd1',
+        'migrations',
+        'apply',
+        binding.binding,
+        '--config',
+        configPath,
+        '--local',
+        '--persist-to',
+        statePath,
+      ])
+    }
+    if (!development) run('pnpm', ['exec', 'vite', 'build'])
+  } else {
+    run('pnpm', [
+      'db:migrate:cloudflare',
+      ...(driver === 'd1' ? ['--local', '--persist-to', statePath] : []),
+    ])
+    run('pnpm', ['build:cloudflare'])
+  }
   await query(
     0,
     "insert into rate_limits(key,count,reset_at) values('worker-smoke-expired',1,0)",
@@ -156,17 +198,27 @@ try {
   )
   worker = spawn(
     process.execPath,
-    [
-      'node_modules/wrangler/bin/wrangler.js',
-      'dev',
-      '--config',
-      'dist/server/wrangler.json',
-      '--persist-to',
-      statePath,
-      '--port',
-      String(port),
-      '--test-scheduled',
-    ],
+    development
+      ? [
+          'node_modules/vite/bin/vite.js',
+          'dev',
+          '--host',
+          '127.0.0.1',
+          '--port',
+          String(port),
+          '--strictPort',
+        ]
+      : [
+          'node_modules/wrangler/bin/wrangler.js',
+          'dev',
+          '--config',
+          'dist/server/wrangler.json',
+          '--persist-to',
+          statePath,
+          '--port',
+          String(port),
+          '--test-scheduled',
+        ],
     {
       cwd: appDir,
       env,
@@ -180,19 +232,34 @@ try {
   worker.stderr.on('data', (chunk) => {
     output += chunk
   })
-  for (let attempt = 0; ; attempt++) {
+  const startupDeadline = Date.now() + 120_000
+  for (;;) {
     try {
       const response = await fetch(`${origin}/api/health`, {
-        signal: AbortSignal.timeout(3000),
+        // Cold source-package transforms can outlast a production health probe.
+        signal: AbortSignal.timeout(
+          Math.min(
+            development ? 30_000 : 3000,
+            Math.max(1, startupDeadline - Date.now()),
+          ),
+        ),
       })
       assert.equal(response.status, 200)
       break
     } catch (error) {
-      if (attempt === 79 || worker.exitCode !== null) throw error
+      if (
+        Date.now() >= startupDeadline ||
+        worker.exitCode !== null ||
+        worker.signalCode !== null
+      )
+        throw error
       await delay(250)
     }
   }
-  assert.equal((await fetch(`${origin}/auth/login`)).status, 200)
+  const login = await fetch(`${origin}/auth/login`)
+  assert.equal(login.status, 200)
+  await smokeAssets(origin, await login.text())
+  await smokePlugins(origin)
   // Authenticated routes render a public skeleton without waiting for session/DB
   // loaders; client server-functions still enforce authorization when hydrated.
   for (const path of [
@@ -232,71 +299,93 @@ try {
     },
   )
   assert.equal(invalidEmail.status, 400, await invalidEmail.text())
-  await smokeMcp({ origin, query, authSecret: config.vars.BETTER_AUTH_SECRET })
-  await query(
-    0,
-    "insert into account(id,account_id,user_id,provider_id,access_token,refresh_token,id_token) select 'worker-smoke-provider','provider-id',id,'github','gho_worker_fixture','refresh-worker-fixture','header.payload.signature' from user order by id limit 1",
-  )
-  await query(
-    0,
-    "insert into teams(id,name,slug,status,updated_at) values('worker-smoke-deleted','Deleted team','worker-smoke-deleted','deleted',0)",
-  )
-  const responses = await Promise.all(
-    Array.from({ length: 20 }, () => fetch(`${origin}/api/health`)),
-  )
-  assert(responses.every((response) => response.status === 200))
-  await Promise.all(responses.map((response) => response.arrayBuffer()))
-  const time = Math.floor(Date.now() / 3_600_000) * 3_600_000
-  assert.equal(
-    (
-      await fetch(
-        `${origin}/cdn-cgi/local/scheduled?cron=0+*+*+*+*&time=${time}`,
+  await smokeMcp({
+    origin,
+    query,
+    appDir,
+    development,
+    modulePrefix: development ? `@fs/${packageDir}/src` : 'src',
+    authSecret: config.vars.BETTER_AUTH_SECRET,
+  })
+  await smokePluginServices({
+    origin,
+    authSecret: config.vars.BETTER_AUTH_SECRET,
+    query,
+    appDir,
+    development,
+    modulePrefix: development ? `@fs/${packageDir}/src` : 'src',
+    bundleDir: 'dist/server/assets',
+  })
+  if (development) {
+    console.log(
+      'Worker Vite development: SSR, styles, D1, WebSockets and API/MCP authorization passed.',
+    )
+  } else {
+    await query(
+      0,
+      "insert into account(id,account_id,user_id,provider_id,access_token,refresh_token,id_token) select 'worker-smoke-provider','provider-id',id,'github','gho_worker_fixture','refresh-worker-fixture','header.payload.signature' from user order by id limit 1",
+    )
+    await query(
+      0,
+      "insert into teams(id,name,slug,status,updated_at) values('worker-smoke-deleted','Deleted team','worker-smoke-deleted','deleted',0)",
+    )
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () => fetch(`${origin}/api/health`)),
+    )
+    assert(responses.every((response) => response.status === 200))
+    await Promise.all(responses.map((response) => response.arrayBuffer()))
+    const time = Math.floor(Date.now() / 3_600_000) * 3_600_000
+    assert.equal(
+      (
+        await fetch(
+          `${origin}/cdn-cgi/local/scheduled?cron=0+*+*+*+*&time=${time}`,
+        )
+      ).status,
+      200,
+    )
+    for (let attempt = 0; ; attempt++) {
+      const main = await query(
+        0,
+        "select count(*) as n from rate_limits where key='worker-smoke-expired'",
       )
-    ).status,
-    200,
-  )
-  for (let attempt = 0; ; attempt++) {
-    const main = await query(
-      0,
-      "select count(*) as n from rate_limits where key='worker-smoke-expired'",
-    )
-    const logs = await query(
-      1,
-      "select count(*) as n from runtime_logs where id='worker-smoke-expired'",
-    )
-    const provider = await query(
-      0,
-      "select access_token,refresh_token,id_token from account where id='worker-smoke-provider'",
-    )
-    const deleted = await query(
-      0,
-      "select count(*) as n from teams where id='worker-smoke-deleted'",
-    )
-    if (
-      main[0].n === 0 &&
-      logs[0].n === 0 &&
-      deleted[0].n === 0 &&
-      provider.length === 1 &&
-      provider[0].access_token !== 'gho_worker_fixture' &&
-      provider[0].refresh_token !== 'refresh-worker-fixture' &&
-      provider[0].id_token !== 'header.payload.signature'
-    )
-      break
-    if (attempt === 19)
-      throw new Error(
-        'Scheduled cleanup or provider-token encryption did not finish.',
+      const logs = await query(
+        1,
+        "select count(*) as n from runtime_logs where id='worker-smoke-expired'",
       )
-    await delay(250)
+      const provider = await query(
+        0,
+        "select access_token,refresh_token,id_token from account where id='worker-smoke-provider'",
+      )
+      const deleted = await query(
+        0,
+        "select count(*) as n from teams where id='worker-smoke-deleted'",
+      )
+      if (
+        main[0].n === 0 &&
+        logs[0].n === 0 &&
+        deleted[0].n === 0 &&
+        provider.length === 1 &&
+        provider[0].access_token !== 'gho_worker_fixture' &&
+        provider[0].refresh_token !== 'refresh-worker-fixture' &&
+        provider[0].id_token !== 'header.payload.signature'
+      )
+        break
+      if (attempt === 19)
+        throw new Error(
+          'Scheduled cleanup or provider-token encryption did not finish.',
+        )
+      await delay(250)
+    }
+    console.log(
+      `Worker ${driver}: login, API/MCP browser authorization, concurrent health requests, scheduled resource/log cleanup and provider-token encryption passed.`,
+    )
   }
-  console.log(
-    `Worker ${driver}: login, API/MCP browser authorization, concurrent health requests, scheduled resource/log cleanup and provider-token encryption passed.`,
-  )
 } catch (error) {
   console.error(output)
   throw error
 } finally {
   writeFileSync(resolve(directory, 'worker.log'), output)
-  if (worker && worker.exitCode === null) {
+  if (worker && worker.exitCode === null && worker.signalCode === null) {
     if (process.platform === 'win32') worker.kill('SIGTERM')
     else process.kill(-worker.pid, 'SIGTERM')
     await new Promise((resolve) => worker.once('exit', resolve))

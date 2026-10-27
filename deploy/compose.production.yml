@@ -26,6 +26,8 @@ services:
       DEVPUSH_BASE_URL: ${DEVPUSH_BASE_URL:?DEVPUSH_BASE_URL is required}
       DEVPUSH_TRUST_PROXY: ${DEVPUSH_TRUST_PROXY:-false}
       DEVPUSH_CLIENT_IP_HEADER: ${DEVPUSH_CLIENT_IP_HEADER:-x-forwarded-for}
+      DEVPUSH_DEPLOYMENT_LOG_MAX_LINES: ${DEVPUSH_DEPLOYMENT_LOG_MAX_LINES:-5000}
+      DEVPUSH_DEPLOYMENT_LOG_LINE_BYTES: ${DEVPUSH_DEPLOYMENT_LOG_LINE_BYTES:-2048}
       DEVPUSH_MONITORING_RETENTION_DAYS: ${DEVPUSH_MONITORING_RETENTION_DAYS:-7}
       DEVPUSH_ADMIN_EMAIL: ${DEVPUSH_ADMIN_EMAIL:-}
       DEVPUSH_SIGN_IN_MESSAGE: ${DEVPUSH_SIGN_IN_MESSAGE:-}
@@ -45,7 +47,7 @@ services:
       DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
       DEVPUSH_AGENT_AUTO_UPDATE: ${DEVPUSH_AGENT_AUTO_UPDATE:-false}
       DEVPUSH_RECOMMENDED_AGENT_VERSION: ${DEVPUSH_RECOMMENDED_AGENT_VERSION:-}
-      DEVPUSH_CRON_SECRET: ${DEVPUSH_CRON_SECRET:?DEVPUSH_CRON_SECRET is required}
+      DEVPUSH_CRON_SECRET: ${DEVPUSH_CRON_SECRET:-}
       DEVPUSH_SECRET_ENCRYPTION_KEY: ${DEVPUSH_SECRET_ENCRYPTION_KEY:?DEVPUSH_SECRET_ENCRYPTION_KEY is required}
       DEVPUSH_STORAGE_ENDPOINT: ${DEVPUSH_STORAGE_ENDPOINT:-}
       DEVPUSH_STORAGE_REGION: ${DEVPUSH_STORAGE_REGION:-}
@@ -85,41 +87,9 @@ services:
       [
         "sh",
         "-ec",
-        "node --enable-source-maps /repo/app/.maintenance/migrate.mjs && node --enable-source-maps /repo/app/.maintenance/sync-agent-binaries.mjs",
+        "node --enable-source-maps /repo/app/.maintenance/migrate.mjs",
       ]
     restart: "no"
-
-  scheduler:
-    image: ${DEVPUSH_PRODUCTION_IMAGE:-devpush-app:local}
-    restart: unless-stopped
-    depends_on:
-      app:
-        condition: service_healthy
-    environment:
-      DEVPUSH_BACKUPS_ENABLED: ${DEVPUSH_BACKUPS_ENABLED:-false}
-      DEVPUSH_CRON_SECRET: ${DEVPUSH_CRON_SECRET:?DEVPUSH_CRON_SECRET is required}
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        last_maintenance_hour=''
-        while true; do
-          now=$$(date +%s)
-          sleep $$((60 - now % 60))
-          current_hour=$$(date -u +%Y-%m-%dT%H)
-          if [ "$$DEVPUSH_BACKUPS_ENABLED" = "true" ]; then
-            if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 45 --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/backups; then
-              echo 'Backup scheduling failed; retrying on the next minute tick.' >&2
-            fi
-          fi
-          if [ "$$last_maintenance_hour" != "$$current_hour" ]; then
-            if curl --fail --silent --show-error --connect-timeout 5 --max-time 45 --request POST --header "Authorization: Bearer $$DEVPUSH_CRON_SECRET" http://app:3000/api/cron/maintenance; then
-              last_maintenance_hour=$$current_hour
-            else
-              echo 'Maintenance failed; retrying on the next minute tick.' >&2
-            fi
-          fi
-        done
 
   db-backup:
     image: ${DEVPUSH_PRODUCTION_IMAGE:-devpush-app:local}

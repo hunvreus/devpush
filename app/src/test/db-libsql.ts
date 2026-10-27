@@ -1,8 +1,8 @@
 import { createClient } from '@libsql/client'
 import { pathToFileURL } from 'node:url'
-import { openLibsql } from '@/server/db/libsql-connection'
-import * as schema from '@/server/db/schema'
-import * as logSchema from '@/server/db/log-schema'
+import { openLibsql } from '#devpush/server/db/libsql-connection'
+import * as schema from '#devpush/server/db/schema'
+import * as logSchema from '#devpush/server/db/log-schema'
 
 const main = openLibsql(
   createClient({ url: pathToFileURL(process.env.DEVPUSH_DATABASE_PATH!).href }),

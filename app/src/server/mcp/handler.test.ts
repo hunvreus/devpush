@@ -1,7 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 import { handleMcpRequest } from './handler'
 import { APIError } from 'better-auth/api'
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
@@ -13,18 +13,24 @@ vi.mock('@modelcontextprotocol/server', () => ({
   createMcpHandler: () => ({ fetch: mocks.fetch, close: mocks.close }),
   McpServer: class {},
 }))
-vi.mock('@/server/auth/better-auth', () => ({ auth: { api: {} } }))
-vi.mock('@/server/api/credentials', () => ({
+vi.mock('#devpush/server/auth/better-auth', () => ({ auth: { api: {} } }))
+vi.mock('#devpush/server/api/credentials', () => ({
   authenticateApiKey: mocks.authenticate,
 }))
-vi.mock('@/server/api/operations', () => ({ executeApiOperation: vi.fn() }))
-vi.mock('@/server/api/operation-contract', () => ({ publicApiOperations: [] }))
-vi.mock('@/server/http/rate-limit', () => ({ enforceRateLimit: mocks.limit }))
+vi.mock('#devpush/server/api/operations', () => ({
+  executeApiOperation: vi.fn(),
+}))
+vi.mock('#devpush/server/api/operation-contract', () => ({
+  publicApiOperations: [],
+}))
+vi.mock('#devpush/server/http/rate-limit', () => ({
+  enforceRateLimit: mocks.limit,
+}))
 vi.mock('./oauth-provider', () => ({
   mcpOAuthScopes: [],
   mcpResource: 'https://example.test/mcp',
 }))
-vi.mock('@/server/config', () => ({
+vi.mock('#devpush/server/config', () => ({
   config: {
     DEVPUSH_MCP_URL: 'https://example.test/mcp',
     DEVPUSH_BASE_URL: 'https://example.test',

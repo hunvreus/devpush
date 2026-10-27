@@ -1,5 +1,5 @@
-import type { ProjectRoute } from '@/server/projects/types'
-import type { SectionNavigationItem } from '@/components/section-navigation'
+import type { ProjectRoute } from '#devpush/server/projects/types'
+import type { SectionNavigationItem } from '#devpush/components/section-navigation'
 
 export const projectSettingsNavigationItems: Array<SectionNavigationItem> = [
   { href: '#general', label: 'General' },
@@ -9,6 +9,7 @@ export const projectSettingsNavigationItems: Array<SectionNavigationItem> = [
   { href: '#servers', label: 'Servers' },
   { href: '#routes', label: 'Routes' },
   { href: '#domains', label: 'Domains' },
+  { href: '#notifications', label: 'My notifications' },
   { href: '#danger', label: 'Danger', destructive: true },
 ]
 

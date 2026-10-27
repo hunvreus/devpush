@@ -1,23 +1,23 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
-import { projectContext } from '@/test/project-context'
-import type { DeploymentSummary } from '@/server/projects/types'
+import { projectContext } from '#devpush/test/project-context'
+import type { DeploymentSummary } from '#devpush/server/projects/types'
 import { DeploymentsPage } from './deployments-page'
 
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ teamSlug: 'team', projectName: 'project' }),
   useRouter: () => ({ navigate: vi.fn() }),
 }))
-vi.mock('@/features/projects/project-heading', () => ({
+vi.mock('#devpush/features/projects/project-heading', () => ({
   ProjectHeading: () => null,
 }))
-vi.mock('@/features/projects/manual-deploy-dialog', () => ({
+vi.mock('#devpush/features/projects/manual-deploy-dialog', () => ({
   ManualDeployDialog: ({ children }: { children: ReactNode }) => (
     <>{children}</>
   ),
 }))
-vi.mock('@/features/deployments/deployment-list', () => ({
+vi.mock('#devpush/features/deployments/deployment-list', () => ({
   DeploymentList: ({ deployments }: { deployments: DeploymentSummary[] }) => (
     <ul aria-label="Deployments">
       {deployments.map((item) => (

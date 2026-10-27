@@ -62,7 +62,8 @@ test.each([
 )
 
 test('plain public errors survive Start default serialization without a custom adapter', async () => {
-  const { publicErrorPayload } = await import('@/server/http/public-errors')
+  const { publicErrorPayload } =
+    await import('#devpush/server/http/public-errors')
   const { defaultSerovalPlugins } = await import(
     require.resolve('@tanstack/router-core')
   )
@@ -86,4 +87,39 @@ test('plain public errors survive Start default serialization without a custom a
   expect(getPublicErrorMessage(decoded, 'Failed')).toBe(
     publicErrorMessages.SETTINGS_CONFLICT,
   )
+})
+
+test('only deliberate workspace policy errors carry public recovery details', async () => {
+  const { publicErrorPayload } =
+    await import('#devpush/server/http/public-errors')
+  const error = new PublicError('WORKSPACE_RESTRICTED', undefined, {
+    message: 'This workspace is archived. Restore it to make changes.',
+    recoveryUrl: '/acme/settings#general',
+  })
+  const payload = publicErrorPayload(error)
+  expect(getPublicErrorMessage(payload, 'Failed')).toBe(error.message)
+  expect(payload.policy?.recoveryUrl).toBe('/acme/settings#general')
+  expect(
+    new PublicError('FORBIDDEN', undefined, { message: 'private' }).policy,
+  ).toBeUndefined()
+  expect(
+    new PublicError('WORKSPACE_RESTRICTED', undefined, {
+      message: 'Review settings',
+      recoveryUrl: '//elsewhere.test',
+    }).policy?.recoveryUrl,
+  ).toBeUndefined()
+})
+
+test.each([
+  '/\t/evil.test',
+  '/\u0000/evil.test',
+  '/\u007f/evil.test',
+  '/\\evil.test',
+])('policy recovery rejects control characters: %j', (url) => {
+  const error = new PublicError('WORKSPACE_RESTRICTED', url, {
+    message: 'Review settings',
+    recoveryUrl: url,
+  })
+  expect(error.policy?.recoveryUrl).toBeUndefined()
+  expect(error.reloadUrl).toBeUndefined()
 })

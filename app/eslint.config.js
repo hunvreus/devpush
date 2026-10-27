@@ -23,8 +23,7 @@ export default [
         {
           patterns: [
             {
-              regex:
-                '^(@/|([.]{1,2}/)+)server/(?![^/]+/functions$)',
+              regex: '^(#devpush/|([.]{1,2}/)+)server/(?![^/]+/functions$)',
               allowTypeImports: true,
               message:
                 'Keep runtime-independent code in lib. Only type imports and compiled server-function entrypoints may cross into server.',
@@ -46,6 +45,7 @@ export default [
       '.tmp/**',
       '.output/**',
       '.tanstack/**',
+      '.devpush/**',
       'dist/**',
       'eslint.config.js',
       'prettier.config.js',

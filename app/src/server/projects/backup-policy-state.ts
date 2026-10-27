@@ -1,8 +1,8 @@
-import { backupRetentionSchema } from '@/lib/backup-policy-schema'
-import type { ApiMutationAdmission } from '@/server/api/admission'
+import { backupRetentionSchema } from '#devpush/lib/backup-policy-schema'
+import type { ApiMutationAdmission } from '#devpush/server/api/admission'
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import { teamSettingsAccess } from '@/server/settings-version'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { teamSettingsAccess } from '#devpush/server/settings-version'
 
 export async function saveProjectBackupPolicyState(
   store: AtomicStore,

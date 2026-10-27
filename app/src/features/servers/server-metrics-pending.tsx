@@ -3,14 +3,14 @@ import {
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import { ServerMetricChartPending } from './server-metric-chart-pending'
 import {
   formatPercent,
   formatByteRatio,
   formatNetworkSummary,
 } from './server-metric-format'
-import type { ServerMetricsSample } from '@/server/servers/monitoring'
+import type { ServerMetricsSample } from '#devpush/server/servers/monitoring'
 
 export function ServerMetricsPending({
   latestMetrics,

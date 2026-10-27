@@ -4,7 +4,12 @@ import type { ComponentProps, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { UserSettings } from './user-settings'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+
+vi.mock('#devpush/features/notifications/email-preferences', () => ({
+  AccountEmailPreferences: () => null,
+  NotificationMute: () => null,
+}))
 
 vi.mock('./connected-apps-settings', () => ({
   ConnectedAppsSettings: () => null,
@@ -24,7 +29,7 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   clearCache: vi.fn(),
 }))
-vi.mock('@/server/users/functions', () => ({
+vi.mock('#devpush/server/users/functions', () => ({
   updateUserGeneralAction: mocks.save,
   requestEmailChangeAction: mocks.email,
   deleteUserAccountAction: mocks.deleteAccount,
@@ -35,12 +40,26 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ invalidate: mocks.invalidate, navigate: mocks.navigate }),
   Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
 }))
-vi.mock('@/components/settings-layout', () => ({
-  StandaloneSettingsLayout: ({ children }: { children: ReactNode }) => (
-    <main>{children}</main>
+vi.mock('#devpush/features/plugins/contributions', () => ({
+  accountSettingsNavigation: [{ href: '#extension', label: 'Extension' }],
+  AccountSettingsContributions: () => (
+    <section id="extension">Extension</section>
   ),
 }))
-vi.mock('@/lib/auth/client', () => ({
+vi.mock('#devpush/components/settings-layout', () => ({
+  StandaloneSettingsLayout: ({
+    children,
+    navigation,
+  }: {
+    children: ReactNode
+    navigation: { href: string }[]
+  }) => (
+    <main data-navigation={navigation.map((item) => item.href).join(',')}>
+      {children}
+    </main>
+  ),
+}))
+vi.mock('#devpush/lib/auth/client', () => ({
   authClient: { signOut: mocks.signOut, linkSocial: vi.fn() },
 }))
 vi.mock('sonner', () => ({
@@ -385,7 +404,7 @@ test('account deletion requires exact confirmation and locks the dialog during t
   await view.close()
 })
 
-vi.mock('@/components/ui/dropdown-menu', () => ({
+vi.mock('#devpush/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
     <>{children}</>
@@ -446,7 +465,7 @@ test('disconnect failure stays local and pending retries cannot be dismissed', a
   await view.close()
 })
 
-vi.mock('@/lib/resource-cache', () => ({
+vi.mock('#devpush/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -538,5 +557,35 @@ test('email-change refresh lets a clean General form save against the new versio
     }),
   )
   expect(mocks.error).not.toHaveBeenCalled()
+  await view.close()
+})
+
+test('General includes email with verification actions only for a changed address', async () => {
+  const view = await mount()
+  expect(view.node.querySelector('#general #account-email')).not.toBeNull()
+  expect(view.node.querySelector('#email')).toBeNull()
+  const form = view.node.querySelector('#account-email-form')!
+  expect(form.querySelector('button[type="submit"]')).toBeNull()
+  await submitEmail(view.node)
+  expect(mocks.email).not.toHaveBeenCalled()
+  await fill(view.node, 'account-email', 'new@example.com')
+  expect(form.querySelector('button[type="submit"]')?.textContent).toContain(
+    'Verify email',
+  )
+  await fill(view.node, 'account-email', ' TEST@example.com ')
+  expect(form.querySelector('button[type="submit"]')).toBeNull()
+  await view.close()
+})
+
+test('plugin account sections and navigation follow Teams and precede Danger', async () => {
+  const view = await mount()
+  const sections = [...view.node.querySelectorAll('main > [id]')].map(
+    (node) => node.id,
+  )
+  expect(sections.slice(-3)).toEqual(['teams', 'extension', 'danger'])
+  const navigation = view.node
+    .querySelector('main')!
+    .dataset.navigation!.split(',')
+  expect(navigation.slice(-3)).toEqual(['#teams', '#extension', '#danger'])
   await view.close()
 })

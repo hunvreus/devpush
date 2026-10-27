@@ -8,7 +8,7 @@ import {
   publicDeploymentSchema,
   publicProjectSchema,
   publicServerSchema,
-} from '@/lib/public-api-schema'
+} from '#devpush/lib/public-api-schema'
 
 describe('public management API contracts', () => {
   test('the published operation reference matches the live operation catalog', () => {
@@ -115,7 +115,8 @@ describe('public management API contracts', () => {
       }).success,
     ).toBe(false)
     expect(
-      publicServerSchema.safeParse({ settingsVersion: 1,
+      publicServerSchema.safeParse({
+        settingsVersion: 1,
         id: 's',
         teamId: 't',
         name: 's',

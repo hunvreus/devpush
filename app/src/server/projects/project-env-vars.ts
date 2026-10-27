@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { decryptSecret, encryptSecret } from '@/server/secrets/crypto'
+import { decryptSecret, encryptSecret } from '#devpush/server/secrets/crypto'
 import type { ProjectEnvironmentVariable } from './types'
 
 const projectEnvironmentVariablesSchema = z.array(

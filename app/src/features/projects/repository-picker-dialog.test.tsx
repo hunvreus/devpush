@@ -1,3 +1,8 @@
+import {
+  QueryClient,
+  QueryClientProvider,
+  notifyManager,
+} from '@tanstack/react-query'
 // @vitest-environment jsdom
 import type { ReactNode } from 'react'
 import { act } from 'react'
@@ -5,16 +10,23 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RepositoryPickerDialog } from './repository-picker-dialog'
 
+// Keep query notifications within React's act boundary instead of relying on timer ordering.
+notifyManager.setScheduler(queueMicrotask)
+
 const mocks = vi.hoisted(() => ({
   load: vi.fn(),
   select: vi.fn(),
   emptyTitles: [] as string[],
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   getRepositorySelectionRepositories: mocks.load,
 }))
-vi.mock('@/lib/repository-selection-query', () => ({
-  repositorySelectionQueryOptions: () => ({}),
+vi.mock('#devpush/lib/repository-selection-query', () => ({
+  repositorySelectionQueryOptions: () => ({
+    queryKey: ['selection'],
+    queryFn: async () => selection,
+    staleTime: Infinity,
+  }),
 }))
 const selection = {
   github: {
@@ -22,10 +34,7 @@ const selection = {
     installations: [{ id: 1, accountLogin: 'owner' }],
   },
 }
-vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: selection, isPending: false, error: null }),
-}))
-vi.mock('@/components/ui/empty', () => ({
+vi.mock('#devpush/components/ui/empty', () => ({
   Empty: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyDescription: ({ children }: { children: ReactNode }) => (
@@ -58,27 +67,35 @@ async function click(text: string) {
   expect(button, `Button ${text}`).toBeDefined()
   await act(async () => button!.click())
 }
-async function mount() {
+async function mount(installationId = 1) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   const node = document.createElement('div')
   document.body.append(node)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  client.setQueryData(['selection'], selection)
   const root = createRoot(node)
   cleanup.push(async () => {
     await act(async () => root.unmount())
     node.remove()
+    client.clear()
   })
   await act(async () =>
     root.render(
-      <RepositoryPickerDialog
-        teamSlug="team"
-        currentRepo={{ fullName: 'owner/old', id: 1, installationId: 1 }}
-        onSelect={mocks.select}
-      >
-        <button>Choose repository</button>
-      </RepositoryPickerDialog>,
+      <QueryClientProvider client={client}>
+        <RepositoryPickerDialog
+          teamSlug="team"
+          currentRepo={{ fullName: 'owner/old', id: 1, installationId }}
+          onSelect={mocks.select}
+        >
+          <button>Choose repository</button>
+        </RepositoryPickerDialog>
+      </QueryClientProvider>,
     ),
   )
   await click('Choose repository')
+  return client
 }
 test('failed repository loading can retry inline and select a repository', async () => {
   mocks.load
@@ -153,4 +170,46 @@ test('repository empty state appears only after the request resolves empty', asy
   expect(
     document.querySelector('[aria-label="Loading repositories"]'),
   ).toBeNull()
+})
+
+test('reopening a recently loaded dialog reuses its list without another skeleton or request', async () => {
+  mocks.load.mockResolvedValue([repo])
+  await mount()
+  expect(document.body.textContent).toContain('repo')
+  await click('Close')
+  await click('Choose repository')
+  expect(mocks.load).toHaveBeenCalledTimes(1)
+  expect(
+    document.querySelector('[aria-label="Loading repositories"]'),
+  ).toBeNull()
+  expect(document.body.textContent).toContain('repo')
+})
+
+test('a failed refresh keeps the known repository list visible', async () => {
+  mocks.load
+    .mockResolvedValueOnce([repo])
+    .mockRejectedValueOnce(new Error('provider unavailable'))
+  const client = await mount()
+  await act(async () => {
+    await client.invalidateQueries({
+      queryKey: ['repository-picker', 'team', 1],
+    })
+  })
+  expect(document.querySelector('[role=alert]')?.textContent).toContain(
+    'Unable to refresh repositories',
+  )
+  expect(
+    document.querySelector('[aria-label="Repository list"]')?.textContent,
+  ).toContain('repo')
+})
+
+test('an unavailable prior installation falls back to an accessible installation', async () => {
+  mocks.load.mockResolvedValue([repo])
+  await mount(999)
+  expect(mocks.load).toHaveBeenCalledWith(
+    expect.objectContaining({ data: { teamSlug: 'team', installationId: 1 } }),
+  )
+  expect(
+    document.querySelector('[aria-label="Repository list"]')?.textContent,
+  ).toContain('repo')
 })

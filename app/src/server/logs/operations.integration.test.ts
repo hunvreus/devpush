@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { afterAll, expect, test, vi } from 'vitest'
-import { db, logsDb, closeDb } from '@/server/db'
-import { operationLogs } from '@/server/db/log-schema'
+import { db, logsDb, closeDb } from '#devpush/server/db'
+import { operationLogs } from '#devpush/server/db/log-schema'
 import {
   agentJobs,
   projects,
@@ -10,12 +10,14 @@ import {
   teams,
   teamMembers,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import { readOperationLogs, uploadOperationLogs } from './operations'
 import { pruneExpiredRuntimeLogs } from './retention'
 
 const session = vi.hoisted(() => vi.fn())
-vi.mock('@/server/auth/better-auth', () => ({ auth: { api: { getSession: session } } }))
+vi.mock('#devpush/server/auth/better-auth', () => ({
+  auth: { api: { getSession: session } },
+}))
 afterAll(closeDb)
 test('deduplicates uploads, guards identity and reads persisted output with workspace permission even offline', async () => {
   const id = crypto.randomUUID(),

@@ -1,4 +1,4 @@
-import { PublicError } from '@/lib/public-error'
+import { PublicError } from '#devpush/lib/public-error'
 import { z } from 'zod'
 
 export const maxLifecycleCommandLength = 16 * 1024

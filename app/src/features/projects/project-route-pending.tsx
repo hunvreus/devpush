@@ -1,43 +1,51 @@
-import { CopyButton } from '@/components/copy-button'
+import { ImageUploadControls } from '#devpush/components/storage-capabilities'
+import { CopyButton } from '#devpush/components/copy-button'
 import { ProjectBackupsPending } from './project-backups-pending'
 import { ProjectBackupDetailsPending } from './project-backup-details-pending'
 import { ProjectSettings } from './project-settings'
 import { ProjectBackups } from './project-backups'
 import { ProjectBackupDetails } from './project-backup-details'
 import { ProjectLogs } from './project-logs'
-import { DeploymentsPage } from '@/features/deployments/deployments-page'
+import { DeploymentsPage } from '#devpush/features/deployments/deployments-page'
 import {
   DeploymentDetail,
   DeploymentMetadata,
   DeploymentLogsPending,
-} from '@/features/deployments/deployment-detail'
-import { stringSearchValidator } from '@/lib/search'
-import type { ProjectContext, DeploymentContext } from '@/server/projects/types'
+} from '#devpush/features/deployments/deployment-detail'
+import { stringSearchValidator } from '#devpush/lib/search'
+import type {
+  ProjectContext,
+  PluginContext,
+} from '#devpush/server/projects/types'
 import { useParams, useRouterState, useHydrated } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
-import { TeamPage } from '@/features/teams/team-header'
-import { getCachedTeamContexts } from '@/lib/team-context-query'
+import { TeamPage } from '#devpush/features/teams/team-header'
+import { getCachedTeamContexts } from '#devpush/lib/team-context-query'
 import {
   projectContextQueryOptions,
   projectShellQueryOptions,
   projectLogsQueryOptions,
-} from '@/lib/project-context-query'
-import { ProjectOverview } from '@/features/projects/project-overview'
-import { DeploymentListPending } from '@/features/deployments/deployment-list'
-import type { ProjectPendingSection } from '@/features/projects/pending-section'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { ResourceAvatar } from '@/components/resource-avatar'
-import { Select, SelectTrigger, SelectValue } from '@/components/ui/select'
+} from '#devpush/lib/project-context-query'
+import { ProjectOverview } from '#devpush/features/projects/project-overview'
+import { DeploymentListPending } from '#devpush/features/deployments/deployment-list'
+import type { ProjectPendingSection } from '#devpush/features/projects/pending-section'
+import { Skeleton } from '#devpush/components/ui/skeleton'
+import { Button } from '#devpush/components/ui/button'
+import { Input } from '#devpush/components/ui/input'
+import { Textarea } from '#devpush/components/ui/textarea'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+} from '#devpush/components/ui/select'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-} from '@/components/ui/input-group'
+} from '#devpush/components/ui/input-group'
 import {
   CircleHelpIcon,
   Clock3Icon,
@@ -62,8 +70,11 @@ import {
   FieldLabel,
   FieldDescription,
   FieldGroup,
-} from '@/components/ui/field'
-import { SettingsLayout, SettingsSection } from '@/components/settings-layout'
+} from '#devpush/components/ui/field'
+import {
+  SettingsLayout,
+  SettingsSection,
+} from '#devpush/components/settings-layout'
 import { projectSettingsNavigationItems } from './project-settings-utils'
 import { ProjectHeading } from './project-heading'
 
@@ -214,7 +225,7 @@ export function ProjectSectionPending({
     )
   if (cached && section === 'backup' && typeof params.backupId === 'string')
     return <ProjectBackupDetails context={cached} backupId={params.backupId} />
-  const deploymentResult = queryClient.getQueryData<DeploymentContext>([
+  const deploymentResult = queryClient.getQueryData<PluginContext>([
     'deployment-context',
     teamSlug,
     projectName,
@@ -533,10 +544,12 @@ function ProjectGeneralPending({
               color={context.color}
               size="md"
             />
-            <Button variant="outline" size="sm" disabled>
-              <UploadIcon data-icon="inline-start" />
-              Upload image
-            </Button>
+            <ImageUploadControls>
+              <Button variant="outline" size="sm" disabled>
+                <UploadIcon data-icon="inline-start" />
+                Upload image
+              </Button>
+            </ImageUploadControls>
             {context.avatarUrl ? (
               <Button
                 variant="destructive"
@@ -650,7 +663,7 @@ function BuildDeployPending() {
           description="Runs on the server when deploying a previous revision. When empty, uses the deploy command."
         />
         <SettingsFieldPending
-          label="Command timeout (required)"
+          label="Command timeout"
           description="Maximum runtime for either command: 60–7,200 seconds."
         />
         <SettingsFieldPending
@@ -713,12 +726,7 @@ function EnvironmentSettingsPending({
       title="Environments"
       description="Deployments will be associated with the first environment with a matching branch pattern."
       columns="grid-cols-[repeat(3,minmax(0,1fr))_2rem]"
-      headers={[
-        'Name (required)',
-        'Identifier (required)',
-        'Branch (required)',
-        '',
-      ]}
+      headers={['Name', 'Identifier', 'Branch', '']}
       rows={context.environments?.length ?? 1}
       values={context.environments?.map((environment) => [
         environment.name,

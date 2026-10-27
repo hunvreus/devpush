@@ -1,10 +1,10 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute, useParams } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
-import { ProjectSettings } from '@/features/projects/project-settings'
-import { ProjectSectionPending } from '@/features/projects/project-route-pending'
-import { projectContextQueryOptions } from '@/lib/project-context-query'
+import { ProjectSettings } from '#devpush/features/projects/project-settings'
+import { ProjectSectionPending } from '#devpush/features/projects/project-route-pending'
+import { projectContextQueryOptions } from '#devpush/lib/project-context-query'
 
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/settings',

@@ -63,7 +63,7 @@ case "$command" in
 set -euo pipefail
 script="$(mktemp)"
 trap 'rm -f "$script"' EXIT
-curl -fsSL -- "$1" -o "$script"
+curl -fsSL -o "$script" -- "$1"
 sudo bash "$script" --address "$2"
 INSTALL
     exit 0 ;;

@@ -1,9 +1,9 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Miniflare } from 'miniflare'
-import { openD1 } from '@/server/db/d1-connection'
-import * as schema from '@/server/db/schema'
-import * as logSchema from '@/server/db/log-schema'
+import { openD1 } from '#devpush/server/db/d1-connection'
+import * as schema from '#devpush/server/db/schema'
+import * as logSchema from '#devpush/server/db/log-schema'
 
 export async function createD1TestStores() {
   const runtime = new Miniflare({

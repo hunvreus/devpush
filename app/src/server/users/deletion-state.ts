@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import { teamDeletionStatements } from '@/server/teams/deletion-state'
-import { installationAdminPredicate } from '@/server/admin/access'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { teamDeletionStatements } from '#devpush/server/teams/deletion-state'
+import { installationAdminPredicate } from '#devpush/server/admin/access'
 
 export type UserCleanupJobPayload = {
   schemaVersion: 1

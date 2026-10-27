@@ -1,8 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { z } from 'zod'
-import { apiKeyPresetSchema } from '@/lib/api-key-schema'
-import { publicErrorsMiddleware } from '@/server/http/public-errors'
+import { apiKeyPresetSchema } from '#devpush/lib/api-key-schema'
+import { publicErrorsMiddleware } from '#devpush/server/http/public-errors'
 import {
   completeMcpConsent,
   getMcpConsent,

@@ -5,6 +5,7 @@ import {
   buildEmailVerificationMessage,
   buildOtpEmailMessage,
   buildTeamInviteEmailMessage,
+  renderNotificationEmail,
 } from './service'
 
 describe('email message builders', () => {
@@ -34,8 +35,8 @@ describe('email message builders', () => {
     expect(message.html).not.toContain('<Team>')
   })
 
-  test('builds the email change message with escaped HTML content', () => {
-    const message = buildEmailChangeMessage({
+  test('builds the email change message with escaped HTML content', async () => {
+    const message = await buildEmailChangeMessage({
       currentEmail: 'old@example.com',
       newEmail: 'new+test@example.com',
       verifyUrl: 'https://devpu.sh/api/auth/verify?token=<token>&email=new',
@@ -55,8 +56,8 @@ describe('email message builders', () => {
     expect(message.html).not.toContain('<token>')
   })
 
-  test('builds the email verification message with escaped HTML content', () => {
-    const message = buildEmailVerificationMessage({
+  test('builds the email verification message with escaped HTML content', async () => {
+    const message = await buildEmailVerificationMessage({
       email: 'verify@example.com',
       verifyUrl: 'https://devpu.sh/api/auth/verify?token=<token>&email=verify',
     })
@@ -73,4 +74,24 @@ describe('email message builders', () => {
     )
     expect(message.html).not.toContain('<token>')
   })
+})
+
+test('notifications share branded email layout and safely render content and action links', async () => {
+  const html = await renderNotificationEmail({
+    title: 'Workspace <notice>',
+    to: 'owner@example.com',
+    message: '<script>alert(1)</script>\nAnother paragraph',
+    action: {
+      label: 'View workspace',
+      url: 'https://example.com/settings',
+    },
+  })
+  expect(html).toContain('logo-email.png')
+  expect(html).toContain('Workspace &lt;notice&gt;')
+  expect(html).toContain('&lt;script&gt;')
+  expect(html).not.toContain('<script>')
+  expect(html).toContain('View workspace')
+  expect(html).toContain('owner@example.com')
+  for (const color of ['#0c0a09', '#1d1816', '#fbfaf9'])
+    expect(html).toContain(color)
 })

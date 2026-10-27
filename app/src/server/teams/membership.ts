@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
-import type { TeamRole } from '@/lib/team-role'
-import { teamMembers, user, teams } from '@/server/db/schema'
+import type { TeamRole } from '#devpush/lib/team-role'
+import { teamMembers, user, teams } from '#devpush/server/db/schema'
 
 type Store = { all: <T = unknown>(query: SQL) => Promise<T[]> }
 type Change = {

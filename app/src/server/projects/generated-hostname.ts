@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { PublicError } from '@/lib/public-error'
-import { getDeploymentServices } from '@/deployment/services.server'
-import { deploymentContext } from '@/deployment/server-context'
+import { PublicError } from '#devpush/lib/public-error'
+import { getPluginServices } from '#devpush/server/plugins/services.server'
+import { pluginContext } from '#devpush/server/plugins/server-context'
 import type {
   GeneratedHostname,
   GeneratedHostnameInput,
-} from '@/deployment/contract'
+} from '#devpush/plugins/contract'
 import {
   buildDefaultHostForProject,
   buildDefaultHostForEnvironment,
@@ -46,9 +46,9 @@ const generatedHostnameSchema = z.strictObject({
 export async function resolveGeneratedHostname(
   input: HostnameRequest,
 ): Promise<GeneratedHostname> {
-  const services = getDeploymentServices()
+  const services = getPluginServices()
   if (services.generateHostname) {
-    const server = await deploymentContext.readServer(input.serverId)
+    const server = await pluginContext.readServer(input.serverId)
     if (
       !server ||
       server.status === 'deleted' ||

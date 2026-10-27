@@ -1,14 +1,14 @@
-import { recordServerMetrics } from '@/test/server-metrics'
+import { recordServerMetrics } from '#devpush/test/server-metrics'
 import { createClient } from '@libsql/client'
-import { migrateLibsql } from '@/server/db/migrate-libsql'
-import { openLibsql } from '@/server/db/libsql-connection'
-import * as metricDbSchema from '@/server/db/schema'
+import { migrateLibsql } from '#devpush/server/db/migrate-libsql'
+import { openLibsql } from '#devpush/server/db/libsql-connection'
+import * as metricDbSchema from '#devpush/server/db/schema'
 import { fileURLToPath } from 'node:url'
 import { recordAgentMetricSamples, metricRowId } from './metric-history'
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
-import { closeDb, db } from '@/server/db'
+import { closeDb, db } from '#devpush/server/db'
 import {
   serverHeartbeats,
   serverMetrics,
@@ -16,13 +16,13 @@ import {
   teamMembers,
   teams,
   user,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   listServerMetricSeries,
   listServerMonitoringSummaries,
   recordServerHeartbeat,
   pruneServerMonitoring,
-} from '@/server/servers/monitoring'
+} from '#devpush/server/servers/monitoring'
 
 const touchedHeartbeatIds: Array<string> = []
 const touchedMetricIds: Array<string> = []

@@ -1,8 +1,8 @@
-import { recordAgentMetricSamples } from '@/server/servers/metric-history'
-import { required } from '@/test/required'
+import { recordAgentMetricSamples } from '#devpush/server/servers/metric-history'
+import { required } from '#devpush/test/required'
 import { openWorkerDatabases } from './worker-connection'
 import { and, eq, sql } from 'drizzle-orm'
-import { createD1TestStores } from '@/test/d1'
+import { createD1TestStores } from '#devpush/test/d1'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import type { openD1 } from './d1-connection'
 import * as schema from './schema'
@@ -11,41 +11,44 @@ import {
   mutateTeamMembership,
   mutateTeamOwnership,
   leaveMembership,
-} from '@/server/teams/membership'
-import { acceptInvitation } from '@/server/teams/invitations'
-import { bootstrapOwnedTeam, insertOwnedTeam } from '@/server/teams/creation'
+} from '#devpush/server/teams/membership'
+import { acceptInvitation } from '#devpush/server/teams/invitations'
+import {
+  bootstrapOwnedTeam,
+  insertOwnedTeam,
+} from '#devpush/server/teams/creation'
 import {
   deleteServerState,
   changeServerEnabled,
-} from '@/server/servers/lifecycle'
-import { reconcileRuntimeState } from '@/server/agents/runtime-state'
+} from '#devpush/server/servers/lifecycle'
+import { reconcileRuntimeState } from '#devpush/server/agents/runtime-state'
 import {
   enqueueBackup,
   enqueueBackupCleanup,
-} from '@/server/backups/queue-state'
-import { insertProject } from '@/server/projects/creation-state'
+} from '#devpush/server/backups/queue-state'
+import { insertProject } from '#devpush/server/projects/creation-state'
 import {
   EnvironmentStateChanged,
   replaceProjectEnvironments,
-} from '@/server/projects/environment-state'
-import { enqueueDeployment } from '@/server/projects/queue-state'
-import { replaceProjectRoutes } from '@/server/projects/route-state'
-import { saveProjectBackupPolicyState } from '@/server/projects/backup-policy-state'
-import { replaceProjectDomains } from '@/server/projects/domain-state'
+} from '#devpush/server/projects/environment-state'
+import { enqueueDeployment } from '#devpush/server/projects/queue-state'
+import { replaceProjectRoutes } from '#devpush/server/projects/route-state'
+import { saveProjectBackupPolicyState } from '#devpush/server/projects/backup-policy-state'
+import { replaceProjectDomains } from '#devpush/server/projects/domain-state'
 import {
   failStaleAgentJob,
   finishBackup,
   finishBackupCleanup,
-} from '@/server/agents/backup-state'
+} from '#devpush/server/agents/backup-state'
 import {
   failRunningDeployments,
   finishDeployment,
-} from '@/server/agents/deployment-state'
+} from '#devpush/server/agents/deployment-state'
 import {
   claimBackupCandidate,
   claimCleanup,
   claimDeployment,
-} from '@/server/agents/claims'
+} from '#devpush/server/agents/claims'
 
 let runtime:
   | Awaited<ReturnType<typeof createD1TestStores>>['runtime']

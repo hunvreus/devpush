@@ -1,8 +1,8 @@
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 import { createServerFn } from '@tanstack/react-start'
-import { getAuthMethods } from '@/server/auth/auth-methods'
-import { getAuthSession } from '@/server/auth/session.server'
-import { getUserContext } from '@/server/teams/service'
+import { getAuthMethods } from '#devpush/server/auth/auth-methods'
+import { getAuthSession } from '#devpush/server/auth/session.server'
+import { getUserContext } from '#devpush/server/teams/service'
 
 export type AuthUserContext = Awaited<ReturnType<typeof getUserContext>>
 export const getLoginContext = createServerFn({ method: 'GET' }).handler(

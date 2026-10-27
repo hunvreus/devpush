@@ -1,13 +1,13 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { TeamServers } from '@/features/servers/team-servers'
-import { TeamServersPending } from '@/features/teams/team-route-pending'
+import { TeamServers } from '#devpush/features/servers/team-servers'
+import { TeamServersPending } from '#devpush/features/teams/team-route-pending'
 import {
   teamSectionQueryOptions,
   teamShellQueryOptions,
-} from '@/lib/team-context-query'
+} from '#devpush/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug/servers/')({
   validateSearch: (

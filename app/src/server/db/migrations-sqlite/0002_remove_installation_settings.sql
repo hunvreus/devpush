@@ -1,1 +1,0 @@
-DROP TABLE `installation_settings`;

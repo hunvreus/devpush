@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { DomainSettingsTable } from './project-routing-settings'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 
 let cleanup: (() => Promise<void>) | undefined
 afterEach(async () => {
@@ -89,10 +89,10 @@ test('verification errors belong to their domain host, with no status column or 
     alert.querySelector('[data-slot="alert-description"] > div')
       ?.lastElementChild?.textContent,
   ).toBe('Error details: DNS record does not point to this server.')
-  expect(alert.querySelector('[data-slot=alert-title]')?.className).toContain(
-    'text-amber-600',
+  expect(alert.className).toContain(
+    'text-amber-700',
   )
-  expect(alert.querySelector('[data-slot=alert-title]')?.className).toContain(
+  expect(alert.className).toContain(
     'dark:text-amber-400',
   )
   expect(

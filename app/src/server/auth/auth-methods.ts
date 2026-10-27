@@ -1,4 +1,4 @@
-import { config } from '@/server/config'
+import { config } from '#devpush/server/config'
 
 export type AuthMethods = {
   email: boolean

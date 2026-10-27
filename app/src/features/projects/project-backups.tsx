@@ -1,14 +1,14 @@
-import { backupConfigSchema } from '@/lib/backup-policy-schema'
-import { showSettingsConflict } from '@/lib/settings-conflict'
+import { mutationErrorOptions, navigateFilters  } from '#devpush/lib/action-feedback'
+import { backupConfigSchema } from '#devpush/lib/backup-policy-schema'
+import { showSettingsConflict } from '#devpush/lib/settings-conflict'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
+} from '#devpush/components/ui/dropdown-menu'
 import { BackupJobLogs } from './backup-job-logs'
-import { navigateFilters } from '@/lib/action-feedback'
-import { canManageTeamSettings } from '@/lib/team-role'
+import { canManageTeamSettings } from '#devpush/lib/team-role'
 import { Link, useParams, useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -22,11 +22,11 @@ import {
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
-import { Switch } from '@/components/ui/switch'
+import { Alert, AlertDescription } from '#devpush/components/ui/alert'
+import { Badge } from '#devpush/components/ui/badge'
+import { Button } from '#devpush/components/ui/button'
+import { ButtonGroup } from '#devpush/components/ui/button-group'
+import { Switch } from '#devpush/components/ui/switch'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -36,12 +36,12 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
-} from '@/components/ui/alert-dialog'
+} from '#devpush/components/ui/alert-dialog'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '#devpush/components/ui/tooltip'
 
 import {
   Empty,
@@ -49,7 +49,7 @@ import {
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 import { ProjectHeading } from './project-heading'
 import {
   Select,
@@ -57,25 +57,25 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '#devpush/components/ui/select'
 import { BackupStatusIcon } from './backup-status-icon'
 import { BackupTimestamp } from './backup-timestamp'
-import { ServerAvatar } from '@/features/servers/server-avatar'
-import { EnvironmentDot } from '@/features/projects/environment-dot'
-import { getPublicErrorMessage } from '@/lib/public-error'
-import { setProjectContextQueryData } from '@/lib/project-context-query'
+import { ServerAvatar } from '#devpush/features/servers/server-avatar'
+import { EnvironmentDot } from '#devpush/features/projects/environment-dot'
+import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { setProjectContextQueryData } from '#devpush/lib/project-context-query'
 import {
   runProjectBackup,
   restoreProjectBackup,
   saveProjectBackupPolicyAction,
   deleteProjectBackupPolicyAction,
-} from '@/server/projects/functions'
+} from '#devpush/server/projects/functions'
 import type {
   ProjectBackupConfig,
   ProjectBackupRun,
   ProjectBackupRestore,
   ProjectContext,
-} from '@/server/projects/types'
+} from '#devpush/server/projects/types'
 
 import {
   getBackupActivity,
@@ -226,6 +226,7 @@ export function ProjectBackups({
           cause,
           'Unable to save backup policy. Please try again.',
         ),
+        ...mutationErrorOptions(cause),
       )
     }
   }
@@ -249,7 +250,10 @@ export function ProjectBackups({
       setRunConfirmation(null)
     } catch (error) {
       if (showSettingsConflict(error)) return
-      toast.error(getPublicErrorMessage(error, 'Unable to queue backup.'))
+      toast.error(
+        getPublicErrorMessage(error, 'Unable to queue backup.'),
+        ...mutationErrorOptions(error),
+      )
     } finally {
       setRunningBackupId(null)
     }

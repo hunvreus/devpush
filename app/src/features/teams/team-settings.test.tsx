@@ -4,7 +4,9 @@ import type { ComponentProps, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { TeamSettings } from './team-settings'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
+
+vi.mock('#devpush/features/notifications/email-preferences', () => ({ AccountEmailPreferences: () => null, NotificationMute: () => null }))
 
 const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
@@ -19,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
 }))
-vi.mock('@/server/teams/functions', () => ({
+vi.mock('#devpush/server/teams/functions', () => ({
   updateTeamGeneralAction: mocks.save,
   createTeamInvitesAction: mocks.bulk,
   deleteTeamAction: mocks.deleteTeam,
@@ -29,7 +31,7 @@ vi.mock('@/server/teams/functions', () => ({
   transferTeamOwnershipAction: mocks.transfer,
   updateTeamMemberRoleAction: mocks.role,
 }))
-vi.mock('@/lib/team-context-query', () => ({
+vi.mock('#devpush/lib/team-context-query', () => ({
   setTeamContextQueryData: vi.fn(),
 }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
@@ -37,7 +39,7 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ invalidate: mocks.refresh, navigate: mocks.refresh }),
   Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
 }))
-vi.mock('@/components/settings-layout', () => ({
+vi.mock('#devpush/components/settings-layout', () => ({
   SettingsLayout: ({ children }: { children: ReactNode }) => (
     <main>{children}</main>
   ),
@@ -284,7 +286,7 @@ test('pending invitation blocks duplicate submit, edits, and dismissal', async (
   await view.close()
 })
 
-vi.mock('@/components/ui/dropdown-menu', () => ({
+vi.mock('#devpush/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
     <>{children}</>
@@ -524,7 +526,7 @@ test('team deletion requires its slug and cannot repeat after success', async ()
   await view.close()
 })
 
-vi.mock('@/components/ui/select', () => ({
+vi.mock('#devpush/components/ui/select', () => ({
   Select: ({
     children,
     value,
@@ -584,7 +586,7 @@ test('role changes retain failed confirmation and block pending Escape', async (
   await view.close()
 })
 
-vi.mock('@/lib/resource-cache', () => ({
+vi.mock('#devpush/lib/resource-cache', () => ({
   invalidateResourceQueries: vi.fn().mockResolvedValue(undefined),
 }))
 

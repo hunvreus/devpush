@@ -4,11 +4,11 @@ import type { ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { EnvironmentServersSettingsSection } from './project-environment-settings'
-import { projectContext } from '@/test/project-context'
-import type { ProjectContext } from '@/server/projects/types'
+import { projectContext } from '#devpush/test/project-context'
+import type { ProjectContext } from '#devpush/server/projects/types'
 
 const mocks = vi.hoisted(() => ({ save: vi.fn(), error: vi.fn() }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   saveProjectEnvironmentServers: mocks.save,
 }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
@@ -16,11 +16,11 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ teamSlug: 'team' }),
   Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
 }))
-vi.mock('@/lib/project-context-query', () => ({
+vi.mock('#devpush/lib/project-context-query', () => ({
   setProjectContextQueryData: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: mocks.error } }))
-vi.mock('@/components/settings-layout', () => ({
+vi.mock('#devpush/components/settings-layout', () => ({
   SettingsSection: ({
     children,
     footer,
@@ -44,7 +44,7 @@ const selectContext = createContext({
   value: '',
   onValueChange: (_value: string) => {},
 })
-vi.mock('@/components/ui/select', () => ({
+vi.mock('#devpush/components/ui/select', () => ({
   Select: ({
     value,
     onValueChange,

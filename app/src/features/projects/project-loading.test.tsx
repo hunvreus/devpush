@@ -2,8 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { expect, test, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import { projectContext } from '@/test/project-context'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { projectContext } from '#devpush/test/project-context'
+import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import { ProjectSectionPending } from './project-route-pending'
 
 vi.mock('@tanstack/react-router', () => ({

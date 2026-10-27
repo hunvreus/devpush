@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { runMaintenance } from './maintenance'
 
+vi.mock('#devpush/server/notifications/outbox', () => ({
+  pruneOperationalNotifications: vi.fn().mockResolvedValue(undefined),
+}))
+
 const mocks = vi.hoisted(() => ({
   maintainDeployment: vi.fn(),
   pruneApiHistory: vi.fn(),
@@ -17,46 +21,46 @@ const mocks = vi.hoisted(() => ({
   pruneOrphanDeploymentLogs: vi.fn(),
 }))
 
-vi.mock('@/deployment/services.server', () => ({
-  getDeploymentServices: () => ({
+vi.mock('#devpush/server/plugins/services.server', () => ({
+  getPluginServices: () => ({
     serverLifecycle: { maintain: mocks.maintainDeployment },
   }),
 }))
 
-vi.mock('@/server/auth/provider-tokens', () => ({
+vi.mock('#devpush/server/auth/provider-tokens', () => ({
   encryptExistingProviderTokens: mocks.encryptExistingProviderTokens,
 }))
 
-vi.mock('@/server/deleted-resources', () => ({
+vi.mock('#devpush/server/deleted-resources', () => ({
   pruneDeletedResources: mocks.pruneDeletedResources,
 }))
 
-vi.mock('@/server/api/retention', () => ({
+vi.mock('#devpush/server/api/retention', () => ({
   pruneApiHistory: mocks.pruneApiHistory,
 }))
-vi.mock('@/server/agents/jobs', () => ({
+vi.mock('#devpush/server/agents/jobs', () => ({
   failStaleRunningDeployments: mocks.failStaleRunningDeployments,
   failStaleAgentJobs: mocks.failStaleAgentJobs,
 }))
-vi.mock('@/server/backups/service', () => ({
+vi.mock('#devpush/server/backups/service', () => ({
   queueBackupRetentionCleanupJobs: mocks.queueBackupRetentionCleanupJobs,
 }))
-vi.mock('@/server/http/rate-limit', () => ({
+vi.mock('#devpush/server/http/rate-limit', () => ({
   cleanupExpiredRateLimits: mocks.cleanupExpiredRateLimits,
 }))
-vi.mock('@/server/teams/service', () => ({
+vi.mock('#devpush/server/teams/service', () => ({
   cleanupExpiredTeamInvites: mocks.cleanupExpiredTeamInvites,
 }))
-vi.mock('@/server/users/service', () => ({
+vi.mock('#devpush/server/users/service', () => ({
   runQueuedUserCleanupJobs: mocks.runQueuedUserCleanupJobs,
 }))
-vi.mock('@/server/servers/monitoring', () => ({
+vi.mock('#devpush/server/servers/monitoring', () => ({
   pruneServerMonitoring: mocks.pruneServerMonitoring,
 }))
-vi.mock('@/server/logs/retention', () => ({
+vi.mock('#devpush/server/logs/retention', () => ({
   pruneExpiredRuntimeLogs: mocks.pruneExpiredRuntimeLogs,
 }))
-vi.mock('@/server/logs/cleanup', () => ({
+vi.mock('#devpush/server/logs/cleanup', () => ({
   pruneOrphanDeploymentLogs: mocks.pruneOrphanDeploymentLogs,
 }))
 
@@ -93,6 +97,13 @@ describe('runMaintenance', () => {
       checked: 2,
       deleted: 6,
     })
+  })
+
+  test('plugin maintenance failure still runs token maintenance while retaining cleanup source records', async () => {
+    mocks.maintainDeployment.mockRejectedValue(new Error('provider offline'))
+    await expect(runMaintenance()).rejects.toThrow('provider offline')
+    expect(mocks.pruneDeletedResources).not.toHaveBeenCalled()
+    expect(mocks.encryptExistingProviderTokens).toHaveBeenCalledOnce()
   })
 
   test('runs every periodic cleanup task', async () => {

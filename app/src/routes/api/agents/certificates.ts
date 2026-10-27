@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { handleAgentRequest } from '@/server/agents/protocol'
+import { handleAgentRequest } from '#devpush/server/agents/protocol'
 import {
   certificateRequestSchema,
   requestAgentCertificate,
-} from '@/server/agents/certificates'
+} from '#devpush/server/agents/certificates'
 
 export const Route = createFileRoute('/api/agents/certificates')({
   server: {

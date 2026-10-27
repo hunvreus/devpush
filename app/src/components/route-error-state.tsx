@@ -1,15 +1,15 @@
-import { publicErrorMessages } from '@/lib/public-error'
+import { publicErrorMessages } from '#devpush/lib/public-error'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { ArrowLeftIcon } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '#devpush/components/ui/button'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-} from '@/components/ui/empty'
+} from '#devpush/components/ui/empty'
 
 export function RouteNotFoundState({
   description,

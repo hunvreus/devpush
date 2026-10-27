@@ -1,5 +1,5 @@
-import { config } from '@/server/config'
-import { isCloudflareRuntime } from '@/server/runtime/platform-env'
+import { config } from '#devpush/server/config'
+import { isCloudflareRuntime } from '#devpush/server/runtime/platform-env'
 
 type AddressTrust = {
   cloudflare: boolean

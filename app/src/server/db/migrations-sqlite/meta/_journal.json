@@ -5,29 +5,22 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1792031595690,
+      "when": 1792741633143,
       "tag": "0000_initial",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "6",
-      "when": 1792211522840,
-      "tag": "0001_installation_settings",
+      "when": 1792995717857,
+      "tag": "0001_notification_emails",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "6",
-      "when": 1792283508210,
-      "tag": "0002_remove_installation_settings",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1792550541722,
-      "tag": "0003_puzzling_jane_foster",
+      "when": 1793014807946,
+      "tag": "0002_notification_delivery_window",
       "breakpoints": true
     }
   ]

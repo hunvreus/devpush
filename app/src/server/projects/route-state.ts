@@ -2,10 +2,10 @@ import { invalidDomainBasePathCleanup } from './configuration-state'
 import {
   projectSettingsGuard,
   rethrowSettingsConflict,
-} from '@/server/settings-version'
+} from '#devpush/server/settings-version'
 import { sql } from 'drizzle-orm'
-import type { AtomicStore } from '@/server/db/atomic'
-import { projects } from '@/server/db/schema'
+import type { AtomicStore } from '#devpush/server/db/atomic'
+import { projects } from '#devpush/server/db/schema'
 import type { ProjectRoute } from './types'
 
 export async function replaceProjectRoutes(

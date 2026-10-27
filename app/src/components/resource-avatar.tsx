@@ -1,4 +1,5 @@
-import { cn } from '@/lib/utils'
+import { createElement } from 'react'
+import { cn } from '#devpush/lib/utils'
 
 const sizeClasses = {
   xs: 'size-5 rounded text-xs font-semibold',
@@ -22,7 +23,7 @@ const colorClasses = {
   zinc: 'from-zinc-100 to-zinc-100/50 border-zinc-200 text-zinc-500 dark:from-zinc-950/50 dark:to-zinc-950 dark:border-zinc-900',
 } as const
 
-type ResourceColor = keyof typeof colorClasses
+export type ResourceColor = keyof typeof colorClasses
 
 type ResourceAvatarProps = {
   'data-icon'?: 'inline-start' | 'inline-end'
@@ -44,27 +45,21 @@ export function ResourceAvatar({
   const initial = name.trim().charAt(0).toLocaleUpperCase()
 
   if (src) {
-    return (
-      <img
-        data-icon={dataIcon}
-        src={src}
-        alt={name}
-        className={cn('shrink-0 object-cover', sizeClasses[size], className)}
-      />
-    )
+    return createElement('img', {
+      'data-icon': dataIcon,
+      src,
+      alt: name,
+      className: cn('shrink-0 object-cover', sizeClasses[size], className),
+    })
   }
 
-  return (
-    <span
-      data-icon={dataIcon}
-      className={cn(
-        'flex shrink-0 items-center justify-center border bg-gradient-to-tl uppercase',
-        sizeClasses[size],
-        colorClasses[color],
-        className,
-      )}
-    >
-      {initial}
-    </span>
-  )
+  return createElement('span', {
+    'data-icon': dataIcon,
+    className: cn(
+      'flex shrink-0 items-center justify-center border bg-gradient-to-tl uppercase',
+      sizeClasses[size],
+      colorClasses[color],
+      className,
+    ),
+  }, initial)
 }

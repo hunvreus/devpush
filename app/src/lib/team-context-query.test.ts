@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { expect, test } from 'vitest'
 import { setTeamContextQueryData } from './team-context-query'
-import { projectContext } from '@/test/project-context'
+import { projectContext } from '#devpush/test/project-context'
 
 test('saved team metadata updates shared navigation without refreshing unrelated data', async () => {
   const client = new QueryClient()

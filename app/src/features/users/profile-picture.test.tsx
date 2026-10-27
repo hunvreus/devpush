@@ -1,3 +1,4 @@
+import { ImageUploadsContext } from '#devpush/components/storage-capabilities'
 // @vitest-environment jsdom
 import { act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -54,5 +55,33 @@ test('picture removal can be undone before saving and controls lock during proce
     await act(async () => root.unmount())
     host.remove()
     vi.unstubAllGlobals()
+  }
+})
+
+test('without storage the provider picture has no upload or removal controls', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    await act(async () =>
+      root.render(
+        <ImageUploadsContext.Provider value={false}>
+          <ProfilePicture
+            image="https://provider.test/avatar"
+            name="Ronan"
+            email="r@example.test"
+            disabled={false}
+            processing={false}
+            onFile={vi.fn()}
+            onChange={vi.fn()}
+          />
+        </ImageUploadsContext.Provider>,
+      ),
+    )
+    expect(host.querySelector('button')).toBeNull()
+    expect(host.querySelector('input')).toBeNull()
+    expect(host.textContent).toContain('R')
+  } finally {
+    await act(async () => root.unmount())
   }
 })

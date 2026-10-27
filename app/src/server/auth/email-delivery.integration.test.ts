@@ -2,15 +2,15 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { emailOTP } from 'better-auth/plugins/email-otp'
 import { afterAll, describe, expect, test, vi } from 'vitest'
-import { db, closeDb } from '@/server/db'
-import * as schema from '@/server/db/schema'
+import { db, closeDb } from '#devpush/server/db'
+import * as schema from '#devpush/server/db/schema'
 import { requireAuthEmailDelivery } from './email-delivery'
 
 const send = vi.fn<() => Promise<void>>()
 const sendChange = vi.fn<() => Promise<void>>()
 const auth = betterAuth({
   baseURL: 'http://localhost:7429',
-  secret: 'otp-delivery-test-secret-at-least-32-characters',
+  secret: crypto.randomUUID().repeat(2),
   database: drizzleAdapter(db, { provider: 'sqlite', schema }),
   logger: { disabled: true },
   user: {

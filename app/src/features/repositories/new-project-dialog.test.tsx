@@ -1,9 +1,12 @@
+import type * as ReactQuery from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, test, vi } from 'vitest'
 import { NewProjectRouteDialog } from './new-project-dialog'
 
+let activeClient: QueryClient
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   invalidate: vi.fn().mockResolvedValue(undefined),
@@ -14,71 +17,77 @@ const mocks = vi.hoisted(() => ({
   shellPending: false,
   warning: vi.fn(),
 }))
-vi.mock('@/server/projects/functions', () => ({
+vi.mock('#devpush/server/projects/functions', () => ({
   createProject: mocks.create,
   getRepositorySelectionRepositories: mocks.repositories,
 }))
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ navigate: mocks.navigate }),
 }))
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({}),
-  queryOptions: <T,>(options: T) => options,
-  useQuery: (options: { queryKey: string[] }) =>
-    options.queryKey[0] === 'team-context'
-      ? {
-          isPending: mocks.shellPending,
-          data: mocks.shellPending
-            ? undefined
-            : {
-                team: {
-                  id: 't',
-                  slug: 'team',
-                  name: 'Team',
-                  role: 'owner',
-                  color: 'lime',
-                  image: null,
-                },
-                servers: [],
-              },
-          error: null,
-        }
-      : {
-          isPending: false,
-          error: mocks.refreshError ? new Error('refresh failed') : null,
-          data: {
-            github: {
-              connected: true,
-              login: 'owner',
-              appConfigured: true,
-              installUrl: null,
-              installations: [
-                {
-                  id: 1,
-                  accountLogin: 'owner',
-                  accountType: 'User',
-                  repositorySelection: 'all',
-                },
-              ],
-              repositories: mocks.empty
-                ? []
-                : [
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof ReactQuery>()
+  return {
+    ...actual,
+    useQueryClient: () => ({}),
+    queryOptions: <T,>(options: T) => options,
+    useQuery: (options: Parameters<typeof actual.useQuery>[0]) =>
+      options.queryKey[0] === 'installation-repositories'
+        ? actual.useQuery(options, activeClient)
+        : options.queryKey[0] === 'team-context'
+          ? {
+              isPending: mocks.shellPending,
+              data: mocks.shellPending
+                ? undefined
+                : {
+                    team: {
+                      id: 't',
+                      slug: 'team',
+                      name: 'Team',
+                      role: 'owner',
+                      color: 'lime',
+                      image: null,
+                    },
+                    servers: [],
+                  },
+              error: null,
+            }
+          : {
+              isPending: false,
+              error: mocks.refreshError ? new Error('refresh failed') : null,
+              data: {
+                github: {
+                  connected: true,
+                  login: 'owner',
+                  appConfigured: true,
+                  installUrl: null,
+                  installations: [
                     {
                       id: 1,
-                      installationId: 1,
-                      name: 'repo',
-                      fullName: 'owner/repo',
-                      owner: 'owner',
-                      private: false,
-                      defaultBranch: 'main',
-                      updatedAt: '2026-10-01',
-                      permissions: { push: true },
+                      accountLogin: 'owner',
+                      accountType: 'User',
+                      repositorySelection: 'all',
                     },
                   ],
+                  repositories: mocks.empty
+                    ? []
+                    : [
+                        {
+                          id: 1,
+                          installationId: 1,
+                          name: 'repo',
+                          fullName: 'owner/repo',
+                          owner: 'owner',
+                          private: false,
+                          defaultBranch: 'main',
+                          updatedAt: '2026-10-01',
+                          permissions: { push: true },
+                        },
+                      ],
+                },
+              },
             },
-          },
-        },
-}))
+  }
+})
 vi.mock('sonner', () => ({ toast: { warning: mocks.warning } }))
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -104,10 +113,21 @@ async function mount(select = true) {
   const node = document.createElement('div')
   document.body.append(node)
   const root = createRoot(node)
-  await act(async () => root.render(<NewProjectRouteDialog teamSlug="team" />))
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  activeClient = client
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={client}>
+        <NewProjectRouteDialog teamSlug="team" />
+      </QueryClientProvider>,
+    ),
+  )
   cleanup.push(async () => {
     await act(async () => root.unmount())
     node.remove()
+    client.clear()
   })
   await act(async () => {
     await vi.advanceTimersByTimeAsync(500)
@@ -225,7 +245,10 @@ test('repository search failures offer an inline retry without reopening creatio
     ...document.querySelectorAll<HTMLButtonElement>('button'),
   ].find((item) => item.textContent === 'Retry')
   expect(retry).toBeDefined()
-  await act(async () => retry!.click())
+  await act(async () => {
+    retry!.click()
+    await vi.advanceTimersByTimeAsync(20)
+  })
   expect(mocks.repositories).toHaveBeenCalledTimes(2)
   expect(document.querySelector('[role="alert"]')).toBeNull()
 })
@@ -256,7 +279,7 @@ test('repository search can be cleared without another repository request', asyn
   expect(mocks.repositories).not.toHaveBeenCalled()
 })
 
-vi.mock('@/lib/resource-cache', () => ({
+vi.mock('#devpush/lib/resource-cache', () => ({
   invalidateResourceQueries: mocks.invalidate,
 }))
 
@@ -277,11 +300,42 @@ test('route dialog preserves its overlay while initial context loads', async () 
   const dialog = document.querySelector('[role="dialog"]')
   expect(dialog).not.toBeNull()
   mocks.shellPending = false
-  await act(async () => root!.render(<NewProjectRouteDialog teamSlug="team" />))
+  await act(async () =>
+    root!.render(
+      <QueryClientProvider client={activeClient}>
+        <NewProjectRouteDialog teamSlug="team" />
+      </QueryClientProvider>,
+    ),
+  )
   expect(document.querySelector('[role="dialog"]')).toBe(dialog)
   expect(
     [...document.querySelectorAll('button')].some(
       (button) => button.textContent === 'Select',
     ),
   ).toBe(true)
+})
+
+test('a pending repository request never renders the empty state, including rerenders', async () => {
+  mocks.empty = true
+  let resolve!: (value: unknown[]) => void
+  mocks.repositories.mockImplementation(
+    () =>
+      new Promise((value) => {
+        resolve = value
+      }),
+  )
+  await mount(false)
+  expect(document.body.textContent).not.toContain('No repositories found')
+  expect(
+    document.querySelector('[aria-label="Loading repositories"]'),
+  ).not.toBeNull()
+  await act(async () => {
+    resolve([])
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  expect(document.body.textContent).toContain('No repositories found')
+  expect(
+    document.querySelector('[aria-label="Loading repositories"]'),
+  ).toBeNull()
+  expect(mocks.repositories).toHaveBeenCalledTimes(1)
 })

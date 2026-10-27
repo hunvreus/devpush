@@ -1,21 +1,23 @@
+import { AboutDialog } from '#devpush/components/about-dialog'
+import { LogoMark } from '#devpush/components/logo-mark'
 import { SignInMessage } from './sign-in-message'
 import { LoaderCircle } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { Field, FieldError, FieldGroup } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { Button } from '#devpush/components/ui/button'
+import { Field, FieldError, FieldGroup } from '#devpush/components/ui/field'
+import { Input } from '#devpush/components/ui/input'
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
-} from '@/components/ui/input-otp'
-import { authClient } from '@/lib/auth/client'
-import type { AuthMethods } from '@/server/auth/auth-methods'
-import { getErrorMessage } from '@/lib/error-message'
-import { isValidEmail } from '@/lib/validation'
+} from '#devpush/components/ui/input-otp'
+import { authClient } from '#devpush/lib/auth/client'
+import type { AuthMethods } from '#devpush/server/auth/auth-methods'
+import { getErrorMessage } from '#devpush/lib/error-message'
+import { isValidEmail } from '#devpush/lib/validation'
 
 type PendingAction = null | 'email' | 'otp' | 'redirect' | 'github' | 'google'
 
@@ -141,8 +143,9 @@ export function LoginForm({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-10 text-foreground">
-      <div className="w-full max-w-xs">
+    <main className="relative flex min-h-svh items-center justify-center bg-background px-6 py-20 text-foreground">
+      <div className="w-full max-w-[280px]">
+        <LoginLogo />
         <form onSubmit={handleSubmit}>
           <FieldGroup>
             <h1 className="text-center leading-snug font-medium">
@@ -336,6 +339,7 @@ function OtpStep({
           onClick={onResend}
         >
           {pending === 'email' ? 'Sending code…' : 'Resend code'}
+          {pending === 'email' ? <Spinner data-icon="inline-end" /> : null}
         </Button>
         <Button type="button" variant="ghost" disabled={busy} onClick={onReset}>
           Sign in another way
@@ -405,12 +409,13 @@ function GoogleIcon({ 'data-icon': dataIcon }: InlineIconProps) {
 
 export function LoginPending() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-10 text-foreground">
+    <main className="relative flex min-h-svh items-center justify-center bg-background px-6 py-20 text-foreground">
       <div
-        className="w-full max-w-xs space-y-6"
+        className="w-full max-w-[280px] space-y-6"
         aria-label="Loading sign in"
         aria-busy="true"
       >
+        <LoginLogo />
         <h1 className="text-center leading-snug font-medium">
           Sign in to devpush
         </h1>
@@ -419,5 +424,23 @@ export function LoginPending() {
         </p>
       </div>
     </main>
+  )
+}
+
+function LoginLogo() {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="About devpush"
+        onClick={() => setOpen(true)}
+        className="mx-auto mb-6 flex size-8 items-center justify-center rounded-lg bg-orange-600 text-white"
+      >
+        <LogoMark className="size-5 shrink-0" />
+      </button>
+      <AboutDialog open={open} onOpenChange={setOpen} />
+    </>
   )
 }

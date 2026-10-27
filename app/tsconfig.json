@@ -6,28 +6,33 @@
     "prettier.config.js",
     "vite.config.js"
   ],
-
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
     "module": "ESNext",
     "paths": {
-      "#devpush/deployment/ui": ["./src/deployment/default.ui.tsx"],
-      "#devpush/deployment/server": ["./src/deployment/default.server.ts"],
-      "#devpush/deployment/contract": ["./src/deployment/contract.ts"],
-      "#/*": ["./src/*"],
-      "@/*": ["./src/*"]
+      "#devpush/*": [
+        "./src/*"
+      ],
+      "#devpush/plugins/registered-server": [
+        "./src/plugins/default.server.ts"
+      ],
+      "#devpush/plugins/registered-client": [
+        "./src/plugins/default.ui.ts"
+      ]
     },
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
-
-    /* Bundler mode */
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "vite/client"
+    ],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-
-    /* Linting */
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,

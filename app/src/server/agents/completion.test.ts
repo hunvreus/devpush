@@ -2,6 +2,10 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { completeAgentJob } from './completion'
 import { completeAgentJobSchema } from './protocol'
 
+vi.mock('#devpush/server/notifications/observe', () => ({
+  notifyAfterAgentCompletion: vi.fn().mockResolvedValue(undefined),
+}))
+
 const handlers = vi.hoisted(() => ({
   deploy: vi.fn(),
   cleanup: vi.fn(),

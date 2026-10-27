@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   matchesWorkspaceUpdate,
   setWorkspaceConnected,
-} from '@/lib/workspace-updates'
-import type { UpdateKind } from '@/lib/workspace-updates'
+} from '#devpush/lib/workspace-updates'
+import type { UpdateKind } from '#devpush/lib/workspace-updates'
 
 export function useWorkspaceUpdates(teamSlug: string) {
   const client = useQueryClient()

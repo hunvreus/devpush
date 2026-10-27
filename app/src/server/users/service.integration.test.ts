@@ -1,13 +1,13 @@
-import { pruneDeletedResources } from '@/server/deleted-resources'
-import { required } from '@/test/required'
-import { mockObjectStore } from '@/test/object-store'
+import { pruneDeletedResources } from '#devpush/server/deleted-resources'
+import { required } from '#devpush/test/required'
+import { mockObjectStore } from '#devpush/test/object-store'
 import { eq, inArray } from 'drizzle-orm'
 import { SignJWT } from 'jose'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
-import { auth, authMethods } from '@/server/auth/better-auth'
-import { config } from '@/server/config'
-import { closeDb, db } from '@/server/db'
+import { auth, authMethods } from '#devpush/server/auth/better-auth'
+import { config } from '#devpush/server/config'
+import { closeDb, db } from '#devpush/server/db'
 import {
   account,
   agentJobs,
@@ -22,7 +22,7 @@ import {
   teams,
   user,
   userCleanupJobs,
-} from '@/server/db/schema'
+} from '#devpush/server/db/schema'
 import {
   deleteUserAccount,
   disconnectAuthAccount,

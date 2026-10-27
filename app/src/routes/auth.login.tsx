@@ -1,9 +1,9 @@
-import { pageHead } from '@/lib/page-head'
+import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { LoginForm, LoginPending } from '@/features/auth/login-form'
-import { getLoginContext } from '@/server/auth/context'
-import { getSafeRedirectPath } from '@/lib/internal-redirect'
+import { LoginForm, LoginPending } from '#devpush/features/auth/login-form'
+import { getLoginContext } from '#devpush/server/auth/context'
+import { getSafeRedirectPath } from '#devpush/lib/internal-redirect'
 
 export const Route = createFileRoute('/auth/login')({
   validateSearch: (search: Record<string, unknown>): { redirect?: string } =>

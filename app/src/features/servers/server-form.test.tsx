@@ -1,21 +1,26 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { AddServerDialog } from './team-servers'
-import type * as DeploymentUi from '#devpush/deployment/ui'
+import type * as PluginUi from '#devpush/features/plugins/contributions'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   close: vi.fn(),
   created: vi.fn(),
   upgrade: vi.fn(),
+  setup: vi.fn(),
 }))
-vi.mock('@/server/servers/functions', () => ({ createServer: mocks.create }))
-vi.mock('#devpush/deployment/ui', async (importOriginal) => ({
-  ...(await importOriginal<typeof DeploymentUi>()),
-  requestWorkspaceUpgrade: mocks.upgrade,
+vi.mock('#devpush/server/servers/functions', () => ({
+  createServer: mocks.create,
 }))
+vi.mock('#devpush/features/plugins/contributions', async (importOriginal) => ({
+  ...(await importOriginal<typeof PluginUi>()),
+  requestWorkspaceAction: mocks.upgrade,
+  useWorkspaceServerSetup: mocks.setup,
+}))
+beforeEach(() => mocks.setup.mockReturnValue({ fields: null, ready: true }))
 afterEach(() => {
   vi.resetAllMocks()
   vi.unstubAllGlobals()
@@ -109,20 +114,42 @@ test('pending creation prevents editing and dismissal until the request settles'
   await view.close()
 })
 
-test('a hosted server limit opens upgrade without creating or charging for a server', async () => {
+test('a workspace policy refusal delegates remediation without creating a server', async () => {
   const view = await mount()
   await fill('host-4')
   mocks.upgrade.mockReturnValue(true)
   mocks.create.mockRejectedValueOnce({
     name: 'PublicError',
-    code: 'PLAN_LIMIT_REACHED',
+    code: 'WORKSPACE_RESTRICTED',
   })
   await submit()
   expect(mocks.upgrade).toHaveBeenCalledWith({
     teamSlug: 'team',
-    reason: expect.stringContaining('allowance'),
+    error: { name: 'PublicError', code: 'WORKSPACE_RESTRICTED' },
   })
   expect(mocks.close).toHaveBeenCalledWith(false)
   expect(mocks.created).not.toHaveBeenCalled()
+  await view.close()
+})
+
+test('creation waits until a plugin has loaded its server setup disclosure', async () => {
+  mocks.setup.mockReturnValue({ fields: <p>Loading plan…</p>, ready: false })
+  const view = await mount()
+  await fill('host-1')
+  const button = [
+    ...document.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((item) => item.textContent === 'Create server')!
+  expect(button.disabled).toBe(true)
+  await submit()
+  expect(mocks.create).not.toHaveBeenCalled()
+  mocks.setup.mockReturnValue({
+    fields: <p>Additional servers cost $3/month.</p>,
+    ready: true,
+  })
+  await fill('host-2')
+  expect(button.disabled).toBe(false)
+  expect(document.body.textContent).toContain(
+    'Additional servers cost $3/month.',
+  )
   await view.close()
 })

@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { auth } from '@/server/auth/better-auth'
-import { enforceRateLimit } from '@/server/http/rate-limit'
+import { auth } from '#devpush/server/auth/better-auth'
+import { enforceRateLimit } from '#devpush/server/http/rate-limit'
 
 export const Route = createFileRoute('/api/auth/$')({
   server: {

@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
-import { ResourceAvatar } from '@/components/resource-avatar'
+import { ResourceAvatar } from '#devpush/components/resource-avatar'
 
 type HeadingTeam = {
   color?:

@@ -6,8 +6,8 @@ import {
 } from 'node:crypto'
 import { z } from 'zod'
 
-import { config } from '@/server/config'
-import { projectRuntimeConfigSchema } from '@/lib/project-runtime-config'
+import { config } from '#devpush/server/config'
+import { projectRuntimeConfigSchema } from '#devpush/lib/project-runtime-config'
 
 const deploymentRouteSchema = z.strictObject({
   host: z.string().min(1),
@@ -37,6 +37,7 @@ export type DeploymentEnvVar = {
 }
 
 export type DeploymentCommitMeta = {
+  githubSenderId?: string
   message: string | null
   authorName: string | null
   authoredAt: string | null
@@ -86,6 +87,10 @@ export function normalizeDeploymentCommitMeta(
       authoredAt:
         typeof record.authoredAt === 'string' ? record.authoredAt : null,
       url: typeof record.url === 'string' ? record.url : null,
+      ...(typeof record.githubSenderId === 'string' &&
+      /^\d+$/.test(record.githubSenderId)
+        ? { githubSenderId: record.githubSenderId }
+        : {}),
     }
   }
   return { message: null, authorName: null, authoredAt: null, url: null }
