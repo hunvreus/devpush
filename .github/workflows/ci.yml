@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       DEVPUSH_BASE_URL: http://localhost:7429
       DEVPUSH_SECRET_ENCRYPTION_KEY: ci-secret-encryption-key
@@ -48,13 +48,13 @@ jobs:
       - run: pnpm audit:dependencies
 
   production-image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: bash scripts/validate-production-image.sh
 
   package-consumer:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
@@ -68,7 +68,7 @@ jobs:
       - run: pnpm test:package
 
   worker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       libsql-main:
         image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67

@@ -56,7 +56,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             bin/devpush-agent-linux-amd64 bin/devpush-agent-linux-arm64 \
             bin/agent-release.json bin/SHA256SUMS release/devpush-*.tgz \
-            --verify-tag --generate-notes
+            --verify-tag --generate-notes "${release_flags[@]}"
+      - name: Verify public agent downloads
+        run: |
+          download_dir="$(mktemp -d)"
+          trap 'rm -rf "$download_dir"' EXIT
+          release_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          for asset in devpush-agent-linux-amd64 devpush-agent-linux-arm64 agent-release.json SHA256SUMS; do
+            curl --fail --location --retry 5 --retry-all-errors --output "$download_dir/$asset" "$release_url/$asset"
+          done
+          cmp bin/agent-release.json "$download_dir/agent-release.json"
+          cmp bin/SHA256SUMS "$download_dir/SHA256SUMS"
+          (cd "$download_dir" && sha256sum --check SHA256SUMS)

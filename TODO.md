@@ -6,7 +6,7 @@ Outstanding work only. Private extension work belongs in its own repository.
 
 - Revoke or confirm revocation of the historical infrastructure credential found by secret scanning.
 
-- Publish the app package and matching agent assets/checksums; verify clean installs on Node and Workers.
+- Publish the beta app package and matching agent assets/checksums after CI passes; verify clean installs on Node and Workers.
 - Run remote enrollment, deployment, HTTPS, upgrade/drain and backup/restore proofs against the release candidate.
 - Verify real Claude OAuth and a second MCP client on Node and Workers.
 - Publish the updated website/docs; replace comparison placeholders and the old demo.

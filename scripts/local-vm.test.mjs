@@ -11,6 +11,9 @@ function invoke(command, initial, owned = true, network = true) {
     const state = join(dir, "state"),
       calls = join(dir, "calls");
     writeFileSync(state, initial);
+    writeFileSync(calls, "");
+    // Exercise the macOS-only setup on Linux CI without weakening its host guard.
+    writeFileSync(join(dir, "uname"), "#!/bin/sh\necho Darwin\n", { mode: 0o755 });
     writeFileSync(
       join(dir, "limactl"),
       `#!${process.execPath}
@@ -43,6 +46,7 @@ if(a[0]==='shell' && a.includes('/etc/devpush-test-vm') && process.env.OWNED==='
     );
     return {
       status: result.status,
+      stderr: result.stderr,
       calls: readFileSync(calls, "utf8").trim().split("\n").map(JSON.parse),
     };
   } finally {
@@ -52,7 +56,7 @@ if(a[0]==='shell' && a.includes('/etc/devpush-test-vm') && process.env.OWNED==='
 
 test("setup creates a missing VM; reuses an already running VM", () => {
   const first = invoke("setup", "");
-  assert.equal(first.status, 0);
+  assert.equal(first.status, 0, first.stderr);
   assert.deepEqual(
     first.calls
       .filter((a) => ["create", "start"].includes(a[0]))
@@ -103,7 +107,7 @@ test("stopping preserves the disk; destroying an absent VM creates nothing", () 
 
 test("setup upgrades owned VM networking; never edits an unowned VM", () => {
   const upgrade = invoke("setup", "Running", true, false);
-  assert.equal(upgrade.status, 0);
+  assert.equal(upgrade.status, 0, upgrade.stderr);
   assert.deepEqual(
     upgrade.calls.filter((a) => ["stop", "edit", "start"].includes(a[0])),
     [

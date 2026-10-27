@@ -5,6 +5,8 @@ export default mergeConfig(
   devpush(),
   defineConfig({
     test: {
+      // Bound concurrent jsdom processes on contributor machines and CI runners.
+      maxWorkers: 2,
       exclude: [
         '**/.git/**',
         '**/.output/**',

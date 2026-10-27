@@ -13,7 +13,7 @@ permissions:
 jobs:
   secrets:
     name: Secret scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -22,7 +22,7 @@ jobs:
 
   codeql:
     name: CodeQL (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write
@@ -33,13 +33,18 @@ jobs:
           - language: javascript-typescript
             build-mode: none
           - language: go
-            build-mode: autobuild
+            build-mode: manual
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.mod
       - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           build-mode: ${{ matrix.build-mode }}
           languages: ${{ matrix.language }}
-      - if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      - if: matrix.language == 'go'
+        run: go build ./agent/...
       - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
