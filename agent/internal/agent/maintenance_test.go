@@ -74,6 +74,9 @@ func TestDrainTimeoutResumesClaimsWithoutCancelingJob(t *testing.T) {
 }
 
 func TestSwitchConfigPreservesSettingsAndReplacesIdentity(t *testing.T) {
+	for _, key := range []string{"DEVPUSH_BASE_URL", "DEVPUSH_AGENT_TOKEN", "DEVPUSH_STATE_DIR", "DEVPUSH_TRAEFIK_EMAIL"} {
+		t.Setenv(key, "")
+	}
 	body := switchConfig([]byte("DEVPUSH_BASE_URL=\"https://old.test\"\nDEVPUSH_AGENT_TOKEN=\"old\"\nDEVPUSH_STATE_DIR=\"old-state\"\nDEVPUSH_TRAEFIK_EMAIL=\"ops@example.com\"\n"), Config{BaseURL: "https://new.test", Token: "new", StateDir: "new-state"})
 	file := filepath.Join(t.TempDir(), "agent.env")
 	if err := os.WriteFile(file, body, 0600); err != nil {

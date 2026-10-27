@@ -1710,7 +1710,8 @@ fi
 	runner.discoverAddress = func(context.Context, string, string) (string, error) {
 		return "", fmt.Errorf("no public network in test")
 	}
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
 	controlPlane.cancel = cancel
 
 	if err := runner.Run(ctx); err != nil && !strings.Contains(err.Error(), "context canceled") {
@@ -2009,9 +2010,14 @@ func newMockControlPlane(t *testing.T) *mockControlPlane {
 
 		controlPlane.mu.Lock()
 		controlPlane.heartbeat = true
+		cancel := controlPlane.cancel
+		completed := controlPlane.completed != nil
 		controlPlane.mu.Unlock()
 
 		writeJSON(t, response, agentResponse{ServerID: "server-1", Status: "connected"})
+		if completed && cancel != nil {
+			cancel()
+		}
 	})
 	mux.HandleFunc("/api/agents/jobs/next", func(response http.ResponseWriter, request *http.Request) {
 		var payload agentRequest
@@ -2054,10 +2060,12 @@ func newMockControlPlane(t *testing.T) *mockControlPlane {
 		controlPlane.mu.Lock()
 		controlPlane.completed = &payload
 		cancel := controlPlane.cancel
+		heartbeat := controlPlane.heartbeat
 		controlPlane.mu.Unlock()
 
 		writeJSON(t, response, completeJobResponse{OK: true})
-		if cancel != nil {
+		// Heartbeats and jobs run independently; either request may arrive first.
+		if heartbeat && cancel != nil {
 			cancel()
 		}
 	})
