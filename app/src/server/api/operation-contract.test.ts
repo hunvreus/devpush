@@ -13,7 +13,7 @@ import {
 describe('public management API contracts', () => {
   test('the published operation reference matches the live operation catalog', () => {
     const reference = readFileSync(
-      new URL('../../../../docs/api-operations.md', import.meta.url),
+      new URL('../../../../docs/reference/api-operations.md', import.meta.url),
       'utf8',
     )
     const entries = [

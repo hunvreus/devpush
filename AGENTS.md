@@ -37,6 +37,7 @@
 ## Docs
 
 - Update `CHANGELOG.md` (Keep a Changelog) for user-visible changes, docs when documented behavior/config/API/architecture changes, and `TODO.md` when backlog items are added or completed. Sentence-case headings.
-- `README.md`: overview, setup, commands. `ARCHITECTURE.md`: mechanics, data flow, invariants, non-obvious decisions. `TODO.md`: the only backlog.
-- `docs/index.md` is the entrypoint. Keep all documentation pages flat under `docs/`; use groups in `docs/docs.json` for product guides, operations, reference and developer workflows. Plain Markdown keeps content portable to ReallySimpleDocs. No private route catalogs.
+- `README.md`: short introduction and setup links. `docs/development/development.md`: contributor boundaries and invariants. `TODO.md`: the only backlog.
+- `docs/index.md` is the entrypoint. Group documentation in matching folders under `docs/`; keep navigation in `docs/docs.json` and page filenames unique so published URLs stay stable. Plain Markdown keeps content portable to ReallySimpleDocs. No private route catalogs.
 - No placeholder docs or unvalidated OpenAPI specs. Transient notes go in `.tmp/`.
+- Keep docs task-first and concise: requirements, steps, result. Give each fact one home and link to it; omit implementation history and private maintainer details. Keep safety guidance beside the relevant action. References may be longer than guides.

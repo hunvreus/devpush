@@ -1,29 +1,12 @@
 ---
-description: Supported devpush REST endpoints, required scopes and their MCP availability.
+description: Supported REST endpoints, required scopes and MCP availability.
 ---
 
 # Public API operations
 
-This table lists the implemented management operations. Request and response schemas are available from GET /api/v1/openapi.json on your installation. That document is derived from the actual handler schemas and checked against the official OpenAPI schema.
+See [API and assistants](/docs/api/) for authentication and retries. Your installation's `/api/v1/openapi.json` provides request/response schemas. The table is checked against the implemented catalog.
 
-Read the [API contract](/docs/api/) for authentication, pagination, idempotency, settings versions and errors. MCP exposes the operations marked below, with the same required scope as REST.
-
-REST writes use the `Idempotency-Key` header; MCP tools use the `idempotencyKey`
-input field. MCP adds a `confirmation` field containing the tool name to
-destructive tools that do not already define that field. Any `confirmationName`
-input remains required. Tool availability also
-depends on the credential's project restrictions and current access.
-
-Use this as an endpoint lookup, not a setup guide. Start with
-[API keys and AI assistants](/docs/api-and-mcp/) for credentials and
-[Public management API](/docs/api/) for requests, retries and errors.
-The **MCP** column shows whether the corresponding operation is also available
-to an assistant. An endpoint's required scope does not override team-role checks. In the table,
-“administrator role” means a **team owner or admin**, not installation-admin status.
-“Unrestricted team management access” requires a credential covering the whole
-team with the stated scope; a project-restricted key cannot use that operation.
-For deployment writes, `idempotencyKey` names the MCP input; REST sends the
-`Idempotency-Key` header.
+Scopes do not override team roles. “Administrator” means a team owner/admin; unrestricted access excludes project-restricted credentials. REST writes require `Idempotency-Key`; MCP uses `idempotencyKey` and the tool's confirmation fields.
 
 | Endpoint | Required scope | MCP tool | Behavior |
 | --- | --- | --- | --- |
@@ -78,5 +61,4 @@ For deployment writes, `idempotencyKey` names the MCP input; REST sends the
 | `POST /api/v1/servers/{serverId}/enable` | `servers:write` | No | Enable a disabled server. Requires current administrator role. |
 | `GET /api/v1/servers/{serverId}/metrics` | `servers:read` | Yes | Read bounded host metric samples. |
 
-Personal-account changes, installation administration, team membership/invitations/ownership, avatar uploads, custom-domain creation and verification, repository settings,
-and enrollment credential issuance remain browser workflows in this version. They are not exposed through this API or MCP. The host-agent protocol remains separate.
+Personal-account changes, installation administration, team membership/invitations/ownership, avatar uploads, custom-domain creation and verification, repository settings and enrollment credential issuance remain browser workflows in this version. They are not exposed through this API or MCP. The host-agent protocol remains separate.

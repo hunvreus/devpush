@@ -1,57 +1,23 @@
 ---
-description: Deploy apps from GitHub to your own servers with Docker Compose.
+description: Deploy GitHub applications to your own servers.
 ---
 
-# Introduction
+# devpush
 
-devpush deploys applications from GitHub to your own Linux servers. Connect a
-server, choose a repository with a Docker Compose file, and deploy. Later pushes
-to a configured branch trigger new deployments.
+devpush is an open-source deployment platform for apps that run with Docker Compose. Connect a Linux server, select a GitHub repository and deploy. Pushes to configured branches deploy automatically.
 
-Use the dashboard to follow build logs, manage domains and environment variables,
-monitor servers, and back up application data. Configure [email notifications](/docs/notifications/) for operational failures and recovery.
+The dashboard runs on Cloudflare Workers or Node. A small agent runs your applications on your servers and reports deployment progress, logs and resource usage.
 
-## Deploy your first app
+- **New installation:** [Install devpush](/docs/self-hosting/).
+- **Dashboard already running:** [Deploy your first app](/docs/getting-started/).
+- **Contributing:** [Local development](/docs/local-setup/).
 
-Already have access to a devpush dashboard? Start with
-[Getting started](/docs/getting-started/). You do not need to install the dashboard
-or run devpush from source to use an existing installation.
+## What you can do
 
-Want to run the dashboard yourself? Follow [Self-host devpush](/docs/self-hosting/)
-first, or use [Package installation](/docs/package-installation/) to compose your
-own configured application. To work on the code locally, use [Local development](/docs/local-setup/).
+- Deploy Compose apps with separate environments and encrypted variables.
+- Connect custom domains with automatic HTTPS.
+- Inspect build logs, runtime logs and server health.
+- Schedule database and volume backups.
+- Work with a team or connect integrations through the API and MCP.
 
-## How the pieces fit together
-
-- **Dashboard:** where you manage projects, servers and deployments. The dashboard
-  and its backend are called the *control plane* in the operator guides.
-- **Server:** a Linux machine you provide. Its devpush agent receives jobs and runs
-  your application containers using Docker Compose.
-- **Project:** a GitHub repository and its deployment settings.
-- **Environment:** a branch rule, variables and server assignment, such as Production.
-- **Deployment:** an attempt to run one commit in an environment.
-
-The dashboard can run on a different machine from your applications. Hosting the
-dashboard on Cloudflare Workers does not run your applications on Cloudflare.
-
-## Common tasks
-
-| I want to… | Read |
-| --- | --- |
-| Set branches, variables or deployment servers | [Projects and environments](/docs/projects/) |
-| Connect a server or check its connection | [Servers](/docs/servers/) |
-| Configure a Compose app or investigate a failed deploy | [Compose deployments](/docs/compose-deployments/) |
-| Use my own domain and HTTPS | [Domains and HTTPS](/docs/domains/) |
-| Back up or restore application data | [Backups](/docs/backups/) |
-| Invite teammates and manage permissions | [Accounts and teams](/docs/accounts-and-teams/) |
-| Automate deployments or connect an AI assistant | [API keys and AI assistants](/docs/api-and-mcp/) |
-
-## What is supported
-
-Applications use Docker Compose. A service can build from a Dockerfile, but a
-Dockerfile alone is not a devpush project. Docker Swarm is not supported.
-Deployments update an environment in place; zero downtime is not guaranteed.
-Rollback changes application code and settings, not database or volume contents.
-
-For trust boundaries, supported security checks and credential handling, see
-[Security](/docs/security/).
+Compose is required; a Dockerfile can be used inside it. Updates happen in place and do not guarantee zero downtime. Deploy only trusted repositories: Docker access gives deployed code control over its server.

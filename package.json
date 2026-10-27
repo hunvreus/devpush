@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.17.1",
   "scripts": {
-    "docs:check": "node scripts/validate-docs.mjs",
+    "docs:check": "node --test scripts/validate-docs.test.mjs && node scripts/validate-docs.mjs",
     "configure": "node scripts/setup.mjs",
     "secrets:pull": "node scripts/local-secrets.mjs",
     "dev": "pnpm --dir app dev",

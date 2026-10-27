@@ -2,15 +2,16 @@
   "menu": [
     {
       "type": "group",
-      "label": "Start here",
+      "label": "Getting started",
       "items": [
         "index",
+        "self-hosting",
         "getting-started"
       ]
     },
     {
       "type": "group",
-      "label": "Deploy and manage apps",
+      "label": "Basics",
       "items": [
         "projects",
         "compose-deployments",
@@ -18,47 +19,36 @@
         "servers",
         "backups",
         "accounts-and-teams",
-        "notifications",
-        "api-and-mcp"
+        "notifications"
       ]
     },
     {
       "type": "group",
-      "label": "Run devpush",
+      "label": "Administration & Operations",
       "items": [
-        "self-hosting",
-        "package-installation",
-        "production-operations",
         "cloudflare-deployment",
-        "administration",
+        "production-operations",
+        "configuration",
         "agent-maintenance",
-        "deletion-recovery",
-        "security"
+        "deletion-recovery"
       ]
     },
     {
       "type": "group",
       "label": "Reference",
       "items": [
-        "configuration",
-        "deployment-commands",
         "api",
-        "api-operations"
+        "api-operations",
+        "package-installation"
       ]
     },
     {
       "type": "group",
-      "label": "Developer",
+      "label": "Development",
       "items": [
         "local-setup",
-        "testing",
-        "workspace-permissions",
-        "agent-protocol",
-        "agent-releases",
-        {
-          "label": "Architecture",
-          "url": "https://github.com/hunvreus/devpush/blob/main/ARCHITECTURE.md"
-        }
+        "development",
+        "agent-releases"
       ]
     }
   ]
