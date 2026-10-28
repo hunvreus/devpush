@@ -184,7 +184,11 @@ function TeamHeader({
               currentProject && 'max-sm:hidden',
             )}
           >
-            <Link to="/" aria-label="devpush">
+            <Link
+              to={activeUserContext ? '/$teamSlug' : '/'}
+              params={activeUserContext ? { teamSlug: activeUserContext.defaultTeam.slug } : undefined}
+              aria-label="devpush"
+            >
               <LogoMark className="size-4.5 shrink-0 transition-colors duration-200 group-hover:text-orange-600 group-focus-visible:text-orange-600" />
             </Link>
           </Button>

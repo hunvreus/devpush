@@ -36,7 +36,7 @@ export function SignOutMenuItem() {
         }
       }}
     >
-      {pending ? 'Signing out…' : 'Sign out'}
+      Sign out
     </DropdownMenuItem>
   )
 }

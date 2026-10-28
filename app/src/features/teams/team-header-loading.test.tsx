@@ -54,12 +54,16 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ invalidate: inviteActions.invalidate }),
   Link: ({
     children,
+    to,
+    params,
     ref,
     'aria-label': label,
     role,
     'aria-selected': selected,
   }: {
     children: ReactNode
+    to?: string
+    params?: { teamSlug?: string }
     ref?: Ref<HTMLAnchorElement>
     'aria-label'?: string
     role?: string
@@ -67,7 +71,7 @@ vi.mock('@tanstack/react-router', () => ({
   }) => (
     <a
       ref={ref}
-      href="#"
+      href={to === '/$teamSlug' ? `/${params?.teamSlug}` : to ?? '#'}
       aria-label={label}
       role={role}
       aria-selected={selected}
@@ -423,3 +427,10 @@ test.each([1, 10])(
     }
   },
 )
+
+test('home links directly to the known default team', () => {
+  const node = header(true)
+  expect(node.querySelector('a[aria-label="devpush"]')?.getAttribute('href')).toBe(
+    `/${projectContext.userContext.defaultTeam.slug}`,
+  )
+})

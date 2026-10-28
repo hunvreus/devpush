@@ -95,7 +95,7 @@ test('keeps sign out disabled until navigation completes', async () => {
   await act(async () => view.button.click())
   expect(cache.getQueryData(['team-context', 'private-team'])).toBeUndefined()
   expect(view.button.disabled).toBe(true)
-  expect(view.button.textContent).toBe('Signing out…')
+  expect(view.button.textContent).toBe('Sign out')
   await act(async () => finish())
   expect(mocks.error).not.toHaveBeenCalled()
   await view.close()

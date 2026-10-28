@@ -1,11 +1,13 @@
 import { pageHead } from '#devpush/lib/page-head'
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { getCurrentUserContext } from '#devpush/server/auth/context'
+import { currentUserContextQueryOptions } from '#devpush/features/auth/current-user-context-query'
 
 export const Route = createFileRoute('/')({
-  loader: async () => {
-    const context = await getCurrentUserContext()
+  loader: async ({ context: routerContext }) => {
+    const context = await routerContext.queryClient.fetchQuery(
+      currentUserContextQueryOptions(),
+    )
 
     if (!context) {
       throw redirect({ to: '/auth/login' })

@@ -4,7 +4,11 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.5] - 2026-10-28
+
 ### Fixed
+
+- Keep the sign-out label stable and navigate home directly to the known default team. Reuse cached user context for home redirects.
 
 - Remove unsupported new-tab attributes from both README demo links.
 
