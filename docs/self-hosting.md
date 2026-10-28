@@ -20,11 +20,11 @@ You need Node.js 22.12+, pnpm 10.17+, a stable dashboard URL and at least one si
 Start with a source checkout:
 
 ```sh
-git clone --branch v1.0.0-beta.1 https://github.com/hunvreus/devpush.git
+git clone --branch v1.0.0-beta.2 https://github.com/hunvreus/devpush.git
 cd devpush
 ```
 
-Then follow your chosen target guide. The [beta release](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.1) includes the app package and pinned agent binaries. [Package integration](/docs/package-installation/) remains an advanced preview. Cloudflare downloads agents from GitHub Releases; Docker bundles them.
+Then follow your chosen target guide. The [beta release](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.2) includes the app package and pinned agent binaries. [Package integration](/docs/package-installation/) remains an advanced preview. Cloudflare downloads agents from GitHub Releases; Docker bundles them.
 
 ## Before opening access
 

@@ -1,4 +1,3 @@
-import { CopyButton } from '#devpush/components/copy-button'
 import {
   allowlistRuleSchema,
   allowlistImportSchema,
@@ -7,9 +6,7 @@ import { formErrors } from '#devpush/lib/form-errors'
 import type { FormErrors } from '#devpush/lib/form-errors'
 import { afterMutation } from '#devpush/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
 import {
-  ArrowUpRightIcon,
   BanIcon,
   ChevronDownIcon,
   LoaderIcon,
@@ -109,7 +106,6 @@ import {
   banUserAction,
   deleteAdminUserAction,
   deleteAllowlistRuleAction,
-  getInstallationReleaseStatus,
   importAllowlistEmailsAction,
   unbanUserAction,
 } from '#devpush/server/admin/functions'
@@ -522,102 +518,14 @@ export function AdminSettings({
       </ButtonGroup>
     </>
   )
-  const installation = overview.installation
-  const { data: latestInstallation, error: releaseError } = useQuery({
-    queryKey: ['installation-release-status'],
-    queryFn: () => getInstallationReleaseStatus(),
-    enabled: Boolean(installation.current),
-    staleTime: 5 * 60 * 1000,
-  })
-  const latest = latestInstallation ?? installation.latest
-
   return (
     <StandaloneSettingsLayout
       title="Admin"
       navigation={[
-        { href: '#installation', label: 'Installation' },
         { href: '#users', label: 'Users' },
         { href: '#allowlist', label: 'Allowlist' },
       ]}
     >
-      <Card id="installation" className="scroll-mt-8">
-        <CardHeader className="border-b">
-          <CardTitle>Installation</CardTitle>
-          <CardDescription>
-            Information about this installation and available updates.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="min-h-40">
-          {installation.current ? (
-            <div className="grid gap-6 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <div className="text-xs text-muted-foreground">Version</div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm">
-                    {installation.current.gitRef}
-                  </span>
-                  {!releaseError &&
-                  latest?.isUpdateAvailable &&
-                  latest.url &&
-                  latest.tag ? (
-                    <Badge
-                      asChild
-                      variant="secondary"
-                      className="bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
-                    >
-                      <a href={latest.url} target="_blank" rel="noreferrer">
-                        Update to {latest.tag}
-                        <ArrowUpRightIcon />
-                      </a>
-                    </Badge>
-                  ) : releaseError || latest?.error ? (
-                    <Badge variant="outline">Update unavailable</Badge>
-                  ) : latest ? (
-                    <Badge variant="secondary">Latest</Badge>
-                  ) : null}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <div className="text-xs text-muted-foreground">
-                  Last updated
-                </div>
-                <div className="text-sm">
-                  {installation.current.updatedAt
-                    ? formatAge(installation.current.updatedAt)
-                    : '-'}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <div className="text-xs text-muted-foreground">Install ID</div>
-                {installation.current.installId ? (
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-mono text-sm">
-                      {installation.current.installId}
-                    </span>
-                    <CopyButton
-                      value={installation.current.installId}
-                      label="Copy install ID"
-                    />
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">-</div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <Empty className="min-h-40">
-              <EmptyHeader>
-                <EmptyTitle>No installation information</EmptyTitle>
-                <EmptyDescription>
-                  If you are not running a development version, check the
-                  installation and version-file configuration.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </CardContent>
-      </Card>
-
       <Card id="users" className="scroll-mt-8">
         <CardHeader className="border-b">
           <CardTitle>Users</CardTitle>

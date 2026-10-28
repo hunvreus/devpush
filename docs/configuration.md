@@ -111,7 +111,6 @@ On Workers without R2 or S3, upload controls are hidden; provider avatars and ge
 | `DEVPUSH_BACKUPS_ENABLED` | Enables application [backups](/docs/backups/); default `false`. |
 | `VITE_DEVPUSH_BACKUPS_ENABLED` | Matching build flag. Compose derives it; set it yourself for local Vite and Workers builds. |
 
-`DEVPUSH_VERSION_FILE` optionally supplies installation version metadata.
 
 ## Host agent settings
 

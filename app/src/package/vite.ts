@@ -91,7 +91,8 @@ export function devpush(options: DevpushOptions = {}) {
       this.emitFile({
         type: 'asset',
         fileName: '_headers',
-        source: '/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n',
+        source:
+          '/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n',
       })
     },
   }
@@ -226,17 +227,6 @@ export function devpush(options: DevpushOptions = {}) {
           ),
         },
         {
-          find: '#devpush/server/admin/installation-current',
-          replacement: fileURLToPath(
-            new URL(
-              isCloudflare
-                ? '../../src/server/admin/installation-current.cloudflare.ts'
-                : '../../src/server/admin/installation-current.ts',
-              import.meta.url,
-            ),
-          ),
-        },
-        {
           find: '#devpush/server/runtime/platform-env',
           replacement: platformEnv,
         },
@@ -295,7 +285,10 @@ export function devpush(options: DevpushOptions = {}) {
                 nitro({
                   features: { websocket: true },
                   plugins: [
-                    resolve(source, 'server/runtime/node-asset-cache-plugin.ts'),
+                    resolve(
+                      source,
+                      'server/runtime/node-asset-cache-plugin.ts',
+                    ),
                     resolve(source, 'server/runtime/node-scheduler-plugin.ts'),
                   ],
                   handlers: [

@@ -66,7 +66,6 @@ const envSchema = z
     DEVPUSH_STORAGE_BUCKET: optionalString,
     DEVPUSH_STORAGE_ACCESS_KEY_ID: optionalString,
     DEVPUSH_STORAGE_SECRET_ACCESS_KEY: optionalString,
-    DEVPUSH_VERSION_FILE: optionalString,
     DEVPUSH_CRON_SECRET: optionalString,
     DEVPUSH_BACKUPS_ENABLED: envBoolean.default(false),
     DEVPUSH_AGENT_AUTO_UPDATE: envBoolean.default(false),

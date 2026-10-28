@@ -4,10 +4,13 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.2] - 2026-10-28
+
 ### Changed
 
+- Remove redundant installation metadata and update checks from Admin; use About devpush for version information.
+
 - Remove the configurable sign-in notice.
-- Flatten the unreleased main database migrations into one baseline. Existing pre-release databases must be recreated.
 
 ### Added
 

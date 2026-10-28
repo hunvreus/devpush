@@ -25,7 +25,7 @@ function fixture() {
     metadata: {
       version: "1.2.3",
       protocolVersion: 1,
-      capabilities: ["ingress.certificates.v1"],
+      capabilities: ["ingress.certificates.v1", "ingress.inactive-redirects.v1"],
     },
     binaries,
   };
@@ -76,6 +76,9 @@ test("manifest validation rejects ambiguous platforms, unsafe URLs and malformed
     },
     (value) => {
       value.capabilities.push(value.capabilities[0]);
+    },
+    (value) => {
+      value.capabilities.push("ingress.invalid/name.v1");
     },
     (value) => {
       value.version = "../../other";

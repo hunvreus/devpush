@@ -24,7 +24,6 @@ vi.mock('#devpush/server/admin/functions', () => ({
   banUserAction: mocks.ban,
   deleteAdminUserAction: mocks.deleteUser,
   deleteAllowlistRuleAction: mocks.deleteRule,
-  getInstallationReleaseStatus: vi.fn(),
   unbanUserAction: vi.fn(),
 }))
 vi.mock('@tanstack/react-router', () => ({
@@ -83,7 +82,6 @@ async function mount(overrides: Partial<AdminOverview> = {}) {
           currentUserId="admin"
           onSearchChange={mocks.changeAllowlist}
           overview={{
-            installation: { current: null, latest: null },
             users: [],
             allowlist: [],
             userPagination: {
@@ -131,6 +129,13 @@ async function fill(id: string, value: string) {
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
+test('admin shows user management without installation metadata', async () => {
+  await mount()
+  expect(document.getElementById('users')).not.toBeNull()
+  expect(document.getElementById('allowlist')).not.toBeNull()
+  expect(document.getElementById('installation')).toBeNull()
+  expect(document.querySelector('a[href="#installation"]')).toBeNull()
+})
 test('invalid email rule stays inline without an API request', async () => {
   await mount()
   await click('Add rule')

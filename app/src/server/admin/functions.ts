@@ -22,7 +22,6 @@ import {
   unbanUser,
 } from '#devpush/server/admin/service'
 import { getUserContext } from '#devpush/server/teams/service'
-import { getInstallationInfo } from '#devpush/server/admin/installation'
 
 const idSchema = z.object({
   id: z.string().min(1),
@@ -53,15 +52,6 @@ export const getAdminSettingsContext = createServerFn({
       adminOverview,
     }
   })
-
-export const getInstallationReleaseStatus = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  const session = await requireAuthSession()
-
-  await requireInstallationAdmin(session.user)
-  return (await getInstallationInfo()).latest
-})
 
 export const addAllowlistRuleAction = createServerFn({ method: 'POST' })
   .validator((data: z.input<typeof allowlistRuleSchema>) => data)

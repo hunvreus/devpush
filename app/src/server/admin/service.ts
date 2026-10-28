@@ -8,7 +8,6 @@ import {
 import { adminSearchSchema } from '#devpush/lib/admin-search-schema'
 import { db } from '#devpush/server/db'
 import { allowlist, session, user } from '#devpush/server/db/schema'
-import { getInstallationInfo } from '#devpush/server/admin/installation'
 import { deleteUserAccountAsAdmin } from '#devpush/server/users/service'
 import {
   requireInstallationAdmin,
@@ -29,14 +28,12 @@ export async function getAdminOverview(
   } = {},
 ) {
   await requireInstallationAdmin(actor)
-  const [users, allowlistEntries, installation] = await Promise.all([
+  const [users, allowlistEntries] = await Promise.all([
     getAdminUsers(actor, search),
     getAdminAllowlist(actor, search),
-    getInstallationInfo({ includeLatest: false }),
   ])
 
   return {
-    installation,
     users: users.items,
     userPagination: users.pagination,
     allowlist: allowlistEntries.items,

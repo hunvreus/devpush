@@ -44,7 +44,6 @@ export const userSettingsModule = createDeferredModule(
 )
 
 const adminItems: Array<SectionNavigationItem> = [
-  { href: '#installation', label: 'Installation' },
   { href: '#users', label: 'Users' },
   { href: '#allowlist', label: 'Allowlist' },
 ]
@@ -63,7 +62,7 @@ const userItems: Array<SectionNavigationItem> = [
 type PendingSection = {
   description: ReactNode
   footer?: boolean
-  kind: 'collection' | 'fields' | 'installation' | 'single-action'
+  kind: 'collection' | 'fields' | 'single-action'
   title: string
 }
 
@@ -94,12 +93,6 @@ export function AdminSettingsPending() {
       ariaLabel="Loading admin settings"
       items={adminItems}
       sections={[
-        {
-          description:
-            'Information about this installation and available updates.',
-          kind: 'installation',
-          title: 'Installation',
-        },
         {
           description: 'Manage the users registered on your platform.',
           kind: 'collection',
@@ -210,9 +203,6 @@ function PendingSettingsCard({ section }: { section: PendingSection }) {
       id={section.title.toLowerCase().replaceAll(' ', '-')}
       title={section.title}
       description={section.description}
-      contentClassName={
-        section.kind === 'installation' ? 'min-h-40' : undefined
-      }
       footer={
         section.footer ? (
           <>
@@ -339,19 +329,6 @@ function PendingCardContent({
             { title: '', className: 'w-16' },
           ]}
         />
-      </div>
-    )
-  }
-
-  if (kind === 'installation') {
-    return (
-      <div className="grid gap-6 sm:grid-cols-3">
-        {['Version', 'Last updated', 'Install ID'].map((label, index) => (
-          <div className="space-y-1.5" key={index}>
-            <p className="text-xs text-muted-foreground">{label}</p>
-            <Skeleton className="h-5 w-28" />
-          </div>
-        ))}
       </div>
     )
   }

@@ -40,7 +40,7 @@ export function validateAgentRelease(value) {
     !Array.isArray(value.capabilities) ||
     !value.capabilities.length ||
     value.capabilities.some(
-      (item) => typeof item !== 'string' || !/^[a-z][a-z0-9.]+$/.test(item),
+      (item) => typeof item !== 'string' || !/^[a-z][a-z0-9.-]+$/.test(item),
     ) ||
     new Set(value.capabilities).size !== value.capabilities.length
   )
