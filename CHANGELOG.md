@@ -15,6 +15,7 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ### Fixed
 
+- Remove the icon from the deployment console’s empty state.
 - Match the deployment Visit button group while loading or disabled.
 - Label deployment log limit notices as devpush messages.
 - Show deployment failure reasons without adding hub events to the agent console.

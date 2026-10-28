@@ -202,8 +202,7 @@ export function DeploymentDetail({
               </div>
             ))
           ) : (
-            <div className="flex h-full items-center justify-center gap-x-2 text-muted-foreground">
-              <CircleXIcon className="size-4 shrink-0" />
+            <div className="flex h-full items-center justify-center text-muted-foreground">
               No logs found
             </div>
           )}
