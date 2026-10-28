@@ -1,6 +1,12 @@
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish to npm
+        required: true
+        type: string
   push:
     tags: ["v[0-9]*"]
 
@@ -9,6 +15,7 @@ permissions:
 
 jobs:
   release:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     env:
       DEVPUSH_BASE_URL: http://localhost:7429
@@ -77,12 +84,20 @@ jobs:
           (cd "$download_dir" && sha256sum --check SHA256SUMS)
 
   npm:
+    if: always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
     needs: release
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
     steps:
+      - name: Validate release tag
+        run: '[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
@@ -90,9 +105,9 @@ jobs:
       - name: Download the verified application package
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'devpush-*.tgz' --dir release
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'devpush-*.tgz' --dir release
       - name: Publish to npm using trusted publishing
         run: |
           tag=latest
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then tag=beta; fi
-          npm publish release/devpush-*.tgz --access public --provenance --tag "$tag"
+          if [[ "$RELEASE_TAG" == *-* ]]; then tag=beta; fi
+          npm publish ./release/devpush-*.tgz --access public --provenance --tag "$tag"
