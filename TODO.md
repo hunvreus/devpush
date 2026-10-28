@@ -12,6 +12,7 @@ Outstanding work only. Private extension work belongs in its own repository.
 
 ## Reliability and operations
 
+- Recover open browser tabs cleanly when a deployment changes server-function bundles during navigation.
 - Load-test concurrent deployments, log ingestion and database recovery on D1/libSQL.
 - Preserve generated deployment URLs safely across server IP changes.
 - Provide operator recovery for rejected completion records and orphaned log captures.
