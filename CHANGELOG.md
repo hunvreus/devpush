@@ -4,6 +4,12 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.7] - 2026-10-29
+
+### Fixed
+
+- Keep admin table actions inset from the edge and match loading search controls to the loaded page.
+
 ## [1.0.0-beta.6] - 2026-10-28
 
 ### Changed

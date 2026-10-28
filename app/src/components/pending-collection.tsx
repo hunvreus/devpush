@@ -59,7 +59,7 @@ export function PendingTable({
           <TableRow>
             {columns.map((column, index) => (
               <TableHead
-                className={`${column.className ?? ''} ${column.title ? 'first:pl-4 last:pr-4' : ''}`}
+                className={`${column.className ?? ''} first:pl-4 last:pr-4`}
                 key={index}
               >
                 {column.title || <span className="sr-only">Actions</span>}
@@ -71,7 +71,7 @@ export function PendingTable({
           <TableRow>
             {columns.map((column, index) => (
               <TableCell
-                className={column.title ? 'first:pl-4 last:pr-4' : undefined}
+                className="first:pl-4 last:pr-4"
                 key={index}
               >
                 {column.title ? (
@@ -90,7 +90,7 @@ export function PendingTable({
                   </div>
                 ) : (
                   <div className="ml-auto w-fit">
-                    <Skeleton className="-mr-2 size-8" />
+                    <Skeleton className="size-8" />
                   </div>
                 )}
               </TableCell>

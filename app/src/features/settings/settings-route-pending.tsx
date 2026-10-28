@@ -270,9 +270,6 @@ function PendingCardContent({
                 disabled
               />
             </InputGroup>
-            <Button variant="outline" disabled>
-              Search
-            </Button>
           </div>
           <PendingTable
             label="Users loading"
@@ -301,9 +298,6 @@ function PendingCardContent({
                 disabled
               />
             </InputGroup>
-            <Button variant="outline" disabled>
-              Search
-            </Button>
           </div>
           <ButtonGroup>
             <Button variant="outline" disabled>

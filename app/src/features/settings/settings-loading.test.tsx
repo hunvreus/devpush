@@ -58,4 +58,5 @@ test('admin loading keeps search and allowlist actions visible but disabled', ()
     /<button[^>]*disabled=""[^>]*aria-label="More allowlist actions"/,
   )
   expect(html).not.toContain('No allowlist entries')
+  expect(html).not.toMatch(/>Search<\/button>/)
 })

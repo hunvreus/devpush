@@ -603,7 +603,7 @@ export function AdminSettings({
                         <TableHead>Email</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="w-28">
+                        <TableHead className="w-28 pr-4">
                           <span className="sr-only">Actions</span>
                         </TableHead>
                       </TableRow>
@@ -655,9 +655,9 @@ export function AdminSettings({
                                 {formatUserStatus(user)}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-right">
+                            <TableCell className="pr-4 text-right">
                               <div className="ml-auto">
-                                <div className="-mr-2 flex items-center justify-end gap-1">
+                                <div className="flex items-center justify-end gap-1">
                                   {isCurrentUser ||
                                   user.status ===
                                     'deleted' ? null : user.status ===
@@ -902,7 +902,7 @@ export function AdminSettings({
                         <TableHead className="pl-4">Type</TableHead>
                         <TableHead>Value</TableHead>
                         <TableHead>Added</TableHead>
-                        <TableHead className="w-16">
+                        <TableHead className="w-16 pr-4">
                           <span className="sr-only">Actions</span>
                         </TableHead>
                       </TableRow>
@@ -921,7 +921,7 @@ export function AdminSettings({
                           <TableCell className="text-muted-foreground">
                             {formatAge(entry.createdAt)}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="pr-4 text-right">
                             <AlertDialog
                               open={confirmation === `rule:${entry.id}`}
                               onOpenChange={(open) => {
