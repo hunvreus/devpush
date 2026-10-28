@@ -112,6 +112,10 @@ test.each([
   } else if (section === 'logs') expect(html).toContain('Loading logs')
   else expect(html).toContain('data-slot="skeleton"')
   if (section === 'deployment') {
+    expect(html).toContain('aria-label="Visit deployment"')
+    expect(html).toMatch(
+      /<button[^>]*aria-label="Deployment links"[^>]*disabled=""/,
+    )
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*?Visit<\/button>/)
     expect(html).toMatch(
       /<button[^>]*disabled=""[^>]*aria-label="Deployment options"/,

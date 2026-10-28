@@ -63,7 +63,16 @@ export function DeploymentVisitLinks({
             </ul>
           </PopoverContent>
         </Popover>
-      ) : null}
+      ) : (
+        <Button
+          size="icon"
+          className="w-6"
+          aria-label="Deployment links"
+          disabled
+        >
+          <ChevronsUpDownIcon />
+        </Button>
+      )}
     </ButtonGroup>
   )
 }

@@ -29,6 +29,7 @@ import {
 } from '#devpush/lib/project-context-query'
 import { ProjectOverview } from '#devpush/features/projects/project-overview'
 import { DeploymentListPending } from '#devpush/features/deployments/deployment-list'
+import { DeploymentVisitLinks } from '#devpush/features/deployments/deployment-visit-links'
 import type { ProjectPendingSection } from '#devpush/features/projects/pending-section'
 import { Skeleton } from '#devpush/components/ui/skeleton'
 import { Button } from '#devpush/components/ui/button'
@@ -54,7 +55,6 @@ import {
   GitCommitHorizontalIcon,
   ArrowRightIcon,
   ArrowUpRightIcon,
-  Link2Icon,
   MoreHorizontalIcon,
   ChevronsUpDownIcon,
   SettingsIcon,
@@ -406,10 +406,7 @@ function DeploymentDetailPending({
         monoLast
         controls={
           <div className="flex items-center gap-2">
-            <Button disabled>
-              <Link2Icon data-icon="inline-start" />
-              Visit
-            </Button>
+            <DeploymentVisitLinks canVisit={false} visitUrl={null} aliases={[]} />
             <Button
               variant="outline"
               size="icon"
