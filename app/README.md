@@ -20,4 +20,4 @@ pnpm add --save-exact devpush
 
 Follow [Package integration](https://devpu.sh/docs/package-installation/) to configure your dashboard, databases and authentication, then build and deploy. Installing the package alone does not start a dashboard.
 
-[Documentation](https://devpu.sh/docs/) · [Source and contributing](https://github.com/hunvreus/devpush) · [MIT license](https://github.com/hunvreus/devpush/blob/development/LICENSE.md)
+[Documentation](https://devpu.sh/docs/) · [Source and contributing](https://github.com/hunvreus/devpush) · [MIT license](https://github.com/hunvreus/devpush/blob/main/LICENSE.md)

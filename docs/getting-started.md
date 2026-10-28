@@ -6,7 +6,7 @@ description: Connect a server and deploy your first application.
 
 You need a devpush dashboard, a Linux server you administer and a GitHub repository containing a Compose file. [Install devpush](/docs/self-hosting/) if you do not have a dashboard yet.
 
-For a first test, use the [example app](https://github.com/hunvreus/devpush/tree/development/examples/compose-web): service `web`, port `3000`, health path `/health`.
+For a first test, use the [example app](https://github.com/hunvreus/devpush/tree/main/examples/compose-web): service `web`, port `3000`, health path `/health`.
 
 ## 1. Connect a server
 

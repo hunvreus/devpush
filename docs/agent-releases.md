@@ -48,7 +48,7 @@ Create the release commit with its version, changelog and generated agent manife
 5. Downloads the public agent assets and verifies their published checksums.
 6. Publishes the verified app package to npm through trusted publishing.
 
-Tags with a prerelease suffix (for example, `v1.0.0-beta.3`) produce prereleases and do not replace the latest stable release.
+Tags with a prerelease suffix (for example, `v1.0.0-beta.4`) produce prereleases and do not replace the latest stable release.
 
 The workflow rejects mismatched tags or pins and never overwrites an existing release. Dashboard deployment is separate.
 

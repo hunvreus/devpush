@@ -4,6 +4,8 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.4] - 2026-10-28
+
 ### Changed
 
 - Use the dark homepage screenshot and play overlay for both README demo links.

@@ -4,7 +4,7 @@ description: Understand code boundaries, extension hooks and contributor invaria
 
 # Contributing
 
-Start with [Local development](/docs/local-setup/) for setup and checks. Follow the repository's [agent rules](https://github.com/hunvreus/devpush/blob/development/AGENTS.md) when changing code.
+Start with [Local development](/docs/local-setup/) for setup and checks. Follow the repository's [agent rules](https://github.com/hunvreus/devpush/blob/main/AGENTS.md) when changing code.
 
 ## Code boundaries
 
@@ -29,7 +29,7 @@ Secrets use the installation's stable encryption keys. External projections omit
 
 Queue admission records the commit, settings and encrypted variable snapshot. Claims supply current provider credentials. Each environment has one stable Compose runtime. Redeploy/rollback reuse recorded settings with current routing, not data snapshots.
 
-Protocol compatibility uses `protocolVersion` and capabilities, not the release string. Update request schemas and Go types together; flag any required coordinated upgrade. Agent credentials are separate from user API keys. The canonical wire definitions live in the [control-plane protocol](https://github.com/hunvreus/devpush/blob/development/app/src/server/agents/protocol.ts) and [Go protocol types](https://github.com/hunvreus/devpush/blob/development/agent/internal/agent/protocol.go), rather than a second field catalog in docs.
+Protocol compatibility uses `protocolVersion` and capabilities, not the release string. Update request schemas and Go types together; flag any required coordinated upgrade. Agent credentials are separate from user API keys. The canonical wire definitions live in the [control-plane protocol](https://github.com/hunvreus/devpush/blob/main/app/src/server/agents/protocol.ts) and [Go protocol types](https://github.com/hunvreus/devpush/blob/main/agent/internal/agent/protocol.go), rather than a second field catalog in docs.
 
 Completion/log outboxes survive restarts. Pending completion delivery and interrupted volume-restore recovery run before new claims. Never discard an outbox, journal or recovery archive to unblock work. A failed or interrupted job may already have changed external state; it must not be silently replayed.
 
@@ -43,7 +43,7 @@ Core supplies generic hooks, permission gates and UI slots. Extension-specific p
 
 The optional `runtimeLogLimits(teamId)` service supplies team-wide runtime-log budgets. Core authenticates uploads and enforces these limits without knowing extension-specific product rules.
 
-Factories/providers must be bounded, retryable and cheap to initialize. Preserve generic fallbacks only when no provider is configured; provider failure must not silently change behavior. Pin compatible app/plugin versions and build them together. See the [server contracts](https://github.com/hunvreus/devpush/blob/development/app/src/plugins/server.ts) and [UI contracts](https://github.com/hunvreus/devpush/blob/development/app/src/plugins/client.ts) for supported hooks.
+Factories/providers must be bounded, retryable and cheap to initialize. Preserve generic fallbacks only when no provider is configured; provider failure must not silently change behavior. Pin compatible app/plugin versions and build them together. See the [server contracts](https://github.com/hunvreus/devpush/blob/main/app/src/plugins/server.ts) and [UI contracts](https://github.com/hunvreus/devpush/blob/main/app/src/plugins/client.ts) for supported hooks.
 
 ## Migrations and docs
 
