@@ -4,7 +4,9 @@ devpush is an open-source deployment platform for your own servers. Connect a Gi
 
 Run the dashboard on **Cloudflare Workers** or **Node**. A small Linux agent manages applications on your servers, including HTTPS, deployment logs, monitoring and backups. Teams, environments, encrypted variables, a REST API and MCP are included.
 
-[![Watch the devpush demo](https://devpu.sh/videos/devpush-demo.jpg)](https://devpu.sh/videos/devpush-demo.mp4)
+<a href="https://devpu.sh/videos/devpush-demo.mp4" target="_blank" rel="noopener noreferrer">
+  <img src="https://devpu.sh/videos/readme-demo.png" alt="Watch the devpush demo" width="1200" />
+</a>
 
 ## Get started
 

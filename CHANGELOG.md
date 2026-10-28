@@ -6,6 +6,8 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ### Changed
 
+- Use the dark homepage screenshot and play overlay for both README demo links.
+
 - Add the demo and setup guidance to the repository and npm READMEs; document npm installation and automated publishing.
 
 ## [1.0.0-beta.3] - 2026-10-28
