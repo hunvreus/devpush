@@ -34,7 +34,7 @@ Sign in, configure the [allowlist](/docs/accounts-and-teams/#installation-admini
 
 ## Upgrade
 
-Back up both databases and uploads, review migrations, check out the reviewed commit (or release tag, once available) and rerun the start command. Keep `BETTER_AUTH_SECRET` and `DEVPUSH_SECRET_ENCRYPTION_KEY` unchanged.
+Back up both databases and uploads, review migrations, check out the new release tag and rerun the start command. Keep `BETTER_AUTH_SECRET` and `DEVPUSH_SECRET_ENCRYPTION_KEY` unchanged.
 
 All services run as UID/GID 1000. Existing volumes/bind mounts must grant that user access; do not make them world-writable. Run one app instance with SQLite on a local filesystem, never a network share.
 

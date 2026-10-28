@@ -13,7 +13,7 @@ Includes environments, custom domains and HTTPS, encrypted variables, logs, serv
 To use this package in your own project:
 
 ```sh
-pnpm add devpush@beta
+pnpm add --save-exact devpush
 ```
 
 Follow [Package integration](https://devpu.sh/docs/package-installation/) to configure your dashboard, databases and authentication, then build and deploy. Installing the package alone does not start a dashboard.

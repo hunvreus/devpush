@@ -24,7 +24,7 @@ git clone --branch v1.0.0-beta.3 https://github.com/hunvreus/devpush.git
 cd devpush
 ```
 
-Then follow your chosen target guide. The [beta release](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.3) includes the app package and pinned agent binaries. [Package integration](/docs/package-installation/) remains an advanced preview. Cloudflare downloads agents from GitHub Releases; Docker bundles them.
+Then follow your chosen target guide. To use devpush as a dependency in your own project, see [Package integration](/docs/package-installation/).
 
 ## Before opening access
 

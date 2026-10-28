@@ -4,7 +4,7 @@ description: Install the dashboard on Cloudflare Workers.
 
 # Install on Cloudflare
 
-You need a source checkout, Node.js 22.12+, pnpm 10.17+ and a Cloudflare account. Applications run on separate Linux servers. Server enrollment requires the pinned [agent release](/docs/agent-releases/); check that page for availability.
+You need a source checkout, Node.js 22.12+, pnpm 10.17+ and a Cloudflare account. Applications run on separate Linux servers.
 
 ## Configure
 
