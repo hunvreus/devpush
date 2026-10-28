@@ -57,4 +57,4 @@ Keep files flat and organize the sidebar through `docs/docs.json`. Page filename
 
 ## Branches
 
-Use `main` for integration and short-lived branches for changes. Create `release/<version>` only when a release needs stabilization or patches while newer work continues on `main`. Release tags identify published builds. The current rewrite remains on `development` until its release checks pass; merge it normally without rewriting the existing history.
+Use `main` for integration and short-lived branches for changes. Publish releases from version tags; no permanent release branch is required. A maintenance branch is only needed when supporting an older release alongside newer development. See [Agent releases](/docs/agent-releases/) for the build and publication process.

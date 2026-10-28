@@ -11,7 +11,7 @@ The app package does not contain agent executables. Its `agent-release.json` pin
 
 `devpush-agent version --json` reports a running agent's version, protocol, capabilities and platform.
 
-Published binaries, checksums and the app package are attached to the matching [GitHub Release](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.3).
+Published binaries, checksums and the app package are attached to their matching [GitHub Release](https://github.com/hunvreus/devpush/releases).
 
 ## Download behavior
 
