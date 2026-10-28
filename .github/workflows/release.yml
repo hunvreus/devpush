@@ -77,7 +77,9 @@ jobs:
           trap 'rm -rf "$download_dir"' EXIT
           release_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
           for asset in devpush-agent-linux-amd64 devpush-agent-linux-arm64 agent-release.json SHA256SUMS; do
-            curl --fail --location --retry 5 --retry-all-errors --output "$download_dir/$asset" "$release_url/$asset"
+            curl --fail --location --connect-timeout 15 --max-time 60 \
+              --retry 12 --retry-delay 10 --retry-max-time 180 --retry-all-errors \
+              --output "$download_dir/$asset" "$release_url/$asset"
           done
           cmp bin/agent-release.json "$download_dir/agent-release.json"
           cmp bin/SHA256SUMS "$download_dir/SHA256SUMS"
