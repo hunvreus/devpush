@@ -52,3 +52,5 @@ Tags with a prerelease suffix (for example, `v1.0.0-beta.3`) produce prereleases
 The workflow rejects mismatched tags or pins and never overwrites an existing release. It does not publish to npm or deploy the dashboard.
 
 If an installation has no local binaries, publish the release before you enroll servers. Don't rename the manifest URLs unless you rebuild the release artifacts.
+
+The release workflow publishes the verified app tarball to npm using GitHub OIDC trusted publishing. Prereleases use the `beta` npm tag; stable releases use `latest`. Configure `hunvreus/devpush`, workflow `release.yml`, as the package’s trusted publisher before the next release.

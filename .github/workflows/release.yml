@@ -75,3 +75,24 @@ jobs:
           cmp bin/agent-release.json "$download_dir/agent-release.json"
           cmp bin/SHA256SUMS "$download_dir/SHA256SUMS"
           (cd "$download_dir" && sha256sum --check SHA256SUMS)
+
+  npm:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Download the verified application package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'devpush-*.tgz' --dir release
+      - name: Publish to npm using trusted publishing
+        run: |
+          tag=latest
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then tag=beta; fi
+          npm publish release/devpush-*.tgz --access public --provenance --tag "$tag"
