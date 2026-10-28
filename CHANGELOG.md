@@ -4,6 +4,10 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove unsupported new-tab attributes from both README demo links.
+
 ## [1.0.0-beta.4] - 2026-10-28
 
 ### Changed

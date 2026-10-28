@@ -2,7 +2,7 @@
 
 Deploy Docker Compose applications to your own servers with a git push. Run the dashboard on Cloudflare Workers or Node; the Linux agent builds and runs your applications.
 
-<a href="https://devpu.sh/videos/devpush-demo.mp4" target="_blank" rel="noopener noreferrer">
+<a href="https://devpu.sh/videos/devpush-demo.mp4">
   <img src="https://devpu.sh/videos/readme-demo.png" alt="Watch the devpush demo" width="1200" />
 </a>
 
