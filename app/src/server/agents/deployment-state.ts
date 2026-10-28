@@ -1,7 +1,7 @@
 import { and, eq, or, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
 import type { AtomicStore } from '#devpush/server/db/atomic'
-import { deployments, deploymentEvents } from '#devpush/server/db/schema'
+import { deployments } from '#devpush/server/db/schema'
 import * as schema from '#devpush/server/db/schema'
 
 export async function finishDeployment(
@@ -90,12 +90,7 @@ export async function failRunningDeployments(
         and (servers.last_seen_at is null or servers.last_seen_at < ${input.heartbeatBefore.getTime()}))`
           : sql``
       }`
-    const [, changed] = await store.batch([
-      store.run(sql`insert into ${deploymentEvents} (deployment_id, stream, seq, content, search_content, created_at)
-        select ${deployments.id}, 'control', coalesce((select max(event.seq) from ${deploymentEvents} as event
-          where event.deployment_id = ${deployments.id} and event.stream = 'control'), 0) + 1,
-          ${input.message}, ${input.message.toLowerCase()}, ${input.now.getTime()}
-        from ${deployments} where ${guard}`),
+    const [changed] = await store.batch([
       store.all(sql`update ${deployments} set status = 'failed', phase = ${input.phase}, error_message = ${input.message},
         finished_at = ${input.now.getTime()} where ${guard} returning id`),
     ])

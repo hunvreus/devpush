@@ -11,6 +11,7 @@ const resourceFamilies = new Set([
   'project-logs',
   'deployment-context',
   'deployment-logs',
+  'current-user-context',
 ])
 
 // Mutation responses and navigation must not reuse pre-write snapshots. Mark

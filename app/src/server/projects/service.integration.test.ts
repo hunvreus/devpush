@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { registerAgent } from '#devpush/server/servers/service'
 import * as GeneratedHostnameModule from './generated-hostname'
 import { pruneDeletedResources } from '#devpush/server/deleted-resources'
 import { saveBackupStorage } from '#devpush/server/backups/storage'
@@ -15,6 +17,7 @@ import {
   backupConfigs,
   backupRuns,
   deployments,
+  deploymentEvents,
   domains,
   environments,
   githubInstallations,
@@ -30,6 +33,7 @@ import {
   createRollbackDeployment,
 } from './deployments'
 import {
+  resolveUnavailableDeployment,
   getDeploymentSectionContext,
   getDeploymentLogsContext,
   getProjectContext,
@@ -81,6 +85,129 @@ afterAll(async () => {
 })
 
 describe('project settings integration', () => {
+  test('project shell retains environment and branch routes without including deployment aliases', async () => {
+    const f = await createProjectFixture()
+    const branchId = makeId('branch-alias')
+    const deploymentAliasId = makeId('deployment-alias')
+    touchedHostnameIds.push(branchId, deploymentAliasId)
+    await db.insert(aliases).values([
+      {
+        id: branchId,
+        projectId: f.projectId,
+        environmentId: f.environmentId,
+        type: 'branch',
+        branch: 'main',
+        hostname: `${branchId}.example.test`,
+      },
+      {
+        id: deploymentAliasId,
+        projectId: f.projectId,
+        environmentId: f.environmentId,
+        type: 'deployment',
+        deploymentId: f.succeededDeploymentId,
+        hostname: `${deploymentAliasId}.example.test`,
+      },
+    ])
+    await db
+      .update(projects)
+      .set({
+        routes: [{ path: '/', service: 'web', port: 3000, stripPrefix: false }],
+      })
+      .where(eq(projects.id, f.projectId))
+    const context = await getProjectContext({
+      userId: f.ownerId,
+      teamSlug: f.teamSlug,
+      projectName: f.projectName,
+      scope: 'shell',
+    })
+    expect(context.environment.defaultHost).toBe(
+      `${f.projectName}.example.devpush.app`,
+    )
+    expect(
+      context.environment.publicRoutes.map((route) => route.host),
+    ).toContain(`${branchId}.example.test`)
+    expect(
+      context.environment.publicRoutes.map((route) => route.host),
+    ).not.toContain(`${deploymentAliasId}.example.test`)
+  })
+  test('agent registration restores only successful immutable deployment hosts', async () => {
+    const f = await createProjectFixture()
+    const aliasId = makeId('historical-alias')
+    touchedHostnameIds.push(aliasId)
+    await db.insert(aliases).values({
+      id: aliasId,
+      projectId: f.projectId,
+      environmentId: f.environmentId,
+      deploymentId: f.succeededDeploymentId,
+      type: 'deployment',
+      hostname: 'previous.example.test',
+      https: true,
+    })
+    const token = 'dpa_test-inactive-history'
+    await db
+      .update(servers)
+      .set({
+        agentCredentialHash: createHash('sha256').update(token).digest('hex'),
+      })
+      .where(eq(servers.id, f.serverId))
+    const response = await registerAgent({
+      token,
+      publicAddress: null,
+      capabilities: ['ingress.inactive-redirects.v1'],
+    })
+    expect(response.inactiveRedirects).toEqual([
+      {
+        id: f.succeededDeploymentId,
+        host: 'previous.example.test',
+        https: true,
+      },
+    ])
+    expect(
+      (await registerAgent({ token, publicAddress: null })).inactiveRedirects,
+    ).toBeUndefined()
+  })
+
+  test('inactive deployment links require current membership and report current serving state', async () => {
+    const f = await createProjectFixture()
+    expect(
+      await resolveUnavailableDeployment(f.ownerId, f.succeededDeploymentId),
+    ).toEqual({ teamSlug: f.teamSlug, projectName: f.projectName })
+    await expect(
+      resolveUnavailableDeployment('outsider', f.succeededDeploymentId),
+    ).rejects.toMatchObject({ code: 'DEPLOYMENT_NOT_FOUND' })
+    const input = {
+      userId: f.ownerId,
+      teamSlug: f.teamSlug,
+      projectName: f.projectName,
+      deploymentId: f.succeededDeploymentId,
+    }
+    expect(
+      (await getDeploymentSectionContext(input)).deployment.isServing,
+    ).toBe(false)
+    await db
+      .update(aliases)
+      .set({ deploymentId: f.succeededDeploymentId })
+      .where(eq(aliases.environmentId, f.environmentId))
+    const activeContext = await getDeploymentSectionContext(input)
+    expect(activeContext.deployment.isServing).toBe(true)
+    const activeAliases = await db
+      .select({
+        type: aliases.type,
+        hostname: aliases.hostname,
+        https: aliases.https,
+      })
+      .from(aliases)
+      .where(eq(aliases.deploymentId, f.succeededDeploymentId))
+    expect(activeContext.visitAliases).toEqual(
+      expect.arrayContaining(activeAliases),
+    )
+    expect(activeContext.visitAliases).toHaveLength(activeAliases.length)
+    await db.delete(teamMembers).where(eq(teamMembers.userId, f.ownerId))
+    await expect(
+      resolveUnavailableDeployment(f.ownerId, f.succeededDeploymentId),
+    ).rejects.toMatchObject({ code: 'DEPLOYMENT_NOT_FOUND' })
+  })
+
   test('stale policy deletion preserves newer settings', async () => {
     const f = await createProjectFixture()
     const id = makeId('concurrent-policy')
@@ -206,6 +333,11 @@ describe('project settings integration', () => {
     ).rejects.toThrow('unique per environment')
     const context = await getProjectContext({ ...input, scope: 'settings' })
     expect(context.envVars).toEqual(envVars)
+    const section = await getProjectSectionContext({
+      ...input,
+      scope: 'settings',
+    })
+    expect(section.scope === 'settings' && section.envVars).toEqual(envVars)
   })
 
   test('policies can reuse workspace storage and reject other workspaces without replacing saved policies', async () => {
@@ -466,7 +598,12 @@ describe('project settings integration', () => {
   })
 
   test('section contexts preserve the full-context data contract', async () => {
-    const { ownerId, projectName, teamSlug } = await createProjectFixture()
+    const { ownerId, projectId, projectName, teamSlug } =
+      await createProjectFixture()
+    await db
+      .update(projects)
+      .set({ composeMetadata: { services: [], volumes: [], warnings: [] } })
+      .where(eq(projects.id, projectId))
     const full = await getProjectContext({
       userId: ownerId,
       teamSlug,
@@ -525,6 +662,11 @@ describe('project settings integration', () => {
       composeMetadata: full.composeMetadata,
       domains: full.domains,
       envVars: full.envVars,
+    })
+    expect(full.composeMetadata).toEqual({
+      services: [],
+      volumes: [],
+      warnings: [],
     })
     expect(backups).toMatchObject({
       projectId: full.project.id,
@@ -1815,6 +1957,12 @@ describe('project settings integration', () => {
           ? 'disconnected'
           : 'requires an update',
       )
+      expect(
+        await db
+          .select()
+          .from(deploymentEvents)
+          .where(eq(deploymentEvents.deploymentId, rows[0]!.id)),
+      ).toEqual([])
       expect(
         (
           await db

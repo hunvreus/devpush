@@ -1,4 +1,3 @@
-import { ComposeServiceInput } from './compose-service-input'
 import type { ReactNode } from 'react'
 import { Button } from '#devpush/components/ui/button'
 import { ButtonGroup } from '#devpush/components/ui/button-group'
@@ -8,6 +7,12 @@ import {
   TooltipTrigger,
 } from '#devpush/components/ui/tooltip'
 import { Input } from '#devpush/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '#devpush/components/ui/input-group'
 import { Skeleton } from '#devpush/components/ui/skeleton'
 import { Switch } from '#devpush/components/ui/switch'
 import {
@@ -22,7 +27,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#devpush/components/ui/select'
-import { PlusIcon, SettingsIcon, TrashIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  PlusIcon,
+  SettingsIcon,
+  TrashIcon,
+} from 'lucide-react'
 import {
   BackupPolicySection,
   RetentionFieldGroup,
@@ -199,13 +209,22 @@ export function ProjectBackupDetailsPending({
                       <div
                         className={`grid items-start gap-x-2 border-b py-2 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_2.5rem]`}
                       >
-                        <ComposeServiceInput
-                          disabled
-                          services={[]}
-                          value=""
-                          onValueChange={ignore}
-                          aria-label="Service loading"
-                        />
+                        <InputGroup className="w-auto">
+                          <InputGroupInput
+                            disabled
+                            aria-label="Service loading"
+                          />
+                          <InputGroupAddon align="inline-end">
+                            <InputGroupButton
+                              size="icon-xs"
+                              variant="ghost"
+                              disabled
+                              aria-label="Service options loading"
+                            >
+                              <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+                            </InputGroupButton>
+                          </InputGroupAddon>
+                        </InputGroup>
                         <div className="grid grid-cols-2 gap-x-2">
                           <Select disabled>
                             <SelectTrigger aria-label="Engine loading">

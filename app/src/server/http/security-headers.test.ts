@@ -27,4 +27,5 @@ describe('security headers', () => {
 
     expect(response.headers.has('strict-transport-security')).toBe(false)
   })
+
 })

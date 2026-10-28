@@ -9,7 +9,7 @@ export const projectSettingsNavigationItems: Array<SectionNavigationItem> = [
   { href: '#servers', label: 'Servers' },
   { href: '#routes', label: 'Routes' },
   { href: '#domains', label: 'Domains' },
-  { href: '#notifications', label: 'My notifications' },
+  { href: '#notifications', label: 'Notifications' },
   { href: '#danger', label: 'Danger', destructive: true },
 ]
 

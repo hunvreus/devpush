@@ -224,6 +224,7 @@ export type AgentEnvVar = {
 }
 
 export type AgentDeployJob = {
+  fallbackHost?: string
   type: 'deploy'
   id: string
   logStartSeq: number

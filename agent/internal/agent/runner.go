@@ -40,6 +40,7 @@ var Capabilities = []string{
 	"runtime.logs.v1",
 	"metrics.history.v1",
 	"ingress.certificates.v1",
+	"ingress.inactive-redirects.v1",
 }
 
 var (
@@ -166,6 +167,9 @@ func (runner *Runner) acceptCredential(credential string) error {
 }
 
 func (runner *Runner) Run(ctx context.Context) error {
+	if err := runner.syncInactiveRedirects(); err != nil {
+		return fmt.Errorf("configure inactive redirects: %w", err)
+	}
 	if err := runner.loadCredential(); err != nil {
 		return fmt.Errorf("load agent credential: %w", err)
 	}
@@ -316,6 +320,9 @@ func (runner *Runner) register(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("save agent credential: %w", err)
 	}
 
+	if err := runner.seedInactiveRedirects(response.InactiveRedirects); err != nil {
+		return "", fmt.Errorf("restore inactive deployment redirects: %w", err)
+	}
 	runner.log.Info("registered agent", "server_id", response.ServerID)
 
 	return response.ServerID, nil

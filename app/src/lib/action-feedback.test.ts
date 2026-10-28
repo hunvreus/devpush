@@ -1,5 +1,11 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { afterMutation, copyText, refreshView } from './action-feedback'
+import {
+  afterMutation,
+  copyText,
+  mutationErrorOptions,
+  refreshView,
+} from './action-feedback'
+import { PublicError } from './public-error'
 
 const toast = vi.hoisted(() => ({
   success: vi.fn(),
@@ -11,6 +17,20 @@ vi.mock('sonner', () => ({ toast }))
 afterEach(() => {
   vi.clearAllMocks()
   vi.unstubAllGlobals()
+})
+test('actionable errors remain until dismissed, while ordinary errors keep default timing', () => {
+  const error = new PublicError('WORKSPACE_RESTRICTED', undefined, {
+    message: 'Workspace is restricted.',
+    recoveryUrl: '/team/settings#billing',
+  })
+  expect(mutationErrorOptions(error)).toEqual([
+    expect.objectContaining({
+      duration: Infinity,
+      closeButton: true,
+      action: expect.objectContaining({ label: 'Review settings' }),
+    }),
+  ])
+  expect(mutationErrorOptions(new Error('offline'))).toEqual([])
 })
 test('does not claim clipboard success after denied permission', async () => {
   vi.stubGlobal('navigator', {

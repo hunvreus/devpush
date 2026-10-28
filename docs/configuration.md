@@ -31,7 +31,6 @@ Reuse existing values during upgrades. A public installation needs:
 | `BETTER_AUTH_SECRET` | Authentication and linked GitHub/Google token encryption. |
 | `DEVPUSH_SECRET_ENCRYPTION_KEY` | Encrypts stored credentials and project secrets. |
 | `DEVPUSH_ADMIN_EMAIL` | Installation administrator. If unset, the earliest-created user. |
-| `DEVPUSH_SIGN_IN_MESSAGE` | Optional plain-text login notice, up to 1,000 characters. Takes effect after a restart or redeploy. |
 | `DEVPUSH_CRON_SECRET` | Only needed for optional external maintenance calls. |
 
 Public origins require HTTPS. They must not contain a path, credentials, query or fragment. The MCP URL must end in `/mcp`. Localhost and Lima origins may use HTTP. If you change the MCP URL, OAuth clients must reconnect and API-key clients must update it.
@@ -105,6 +104,7 @@ On Workers without R2 or S3, upload controls are hidden; provider avatars and ge
 | `DEVPUSH_TRAEFIK_EMAIL` | Optional ACME contact for new installers. |
 | `DEVPUSH_AGENT_AUTO_UPDATE` | Daily updater timer for new installations; default `false`. |
 | `DEVPUSH_RECOMMENDED_AGENT_VERSION` | Optional update recommendation. Protocol capabilities decide job compatibility. |
+| `DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS` | Maximum time a deployment can wait for an agent; default 24 hours, range 1–720. |
 | `DEVPUSH_DEPLOYMENT_LOG_MAX_LINES` | Lines retained per deployment; default 5000, range 1–100000. |
 | `DEVPUSH_DEPLOYMENT_LOG_LINE_BYTES` | Bytes retained per line; default 2048, range 64–65536. |
 | `DEVPUSH_MONITORING_RETENTION_DAYS` | Raw monitoring retention in days; default 7, range 2–3650. |
@@ -125,6 +125,7 @@ The installer writes `/etc/devpush/agent.env`. Process environment values take p
 | `DEVPUSH_TRAEFIK_EMAIL` | ACME contact for managed certificates. |
 | `DEVPUSH_GIT_CLONE_BASE_URL` | Clone origin; default `https://github.com`. Testing-only; keep the default for normal installations. |
 | `DOCKER_HOST` | Optional Docker endpoint. Access to it is host-level privilege. |
+| `DEVPUSH_DISABLE_INACTIVE_REDIRECTS` | Set `true` to keep inactive deployment URLs at a local 404 instead of redirecting to the dashboard. Default `false`; restart the agent after changing it. |
 | `DEVPUSH_RUNTIME_LOG_QUEUE_BYTES` | Runtime-log queue budget; default 128 MiB. |
 
 To move a host to another installation, [switch an empty server](/docs/agent-maintenance/#switch-an-empty-server). Editing the URL is not enough.

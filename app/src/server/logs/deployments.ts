@@ -13,7 +13,7 @@ type Identity = {
 }
 
 // Identity must come from the authorized main deployment lookup, never the
-// agent payload. Small control events stay atomic with state in the main store.
+// agent payload.
 export async function appendDeploymentLogs(
   identity: Identity,
   startSeq: number,
@@ -46,7 +46,7 @@ export async function appendDeploymentLogs(
     rows.push({
       seq: maxLines + 1,
       content:
-        'Deployment log limit reached. Further output was omitted; deployment execution is unaffected.',
+        '[devpush] Deployment log limit reached. Further output was omitted; deployment execution is unaffected.',
     })
   const createdAt = new Date()
   for (let offset = 0; offset < rows.length; offset += 32) {

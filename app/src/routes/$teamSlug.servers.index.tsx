@@ -26,7 +26,6 @@ export const Route = createFileRoute('/$teamSlug/servers/')({
       }),
     ),
   pendingMs: 150,
-  pendingMinMs: 200,
   pendingComponent: TeamServersPending,
   component: TeamServersRoute,
   head: ({ params }) => pageHead('Servers', params.teamSlug),

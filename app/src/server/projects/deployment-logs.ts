@@ -3,11 +3,7 @@ import type { SQL } from 'drizzle-orm'
 
 import { db, logsDb } from '#devpush/server/db'
 import { deploymentLogs } from '#devpush/server/db/log-schema'
-import {
-  deploymentEvents,
-  deployments,
-  environments,
-} from '#devpush/server/db/schema'
+import { deployments, environments } from '#devpush/server/db/schema'
 
 type Filters = {
   projectId: string
@@ -23,46 +19,6 @@ type Line = {
   seq: number
   content: string
   createdAt: Date
-}
-
-function eventConditions(filters: Filters) {
-  const conditions = [eq(environments.projectId, filters.projectId)]
-  if (filters.branch) conditions.push(eq(deployments.gitBranch, filters.branch))
-  if (filters.deploymentId)
-    conditions.push(eq(deploymentEvents.deploymentId, filters.deploymentId))
-  if (filters.environmentId)
-    conditions.push(eq(deployments.environmentId, filters.environmentId))
-  if (filters.keyword)
-    conditions.push(
-      like(
-        deploymentEvents.searchContent,
-        `%${filters.keyword.toLowerCase()}%`,
-      ),
-    )
-  if (filters.since)
-    conditions.push(gte(deploymentEvents.createdAt, filters.since))
-  return conditions
-}
-
-function readEvents(filters: Filters, limit: number) {
-  return db
-    .select({
-      deploymentId: deploymentEvents.deploymentId,
-      stream: deploymentEvents.stream,
-      seq: deploymentEvents.seq,
-      content: deploymentEvents.content,
-      createdAt: deploymentEvents.createdAt,
-    })
-    .from(deploymentEvents)
-    .innerJoin(deployments, eq(deployments.id, deploymentEvents.deploymentId))
-    .innerJoin(environments, eq(environments.id, deployments.environmentId))
-    .where(and(...eventConditions(filters)))
-    .orderBy(
-      desc(deploymentEvents.createdAt),
-      desc(deploymentEvents.deploymentId),
-      desc(deploymentEvents.seq),
-    )
-    .limit(limit)
 }
 
 // Call after main-project authorization. Denormalized identity filters the
@@ -82,6 +38,7 @@ async function readOutput(filters: Filters, limit: number) {
     conditions.push(gte(deploymentLogs.createdAt, filters.since))
   const output: Line[] = []
   let cursor: SQL | undefined
+  const pageSize = Math.min(200, Math.max(32, limit))
   while (output.length < limit) {
     const candidates = await logsDb
       .select({
@@ -99,7 +56,7 @@ async function readOutput(filters: Filters, limit: number) {
         desc(deploymentLogs.stream),
         desc(deploymentLogs.seq),
       )
-      .limit(Math.min(200, Math.max(32, limit)))
+      .limit(pageSize)
     if (!candidates.length) break
     const ids = [...new Set(candidates.map((line) => line.deploymentId))]
     const live = new Set<string>()
@@ -123,6 +80,7 @@ async function readOutput(filters: Filters, limit: number) {
       for (const row of rows) live.add(row.id)
     }
     output.push(...candidates.filter((line) => live.has(line.deploymentId)))
+    if (candidates.length < pageSize) break
     const last = candidates[candidates.length - 1]
     if (!last) break
     cursor = sql`(${deploymentLogs.createdAt}, ${deploymentLogs.deploymentId}, ${deploymentLogs.stream}, ${deploymentLogs.seq}) < (${last.createdAt}, ${last.deploymentId}, ${last.stream}, ${last.seq})`
@@ -131,21 +89,9 @@ async function readOutput(filters: Filters, limit: number) {
 }
 
 export async function readProjectDeploymentLogs(filters: Filters, limit = 200) {
-  const [events, output] = await Promise.all([
-    readEvents(filters, limit),
-    readOutput(filters, limit),
-  ])
-  return [...events, ...output]
-    .sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.seq - a.seq,
-    )
-    .slice(0, limit)
+  return readOutput(filters, limit)
 }
 
 export async function projectHasDeploymentLogs(projectId: string) {
-  const [event, output] = await Promise.all([
-    readEvents({ projectId }, 1),
-    readOutput({ projectId }, 1),
-  ])
-  return event.length > 0 || output.length > 0
+  return (await readOutput({ projectId }, 1)).length > 0
 }

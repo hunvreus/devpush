@@ -1,7 +1,7 @@
 import { isValidCron } from '#devpush/lib/backup-cron'
 import { PublicError } from '#devpush/lib/public-error'
 import { z } from 'zod'
-import { storedBackupDatabaseSchema } from '#devpush/lib/backup-database'
+import { backupDatabaseSchema } from '#devpush/lib/backup-database'
 import { backupStorageReferenceSchema } from '#devpush/lib/backup-storage-schema'
 import type {
   aliases,
@@ -41,7 +41,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function mapEnvironment(
   environment: typeof environments.$inferSelect,
-  server: typeof servers.$inferSelect | null,
+  server: Pick<
+    typeof servers.$inferSelect,
+    'id' | 'name' | 'status' | 'lastSeenAt'
+  > | null,
 ): ProjectContext['environment'] {
   return {
     id: environment.id,
@@ -108,21 +111,45 @@ export function mapRuntimeObservation(
 }
 
 export function mapDeployment({
+  serving,
   deployment,
   deploymentAlias,
   environment,
   project,
   server,
 }: {
-  deployment: typeof deployments.$inferSelect
-  deploymentAlias?: typeof aliases.$inferSelect | null
-  environment: typeof environments.$inferSelect
-  project: typeof projects.$inferSelect
-  server?: typeof servers.$inferSelect | null
+  deployment: Pick<
+    typeof deployments.$inferSelect,
+    | 'id'
+    | 'status'
+    | 'phase'
+    | 'trigger'
+    | 'gitSha'
+    | 'gitBranch'
+    | 'repoFullName'
+    | 'commitMeta'
+    | 'errorMessage'
+    | 'createdAt'
+    | 'startedAt'
+    | 'finishedAt'
+    | 'serverId'
+  >
+  deploymentAlias?: Pick<
+    typeof aliases.$inferSelect,
+    'hostname' | 'https'
+  > | null
+  environment: Pick<typeof environments.$inferSelect, 'name' | 'slug' | 'color'>
+  project: Pick<typeof projects.$inferSelect, 'name' | 'id'>
+  server?: Pick<
+    typeof servers.$inferSelect,
+    'id' | 'name' | 'status' | 'lastSeenAt'
+  > | null
+  serving: boolean
 }): DeploymentSummary {
   const commitMeta = normalizeDeploymentCommitMeta(deployment.commitMeta)
 
   return {
+    isServing: serving,
     id: deployment.id,
     status: deployment.status,
     phase: deployment.phase,
@@ -303,7 +330,7 @@ export function mapBackupConfig(
 ): ProjectBackupConfig {
   const retention = backupRetentionSchema.parse(backupConfig.retention)
   const databaseDumps = z
-    .array(storedBackupDatabaseSchema)
+    .array(backupDatabaseSchema)
     .parse(backupConfig.databaseDumps)
 
   return {
@@ -358,7 +385,7 @@ export function mapBackupRun(
     finishedAt: backupRun.finishedAt?.toISOString() ?? null,
     createdAt: backupRun.createdAt.toISOString(),
     databaseTargets: z
-      .array(storedBackupDatabaseSchema)
+      .array(backupDatabaseSchema)
       .parse(
         isRecord(backupRun.manifest)
           ? (backupRun.manifest.databaseTargets ?? [])

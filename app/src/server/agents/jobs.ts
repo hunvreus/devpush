@@ -6,6 +6,7 @@ import type { BackupDestination } from '#devpush/server/backups/service'
 import { backupDestinationSnapshot } from '#devpush/server/backups/destination'
 import { refreshBackupCredentials } from '#devpush/server/backups/storage'
 import { getPublicErrorMessage } from '#devpush/lib/public-error'
+import { config as serverConfig } from '#devpush/server/config'
 import {
   recoverStaleCleanupJobs,
   finishContainerCleanup,
@@ -30,6 +31,7 @@ import {
 } from '#devpush/server/logs/deployments'
 import {
   agentJobs,
+  aliases,
   backupRuns,
   deployments,
   environments,
@@ -371,29 +373,8 @@ export async function claimNextDeploymentJob({
     await failStaleRunningDeployments(serverId)
   }
 
-  const [serverOwner] = await db
-    .select({ teamId: servers.teamId })
-    .from(servers)
-    .where(
-      and(
-        eq(servers.id, serverId),
-        sql`exists(select 1 from deployments d where d.server_id = ${serverId} and d.status = 'queued')`,
-      ),
-    )
-    .limit(1)
-  if (!serverOwner) return null
-  let deployment
-  try {
-    deployment = await withWorkspaceAccess(
-      serverOwner.teamId,
-      'deployment.claim',
-      () => claimDeployment(db, serverId, new Date()),
-      { kind: 'system', source: 'agent' },
-    )
-  } catch (error) {
-    if (isWorkspacePolicyRefusal(error)) return null
-    throw error
-  }
+  await failStaleQueuedDeployments(serverId)
+  const deployment = await claimDeployment(db, serverId, new Date())
   if (!deployment) return null
   const [identity] = await db
     .select({ environment: environments, project: projects })
@@ -467,7 +448,19 @@ export async function claimNextDeploymentJob({
     config: deploymentConfig,
   })
 
+  const [deploymentAlias] = await db
+    .select({ hostname: aliases.hostname })
+    .from(aliases)
+    .where(
+      and(
+        eq(aliases.deploymentId, claimed.deployment.id),
+        eq(aliases.type, 'deployment'),
+      ),
+    )
+    .limit(1)
+
   return {
+    fallbackHost: deploymentAlias?.hostname,
     type: 'deploy',
     id: claimed.deployment.id,
     logStartSeq: await nextDeploymentLogSeq(claimed.deployment.id),
@@ -667,6 +660,37 @@ function agentJobTimeoutMs(type: string) {
   return type === 'backup' || type === 'backup_cleanup' || type === 'restore'
     ? backupJobTimeoutMs
     : deploymentTimeoutMs
+}
+
+export async function failStaleQueuedDeployments(
+  serverId?: string,
+  now = new Date(),
+) {
+  const cutoff = new Date(
+    now.getTime() - serverConfig.DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS * 60 * 60 * 1000,
+  )
+  const changed = await db
+    .update(deployments)
+    .set({
+      status: 'failed',
+      phase: 'timed_out',
+      errorMessage: 'Deployment expired while waiting for the server.',
+      finishedAt: now,
+    })
+    .where(
+      and(
+        eq(deployments.status, 'queued'),
+        lte(deployments.createdAt, cutoff),
+        serverId ? eq(deployments.serverId, serverId) : undefined,
+      ),
+    )
+    .returning({ id: deployments.id, serverId: deployments.serverId })
+  await Promise.all(
+    [...new Set(changed.map((row) => row.serverId))].map((id) =>
+      notifyServer(id, 'deployments'),
+    ),
+  )
+  return changed.map((row) => row.id)
 }
 
 export async function failStaleRunningDeployments(serverId?: string) {
@@ -873,8 +897,7 @@ export async function completeDeploymentJob({
       completion.status === 'canceled'
         ? 'canceled'
         : (latestEvent?.phase ?? 'completed'),
-    // The queued revision is canonical; display abbreviations from older agents
-    // must never replace a fetchable full commit ID.
+    // Preserve the queued full commit ID for later redeployments.
     gitSha: row.deployment.gitSha,
     errorMessage:
       completion.status === 'failed' || completion.status === 'canceled'

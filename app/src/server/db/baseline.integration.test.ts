@@ -56,6 +56,23 @@ const tableNames = (model: Record<string, unknown>) =>
     .sort()
 
 test.each(['SQLite', 'D1'] as const)(
+  '%s uses the covering index for runtime log retention',
+  async (target) => {
+    const store = target === 'SQLite' ? logs.db : d1?.logs
+    if (!store) throw new Error('D1 fixture missing.')
+    const plan = await rows(
+      store,
+      sql`explain query plan
+      select id from runtime_logs where server_id = 'server' and runtime_id = 'runtime'
+      order by observed_at desc, created_at desc, id desc limit 1000 offset 10000`,
+    )
+    const details = plan.flat().join(' ')
+    expect(details).toContain('runtime_logs_server_runtime_order_idx')
+    expect(details).not.toContain('TEMP B-TREE')
+  },
+)
+
+test.each(['SQLite', 'D1'] as const)(
   'fresh %s baseline includes all main/log models and database guards',
   async (target) => {
     const stores = target === 'SQLite' ? { main: main.db, logs: logs.db } : d1
@@ -153,8 +170,8 @@ test.each(['SQLite', 'D1'] as const)(
 
 test('SQLite migration journals apply each migration once after a second run', async () => {
   for (const [store, count] of [
-    [main.db, 3],
-    [logs.db, 1],
+    [main.db, 2],
+    [logs.db, 2],
   ] as const)
     expect(
       await rows(store, sql`select count(*) from __drizzle_migrations`),

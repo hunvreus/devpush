@@ -52,6 +52,6 @@ test('deployment logs bound rows and UTF-8 bytes, keep one visible limit notice,
   )
   expect(rows[0]!.content).not.toContain('�')
   expect(rows[1]!.content).toBe('known line')
-  expect(rows[2]!.content).toContain('log limit reached')
+  expect(rows[2]!.content).toContain('[devpush] Deployment log limit reached')
   expect(await nextDeploymentLogSeq(deploymentId)).toBe(4)
 })

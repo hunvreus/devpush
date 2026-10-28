@@ -24,7 +24,6 @@ export const Route = createFileRoute('/invites/$token')({
     }
   },
   pendingMs: 150,
-  pendingMinMs: 200,
   pendingComponent: TeamInvitePending,
   component: TeamInviteRoute,
   head: () => pageHead('Team invitation'),

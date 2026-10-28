@@ -50,6 +50,7 @@ vi.mock('#devpush/server/plugins/services.server', () => ({
 }))
 vi.mock('#devpush/server/realtime/service', () => ({
   notifyProject: vi.fn(),
+  notifyServer: vi.fn(),
   notifyWorkspace: vi.fn(),
 }))
 vi.mock('#devpush/server/projects/repository', async (importOriginal) => ({
@@ -919,13 +920,6 @@ describe('public API operations integration', () => {
       cursor: data.nextCursor,
     })
     expect((second.data as { items: unknown[] }).items).toHaveLength(2)
-    await expect(
-      f.execute('read_deployment_logs', {
-        deploymentId: f.deploymentId,
-        stream: 'control',
-        cursor: data.nextCursor,
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_CURSOR' })
   })
 })
 
@@ -1362,36 +1356,6 @@ test('browser workspace policy runs before avatar upload or project provider cha
     (await db.select().from(projects).where(eq(projects.id, f.projectId)))[0]
       ?.name,
   ).toBe('api-project')
-})
-
-test('expired queued deployments remain queued and never receive repository credentials', async () => {
-  const f = await fixture()
-  const { claimNextDeploymentJob } = await import('#devpush/server/agents/jobs')
-  await db
-    .update(deployments)
-    .set({ status: 'queued', phase: 'queued' })
-    .where(eq(deployments.id, f.deploymentId))
-  const createAccessToken = vi.fn()
-  workspacePolicy.run.mockRejectedValueOnce(
-    new WorkspacePolicyError('restricted'),
-  )
-  expect(
-    await claimNextDeploymentJob({
-      serverId: f.serverId,
-      token: 'unused',
-      skipAgentAuth: true,
-      createAccessToken,
-    }),
-  ).toBeNull()
-  expect(createAccessToken).not.toHaveBeenCalled()
-  expect(
-    (
-      await db
-        .select()
-        .from(deployments)
-        .where(eq(deployments.id, f.deploymentId))
-    )[0]?.status,
-  ).toBe('queued')
 })
 
 test('REST creation cannot commit after owner demotion during policy admission', async () => {

@@ -177,8 +177,6 @@ export async function createManualDeployment({
         throw new PublicError('DEPLOYMENT_COMMIT_UNAVAILABLE')
       }
 
-      const logMessage = `Queued ${context.project.githubRepo} for ${environmentConfig.name}.`
-
       const deployment = await createDeploymentForEnvironment({
         workspaceAdmission,
         deploymentId: admission?.resourceId,
@@ -188,7 +186,6 @@ export async function createManualDeployment({
         gitSha: commit.sha,
         trigger: admission ? 'api' : 'user',
         commitMeta: toDeploymentCommitMeta(commit),
-        queuedMessage: logMessage,
         createdByUserId: userId,
       })
 
@@ -302,10 +299,6 @@ export async function createRollbackDeployment({
       })
       const now = new Date()
       const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
-      const environmentName =
-        context.environments.find((item) => item.id === source.environmentId)
-          ?.name ?? 'environment'
-
       const created = await enqueueDeployment(db, {
         workspaceAdmission,
         deployment: {
@@ -326,7 +319,6 @@ export async function createRollbackDeployment({
         projectId: context.project.id,
         hostname: rollbackAliasHostname,
         https: rollbackHost.https,
-        queuedMessage: `Queued rollback to ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
         canceledMessage: 'Canceled because a rollback deployment was queued.',
         now,
         admission,
@@ -442,10 +434,6 @@ export async function createRedeployDeployment({
       })
       const now = new Date()
       const commitMeta = normalizeDeploymentCommitMeta(source.commitMeta)
-      const environmentName =
-        context.environments.find((item) => item.id === source.environmentId)
-          ?.name ?? 'environment'
-
       const created = await enqueueDeployment(db, {
         workspaceAdmission,
         deployment: {
@@ -466,7 +454,6 @@ export async function createRedeployDeployment({
         projectId: context.project.id,
         hostname: redeploymentAliasHostname,
         https: redeploymentHost.https,
-        queuedMessage: `Queued redeploy of ${source.gitSha.slice(0, 7)} for ${environmentName}.`,
         canceledMessage: 'Canceled because a redeployment was queued.',
         now,
         admission,
@@ -715,9 +702,6 @@ export async function createDeploymentsForGitHubPush({
           ...(githubSenderId ? { githubSenderId } : {}),
         },
         failureMessage,
-        queuedMessage:
-          failureMessage ??
-          `Queued ${repositoryFullName} from GitHub push to ${branch}.`,
       })
 
       if (deployment.status === 'created' && skipReason) {
@@ -761,7 +745,6 @@ export async function createDeploymentsForGitHubPush({
             ...(githubSenderId ? { githubSenderId } : {}),
           },
           failureMessage,
-          queuedMessage: failureMessage,
         })
       } catch (recordError) {
         unrecordedFailure = true
@@ -798,7 +781,6 @@ async function createDeploymentForEnvironment({
   gitSha,
   trigger,
   commitMeta,
-  queuedMessage,
   createdByUserId,
   githubDeliveryId,
   failureMessage,
@@ -811,7 +793,6 @@ async function createDeploymentForEnvironment({
   gitSha: string
   trigger: 'user' | 'webhook' | 'api' | 'rollback'
   commitMeta: DeploymentCommitMeta
-  queuedMessage: string
   createdByUserId?: string
   githubDeliveryId?: string
   failureMessage?: string
@@ -970,7 +951,6 @@ async function createDeploymentForEnvironment({
       hostname: deploymentAliasHostname,
       branchHostname: branchAlias ? undefined : branchAliasHostname,
       https: generatedDeploymentHost.https,
-      queuedMessage,
       failureMessage,
       canceledMessage: `Canceled because a newer ${trigger} deployment was queued.`,
       now,

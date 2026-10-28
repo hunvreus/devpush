@@ -84,6 +84,17 @@ export function devpush(options: DevpushOptions = {}) {
 
   const isVitest = process.env.VITEST === 'true'
   const isCloudflare = target === 'cloudflare'
+  const cloudflareAssetHeaders: Plugin = {
+    name: 'devpush:cloudflare-asset-headers',
+    generateBundle() {
+      if (this.environment.name !== 'client') return
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: '/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n',
+      })
+    },
+  }
   const platformEnv = fileURLToPath(
     new URL(
       isCloudflare
@@ -272,6 +283,7 @@ export function devpush(options: DevpushOptions = {}) {
       : [
           ...(isCloudflare
             ? [
+                cloudflareAssetHeaders,
                 cloudflare({
                   configPath:
                     options.wranglerConfig ??
@@ -283,6 +295,7 @@ export function devpush(options: DevpushOptions = {}) {
                 nitro({
                   features: { websocket: true },
                   plugins: [
+                    resolve(source, 'server/runtime/node-asset-cache-plugin.ts'),
                     resolve(source, 'server/runtime/node-scheduler-plugin.ts'),
                   ],
                   handlers: [

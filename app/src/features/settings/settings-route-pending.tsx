@@ -7,8 +7,7 @@ import {
 import { Fragment } from 'react'
 import type { ReactNode } from 'react'
 import { getRouteApi, useHydrated } from '@tanstack/react-router'
-import { AdminSettings } from '#devpush/features/admin/admin-settings'
-import { UserSettings } from '#devpush/features/users/user-settings'
+import { createDeferredModule } from '#devpush/lib/deferred-module'
 import { ChevronDownIcon, PlusIcon, SearchIcon } from 'lucide-react'
 import {
   Field,
@@ -36,6 +35,13 @@ import {
 } from '#devpush/components/settings-layout'
 import { Button } from '#devpush/components/ui/button'
 import { Skeleton } from '#devpush/components/ui/skeleton'
+
+export const adminSettingsModule = createDeferredModule(
+  () => import('#devpush/features/admin/admin-settings'),
+)
+export const userSettingsModule = createDeferredModule(
+  () => import('#devpush/features/users/user-settings'),
+)
 
 const adminItems: Array<SectionNavigationItem> = [
   { href: '#installation', label: 'Installation' },
@@ -66,7 +72,9 @@ export function AdminSettingsPending() {
   const navigate = route.useNavigate()
   const routeContext = route.useLoaderData()
   const context = useHydrated() ? routeContext : undefined
-  if (context)
+  const module = adminSettingsModule.useModule(Boolean(context))
+  if (context && module) {
+    const AdminSettings = module.AdminSettings
     return (
       <AdminSettings
         currentUserId={context.userContext.user.id}
@@ -80,6 +88,7 @@ export function AdminSettingsPending() {
         }}
       />
     )
+  }
   return (
     <SettingsPagePending
       ariaLabel="Loading admin settings"
@@ -112,7 +121,8 @@ export function UserSettingsPending() {
   const route = getRouteApi('/settings')
   const routeContext = route.useLoaderData()
   const context = useHydrated() ? routeContext : undefined
-  if (context) return <UserSettings context={context} />
+  const module = userSettingsModule.useModule(Boolean(context))
+  if (context && module) return <module.UserSettings context={context} />
   return (
     <SettingsPagePending
       ariaLabel="Loading account settings"

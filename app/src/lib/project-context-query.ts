@@ -115,6 +115,7 @@ export function pluginContextQueryOptions(
         environments: shell.environments,
         servers: shell.servers,
         deployment: section.deployment,
+        visitAliases: section.visitAliases,
         logs: [],
       }
     },

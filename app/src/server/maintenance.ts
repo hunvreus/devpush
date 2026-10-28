@@ -1,10 +1,10 @@
 import { pruneOperationalNotifications } from '#devpush/server/notifications/outbox'
 import { getPluginServices } from '#devpush/server/plugins/services.server'
-import { encryptExistingProviderTokens } from '#devpush/server/auth/provider-tokens'
 import { pruneDeletedResources } from '#devpush/server/deleted-resources'
 import { pruneApiHistory } from '#devpush/server/api/retention'
 import {
   failStaleRunningDeployments,
+  failStaleQueuedDeployments,
   failStaleAgentJobs,
 } from '#devpush/server/agents/jobs'
 import { queueBackupRetentionCleanupJobs } from '#devpush/server/backups/service'
@@ -19,6 +19,7 @@ export async function runMaintenance() {
   const [
     expiredInvites,
     staleDeployments,
+    staleQueuedDeployments,
     staleAgentJobs,
     userCleanupJobs,
     backupCleanupJobs,
@@ -30,6 +31,7 @@ export async function runMaintenance() {
   ] = await Promise.all([
     cleanupExpiredTeamInvites(),
     failStaleRunningDeployments(),
+    failStaleQueuedDeployments(),
     failStaleAgentJobs(),
     runQueuedUserCleanupJobs(),
     queueBackupRetentionCleanupJobs(),
@@ -41,21 +43,13 @@ export async function runMaintenance() {
     pruneOperationalNotifications(),
   ])
 
-  let providerTokens
-  try {
-    await getPluginServices().serverLifecycle?.maintain()
-  } finally {
-    // Token rewrites are independent, but resource deletion must still wait for
-    // provider cleanup to succeed so reconciliation retains its source records.
-    providerTokens = await encryptExistingProviderTokens()
-  }
+  await getPluginServices().serverLifecycle?.maintain()
   const deletedResources = await pruneDeletedResources()
 
   return {
     deletedResources,
-    providerTokens,
     expiredInvites: expiredInvites.expiredCount,
-    staleDeployments: staleDeployments.length,
+    staleDeployments: staleDeployments.length + staleQueuedDeployments.length,
     staleAgentJobs: staleAgentJobs.length,
     userCleanupJobs,
     backupCleanupJobs: backupCleanupJobs.length,

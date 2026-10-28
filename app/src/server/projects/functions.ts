@@ -51,6 +51,7 @@ import {
   deleteProjectBackupPolicy,
 } from '#devpush/server/projects/backups'
 import {
+  resolveUnavailableDeployment,
   getDeploymentLogsContext,
   getDeploymentSectionContext,
   getProjectContext,
@@ -733,4 +734,15 @@ export const getProjectDeployOptions = createServerFn({ method: 'GET' })
       teamSlug: data.teamSlug,
       projectName: data.projectName,
     })
+  })
+
+export const getUnavailableDeployment = createServerFn({ method: 'GET' })
+  .middleware([publicErrorsMiddleware])
+  .validator((data: { deploymentId: string }) =>
+    z.object({ deploymentId: z.uuid() }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    const session = await getAuthSession()
+    if (!session) return null
+    return resolveUnavailableDeployment(session.user.id, data.deploymentId)
   })

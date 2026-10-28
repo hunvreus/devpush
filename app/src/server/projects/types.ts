@@ -106,6 +106,8 @@ export type ProjectEnvironmentConfig = {
   status: 'active' | 'deleted'
   effectiveServerId: string | null
   serverId: string | null
+  defaultHost?: string | null
+  defaultRouteHttps?: boolean
 }
 
 export type ProjectBackupConfig = {
@@ -176,6 +178,7 @@ export type ProjectBackupArtifact = {
 }
 
 export type DeploymentSummary = {
+  isServing: boolean
   id: string
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
   phase: string | null
@@ -304,6 +307,7 @@ export type PluginContext = {
   environments: ProjectContext['environments']
   servers: Array<ServerSummary>
   deployment: DeploymentSummary
+  visitAliases: Array<{ type: string; hostname: string; https: boolean }>
   logs: Array<{
     seq: number
     stream: string
@@ -316,6 +320,7 @@ export type DeploymentSectionContext = {
   projectId: string
   latestDeployments: Array<DeploymentSummary>
   deployment: DeploymentSummary
+  visitAliases: Array<{ type: string; hostname: string; https: boolean }>
 }
 
 export type ProjectLogEntry = {

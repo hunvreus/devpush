@@ -43,6 +43,8 @@ Set **Health check path** to your app's endpoint, such as `/health`; otherwise `
 
 A failed deployment may already have changed containers or data. Inspect deployment logs and application health before retrying.
 
+Deployment logs contain agent output. devpush labels its own log-limit notice with `[devpush]`; truncated lines are marked inline. A deployment that waits too long for an agent fails before it starts. The default queue limit is 24 hours and can be changed in [configuration](/docs/configuration/).
+
 ## Deployment commands
 
 Use **Pre-deploy command** for tasks such as `php artisan migrate --force`, selecting the service that contains the tools. It runs after image preparation and before service updates, and is skipped during rollback. A failure stops the deployment; it does not undo database writes.

@@ -10,7 +10,11 @@ import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import { projectContext } from '#devpush/test/project-context'
 
 const hydration = vi.hoisted(() => ({ ready: true }))
-const navigation = vi.hoisted(() => ({ deploymentId: '' }))
+const navigation = vi.hoisted(() => ({
+  deploymentId: '',
+  location: '/team',
+  resolved: '/team',
+}))
 const inviteActions = vi.hoisted(() => ({
   decline: vi.fn(),
   invalidate: vi.fn(),
@@ -22,6 +26,8 @@ vi.mock('#devpush/server/teams/functions', () => ({
 afterEach(() => {
   hydration.ready = true
   navigation.deploymentId = ''
+  navigation.location = '/team'
+  navigation.resolved = '/team'
   inviteActions.decline.mockReset()
   inviteActions.invalidate.mockReset()
 })
@@ -33,18 +39,39 @@ vi.mock('@tanstack/react-router', () => ({
     projectName: navigation.deploymentId ? 'project' : undefined,
     deploymentId: navigation.deploymentId || undefined,
   }),
-  useRouterState: () => '/team',
+  useRouterState: ({
+    select,
+  }: {
+    select: (state: {
+      location: { pathname: string }
+      resolvedLocation: { pathname: string }
+    }) => unknown
+  }) =>
+    select({
+      location: { pathname: navigation.location },
+      resolvedLocation: { pathname: navigation.resolved },
+    }),
   useRouter: () => ({ invalidate: inviteActions.invalidate }),
   Link: ({
     children,
     ref,
     'aria-label': label,
+    role,
+    'aria-selected': selected,
   }: {
     children: ReactNode
     ref?: Ref<HTMLAnchorElement>
     'aria-label'?: string
+    role?: string
+    'aria-selected'?: boolean
   }) => (
-    <a ref={ref} href="#" aria-label={label}>
+    <a
+      ref={ref}
+      href="#"
+      aria-label={label}
+      role={role}
+      aria-selected={selected}
+    >
       {children}
     </a>
   ),
@@ -98,6 +125,33 @@ test('cached user keeps their real avatar during route loading', () => {
   expect(
     node.querySelector('[aria-label="User menu"] [data-slot="avatar"]'),
   ).not.toBeNull()
+})
+
+test('selected tab follows the displayed page while the next route loads', () => {
+  navigation.deploymentId = 'deployment-current'
+  navigation.location = '/team/projects/project'
+  navigation.resolved = '/team/projects/project/deployments/deployment-current'
+  const client = new QueryClient()
+  const node = document.createElement('div')
+  node.innerHTML = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <TooltipProvider>
+        <TeamPage projectNavigation>{null}</TeamPage>
+      </TooltipProvider>
+    </QueryClientProvider>,
+  )
+  const tabs = [...node.querySelectorAll('[role="tab"]')]
+  expect(
+    tabs
+      .find((tab) => tab.textContent.includes('Deployments'))
+      ?.getAttribute('aria-selected'),
+  ).toBe('true')
+  expect(
+    tabs
+      .find((tab) => tab.textContent.includes('Overview'))
+      ?.getAttribute('aria-selected'),
+  ).toBe('false')
+  client.clear()
 })
 
 test('pre-hydration navigation ignores a cache populated ahead of hydration', () => {

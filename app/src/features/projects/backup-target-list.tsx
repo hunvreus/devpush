@@ -155,11 +155,6 @@ export function BackupTargetList({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {dump.engine === 'needs_configuration' ? (
-                            <SelectItem value="needs_configuration" disabled>
-                              Select engine
-                            </SelectItem>
-                          ) : null}
                           {backupDatabaseEngines.map((engine) => (
                             <SelectItem key={engine.value} value={engine.value}>
                               {engine.label}

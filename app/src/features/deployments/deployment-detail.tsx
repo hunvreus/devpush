@@ -1,3 +1,4 @@
+import { DeploymentVisitLinks } from './deployment-visit-links'
 import { DeploymentAliasBadge } from './deployment-alias-badge'
 import { Link } from '@tanstack/react-router'
 import {
@@ -7,7 +8,6 @@ import {
   Clock3Icon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
-  Link2Icon,
   LoaderIcon,
   MoreHorizontalIcon,
   CircleAlertIcon,
@@ -44,7 +44,13 @@ import type {
 } from '#devpush/server/projects/types'
 import { deploymentLogsQueryOptions } from '#devpush/lib/deployment-logs-query'
 
-export function DeploymentDetail({ context }: { context: PluginContext }) {
+export function DeploymentDetail({
+  context,
+  unavailable = false,
+}: {
+  context: PluginContext
+  unavailable?: boolean
+}) {
   const { deployment, project } = context
   const queryClient = useQueryClient()
   const [now, setNow] = useState(() => Date.now())
@@ -71,7 +77,10 @@ export function DeploymentDetail({ context }: { context: PluginContext }) {
         https: deployment.deploymentRouteHttps,
       })
     : null
-  const canVisit = deployment.status === 'succeeded' && visitUrl !== null
+  const canVisit =
+    deployment.status === 'succeeded' &&
+    deployment.isServing !== false &&
+    visitUrl !== null
   const logFollowKey =
     logs.at(-1) == null ? 'empty' : `${logs.at(-1)?.stream}:${logs.at(-1)?.seq}`
 
@@ -90,6 +99,23 @@ export function DeploymentDetail({ context }: { context: PluginContext }) {
   return (
     <>
       <section className="space-y-8">
+        {unavailable && deployment.isServing === false ? (
+          <Alert className="mb-6">
+            <TriangleAlertIcon />
+            <AlertTitle>Deployment is not active</AlertTitle>
+            <AlertDescription>
+              This revision is no longer serving traffic. Redeploy it to replace
+              the current version using its saved configuration.
+            </AlertDescription>
+            <AlertAction>
+              <DeploymentActions
+                deployment={deployment}
+                teamSlug={context.team.slug}
+                trigger="redeploy"
+              />
+            </AlertAction>
+          </Alert>
+        ) : null}
         <ProjectHeading
           teamSlug={context.team.slug}
           project={project}
@@ -110,19 +136,11 @@ export function DeploymentDetail({ context }: { context: PluginContext }) {
           ]}
           actions={
             <div className="flex items-center gap-2">
-              {canVisit ? (
-                <Button asChild>
-                  <a href={visitUrl} target="_blank" rel="noreferrer">
-                    <Link2Icon data-icon="inline-start" />
-                    Visit
-                  </a>
-                </Button>
-              ) : (
-                <Button disabled>
-                  <Link2Icon data-icon="inline-start" />
-                  Visit
-                </Button>
-              )}
+              <DeploymentVisitLinks
+                canVisit={canVisit}
+                visitUrl={visitUrl}
+                aliases={context.visitAliases}
+              />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -152,6 +170,7 @@ export function DeploymentDetail({ context }: { context: PluginContext }) {
       </section>
 
       <section className="space-y-4">
+        <DeploymentFailureAlert deployment={deployment} />
         <LogScrollArea
           followKey={logFollowKey}
           className="relative h-[500px] rounded-lg border border-border p-2"
@@ -233,6 +252,23 @@ export function DeploymentDetail({ context }: { context: PluginContext }) {
         </footer>
       </section>
     </>
+  )
+}
+
+export function DeploymentFailureAlert({
+  deployment,
+}: {
+  deployment: Pick<DeploymentSummary, 'status' | 'errorMessage'>
+}) {
+  if (deployment.status !== 'failed') return null
+  return (
+    <Alert variant="destructive">
+      <CircleAlertIcon />
+      <AlertTitle>Deployment failed</AlertTitle>
+      <AlertDescription>
+        {deployment.errorMessage || 'The deployment could not be completed.'}
+      </AlertDescription>
+    </Alert>
   )
 }
 

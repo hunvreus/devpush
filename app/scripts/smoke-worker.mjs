@@ -258,7 +258,7 @@ try {
   }
   const login = await fetch(`${origin}/auth/login`)
   assert.equal(login.status, 200)
-  await smokeAssets(origin, await login.text())
+  await smokeAssets(origin, await login.text(), { production: !development })
   await smokePlugins(origin)
   // Authenticated routes render a public skeleton without waiting for session/DB
   // loaders; client server-functions still enforce authorization when hydrated.
@@ -323,10 +323,6 @@ try {
   } else {
     await query(
       0,
-      "insert into account(id,account_id,user_id,provider_id,access_token,refresh_token,id_token) select 'worker-smoke-provider','provider-id',id,'github','gho_worker_fixture','refresh-worker-fixture','header.payload.signature' from user order by id limit 1",
-    )
-    await query(
-      0,
       "insert into teams(id,name,slug,status,updated_at) values('worker-smoke-deleted','Deleted team','worker-smoke-deleted','deleted',0)",
     )
     const responses = await Promise.all(
@@ -352,10 +348,6 @@ try {
         1,
         "select count(*) as n from runtime_logs where id='worker-smoke-expired'",
       )
-      const provider = await query(
-        0,
-        "select access_token,refresh_token,id_token from account where id='worker-smoke-provider'",
-      )
       const deleted = await query(
         0,
         "select count(*) as n from teams where id='worker-smoke-deleted'",
@@ -363,21 +355,17 @@ try {
       if (
         main[0].n === 0 &&
         logs[0].n === 0 &&
-        deleted[0].n === 0 &&
-        provider.length === 1 &&
-        provider[0].access_token !== 'gho_worker_fixture' &&
-        provider[0].refresh_token !== 'refresh-worker-fixture' &&
-        provider[0].id_token !== 'header.payload.signature'
+        deleted[0].n === 0
       )
         break
       if (attempt === 19)
         throw new Error(
-          'Scheduled cleanup or provider-token encryption did not finish.',
+          'Scheduled cleanup did not finish.',
         )
       await delay(250)
     }
     console.log(
-      `Worker ${driver}: login, API/MCP browser authorization, concurrent health requests, scheduled resource/log cleanup and provider-token encryption passed.`,
+      `Worker ${driver}: login, API/MCP browser authorization, concurrent health requests and scheduled resource/log cleanup passed.`,
     )
   }
 } catch (error) {

@@ -4,9 +4,12 @@ import { getRouter } from './router'
 test('authenticated routes render pending documents and use consistent navigation feedback', () => {
   const router = getRouter()
   expect(router.options.defaultPendingMs).toBe(150)
-  expect(router.options.defaultPendingMinMs).toBe(200)
+  expect(router.options.defaultPendingMinMs).toBe(0)
   expect(router.options.defaultStaleTime).toBe(0)
   expect(router.options.defaultPreloadStaleTime).toBe(0)
+  for (const route of Object.values(router.routesById)) {
+    expect(route.options.pendingMinMs ?? 0).toBe(0)
+  }
   for (const id of [
     '/$teamSlug',
     '/settings',

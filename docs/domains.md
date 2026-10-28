@@ -12,6 +12,12 @@ devpush generates nip.io addresses using the server's routing IP, such as `shop-
 
 Environment and branch aliases follow successful deployments. Each environment runs one current revision: an old deployment URL does not preserve an older running app.
 
+Inactive deployment URLs redirect to the dashboard, where signed-in workspace members can inspect the deployment and request a redeploy. Redeploying requires the usual permissions and confirmation. Only known deployment hostnames redirect; custom domains, unknown hosts and application-generated 404s are unaffected. The original path and query are discarded.
+
+To disable redirects on a server, set `DEVPUSH_DISABLE_INACTIVE_REDIRECTS=true` in its agent configuration and restart the agent. Redirects expose the dashboard's public hostname. History is limited to the latest 1,000 recorded deployments per server; older URLs return a local 404. HTTPS still needs a valid certificate before any redirect can occur; retired hostnames do not request new certificates.
+
+This feature needs an updated dashboard and agent. Registration restores recent successful deployment hostnames; future deployments record their own fallback routes. **Visit** is disabled for revisions that the dashboard knows have been replaced.
+
 Renaming a project or changing a server IP does not rewrite saved hostnames. Use a custom domain for a stable address. Installation-owned wildcard domains are not available in the default installation, which uses nip.io.
 
 ## Add a domain

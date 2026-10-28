@@ -1,5 +1,9 @@
 import { pageHead } from '#devpush/lib/page-head'
-import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
+import {
+  Outlet,
+  createFileRoute,
+  useChildMatches,
+} from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 
 import { TeamProjects } from '#devpush/features/teams/team-home'
@@ -18,11 +22,8 @@ export const Route = createFileRoute('/$teamSlug/projects')({
 })
 
 function TeamProjectsRoute() {
-  const params = Route.useParams()
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
-  if (pathname !== `/${params.teamSlug}/projects`) {
+  const hasChild = useChildMatches({ select: (matches) => matches.length > 0 })
+  if (hasChild) {
     return <Outlet />
   }
 

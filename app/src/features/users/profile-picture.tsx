@@ -54,87 +54,89 @@ export function ProfilePicture({
       uploading.current = false
     }
   }
-  if (!imageUploads)
-    return (
-      <Avatar className="size-9">
-        <AvatarImage
-          src={image ?? undefined}
-          alt={name || email}
-          referrerPolicy="no-referrer"
-        />
-        <AvatarFallback>
-          {(name || email).trim().slice(0, 1).toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
-    )
   return (
     <TooltipProvider>
       <div className="flex items-center gap-3">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              id={id}
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Upload profile picture"
-              aria-busy={processing}
-              disabled={locked}
-              className="group/picture relative size-9 rounded-full border-0 p-0 hover:bg-transparent"
-              data-active={dragging || processing}
-              onClick={() => input.current?.click()}
-              onDragOver={(event) => {
-                if (!event.dataTransfer.types.includes('Files')) return
-                event.preventDefault()
-                event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
-                if (!locked) setDragging(true)
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(event) => {
-                if (!event.dataTransfer.types.includes('Files')) return
-                event.preventDefault()
-                setDragging(false)
-                if (!locked && event.dataTransfer.files.length === 1) {
-                  const file = event.dataTransfer.files[0]
-                  if (file) void upload(file)
-                }
-              }}
-            >
-              <Avatar className="pointer-events-none size-9">
-                <AvatarImage
-                  src={image ?? undefined}
-                  alt={name || email}
-                  referrerPolicy="no-referrer"
-                  draggable={false}
-                />
-                <AvatarFallback>
-                  {(name || email).trim().slice(0, 1).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-background/60 text-foreground opacity-0 transition-opacity group-hover/picture:opacity-100 group-focus-visible/picture:opacity-100 group-data-[active=true]/picture:opacity-100">
-                {processing ? (
-                  <LoaderCircleIcon className="size-4 animate-spin opacity-60" />
-                ) : (
-                  <ImageUpIcon className="size-4 opacity-50" />
-                )}
-              </span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Upload or drop a picture</TooltipContent>
-        </Tooltip>
-        <input
-          ref={input}
-          type="file"
-          aria-label="Avatar image"
-          accept="image/png,image/jpeg,image/webp"
-          disabled={locked}
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            event.target.value = ''
-            if (file) void upload(file)
-          }}
-        />
+        {imageUploads ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                id={id}
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Upload profile picture"
+                aria-busy={processing}
+                disabled={locked}
+                className="group/picture relative size-9 rounded-full border-0 p-0 hover:bg-transparent"
+                data-active={dragging || processing}
+                onClick={() => input.current?.click()}
+                onDragOver={(event) => {
+                  if (!event.dataTransfer.types.includes('Files')) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
+                  if (!locked) setDragging(true)
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(event) => {
+                  if (!event.dataTransfer.types.includes('Files')) return
+                  event.preventDefault()
+                  setDragging(false)
+                  if (!locked && event.dataTransfer.files.length === 1) {
+                    const file = event.dataTransfer.files[0]
+                    if (file) void upload(file)
+                  }
+                }}
+              >
+                <Avatar className="pointer-events-none size-9">
+                  <AvatarImage
+                    src={image ?? undefined}
+                    alt={name || email}
+                    referrerPolicy="no-referrer"
+                    draggable={false}
+                  />
+                  <AvatarFallback>
+                    {(name || email).trim().slice(0, 1).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-background/60 text-foreground opacity-0 transition-opacity group-hover/picture:opacity-100 group-focus-visible/picture:opacity-100 group-data-[active=true]/picture:opacity-100">
+                  {processing ? (
+                    <LoaderCircleIcon className="size-4 animate-spin opacity-60" />
+                  ) : (
+                    <ImageUpIcon className="size-4 opacity-50" />
+                  )}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Upload or drop a picture</TooltipContent>
+          </Tooltip>
+        ) : (
+          <Avatar className="size-9">
+            <AvatarImage
+              src={image ?? undefined}
+              alt={name || email}
+              referrerPolicy="no-referrer"
+            />
+            <AvatarFallback>
+              {(name || email).trim().slice(0, 1).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+        )}
+        {imageUploads ? (
+          <input
+            ref={input}
+            type="file"
+            aria-label="Avatar image"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={locked}
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) void upload(file)
+            }}
+          />
+        ) : null}
         {image || removed ? (
           <Tooltip>
             <TooltipTrigger asChild>

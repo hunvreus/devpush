@@ -5,14 +5,14 @@ import {
   createFileRoute,
   useParams,
   useRouterState,
+  useChildMatches,
 } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
 import { ProjectPage } from '#devpush/features/projects/project-layout'
 import { ProjectOverview } from '#devpush/features/projects/project-overview'
-import { ProjectRoutePending } from '#devpush/features/projects/project-route-pending'
+import { ProjectRoutePending, preloadProjectPendingPage } from '#devpush/features/projects/project-route-pending'
 import { getProjectPendingSection } from '#devpush/features/projects/pending-section'
-import type { ProjectPendingSection } from '#devpush/features/projects/pending-section'
 import {
   projectContextQueryOptions,
   projectShellQueryOptions,
@@ -21,6 +21,7 @@ import {
 export const Route = createFileRoute('/$teamSlug/projects/$projectName')({
   loader: async ({ context, location, params }) => {
     const scope = getProjectPendingSection(location.pathname)
+    preloadProjectPendingPage(scope)
     const shell = context.queryClient.fetchQuery(
       projectShellQueryOptions({
         teamSlug: params.teamSlug,
@@ -44,6 +45,7 @@ export const Route = createFileRoute('/$teamSlug/projects/$projectName')({
       ),
     ])
   },
+  pendingMs: 0,
   pendingComponent: ProjectPending,
   component: ProjectRoute,
   head: ({ params }) =>
@@ -52,20 +54,19 @@ export const Route = createFileRoute('/$teamSlug/projects/$projectName')({
 
 function ProjectRoute() {
   const params = useParams({ from: '/$teamSlug/projects/$projectName' })
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
+  const isOverview = useChildMatches({
+    select: (matches) => matches.length === 0,
   })
-  const pendingSection = getProjectPendingSection(pathname)
 
-  return <ProjectContent params={params} pendingSection={pendingSection} />
+  return <ProjectContent params={params} isOverview={isOverview} />
 }
 
 function ProjectContent({
   params,
-  pendingSection,
+  isOverview,
 }: {
   params: { projectName: string; teamSlug: string }
-  pendingSection: ProjectPendingSection
+  isOverview: boolean
 }) {
   const { data: shell } = useSuspenseQuery(
     projectShellQueryOptions({
@@ -73,8 +74,6 @@ function ProjectContent({
       projectName: params.projectName,
     }),
   )
-
-  const isOverview = pendingSection === 'overview'
 
   return (
     <ProjectPage context={shell}>

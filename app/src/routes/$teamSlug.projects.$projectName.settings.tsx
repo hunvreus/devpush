@@ -20,8 +20,7 @@ export const Route = createFileRoute(
         context.queryClient,
       ),
     ),
-  pendingMs: 150,
-  pendingMinMs: 200,
+  pendingMs: 0,
   pendingComponent: SettingsPending,
   component: SettingsRoute,
   head: ({ params }) =>

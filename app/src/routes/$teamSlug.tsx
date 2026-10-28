@@ -1,4 +1,4 @@
-import { getCurrentUserContext } from '#devpush/server/auth/context'
+import { currentUserContextQueryOptions } from '#devpush/features/auth/current-user-context-query'
 import { pageHead } from '#devpush/lib/page-head'
 import { useWorkspaceUpdates } from '#devpush/features/teams/use-workspace-updates'
 import {
@@ -6,7 +6,7 @@ import {
   redirect,
   createFileRoute,
   useParams,
-  useRouterState,
+  useChildMatches,
 } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 
@@ -16,9 +16,11 @@ import { teamShellQueryOptions } from '#devpush/lib/team-context-query'
 
 export const Route = createFileRoute('/$teamSlug')({
   ssr: false,
-  beforeLoad: async ({ location }) => {
-    const context = await getCurrentUserContext()
-    if (context?.user.profileConfirmedAt === null)
+  beforeLoad: async ({ context, location }) => {
+    const user = await context.queryClient.fetchQuery(
+      currentUserContextQueryOptions(),
+    )
+    if (user?.user.profileConfirmedAt === null)
       throw redirect({ to: '/onboarding', search: { redirect: location.href } })
   },
   loader: ({ context, location, params }) => {
@@ -31,7 +33,6 @@ export const Route = createFileRoute('/$teamSlug')({
     )
   },
   pendingMs: 150,
-  pendingMinMs: 200,
   pendingComponent: TeamLayoutPending,
   component: TeamLayoutRoute,
   head: ({ params }) => pageHead('Overview', params.teamSlug),
@@ -39,13 +40,16 @@ export const Route = createFileRoute('/$teamSlug')({
 
 function TeamLayoutRoute() {
   const params = useParams({ strict: false })
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
+  const isProject = useChildMatches({
+    select: (matches) =>
+      matches.some(
+        (match) => match.routeId === '/$teamSlug/projects/$projectName',
+      ),
   })
   const teamSlug = String(params.teamSlug)
   useWorkspaceUpdates(teamSlug)
 
-  if (isProjectRoute(pathname, teamSlug)) {
+  if (isProject) {
     return <Outlet />
   }
 

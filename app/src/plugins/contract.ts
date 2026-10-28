@@ -77,15 +77,6 @@ export interface PluginContext {
     prepared?: PreparedNotification
   }) => Promise<boolean>
   listWorkspaceOwners?: (teamId: string) => Promise<string[]>
-  reportServerIssue?: (input: {
-    serverId: string
-    category: 'domains' | 'servers'
-    key: string
-    title: string
-    message: string
-    active: boolean
-  }) => Promise<void>
-
   readWorkspace?: (teamId: string) => Promise<DeploymentWorkspace | null>
   authorizeWorkspace?: (
     userId: string,

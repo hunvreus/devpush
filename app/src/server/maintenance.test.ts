@@ -9,10 +9,10 @@ const mocks = vi.hoisted(() => ({
   maintainDeployment: vi.fn(),
   pruneApiHistory: vi.fn(),
   pruneDeletedResources: vi.fn(),
-  encryptExistingProviderTokens: vi.fn(),
   cleanupExpiredRateLimits: vi.fn(),
   cleanupExpiredTeamInvites: vi.fn(),
   failStaleRunningDeployments: vi.fn(),
+  failStaleQueuedDeployments: vi.fn(),
   failStaleAgentJobs: vi.fn(),
   queueBackupRetentionCleanupJobs: vi.fn(),
   runQueuedUserCleanupJobs: vi.fn(),
@@ -27,10 +27,6 @@ vi.mock('#devpush/server/plugins/services.server', () => ({
   }),
 }))
 
-vi.mock('#devpush/server/auth/provider-tokens', () => ({
-  encryptExistingProviderTokens: mocks.encryptExistingProviderTokens,
-}))
-
 vi.mock('#devpush/server/deleted-resources', () => ({
   pruneDeletedResources: mocks.pruneDeletedResources,
 }))
@@ -40,6 +36,7 @@ vi.mock('#devpush/server/api/retention', () => ({
 }))
 vi.mock('#devpush/server/agents/jobs', () => ({
   failStaleRunningDeployments: mocks.failStaleRunningDeployments,
+  failStaleQueuedDeployments: mocks.failStaleQueuedDeployments,
   failStaleAgentJobs: mocks.failStaleAgentJobs,
 }))
 vi.mock('#devpush/server/backups/service', () => ({
@@ -67,10 +64,6 @@ vi.mock('#devpush/server/logs/cleanup', () => ({
 describe('runMaintenance', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    mocks.encryptExistingProviderTokens.mockResolvedValue({
-      checked: 2,
-      encrypted: 2,
-    })
     mocks.pruneDeletedResources.mockResolvedValue({
       projects: 1,
       servers: 2,
@@ -86,6 +79,7 @@ describe('runMaintenance', () => {
     mocks.cleanupExpiredRateLimits.mockResolvedValue(undefined)
     mocks.cleanupExpiredTeamInvites.mockResolvedValue({ expiredCount: 2 })
     mocks.failStaleRunningDeployments.mockResolvedValue(['first'])
+    mocks.failStaleQueuedDeployments.mockResolvedValue([])
     mocks.failStaleAgentJobs.mockResolvedValue(['backup'])
     mocks.queueBackupRetentionCleanupJobs.mockResolvedValue([
       { id: 'cleanup', backupRunIds: ['run'] },
@@ -99,16 +93,14 @@ describe('runMaintenance', () => {
     })
   })
 
-  test('plugin maintenance failure still runs token maintenance while retaining cleanup source records', async () => {
+  test('plugin maintenance failure retains cleanup source records', async () => {
     mocks.maintainDeployment.mockRejectedValue(new Error('provider offline'))
     await expect(runMaintenance()).rejects.toThrow('provider offline')
     expect(mocks.pruneDeletedResources).not.toHaveBeenCalled()
-    expect(mocks.encryptExistingProviderTokens).toHaveBeenCalledOnce()
   })
 
   test('runs every periodic cleanup task', async () => {
     await expect(runMaintenance()).resolves.toEqual({
-      providerTokens: { checked: 2, encrypted: 2 },
       deletedResources: { projects: 1, servers: 2, teams: 3, users: 4 },
       apiHistory: {
         idempotency: 1,

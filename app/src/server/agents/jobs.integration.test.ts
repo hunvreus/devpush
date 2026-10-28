@@ -40,6 +40,8 @@ import {
 import { currentAgentCapabilities } from './compatibility'
 import {
   claimNextAgentJob,
+  claimNextDeploymentJob,
+  failStaleQueuedDeployments,
   failStaleRunningDeployments,
   failStaleAgentJobs,
   completeBackupCleanupJob,
@@ -73,6 +75,63 @@ afterAll(async () => {
 })
 
 describe('agent deployment jobs', () => {
+  test('expires old queued deployments without an agent and never claims them', async () => {
+    const f = await createFixture()
+    await db
+      .update(deployments)
+      .set({
+        status: 'queued',
+        phase: 'queued',
+        createdAt: new Date(Date.now() - 25 * 3600000),
+      })
+      .where(eq(deployments.id, f.deploymentId))
+    expect(await failStaleQueuedDeployments()).toContain(f.deploymentId)
+    const [deployment] = await db
+      .select()
+      .from(deployments)
+      .where(eq(deployments.id, f.deploymentId))
+    expect(deployment).toMatchObject({
+      status: 'failed',
+      phase: 'timed_out',
+      errorMessage: 'Deployment expired while waiting for the server.',
+    })
+    expect(
+      await claimNextDeploymentJob({
+        serverId: f.serverId,
+        token: f.token,
+        skipAgentAuth: true,
+      }),
+    ).toBeNull()
+  })
+  test('refuses an expired queue item at claim time and preserves recent items', async () => {
+    const f = await createFixture()
+    await db
+      .update(deployments)
+      .set({
+        status: 'queued',
+        phase: 'queued',
+        createdAt: new Date(Date.now() - 25 * 3600000),
+      })
+      .where(eq(deployments.id, f.deploymentId))
+    expect(
+      await claimNextDeploymentJob({
+        serverId: f.serverId,
+        token: f.token,
+        skipAgentAuth: true,
+      }),
+    ).toBeNull()
+    const [deployment] = await db
+      .select()
+      .from(deployments)
+      .where(eq(deployments.id, f.deploymentId))
+    expect(deployment?.status).toBe('failed')
+    await db
+      .update(deployments)
+      .set({ status: 'queued', phase: 'queued', createdAt: new Date() })
+      .where(eq(deployments.id, f.deploymentId))
+    expect(await failStaleQueuedDeployments(f.serverId)).toEqual([])
+  })
+
   test.each(['queued', 'running'] as const)(
     'maintenance expires %s backups without an agent poll',
     async (status) => {
@@ -563,7 +622,7 @@ describe('agent deployment jobs', () => {
     ).toBe('canceled')
   })
 
-  test('merges atomic control events with output, preserves filters and rejects unauthorized reads', async () => {
+  test('shows only agent output, preserves filters and rejects unauthorized reads', async () => {
     const {
       deploymentId,
       projectId,
@@ -591,7 +650,7 @@ describe('agent deployment jobs', () => {
       },
     })
     const rows = await readProjectDeploymentLogs({ projectId, keyword: 'äpi' })
-    expect(rows.map((row) => row.stream).sort()).toEqual(['control', 'deploy'])
+    expect(rows.map((row) => row.stream)).toEqual(['deploy'])
     expect(
       await getDeploymentLogsContext({
         deploymentId,
@@ -599,7 +658,7 @@ describe('agent deployment jobs', () => {
         teamSlug,
         projectName,
       }),
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     await expect(
       getDeploymentLogsContext({
         deploymentId,
@@ -621,7 +680,7 @@ describe('agent deployment jobs', () => {
           keyword: 'äpi',
         })
       ).logs,
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     expect(await projectHasDeploymentLogs(projectId)).toBe(true)
     await db.delete(deployments).where(eq(deployments.id, deploymentId))
     expect(await readProjectDeploymentLogs({ projectId })).toEqual([])

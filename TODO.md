@@ -34,7 +34,6 @@ Outstanding work only. Private extension work belongs in its own repository.
 
 - Add Dockerfile projects through explicit generated Compose settings.
 - Evaluate Swarm after beta; do not equate Compose support with clustering.
-- Add managed fallback pages and historical redeployment.
 - Add Compose graph/template editing and external log drains.
 - Add multi-artifact restore selection and restore into another environment.
 - Add backup downloads and optional quiesced-volume backups.

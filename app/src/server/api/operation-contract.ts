@@ -1,7 +1,7 @@
 import type { WorkspaceOperation } from '#devpush/plugins/operations'
 import { settingsVersionSchema } from '#devpush/lib/settings-version'
 import { projectEnvironmentsSchema } from '#devpush/lib/project-environments-schema'
-import { storedBackupDatabaseSchema } from '#devpush/lib/backup-database'
+import { backupDatabaseSchema } from '#devpush/lib/backup-database'
 import { z } from 'zod'
 import type { TeamRole } from '#devpush/lib/team-role'
 import {
@@ -110,7 +110,7 @@ const deploymentPage = projectPage.extend({
   environmentId: publicIdSchema.optional(),
 })
 const logPage = publicPageInputSchema.extend({
-  stream: z.enum(['build', 'control']).default('build'),
+  stream: z.literal('build').default('build'),
 })
 const runtimeLogInput = projectPage.extend({
   environmentId: publicIdSchema.optional(),
@@ -173,9 +173,7 @@ export const publicApiOperations: PublicApiOperation[] = [
         id: publicIdSchema,
         projectId: publicIdSchema,
         settingsVersion: settingsVersionSchema,
-        databaseDumps: z
-          .array(storedBackupDatabaseSchema.omit({ legacyCommand: true }))
-          .max(100),
+        databaseDumps: z.array(backupDatabaseSchema).max(100),
       })
       .strict(),
   }),

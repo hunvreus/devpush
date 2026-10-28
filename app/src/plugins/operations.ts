@@ -19,7 +19,6 @@ export const workspaceOperations = [
   'domain.update',
   'domain.verify',
   'deployment.create',
-  'deployment.claim',
   'backup.policy.save',
   'backup.policy.delete',
   'backup.storage.save',

@@ -18,7 +18,6 @@ import type { ApiMutationAdmission } from '#devpush/server/api/admission'
 import { PublicError } from '#devpush/lib/public-error'
 import {
   backupDatabaseSchema,
-  storedBackupDatabaseSchema,
   databaseArtifactTarget,
 } from '#devpush/lib/backup-database'
 import type { BackupDatabase } from '#devpush/lib/backup-database'
@@ -911,10 +910,9 @@ function requireDatabaseArtifactTarget(
     typeof manifest === 'object' &&
     manifest !== null &&
     'databaseTargets' in manifest
-      ? z.array(storedBackupDatabaseSchema).parse(manifest.databaseTargets)
+      ? z.array(backupDatabaseSchema).parse(manifest.databaseTargets)
       : []
   const target = databaseArtifactTarget(objectKey, targets)
-  if (!target || target.engine === 'needs_configuration')
-    throw new PublicError('BACKUP_DATABASE_ENGINE_UNSUPPORTED')
+  if (!target) throw new PublicError('BACKUP_DATABASE_ENGINE_UNSUPPORTED')
   return target
 }

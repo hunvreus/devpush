@@ -4,6 +4,43 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+### Changed
+
+- Remove the configurable sign-in notice.
+- Flatten the unreleased main database migrations into one baseline. Existing pre-release databases must be recreated.
+
+### Added
+
+- Optional inactive-deployment redirects to the dashboard, with membership checks and confirmed redeployment. Requires an updated agent and dashboard; no database migration.
+
+### Fixed
+
+- Label deployment log limit notices as devpush messages.
+- Show deployment failure reasons without adding hub events to the agent console.
+- Expire queued deployments after 24 hours by default; the limit is configurable.
+- Remove the control stream from the deployment logs API; it now returns agent output only.
+- Keep actionable error notifications visible until dismissed and show deployment errors consistently.
+- Show loaded pages as soon as they are ready and avoid fetching deployment aliases for project navigation.
+- Reuse the onboarding check across navigation and link prefetches.
+- Reduce database reads for deployment lists, details and project views.
+- Avoid an extra database read when loading the last page of deployment logs.
+- Add database indexes for agent authentication, deployments and runtime log retention; existing installations must apply the new migrations.
+- Cache fingerprinted assets on Cloudflare for faster repeat visits.
+- Avoid caching missing assets in Node deployments.
+- Load infrequently used settings and backup screens on demand.
+- Avoid loading the service picker on the initial app load.
+- Keep the selected navigation tab in sync with the page during transitions.
+- Keep the current onboarding step visible until the next step is ready.
+- Keep the correct page layout visible while navigating between teams, projects and deployments.
+- Refresh deployment lists immediately after GitHub pushes.
+- Show all project environments and their links on the overview.
+- Show project and deployment loading states promptly and restore deployment alias links.
+- Disable Visit for replaced deployment revisions.
+- Separate deployment Visit and action-menu buttons.
+- Clarify notification settings and keep the mute switch disabled while saving.
+- Describe domain alerts accurately in email preferences.
+- Keep profile pictures circular and retain remove/undo controls when image uploads are unavailable.
+
 ## [1.0.0-beta.1] - 2026-10-27
 
 ### Changed

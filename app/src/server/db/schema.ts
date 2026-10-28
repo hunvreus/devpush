@@ -550,6 +550,15 @@ export const servers = sqliteTable(
       .on(table.teamId, sql`lower(${table.name})`)
       .where(sql`${table.status} <> 'deleted'`),
     index('servers_team_idx').on(table.teamId),
+    index('servers_agent_credential_idx')
+      .on(table.agentCredentialHash)
+      .where(sql`${table.agentCredentialHash} is not null`),
+    index('servers_pending_agent_credential_idx')
+      .on(table.pendingAgentCredentialHash)
+      .where(sql`${table.pendingAgentCredentialHash} is not null`),
+    index('servers_enrollment_token_idx')
+      .on(table.enrollmentTokenHash)
+      .where(sql`${table.enrollmentTokenHash} is not null`),
   ],
 )
 
@@ -920,7 +929,7 @@ export const deployments = sqliteTable(
   (table) => [
     ...enumChecks(table),
     index('deployments_environment_idx').on(table.environmentId),
-    index('deployments_server_idx').on(table.serverId),
+    index('deployments_server_status_idx').on(table.serverId, table.status),
     index('deployments_status_idx').on(table.status),
     uniqueIndex('deployments_running_runtime_idx')
       .on(table.runtimeId)
@@ -1161,15 +1170,13 @@ export const notificationOutbox = sqliteTable(
     incidentId: text('incident_id')
       .notNull()
       .references(() => notificationIncidents.id, { onDelete: 'cascade' }),
-    payload: text('payload', { mode: 'json' })
-      .notNull()
-      .$type<{
-        from?: string
-        to: string
-        subject: string
-        text: string
-        html: string
-      }>(),
+    payload: text('payload', { mode: 'json' }).notNull().$type<{
+      from: string
+      to: string
+      subject: string
+      text: string
+      html: string
+    }>(),
     revision: text('revision').notNull(),
     userId: text('user_id')
       .notNull()

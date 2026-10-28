@@ -3,7 +3,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { adminSearchSchema } from '#devpush/lib/admin-search-schema'
 import { AdminSettings } from '#devpush/features/admin/admin-settings'
-import { AdminSettingsPending } from '#devpush/features/settings/settings-route-pending'
+import { AdminSettingsPending, adminSettingsModule } from '#devpush/features/settings/settings-route-pending'
 import { getAdminSettingsContext } from '#devpush/server/admin/functions'
 
 export const Route = createFileRoute('/admin')({
@@ -11,6 +11,7 @@ export const Route = createFileRoute('/admin')({
   validateSearch: (search) => adminSearchSchema.parse(search),
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
+    void adminSettingsModule.load()
     let context
 
     try {
@@ -29,7 +30,6 @@ export const Route = createFileRoute('/admin')({
     return context
   },
   pendingMs: 150,
-  pendingMinMs: 200,
   pendingComponent: AdminSettingsPending,
   component: AdminRoute,
   head: () => pageHead('Administration'),

@@ -35,7 +35,6 @@ export async function enqueueDeployment(
     hostname: string
     https: boolean
     branchHostname?: string
-    queuedMessage: string
     canceledMessage: string
     now: Date
     failureMessage?: string
@@ -87,18 +86,8 @@ export async function enqueueDeployment(
       // Insert before cancellation, so a duplicate delivery skips every effect.
       // A reused deployment ID deliberately fails its primary key instead of
       // letting the following statements operate on an older deployment.
-      store.run(sql`insert into deployment_events
-      (deployment_id, stream, seq, content, search_content, created_at)
-      select id, 'control', coalesce((select max(seq) from deployment_events
-        where deployment_id = deployments.id), 0) + 1,
-        ${input.canceledMessage}, ${input.canceledMessage.toLowerCase()}, ${now}
-      from deployments where ${active}`),
       store.run(sql`update deployments set status = 'canceled', phase = 'canceled',
       error_message = ${input.canceledMessage}, finished_at = ${now} where ${active}`),
-      store.run(sql`insert into deployment_events
-      (deployment_id, stream, seq, content, search_content, created_at)
-      select ${d.id}, 'control', 1, ${input.queuedMessage}, ${input.queuedMessage.toLowerCase()}, ${now}
-      where ${created}`),
       ...(input.branchHostname ? [alias('branch', input.branchHostname)] : []),
       alias('deployment', input.hostname),
       ...(input.admission?.statements ?? []),

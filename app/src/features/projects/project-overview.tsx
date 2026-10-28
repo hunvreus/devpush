@@ -63,56 +63,63 @@ export function ProjectOverview({
           </Button>
         </header>
         <ul className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          <li className="rounded-xl border bg-card p-4 text-sm text-card-foreground">
-            <header className="mb-4 flex items-center gap-x-2 truncate">
-              <Link
-                to="/$teamSlug/projects/$projectName/deployments"
-                params={{ teamSlug, projectName: project.name }}
-                search={{ environment: environment.slug }}
-                className="flex h-4 min-w-0 items-center gap-x-2 truncate"
+          {context.environments
+            .filter((item) => item.status === 'active')
+            .map((item) => (
+              <li
+                key={item.id}
+                className="rounded-xl border bg-card p-4 text-sm text-card-foreground"
               >
-                <span className="flex size-4 items-center justify-center">
-                  <EnvironmentDot color={environment.color} />
-                </span>
-                <span className="flex-1 truncate font-medium">
-                  {environment.name}
-                </span>
-              </Link>
-            </header>
-            <ul className="space-y-1 text-sm">
-              <li>
-                {environment.defaultHost ? (
-                  <a
-                    href={routeUrl({
-                      host: environment.defaultHost,
-                      https: environment.publicRoutes.at(0)?.https ?? true,
-                    })}
-                    className="flex min-w-0 items-center gap-x-2 text-muted-foreground transition-colors hover:text-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Visit"
+                <header className="mb-4 flex items-center gap-x-2 truncate">
+                  <Link
+                    to="/$teamSlug/projects/$projectName/deployments"
+                    params={{ teamSlug, projectName: project.name }}
+                    search={{ environment: item.slug }}
+                    className="flex h-4 min-w-0 items-center gap-x-2 truncate"
                   >
-                    <Link2Icon />
-                    <span className="truncate">{environment.defaultHost}</span>
-                  </a>
-                ) : (
-                  <span className="flex min-w-0 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
-                    <Link2Icon />
-                    <span className="truncate">No route configured</span>
-                  </span>
-                )}
+                    <span className="flex size-4 items-center justify-center">
+                      <EnvironmentDot color={item.color} />
+                    </span>
+                    <span className="flex-1 truncate font-medium">
+                      {item.name}
+                    </span>
+                  </Link>
+                </header>
+                <ul className="space-y-1 text-sm">
+                  <li>
+                    {item.defaultHost ? (
+                      <a
+                        href={routeUrl({
+                          host: item.defaultHost,
+                          https: item.defaultRouteHttps ?? true,
+                        })}
+                        className="flex min-w-0 items-center gap-x-2 text-muted-foreground transition-colors hover:text-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Visit"
+                      >
+                        <Link2Icon />
+                        <span className="truncate">{item.defaultHost}</span>
+                      </a>
+                    ) : (
+                      <span className="flex min-w-0 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50">
+                        <Link2Icon />
+                        <span className="truncate">No route configured</span>
+                      </span>
+                    )}
+                  </li>
+                  <li>
+                    <span
+                      className="flex w-min min-w-0 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
+                      title="Branch"
+                    >
+                      <GitBranchIcon />
+                      <span className="truncate">{item.branch}</span>
+                    </span>
+                  </li>
+                </ul>
               </li>
-              <li>
-                <span
-                  className="flex w-min min-w-0 items-center gap-x-2 text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:opacity-50"
-                  title="Branch"
-                >
-                  <GitBranchIcon />
-                  <span className="truncate">{environment.branch}</span>
-                </span>
-              </li>
-            </ul>
-          </li>
+            ))}
         </ul>
       </section>
 

@@ -48,9 +48,6 @@ const envSchema = z
     BETTER_AUTH_URL: optionalUrl,
     DEVPUSH_MCP_URL: optionalUrl,
     DEVPUSH_ADMIN_EMAIL: optionalEmail,
-    DEVPUSH_SIGN_IN_MESSAGE: z
-      .preprocess(normalizeOptional, z.string().trim().max(1000).optional())
-      .transform((value) => value ?? ''),
     EMAIL_FROM: optionalString,
     RESEND_API_KEY: optionalString,
     GOOGLE_CLIENT_ID: optionalString,
@@ -77,6 +74,12 @@ const envSchema = z
     DEVPUSH_CLIENT_IP_HEADER: z
       .enum(['x-forwarded-for', 'x-real-ip'])
       .default('x-forwarded-for'),
+    DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(720)
+      .default(24),
     DEVPUSH_DEPLOYMENT_LOG_MAX_LINES: z.coerce
       .number()
       .int()

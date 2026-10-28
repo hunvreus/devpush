@@ -1,9 +1,5 @@
 import { config } from '#devpush/server/config'
 import { deferBackgroundTask } from '#devpush/server/runtime/background'
-import {
-  observeOperationalNotification,
-  deliverOperationalNotifications,
-} from '#devpush/server/notifications/outbox'
 import { and, asc, eq, gt, sql } from 'drizzle-orm'
 import { db } from '#devpush/server/db'
 import { getResourceColor } from '#devpush/server/resources/color'
@@ -81,42 +77,6 @@ export const pluginContext: PluginContext = {
         ),
       )
     return rows.map((row) => row.id)
-  },
-  async reportServerIssue(input) {
-    const now = Date.now()
-    deferBackgroundTask(async () => {
-      const [server] = await db
-        .select({
-          teamId: servers.teamId,
-          handle: servers.handle,
-          slug: teams.slug,
-        })
-        .from(servers)
-        .innerJoin(teams, eq(teams.id, servers.teamId))
-        .where(
-          and(
-            eq(servers.id, input.serverId),
-            sql`${servers.status} in ('connected','disconnected')`,
-            eq(teams.status, 'active'),
-          ),
-        )
-        .limit(1)
-      if (!server) return
-      await observeOperationalNotification({
-        id: `extension:${input.serverId}:${input.key}`,
-        sourceId: input.serverId,
-        teamId: server.teamId,
-        projectId: null,
-        category: input.category,
-        failed: input.active,
-        revision: String(now),
-        at: now,
-        title: input.title,
-        message: input.message,
-        path: `/${encodeURIComponent(server.slug)}/servers/${encodeURIComponent(input.serverId)}`,
-      })
-      await deliverOperationalNotifications(5)
-    })
   },
   async readWorkspace(teamId) {
     const rows = await db

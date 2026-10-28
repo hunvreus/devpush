@@ -2,7 +2,7 @@ import {
   createFileRoute,
   redirect,
   Outlet,
-  useRouterState,
+  useChildMatches,
 } from '@tanstack/react-router'
 import { getCurrentUserContext } from '#devpush/server/auth/context'
 import { getSafeRedirectPath } from '#devpush/lib/internal-redirect'
@@ -28,10 +28,8 @@ export const Route = createFileRoute('/onboarding')({
 function OnboardingRoute() {
   const context = Route.useLoaderData()
   const search = Route.useSearch()
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
-  return pathname === '/onboarding/workspace' ? (
+  const hasChild = useChildMatches({ select: (matches) => matches.length > 0 })
+  return hasChild ? (
     <Outlet />
   ) : (
     <ProfileOnboarding context={context} destination={search.redirect} />

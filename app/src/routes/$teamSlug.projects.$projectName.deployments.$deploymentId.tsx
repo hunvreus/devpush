@@ -9,6 +9,11 @@ import { pluginContextQueryOptions } from '#devpush/lib/project-context-query'
 export const Route = createFileRoute(
   '/$teamSlug/projects/$projectName/deployments/$deploymentId',
 )({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { unavailable?: boolean } => ({
+    unavailable: search.unavailable === true || search.unavailable === 'true',
+  }),
   loader: ({ context, params }) =>
     context.queryClient.fetchQuery(
       pluginContextQueryOptions(
@@ -20,8 +25,7 @@ export const Route = createFileRoute(
         context.queryClient,
       ),
     ),
-  pendingMs: 150,
-  pendingMinMs: 200,
+  pendingMs: 0,
   pendingComponent: DeploymentPending,
   component: DeploymentRoute,
   head: ({ params }) =>
@@ -43,5 +47,6 @@ function DeploymentRoute() {
     pluginContextQueryOptions(params, queryClient),
   )
 
-  return <DeploymentDetail context={context} />
+  const { unavailable } = Route.useSearch()
+  return <DeploymentDetail context={context} unavailable={unavailable} />
 }

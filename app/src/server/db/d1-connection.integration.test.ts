@@ -62,6 +62,20 @@ beforeAll(async () => {
 afterAll(async () => runtime?.dispose())
 
 describe('local D1 storage', () => {
+  test('agent credential and deployment lookups use their indexes', async () => {
+    const credentials =
+      await main.all(sql`explain query plan select id from servers
+      where (enrollment_token_hash = ${'hash'} and enrollment_token_expires_at > ${0})
+         or agent_credential_hash = ${'hash'} or pending_agent_credential_hash = ${'hash'} limit 1`)
+    const deployments =
+      await main.all(sql`explain query plan select id from deployments
+      where server_id = ${'server'} and status = 'queued'`)
+    expect(JSON.stringify(credentials)).toContain('MULTI-INDEX OR')
+    expect(JSON.stringify(deployments)).toContain(
+      'deployments_server_status_idx',
+    )
+  })
+
   test('backup policy saves enforce their own version and live roles on D1', async () => {
     const teamId = 'backup-guard-team',
       userId = 'backup-guard-user',
@@ -639,7 +653,6 @@ describe('local D1 storage', () => {
       hostname: 'enqueue-new.example.com',
       branchHostname: 'enqueue-branch.example.com',
       https: true,
-      queuedMessage: 'Queued new deployment.',
       canceledMessage: 'Canceled by newer deployment.',
       now,
     }
@@ -688,7 +701,6 @@ describe('local D1 storage', () => {
         githubDeliveryId: 'delivery-blocked',
       },
       failureMessage: 'Assigned server is disconnected.',
-      queuedMessage: 'Assigned server is disconnected.',
     }
     expect(await enqueueDeployment(main, blocked)).toBe(true)
     expect(
@@ -751,7 +763,7 @@ describe('local D1 storage', () => {
         .select()
         .from(schema.deploymentEvents)
         .where(eq(schema.deploymentEvents.deploymentId, source.id)),
-    ).toHaveLength(1)
+    ).toHaveLength(0)
     const [winner] = await main
       .select()
       .from(schema.deployments)
@@ -1406,7 +1418,7 @@ describe('local D1 storage', () => {
           config: {},
           envVars: '[]',
           runtimeId: index < 2 ? 'shared-runtime' : 'independent-runtime',
-          createdAt: new Date(index + 1),
+          createdAt: new Date(Date.now() - 1000 + index),
         })),
       ),
     ])
@@ -2212,12 +2224,7 @@ describe('local D1 storage', () => {
       .select()
       .from(schema.deploymentEvents)
       .where(eq(schema.deploymentEvents.deploymentId, 'failure-deployment'))
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({
-      seq: 1,
-      content: 'DÉPLOY failed',
-      searchContent: 'déploy failed',
-    })
+    expect(events).toHaveLength(0)
     expect(await failRunningDeployments(main, input)).toEqual([])
   })
 

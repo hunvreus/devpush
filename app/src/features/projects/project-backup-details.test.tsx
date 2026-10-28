@@ -204,28 +204,6 @@ test('fractional retention counts are marked on their own field', async () => {
   ).toContain('whole number')
 })
 
-test('unconverted custom targets require a supported database engine', async () => {
-  const { node } = await mount('owner', backup.volumes, {
-    ...backup,
-    databaseDumps: [
-      {
-        service: 'postgres',
-        engine: 'needs_configuration',
-        database: '',
-        legacyCommand: 'custom',
-      },
-    ],
-  })
-  await fill(node.querySelector('#backup-policy-name-b')!, 'Edited')
-  await save(node)
-  expect(mocks.save).not.toHaveBeenCalled()
-  expect(
-    node
-      .querySelector('[aria-label="Database engine"]')
-      ?.getAttribute('aria-invalid'),
-  ).toBe('true')
-})
-
 test('removing a volume target preserves database dump targets on save', async () => {
   const policy = {
     ...backup,

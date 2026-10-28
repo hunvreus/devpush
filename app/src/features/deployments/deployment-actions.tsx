@@ -1,8 +1,14 @@
 import { afterMutation } from '#devpush/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowUpRightIcon, Redo2Icon, Undo2Icon } from 'lucide-react'
+import {
+  ArrowUpRightIcon,
+  LoaderIcon,
+  Redo2Icon,
+  Undo2Icon,
+} from 'lucide-react'
 import { useState } from 'react'
+import { Button } from '#devpush/components/ui/button'
 import { FieldError } from '#devpush/components/ui/field'
 
 import {
@@ -44,9 +50,11 @@ type ActionDeployment = Pick<
 export function DeploymentActions({
   deployment,
   teamSlug,
+  trigger = 'menu',
 }: {
   deployment: ActionDeployment
   teamSlug: string
+  trigger?: 'menu' | 'redeploy'
 }) {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -150,38 +158,50 @@ export function DeploymentActions({
 
   return (
     <>
-      <DropdownMenuContent align="end" className="w-auto">
-        <DropdownMenuItem
-          disabled={!canRollback || busy}
-          className="whitespace-nowrap"
-          onSelect={(event) => {
-            event.preventDefault()
-
-            if (canRollback && !busy) {
-              setActionError(null)
-              setRollbackOpen(true)
-            }
-          }}
-        >
-          <Undo2Icon />
-          Roll back
-        </DropdownMenuItem>
-        <DropdownMenuItem
+      {trigger === 'redeploy' ? (
+        <Button
           disabled={!canRedeploy || busy}
-          className="whitespace-nowrap"
-          onSelect={(event) => {
-            event.preventDefault()
-
-            if (canRedeploy && !busy) {
-              setActionError(null)
-              setRedeployOpen(true)
-            }
+          onClick={() => {
+            setActionError(null)
+            setRedeployOpen(true)
           }}
         >
-          <Redo2Icon />
           Redeploy
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+        </Button>
+      ) : (
+        <DropdownMenuContent align="end" className="w-auto">
+          <DropdownMenuItem
+            disabled={!canRollback || busy}
+            className="whitespace-nowrap"
+            onSelect={(event) => {
+              event.preventDefault()
+
+              if (canRollback && !busy) {
+                setActionError(null)
+                setRollbackOpen(true)
+              }
+            }}
+          >
+            <Undo2Icon />
+            Roll back
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!canRedeploy || busy}
+            className="whitespace-nowrap"
+            onSelect={(event) => {
+              event.preventDefault()
+
+              if (canRedeploy && !busy) {
+                setActionError(null)
+                setRedeployOpen(true)
+              }
+            }}
+          >
+            <Redo2Icon />
+            Redeploy
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      )}
 
       <AlertDialog
         open={redeployOpen}
@@ -216,6 +236,7 @@ export function DeploymentActions({
                 void redeploy()
               }}
             >
+              {isRedeploying ? <LoaderIcon className="animate-spin" /> : null}
               Redeploy
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -255,6 +276,7 @@ export function DeploymentActions({
                 void rollback()
               }}
             >
+              {isRollingBack ? <LoaderIcon className="animate-spin" /> : null}
               Roll back
             </AlertDialogAction>
           </AlertDialogFooter>

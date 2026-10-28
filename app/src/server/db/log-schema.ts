@@ -76,10 +76,12 @@ export const runtimeLogs = sqliteTable(
       table.projectId,
       table.observedAt,
     ),
-    index('runtime_logs_server_runtime_time_idx').on(
+    index('runtime_logs_server_runtime_order_idx').on(
       table.serverId,
       table.runtimeId,
       table.observedAt,
+      table.createdAt,
+      table.id,
     ),
     index('runtime_logs_observed_at_idx').on(table.observedAt),
   ],

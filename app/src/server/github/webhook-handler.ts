@@ -1,3 +1,4 @@
+import { notifyProject } from '#devpush/server/realtime/service'
 import { notifyAfterProjectUpdate } from '#devpush/server/notifications/observe'
 import { handleGitHubInstallationWebhook } from '#devpush/server/github/service'
 import {
@@ -189,7 +190,9 @@ export async function handleGitHubWebhook(request: Request) {
 
   for (const projectId of new Set(
     [...result.created, ...result.skipped].map((item) => item.projectId),
-  ))
-    await notifyAfterProjectUpdate(projectId)
+  )) {
+    await notifyProject(projectId)
+    notifyAfterProjectUpdate(projectId)
+  }
   return Response.json({ ok: true, ...result })
 }

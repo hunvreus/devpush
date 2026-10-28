@@ -1,4 +1,3 @@
-import { config } from '#devpush/server/config'
 import { createServerFn } from '@tanstack/react-start'
 import { getAuthMethods } from '#devpush/server/auth/auth-methods'
 import { getAuthSession } from '#devpush/server/auth/session.server'
@@ -11,7 +10,6 @@ export const getLoginContext = createServerFn({ method: 'GET' }).handler(
 
     return {
       authMethods: getAuthMethods(),
-      signInMessage: config.DEVPUSH_SIGN_IN_MESSAGE,
       userContext: session ? await getUserContext(session.user.id) : null,
     }
   },

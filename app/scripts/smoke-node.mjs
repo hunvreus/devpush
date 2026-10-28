@@ -146,7 +146,7 @@ try {
   }
   const login = await fetch(`${origin}/auth/login`)
   assert.equal(login.status, 200)
-  await smokeAssets(origin, await login.text())
+  await smokeAssets(origin, await login.text(), { production: !development })
   await smokePlugins(origin)
   const settings = await fetch(`${origin}/settings`)
   assert.equal(settings.status, 200)

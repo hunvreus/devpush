@@ -64,6 +64,7 @@ func (metrics hostMetrics) hasValues() bool {
 }
 
 type agentResponse struct {
+	InactiveRedirects      []inactiveRedirect `json:"inactiveRedirects,omitempty"`
 	ManagedCertificates    bool               `json:"managedCertificates,omitempty"`
 	MetricsAcceptedThrough string             `json:"metricsAcceptedThrough,omitempty"`
 	ServerID               string             `json:"serverId"`
@@ -100,39 +101,42 @@ type nextJobResponse struct {
 }
 
 type agentJob struct {
-	Attempt     int           `json:"attempt"`
-	Type        string        `json:"type"`
-	ID          string        `json:"id"`
-	LogStartSeq int           `json:"logStartSeq"`
-	Repo        repo          `json:"repo"`
-	Project     projectConfig `json:"project"`
-	Runtime     runtimeConfig `json:"runtime"`
-	EnvVars     []envVar      `json:"envVars"`
-	Routes      []route       `json:"routes"`
-	Cleanup     cleanupConfig `json:"cleanup"`
-	Backup      backupConfig  `json:"backup"`
-	Restore     restoreConfig `json:"restore"`
+	Attempt      int           `json:"attempt"`
+	Type         string        `json:"type"`
+	ID           string        `json:"id"`
+	LogStartSeq  int           `json:"logStartSeq"`
+	FallbackHost string        `json:"fallbackHost,omitempty"`
+	Repo         repo          `json:"repo"`
+	Project      projectConfig `json:"project"`
+	Runtime      runtimeConfig `json:"runtime"`
+	EnvVars      []envVar      `json:"envVars"`
+	Routes       []route       `json:"routes"`
+	Cleanup      cleanupConfig `json:"cleanup"`
+	Backup       backupConfig  `json:"backup"`
+	Restore      restoreConfig `json:"restore"`
 }
 
 type deploymentJob struct {
-	ID          string        `json:"id"`
-	LogStartSeq int           `json:"logStartSeq"`
-	Repo        repo          `json:"repo"`
-	Project     projectConfig `json:"project"`
-	Runtime     runtimeConfig `json:"runtime"`
-	EnvVars     []envVar      `json:"envVars"`
-	Routes      []route       `json:"routes"`
+	ID           string        `json:"id"`
+	LogStartSeq  int           `json:"logStartSeq"`
+	FallbackHost string        `json:"fallbackHost,omitempty"`
+	Repo         repo          `json:"repo"`
+	Project      projectConfig `json:"project"`
+	Runtime      runtimeConfig `json:"runtime"`
+	EnvVars      []envVar      `json:"envVars"`
+	Routes       []route       `json:"routes"`
 }
 
 func (job agentJob) deploymentJob() deploymentJob {
 	return deploymentJob{
-		ID:          job.ID,
-		LogStartSeq: job.LogStartSeq,
-		Repo:        job.Repo,
-		Project:     job.Project,
-		Runtime:     job.Runtime,
-		EnvVars:     job.EnvVars,
-		Routes:      job.Routes,
+		ID:           job.ID,
+		FallbackHost: job.FallbackHost,
+		LogStartSeq:  job.LogStartSeq,
+		Repo:         job.Repo,
+		Project:      job.Project,
+		Runtime:      job.Runtime,
+		EnvVars:      job.EnvVars,
+		Routes:       job.Routes,
 	}
 }
 

@@ -19,7 +19,6 @@ import {
 } from 'lucide-react'
 
 import { Button } from '#devpush/components/ui/button'
-import { ButtonGroup } from '#devpush/components/ui/button-group'
 import { Skeleton } from '#devpush/components/ui/skeleton'
 import {
   DropdownMenu,
@@ -121,7 +120,11 @@ export function DeploymentListPending({
           </span>
           <Skeleton className="h-5 w-16 shrink-0 max-sm:hidden" />
           <div className="ml-auto shrink-0">
-            <ButtonGroup className="-mr-2" aria-label="Deployment actions">
+            <div
+              className="-mr-2 flex items-center gap-2"
+              role="group"
+              aria-label="Deployment actions"
+            >
               <Button variant="outline" size="sm" disabled>
                 Visit
                 <ArrowUpRightIcon
@@ -139,7 +142,7 @@ export function DeploymentListPending({
                   <EllipsisVerticalIcon />
                 </Button>
               ) : null}
-            </ButtonGroup>
+            </div>
           </div>
         </li>
       ))}
@@ -160,7 +163,9 @@ function DeploymentRow({
 }) {
   const hasGitSha = deployment.gitSha !== 'pending'
   const visitUrl =
-    deployment.deploymentHost && deployment.status === 'succeeded'
+    deployment.deploymentHost &&
+    deployment.status === 'succeeded' &&
+    deployment.isServing !== false
       ? routeUrl({
           host: deployment.deploymentHost,
           https: deployment.deploymentRouteHttps,
@@ -307,7 +312,11 @@ function DeploymentRow({
       <DeploymentAliasBadge alias={alias} className="max-sm:hidden" />
 
       <div className="ml-auto shrink-0">
-        <ButtonGroup className="-mr-2" aria-label="Deployment actions">
+        <div
+          className="-mr-2 flex items-center gap-2"
+          role="group"
+          aria-label="Deployment actions"
+        >
           <Button
             variant="outline"
             size="sm"
@@ -351,7 +360,7 @@ function DeploymentRow({
               <DeploymentActions deployment={deployment} teamSlug={teamSlug} />
             </DropdownMenu>
           ) : null}
-        </ButtonGroup>
+        </div>
       </div>
     </li>
   )

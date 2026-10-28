@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -31,14 +30,6 @@ func (runner *Runner) pruneDeploymentDirectories(ctx context.Context, keep strin
 	}
 	if err != nil {
 		return err
-	}
-	// Remove installation tokens left by older agents even from retained checkouts.
-	for _, entry := range entries {
-		if entry.IsDir() {
-			if err := scrubCheckoutCredential(filepath.Join(root, entry.Name(), "repo")); err != nil {
-				return err
-			}
-		}
 	}
 	ids, err := runner.dockerIDsByLabel(ctx, "ps", "-aq")
 	if err != nil {
@@ -137,40 +128,4 @@ func canonicalDeploymentPath(path string) string {
 		suffix = filepath.Join(filepath.Base(parent), suffix)
 		parent = next
 	}
-}
-
-var checkoutTokenURL = regexp.MustCompile(`https://x-access-token:[^@\s]+@github\.com/`)
-
-func scrubCheckoutCredential(repoDir string) error {
-	gitDir := filepath.Join(repoDir, ".git")
-	info, err := os.Lstat(gitDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return nil
-	}
-	config := filepath.Join(gitDir, "config")
-	info, err = os.Lstat(config)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return nil
-	}
-	content, err := os.ReadFile(config)
-	if err != nil {
-		return err
-	}
-	cleaned := checkoutTokenURL.ReplaceAll(content, []byte("https://github.com/"))
-	if string(cleaned) == string(content) {
-		return nil
-	}
-	return os.WriteFile(config, cleaned, 0600)
 }

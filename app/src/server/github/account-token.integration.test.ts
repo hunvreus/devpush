@@ -1,6 +1,6 @@
 import {
-  encryptExistingProviderTokens,
   readProviderToken,
+  storeProviderToken,
 } from '#devpush/server/auth/provider-tokens'
 import { afterAll, afterEach, expect, test, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
@@ -35,15 +35,14 @@ async function fixture(
     providerId: 'github',
     accountId: '123',
     providerAccountUsername: 'owner',
-    accessToken: 'access-before',
+    accessToken: await storeProviderToken('access-before'),
     accessTokenExpiresAt: expiresAt,
-    refreshToken,
+    refreshToken: refreshToken ? await storeProviderToken(refreshToken) : null,
   })
 }
 
 test('expiring GitHub credentials refresh through Better Auth and persist rotated tokens', async () => {
   await fixture(new Date(Date.now() - 60_000))
-  await encryptExistingProviderTokens()
   const request = vi.fn().mockResolvedValue(
     Response.json({
       access_token: 'access-after',
@@ -90,6 +89,7 @@ test('expired GitHub access without a refresh token returns a reconnect error', 
 
 test('provider refresh rejection returns a safe error and preserves existing credentials', async () => {
   await fixture(new Date(Date.now() - 60_000))
+  const [before] = await db.select().from(account).where(eq(account.id, id))
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue(
@@ -108,7 +108,7 @@ test('provider refresh rejection returns a safe error and preserves existing cre
   expect(
     (await db.select().from(account).where(eq(account.id, id)))[0],
   ).toMatchObject({
-    accessToken: 'access-before',
-    refreshToken: 'refresh-before',
+    accessToken: before!.accessToken,
+    refreshToken: before!.refreshToken,
   })
 })

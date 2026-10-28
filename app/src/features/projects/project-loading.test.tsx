@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { projectContext } from '#devpush/test/project-context'
 import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import { ProjectSectionPending } from './project-route-pending'
+import { ProjectOverview } from './project-overview'
 
 vi.mock('@tanstack/react-router', () => ({
   useHydrated: () => true,
@@ -263,6 +264,7 @@ test('deployment loading shows metadata already known from the project list', ()
         gitBranch: 'main',
         githubRepo: 'owner/repo',
         deploymentHost: null,
+        isServing: true,
         deploymentRouteHttps: true,
         commitMessage: 'Known commit',
         errorMessage: null,
@@ -340,3 +342,36 @@ test.each([
     expect(values).toEqual(labels)
   },
 )
+
+test('overview renders every active environment', () => {
+  const production = projectContext.environments[0]!
+  const context = {
+    ...projectContext,
+    environments: [
+      { ...production, name: 'Production', defaultHost: 'prod.example.com' },
+      {
+        ...production,
+        id: 'preview',
+        name: 'Preview',
+        slug: 'preview',
+        branch: 'feature/*',
+        defaultHost: 'preview.example.com',
+      },
+      {
+        ...production,
+        id: 'deleted',
+        name: 'Deleted environment',
+        status: 'deleted' as const,
+      },
+    ],
+  }
+  const html = renderToStaticMarkup(
+    <TooltipProvider>
+      <ProjectOverview context={context} />
+    </TooltipProvider>,
+  )
+  expect(html).toContain('Production')
+  expect(html).toContain('Preview')
+  expect(html).toContain('preview.example.com')
+  expect(html).not.toContain('Deleted environment')
+})

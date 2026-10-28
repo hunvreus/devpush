@@ -14,8 +14,8 @@ export const notificationCategories = [
   },
   {
     id: 'domains',
-    label: 'Domain and certificate alerts',
-    description: 'Domain verification or certificate failures and recovery.',
+    label: 'Domain alerts',
+    description: 'Domain verification failures and recovery.',
   },
   {
     id: 'servers',

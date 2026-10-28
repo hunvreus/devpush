@@ -3,25 +3,16 @@ import { describe, expect, test } from 'vitest'
 import { assertRuntimeSecurity, parseConfig } from './config'
 
 describe('server config', () => {
-  test('sign-in notice is optional, trimmed, and limited to 1,000 characters', () => {
-    for (const value of [undefined, '', '   ']) {
-      expect(
-        parseConfig({ DEVPUSH_SIGN_IN_MESSAGE: value }).DEVPUSH_SIGN_IN_MESSAGE,
-      ).toBe('')
-    }
+  test('validates deployment queue TTL', () => {
+    expect(parseConfig({}).DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS).toBe(24)
     expect(
-      parseConfig({
-        DEVPUSH_SIGN_IN_MESSAGE:
-          '  Employees only.\nhttps://example.com/access  ',
-      }).DEVPUSH_SIGN_IN_MESSAGE,
-    ).toBe('Employees only.\nhttps://example.com/access')
-    expect(
-      parseConfig({ DEVPUSH_SIGN_IN_MESSAGE: 'x'.repeat(1000) })
-        .DEVPUSH_SIGN_IN_MESSAGE,
-    ).toHaveLength(1000)
-    expect(() =>
-      parseConfig({ DEVPUSH_SIGN_IN_MESSAGE: 'x'.repeat(1001) }),
-    ).toThrow()
+      parseConfig({ DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS: '48' })
+        .DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS,
+    ).toBe(48)
+    for (const value of ['0', '721', '1.5', 'invalid'])
+      expect(() =>
+        parseConfig({ DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS: value }),
+      ).toThrow()
   })
   test('defaults monitoring retention to seven days and validates overrides', () => {
     expect(parseConfig({}).DEVPUSH_MONITORING_RETENTION_DAYS).toBe(7)

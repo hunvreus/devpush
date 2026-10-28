@@ -25,11 +25,7 @@ export const backupDatabaseSchema = z.object({
   engine: engineSchema,
   database: z.string().trim().max(128).default(''),
 })
-export const storedBackupDatabaseSchema = backupDatabaseSchema.extend({
-  engine: z.enum([...engineSchema.options, 'needs_configuration']),
-  legacyCommand: z.string().optional(),
-})
-export type BackupDatabase = z.infer<typeof storedBackupDatabaseSchema>
+export type BackupDatabase = z.infer<typeof backupDatabaseSchema>
 function databaseBackupFilename(index: number, target: BackupDatabase) {
   return `${String(index + 1).padStart(2, '0')}-${target.service}.${target.engine === 'mongo' ? 'archive' : 'sql'}.gz`
 }

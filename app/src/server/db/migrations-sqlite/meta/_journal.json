@@ -12,15 +12,8 @@
     {
       "idx": 1,
       "version": "6",
-      "when": 1792995717857,
-      "tag": "0001_notification_emails",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1793014807946,
-      "tag": "0002_notification_delivery_window",
+      "when": 1793105303539,
+      "tag": "0001_agent_indexes",
       "breakpoints": true
     }
   ]

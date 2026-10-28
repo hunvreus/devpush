@@ -125,7 +125,6 @@ DEVPUSH_SECRET_ENCRYPTION_KEY=production-image-validation-encryption-secret
 DEVPUSH_CRON_SECRET=$probe_cron_secret
 DEVPUSH_BASE_URL=http://localhost:3000
 DEVPUSH_HTTP_PORT=127.0.0.1:0
-DEVPUSH_SIGN_IN_MESSAGE="Compose probe: sign in with your work email."
 EOF
 
 cleanup_probe() {
@@ -204,11 +203,10 @@ docker run --rm -v "$probe_volume:/app/storage" "$image" node --input-type=modul
   }
 '
 
-step "Checking production Compose startup and sign-in notice"
+step "Checking production Compose startup"
 probe_compose up -d --no-build --wait --wait-timeout 90
 compose_app="$(probe_compose ps -q app)"
 docker exec "$compose_app" sh -ec '
-  curl --fail --silent http://127.0.0.1:3000/auth/login | grep -Fq "$DEVPUSH_SIGN_IN_MESSAGE"
   curl --fail --silent --request POST --header "Authorization: Bearer $DEVPUSH_CRON_SECRET" http://127.0.0.1:3000/api/cron/maintenance >/dev/null
 '
 

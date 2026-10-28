@@ -12,7 +12,7 @@ import type { AgentMetricSample } from './metric-history-schema'
 import { deleteServerState, changeServerEnabled } from './lifecycle'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { and, eq, gt, inArray, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, ne, or, sql } from 'drizzle-orm'
 
 import { reconcileReportedRuntimes } from '#devpush/server/agents/reconciliation'
 import type { ReportedRuntime } from '#devpush/server/agents/reconciliation'
@@ -23,6 +23,7 @@ import { config, currentAgentVersion } from '#devpush/server/config'
 import { db } from '#devpush/server/db'
 import {
   agentJobs,
+  aliases,
   deployments,
   environments,
   projects,
@@ -85,6 +86,7 @@ export type ServerDeleteDiagnostic = {
 const serverMachineNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$/
 
 export type AgentRegistration = {
+  inactiveRedirects?: Array<{ id: string; host: string; https: boolean }>
   managedCertificates?: boolean
   metricsAcceptedThrough?: string
   serverId: string
@@ -647,7 +649,42 @@ export async function registerAgent({
     publicAddress,
   })
 
+  const inactiveRedirects = capabilities?.includes(
+    'ingress.inactive-redirects.v1',
+  )
+    ? await db
+        .select({
+          id: deployments.id,
+          host: aliases.hostname,
+          https: aliases.https,
+        })
+        .from(deployments)
+        .innerJoin(
+          aliases,
+          and(
+            eq(aliases.deploymentId, deployments.id),
+            eq(aliases.type, 'deployment'),
+          ),
+        )
+        .innerJoin(environments, eq(environments.id, deployments.environmentId))
+        .innerJoin(
+          projects,
+          and(
+            eq(projects.id, environments.projectId),
+            eq(projects.status, 'active'),
+          ),
+        )
+        .where(
+          and(
+            eq(deployments.serverId, server.id),
+            eq(deployments.status, 'succeeded'),
+          ),
+        )
+        .orderBy(desc(deployments.createdAt))
+        .limit(1000)
+    : undefined
   return {
+    inactiveRedirects,
     serverId: server.id,
     status: 'connected',
     ...(credential ? { credential } : {}),

@@ -319,6 +319,10 @@ func (runner *Runner) runDeploymentJob(ctx context.Context, job deploymentJob) j
 		return fail(err)
 	}
 
+	if err := runner.rememberInactiveRedirect(job); err != nil {
+		runner.log.Warn("save inactive deployment redirect", "deployment_id", job.ID, "error", err)
+		logs = append(logs, "Unable to save inactive deployment redirect: "+err.Error())
+	}
 	addEvent("traffic_switched", "Deployment finished on the target server.")
 	addEvent("completed", "Deployment completed.")
 

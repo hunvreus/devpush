@@ -12,7 +12,7 @@ export const Route = createFileRoute('/auth/login')({
       : {},
   loaderDeps: ({ search }) => ({ redirect: search.redirect }),
   loader: async ({ deps }) => {
-    const { authMethods, userContext, signInMessage } = await getLoginContext()
+    const { authMethods, userContext } = await getLoginContext()
 
     if (userContext) {
       if (userContext.user.profileConfirmedAt === null)
@@ -29,24 +29,22 @@ export const Route = createFileRoute('/auth/login')({
       })
     }
 
-    return { authMethods, signInMessage }
+    return { authMethods }
   },
   pendingMs: 150,
-  pendingMinMs: 200,
   pendingComponent: LoginPending,
   component: LoginRoute,
   head: () => pageHead('Log in'),
 })
 
 function LoginRoute() {
-  const { authMethods, signInMessage } = Route.useLoaderData()
+  const { authMethods } = Route.useLoaderData()
   const { redirect: redirectPath } = Route.useSearch()
 
   return (
     <LoginForm
       authMethods={authMethods}
       redirectPath={redirectPath ?? '/'}
-      signInMessage={signInMessage}
     />
   )
 }

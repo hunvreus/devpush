@@ -26,6 +26,7 @@ const deployment: DeploymentSummary = {
   gitBranch: 'main',
   githubRepo: 'owner/repo',
   deploymentHost: null,
+  isServing: true,
   deploymentRouteHttps: true,
   commitMessage: null,
   errorMessage: null,
@@ -82,4 +83,21 @@ test('an empty deployment list never renders a bare bordered list', () => {
   )
   expect(html).toContain('No deployments yet.')
   expect(html).not.toContain('<ul')
+})
+
+test('Visit is disabled for replaced revisions, while current revisions remain visitable', () => {
+  for (const isServing of [false, true]) {
+    const html = renderToStaticMarkup(
+      <DeploymentList
+        teamSlug="team"
+        deployments={[
+          { ...deployment, deploymentHost: 'revision.example.test', isServing },
+        ]}
+      />,
+    )
+    expect(html.includes('href="https://revision.example.test"')).toBe(
+      isServing,
+    )
+    if (!isServing) expect(html).toContain('disabled=""')
+  }
 })

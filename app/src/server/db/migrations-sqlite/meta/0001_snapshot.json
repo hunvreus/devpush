@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "57b4d8ff-d183-4f2d-8a8d-bd10d564c079",
-  "prevId": "2760d986-b03e-43d5-86fe-4239e3ae70e6",
+  "id": "cad5dd7a-5298-4399-b5fa-1ce2cb75ec36",
+  "prevId": "7196da56-d49f-4f34-b82b-a46515169eca",
   "tables": {
     "account": {
       "name": "account",
@@ -2138,10 +2138,11 @@
           ],
           "isUnique": false
         },
-        "deployments_server_idx": {
-          "name": "deployments_server_idx",
+        "deployments_server_status_idx": {
+          "name": "deployments_server_status_idx",
           "columns": [
-            "server_id"
+            "server_id",
+            "status"
           ],
           "isUnique": false
         },
@@ -2887,6 +2888,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "first_attempt_at": {
+          "name": "first_attempt_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "delivered_at": {
@@ -3813,6 +3821,30 @@
             "team_id"
           ],
           "isUnique": false
+        },
+        "servers_agent_credential_idx": {
+          "name": "servers_agent_credential_idx",
+          "columns": [
+            "agent_credential_hash"
+          ],
+          "isUnique": false,
+          "where": "\"servers\".\"agent_credential_hash\" is not null"
+        },
+        "servers_pending_agent_credential_idx": {
+          "name": "servers_pending_agent_credential_idx",
+          "columns": [
+            "pending_agent_credential_hash"
+          ],
+          "isUnique": false,
+          "where": "\"servers\".\"pending_agent_credential_hash\" is not null"
+        },
+        "servers_enrollment_token_idx": {
+          "name": "servers_enrollment_token_idx",
+          "columns": [
+            "enrollment_token_hash"
+          ],
+          "isUnique": false,
+          "where": "\"servers\".\"enrollment_token_hash\" is not null"
         }
       },
       "foreignKeys": {

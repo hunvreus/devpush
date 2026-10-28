@@ -32,7 +32,6 @@ Installation administration is separate from team roles. Set `DEVPUSH_ADMIN_EMAI
 
 An empty allowlist permits everyone. Adding a rule restricts sign-in/signup to matches; removing the final rule opens access again. Prefer exact emails or domain rules. Patterns are case-insensitive regular expressions matching the whole address. Keep a rule for your admin address: admin status does not bypass restrictions.
 
-Set `DEVPUSH_SIGN_IN_MESSAGE` for a public login notice. It explains access but does not enforce it; restart/redeploy after changing it.
 
 ## Settings and deletion
 

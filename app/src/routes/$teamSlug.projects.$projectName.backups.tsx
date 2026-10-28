@@ -6,6 +6,7 @@ import {
   notFound,
   useParams,
   useRouterState,
+  useChildMatches,
 } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 
@@ -43,8 +44,7 @@ export const Route = createFileRoute(
       ),
     ),
   validateSearch,
-  pendingMs: 150,
-  pendingMinMs: 200,
+  pendingMs: 0,
   pendingComponent: BackupsPending,
   component: BackupsRoute,
   head: ({ params }) =>
@@ -74,9 +74,7 @@ function BackupsRoute() {
       queryClient,
     ),
   )
-  const isIndex = useRouterState({
-    select: (state) => state.location.pathname.endsWith('/backups'),
-  })
+  const isIndex = useChildMatches({ select: (matches) => matches.length === 0 })
 
   if (!isIndex) return <Outlet />
 

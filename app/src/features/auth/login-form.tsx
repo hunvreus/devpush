@@ -1,6 +1,5 @@
 import { AboutDialog } from '#devpush/components/about-dialog'
 import { LogoMark } from '#devpush/components/logo-mark'
-import { SignInMessage } from './sign-in-message'
 import { LoaderCircle } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
@@ -24,11 +23,9 @@ type PendingAction = null | 'email' | 'otp' | 'redirect' | 'github' | 'google'
 export function LoginForm({
   authMethods,
   redirectPath,
-  signInMessage = '',
 }: {
   authMethods: AuthMethods
   redirectPath: string
-  signInMessage?: string
 }) {
   const [email, setEmail] = useState('')
   const [otp, setOtp] = useState('')
@@ -151,7 +148,6 @@ export function LoginForm({
             <h1 className="text-center leading-snug font-medium">
               Sign in to devpush
             </h1>
-            <SignInMessage message={signInMessage} />
             {step === 'email' ? (
               <EmailStep
                 busy={busy}

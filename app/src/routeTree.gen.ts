@@ -44,6 +44,7 @@ import { Route as ApiInstallAgentRouteImport } from './routes/api/install/agent'
 import { Route as ApiPluginsSplatRouteImport } from './routes/api/plugins/$'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiWorkspacesUpdatesRouteImport } from './routes/api/workspaces/updates'
+import { Route as DeploymentsDeploymentIdUnavailableRouteImport } from './routes/deployments.$deploymentId.unavailable'
 import { Route as UploadsAvatarsFileNameRouteImport } from './routes/uploads/avatars/$fileName'
 import { Route as TeamSlugProjectsProjectNameBackupsRouteImport } from './routes/$teamSlug.projects.$projectName.backups'
 import { Route as TeamSlugProjectsProjectNameDeploymentsRouteImport } from './routes/$teamSlug.projects.$projectName.deployments'
@@ -239,6 +240,12 @@ const ApiWorkspacesUpdatesRoute = ApiWorkspacesUpdatesRouteImport.update({
   path: '/api/workspaces/updates',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DeploymentsDeploymentIdUnavailableRoute =
+  DeploymentsDeploymentIdUnavailableRouteImport.update({
+    id: '/deployments/$deploymentId/unavailable',
+    path: '/deployments/$deploymentId/unavailable',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const UploadsAvatarsFileNameRoute = UploadsAvatarsFileNameRouteImport.update({
   id: '/uploads/avatars/$fileName',
   path: '/uploads/avatars/$fileName',
@@ -369,6 +376,7 @@ export interface FileRoutesByFullPath {
   '/api/plugins/$': typeof ApiPluginsSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
+  '/deployments/$deploymentId/unavailable': typeof DeploymentsDeploymentIdUnavailableRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
   '/$teamSlug/servers/': typeof TeamSlugServersIndexRoute
   '/$teamSlug/projects/$projectName/backups': typeof TeamSlugProjectsProjectNameBackupsRouteWithChildren
@@ -421,6 +429,7 @@ export interface FileRoutesByTo {
   '/api/plugins/$': typeof ApiPluginsSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
+  '/deployments/$deploymentId/unavailable': typeof DeploymentsDeploymentIdUnavailableRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
   '/$teamSlug/servers': typeof TeamSlugServersIndexRoute
   '/$teamSlug/projects/$projectName/backups': typeof TeamSlugProjectsProjectNameBackupsRouteWithChildren
@@ -476,6 +485,7 @@ export interface FileRoutesById {
   '/api/plugins/$': typeof ApiPluginsSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/api/workspaces/updates': typeof ApiWorkspacesUpdatesRoute
+  '/deployments/$deploymentId/unavailable': typeof DeploymentsDeploymentIdUnavailableRoute
   '/uploads/avatars/$fileName': typeof UploadsAvatarsFileNameRoute
   '/$teamSlug/servers/': typeof TeamSlugServersIndexRoute
   '/$teamSlug/projects/$projectName/backups': typeof TeamSlugProjectsProjectNameBackupsRouteWithChildren
@@ -532,6 +542,7 @@ export interface FileRouteTypes {
     | '/api/plugins/$'
     | '/api/v1/$'
     | '/api/workspaces/updates'
+    | '/deployments/$deploymentId/unavailable'
     | '/uploads/avatars/$fileName'
     | '/$teamSlug/servers/'
     | '/$teamSlug/projects/$projectName/backups'
@@ -584,6 +595,7 @@ export interface FileRouteTypes {
     | '/api/plugins/$'
     | '/api/v1/$'
     | '/api/workspaces/updates'
+    | '/deployments/$deploymentId/unavailable'
     | '/uploads/avatars/$fileName'
     | '/$teamSlug/servers'
     | '/$teamSlug/projects/$projectName/backups'
@@ -638,6 +650,7 @@ export interface FileRouteTypes {
     | '/api/plugins/$'
     | '/api/v1/$'
     | '/api/workspaces/updates'
+    | '/deployments/$deploymentId/unavailable'
     | '/uploads/avatars/$fileName'
     | '/$teamSlug/servers/'
     | '/$teamSlug/projects/$projectName/backups'
@@ -685,6 +698,7 @@ export interface RootRouteChildren {
   ApiPluginsSplatRoute: typeof ApiPluginsSplatRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
   ApiWorkspacesUpdatesRoute: typeof ApiWorkspacesUpdatesRoute
+  DeploymentsDeploymentIdUnavailableRoute: typeof DeploymentsDeploymentIdUnavailableRoute
   UploadsAvatarsFileNameRoute: typeof UploadsAvatarsFileNameRoute
   DotwellKnownOauthAuthorizationServerApiAuthRoute: typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   ApiAgentsCredentialsRotateRoute: typeof ApiAgentsCredentialsRotateRoute
@@ -939,6 +953,13 @@ declare module '@tanstack/react-router' {
       path: '/api/workspaces/updates'
       fullPath: '/api/workspaces/updates'
       preLoaderRoute: typeof ApiWorkspacesUpdatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/deployments/$deploymentId/unavailable': {
+      id: '/deployments/$deploymentId/unavailable'
+      path: '/deployments/$deploymentId/unavailable'
+      fullPath: '/deployments/$deploymentId/unavailable'
+      preLoaderRoute: typeof DeploymentsDeploymentIdUnavailableRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/uploads/avatars/$fileName': {
@@ -1229,6 +1250,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPluginsSplatRoute: ApiPluginsSplatRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
   ApiWorkspacesUpdatesRoute: ApiWorkspacesUpdatesRoute,
+  DeploymentsDeploymentIdUnavailableRoute:
+    DeploymentsDeploymentIdUnavailableRoute,
   UploadsAvatarsFileNameRoute: UploadsAvatarsFileNameRoute,
   DotwellKnownOauthAuthorizationServerApiAuthRoute:
     DotwellKnownOauthAuthorizationServerApiAuthRoute,

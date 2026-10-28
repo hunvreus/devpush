@@ -2,11 +2,10 @@ import { ImageUploadControls } from '#devpush/components/storage-capabilities'
 import { CopyButton } from '#devpush/components/copy-button'
 import { ProjectBackupsPending } from './project-backups-pending'
 import { ProjectBackupDetailsPending } from './project-backup-details-pending'
-import { ProjectSettings } from './project-settings'
-import { ProjectBackups } from './project-backups'
-import { ProjectBackupDetails } from './project-backup-details'
 import { ProjectLogs } from './project-logs'
 import { DeploymentsPage } from '#devpush/features/deployments/deployments-page'
+import { createDeferredModule } from '#devpush/lib/deferred-module'
+import type { DeferredModule } from '#devpush/lib/deferred-module'
 import {
   DeploymentDetail,
   DeploymentMetadata,
@@ -198,33 +197,60 @@ export function ProjectSectionPending({
   ])
   const cached = hydrated ? sectionResult : undefined
   if (cached && section === 'settings')
-    return <ProjectSettings context={cached} />
+    return (
+      <DeferredPage
+        module={projectSettingsModule}
+        fallback={<ProjectSettingsPending context={pendingContext} />}
+      >
+        {(loaded) => <loaded.ProjectSettings context={cached} />}
+      </DeferredPage>
+    )
   if (cached && section === 'deployments')
     return (
       <DeploymentsPage
         context={cached}
         filters={stringSearchValidator([
-          'branch',
-          'date',
-          'environment',
-          'status',
+          'branch', 'date', 'environment', 'status',
         ] as const)(search)}
       />
     )
   if (cached && section === 'backups')
     return (
-      <ProjectBackups
-        context={cached}
-        filters={stringSearchValidator([
-          'environment',
-          'server',
-          'status',
-          'time',
-        ] as const)(search)}
-      />
+      <DeferredPage
+        module={projectBackupsModule}
+        fallback={
+          <ProjectBackupsPending
+            heading={<ProjectHeadingPending context={pendingContext} crumbs={['Backups']} />}
+            canManage={cachedShell ? cachedShell.team.role !== 'member' : undefined}
+          />
+        }
+      >
+        {(loaded) => (
+          <loaded.ProjectBackups
+            context={cached}
+            filters={stringSearchValidator([
+              'environment', 'server', 'status', 'time',
+            ] as const)(search)}
+          />
+        )}
+      </DeferredPage>
     )
   if (cached && section === 'backup' && typeof params.backupId === 'string')
-    return <ProjectBackupDetails context={cached} backupId={params.backupId} />
+    return (
+      <DeferredPage
+        module={projectBackupDetailsModule}
+        fallback={
+          <BackupDetailPending
+            context={pendingContext}
+            canManage={cachedShell ? cachedShell.team.role !== 'member' : undefined}
+          />
+        }
+      >
+        {(loaded) => (
+          <loaded.ProjectBackupDetails context={cached} backupId={String(params.backupId)} />
+        )}
+      </DeferredPage>
+    )
   const deploymentResult = queryClient.getQueryData<PluginContext>([
     'deployment-context',
     teamSlug,
@@ -276,6 +302,25 @@ export function ProjectSectionPending({
   }
 
   return content
+}
+
+const projectSettingsModule = createDeferredModule(() => import('./project-settings'))
+const projectBackupsModule = createDeferredModule(() => import('./project-backups'))
+const projectBackupDetailsModule = createDeferredModule(() => import('./project-backup-details'))
+
+export function preloadProjectPendingPage(section: ProjectPendingSection) {
+  if (section === 'settings') void projectSettingsModule.load()
+  else if (section === 'backups') void projectBackupsModule.load()
+  else if (section === 'backup') void projectBackupDetailsModule.load()
+}
+
+function DeferredPage<T>({ module, fallback, children }: {
+  module: DeferredModule<T>
+  fallback: ReactNode
+  children: (loaded: T) => ReactNode
+}) {
+  const loaded = module.useModule(true)
+  return loaded ? children(loaded) : fallback
 }
 
 function ProjectPendingPage({ children }: { children: ReactNode }) {

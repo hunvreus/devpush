@@ -1,4 +1,4 @@
-import { storedBackupDatabaseSchema } from '#devpush/lib/backup-database'
+import { backupDatabaseSchema } from '#devpush/lib/backup-database'
 import { requireProjectRuntimeConfig } from '#devpush/lib/project-runtime-config'
 import { PublicError } from '#devpush/lib/public-error'
 import { db, logsDb } from '#devpush/server/db'
@@ -13,7 +13,6 @@ import {
   backupConfigs,
   backupRuns,
   backupStorage,
-  deploymentEvents,
   deployments,
   domains,
   environments,
@@ -206,11 +205,7 @@ export async function readOperation(
       .limit(1)
     if (!policy) throw new PublicError('BACKUP_POLICY_NOT_FOUND')
     const dumps = Array.isArray(policy.databaseDumps)
-      ? policy.databaseDumps.map((dump) => {
-          const { legacyCommand: _command, ...safe } =
-            storedBackupDatabaseSchema.parse(dump)
-          return safe
-        })
+      ? policy.databaseDumps.map((dump) => backupDatabaseSchema.parse(dump))
       : []
     return {
       id: policy.id,
@@ -548,9 +543,9 @@ export async function readOperation(
   }
   if (operation.id === 'read_deployment_logs') {
     await deploymentRow(context, i.deploymentId)
-    const table = i.stream === 'control' ? deploymentEvents : deploymentLogs
+    const table = deploymentLogs
     const cursor = decodeApiCursor(i.cursor, cursorContext(context))
-    const store = i.stream === 'control' ? db : logsDb
+    const store = logsDb
     const rows = await store
       .select({
         position: table.seq,
@@ -561,7 +556,7 @@ export async function readOperation(
       .where(
         and(
           eq(table.deploymentId, i.deploymentId),
-          eq(table.stream, i.stream === 'control' ? 'control' : 'deploy'),
+          eq(table.stream, 'deploy'),
           gt(table.seq, cursor?.position ?? 0),
         ),
       )

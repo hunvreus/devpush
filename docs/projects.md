@@ -20,6 +20,8 @@ Production starts with the repository's default branch. Add more environments in
 
 Rules are evaluated in saved order; only the first match is used. Production requires an exact branch; other environments accept one `*`. A wildcard updates **one shared environment**, not a separate app per branch. A newly queued deployment cancels the previous queued/running attempt for that environment.
 
+The project overview lists active environments. On a current deployment, use the menu beside **Visit** to open its deployment, branch and environment URLs.
+
 ## Variables
 
 Add variables for all environments or a specific one. An environment-specific value overrides the shared value with the same name. Reference variables explicitly in your [Compose file](/docs/compose-deployments/#variables).

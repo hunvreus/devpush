@@ -232,6 +232,31 @@ describe('server monitoring integration', () => {
     expect(summary?.availabilityWindowMs).toBe(4 * 60_000)
   })
 
+  test('calculates heartbeat availability independently for each server', async () => {
+    const first = await createFixture()
+    const second = await createFixture()
+    const now = new Date('2026-06-28T10:00:00.000Z')
+    const createdAt = new Date('2026-06-28T09:56:00.000Z')
+    for (const [serverId, observedAt] of [
+      [first.serverId, '2026-06-28T09:56:00.000Z'],
+      [first.serverId, '2026-06-28T09:57:00.000Z'],
+      [second.serverId, '2026-06-28T09:59:00.000Z'],
+    ]) {
+      await recordServerHeartbeat({
+        serverId: serverId!,
+        observedAt: new Date(observedAt!),
+        agentVersion: null,
+        publicAddress: null,
+      })
+    }
+    const summaries = await listServerMonitoringSummaries(
+      [first, second].map(({ serverId }) => ({ id: serverId, createdAt })),
+      now,
+    )
+    expect(summaries.get(first.serverId)?.availabilityPercent).toBeCloseTo(75)
+    expect(summaries.get(second.serverId)?.availabilityPercent).toBeCloseTo(25)
+  })
+
   test('records latest host metrics in monitoring summaries', async () => {
     const { serverId } = await createFixture()
     const now = new Date('2026-06-28T10:00:00.000Z')
@@ -317,6 +342,11 @@ describe('server monitoring integration', () => {
       '2026-06-28T09:59:00.000Z',
     ])
     expect(series.map((sample) => sample.cpuPercent)).toEqual([10, 20])
+    expect(series[0]?.memoryUsedBytes).toBeNull()
+    const limited = await listServerMetricSeries({ serverId, now, limit: 1 })
+    expect(limited).toHaveLength(1)
+    expect(limited[0]?.observedAt).toBe('2026-06-28T09:59:00.000Z')
+    expect(limited[0]?.cpuPercent).toBe(20)
   })
 })
 

@@ -194,8 +194,10 @@ export function NotificationMute({ scope }: { scope: NotificationScope }) {
   return (
     <Card id="notifications" className="scroll-mt-8">
       <CardHeader className="border-b">
-        <CardTitle>My notifications</CardTitle>
-        <CardDescription>This changes only your notifications.</CardDescription>
+        <CardTitle>Notifications</CardTitle>
+        <CardDescription>
+          Choose whether to receive email alerts for this {scope.kind}.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Field orientation="horizontal">
@@ -205,13 +207,6 @@ export function NotificationMute({ scope }: { scope: NotificationScope }) {
             disabled={pending || !query.data}
             onCheckedChange={(checked) => void save(checked)}
           />
-          {pending ? (
-            <LoaderIcon
-              role="status"
-              aria-label="Saving notification preference"
-              className="size-4 animate-spin"
-            />
-          ) : null}
           <FieldContent>
             <FieldLabel htmlFor={id}>
               Mute email notifications for this {scope.kind}

@@ -54,11 +54,21 @@ export async function navigateFilters(task: () => Promise<unknown>) {
 
 export function mutationErrorOptions(
   error: unknown,
-): [] | [{ action: { label: string; onClick: () => void } }] {
+):
+  | []
+  | [
+      {
+        duration: number
+        closeButton: boolean
+        action: { label: string; onClick: () => void }
+      },
+    ] {
   const url = getPolicyRecoveryUrl(error)
   return url
     ? [
         {
+          duration: Infinity,
+          closeButton: true,
           action: {
             label: 'Review settings',
             onClick: () => {

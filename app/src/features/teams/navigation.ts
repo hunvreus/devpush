@@ -8,7 +8,7 @@ export const teamSettingsNavigationItems: Array<SectionNavigationItem> = [
   ...(backupsEnabled
     ? [{ href: '#backup-storage' as const, label: 'Backup storage' }]
     : []),
-  { href: '#notifications', label: 'My notifications' },
+  { href: '#notifications', label: 'Notifications' },
   { href: '#danger', label: 'Danger', destructive: true },
 ]
 

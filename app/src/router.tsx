@@ -17,7 +17,7 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: 'intent',
     defaultPendingMs: 150,
-    defaultPendingMinMs: 200,
+    defaultPendingMinMs: 0,
     defaultPreloadStaleTime: 0,
     // Query freshness owns data reuse; route loaders must observe invalidation.
     defaultStaleTime: 0,

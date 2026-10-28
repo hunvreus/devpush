@@ -11,7 +11,11 @@ vi.mock('#devpush/server/notifications/observe', () => ({
 const mocks = vi.hoisted(() => ({
   deploy: vi.fn(),
   installation: vi.fn(),
+  notifyProject: vi.fn(),
   limit: vi.fn(),
+}))
+vi.mock('#devpush/server/realtime/service', () => ({
+  notifyProject: mocks.notifyProject,
 }))
 vi.mock('#devpush/server/config', () => ({
   config: { GITHUB_APP_WEBHOOK_SECRET: 'secret' },
@@ -94,4 +98,27 @@ test('malformed signed installation deliveries return a typed client error', asy
     400,
   )
   expect(mocks.installation).not.toHaveBeenCalled()
+})
+
+test('a push refreshes each affected project once', async () => {
+  mocks.deploy.mockResolvedValue({
+    created: [{ projectId: 'one', deploymentId: 'd', environmentId: 'e' }],
+    skipped: [
+      { projectId: 'one', environmentId: 'e', reason: 'duplicate_delivery' },
+      { projectId: 'two', environmentId: 'e2', reason: 'server_disconnected' },
+    ],
+  })
+  const response = await handleGitHubWebhook(
+    delivery({
+      ref: 'refs/heads/feature/test',
+      installation: { id: 1 },
+      repository: { id: 2, full_name: 'acme/app' },
+      head_commit: { id: 'abc' },
+    }),
+  )
+  expect(response.status).toBe(200)
+  expect(mocks.deploy).toHaveBeenCalledWith(
+    expect.objectContaining({ branch: 'feature/test' }),
+  )
+  expect(mocks.notifyProject.mock.calls).toEqual([['one'], ['two']])
 })

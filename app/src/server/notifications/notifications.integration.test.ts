@@ -112,6 +112,7 @@ test('failure recipients are owners/admins and the identified actor, deduplicate
   await deliverOperationalNotifications()
   expect(send).toHaveBeenCalledTimes(3)
 })
+
 test('recovery reaches only recipients whose failure email was delivered', async () => {
   const f = await fixture()
   await saveNotificationPreferences(

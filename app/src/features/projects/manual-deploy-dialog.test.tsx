@@ -6,12 +6,14 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { ManualDeployDialog } from './manual-deploy-dialog'
 import { TooltipProvider } from '#devpush/components/ui/tooltip'
 import { projectContext } from '#devpush/test/project-context'
+import { PublicError } from '#devpush/lib/public-error'
 
 const mocks = vi.hoisted(() => ({
   options: vi.fn(),
   deploy: vi.fn(),
   navigate: vi.fn(),
   warning: vi.fn(),
+  error: vi.fn(),
   clearQueryCache: () => {},
 }))
 vi.mock('#devpush/server/projects/functions', () => ({
@@ -35,7 +37,9 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('#devpush/lib/project-context-query', () => ({
   invalidateProjectContext: vi.fn(),
 }))
-vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: mocks.warning } }))
+vi.mock('sonner', () => ({
+  toast: { error: mocks.error, warning: mocks.warning },
+}))
 const options = {
   branches: ['main'],
   selectedBranch: 'main',
@@ -124,13 +128,33 @@ test('pending deployment cannot be dismissed or submitted twice and failure perm
   await click('Deploy')
   expect(mocks.deploy).toHaveBeenCalledTimes(1)
   await act(async () => reject(new Error('HTTPError')))
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-    'Unable to deploy.',
+  expect(mocks.error).toHaveBeenCalledWith(
+    'Unable to deploy. Please try again.',
   )
   mocks.deploy.mockResolvedValueOnce({ deploymentId: 'next' })
   await click('Deploy')
   expect(mocks.deploy).toHaveBeenCalledTimes(2)
   expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+test('deployment policy refusals provide a persistent actionable notification', async () => {
+  mocks.options.mockResolvedValue(options)
+  mocks.deploy.mockRejectedValue(
+    new PublicError('WORKSPACE_RESTRICTED', undefined, {
+      message: 'Workspace is restricted.',
+      recoveryUrl: '/team/settings#billing',
+    }),
+  )
+  await mount()
+  await click('Deploy')
+  expect(mocks.error).toHaveBeenCalledWith(
+    'Workspace is restricted.',
+    expect.objectContaining({
+      duration: Infinity,
+      closeButton: true,
+      action: expect.objectContaining({ label: 'Review settings' }),
+    }),
+  )
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
 })
 test('active deployments require confirmation before queueing', async () => {
   mocks.options.mockResolvedValue(options)

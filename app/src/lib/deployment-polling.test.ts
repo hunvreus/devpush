@@ -15,6 +15,7 @@ const deployment: DeploymentSummary = {
   gitBranch: 'main',
   githubRepo: 'a/b',
   deploymentHost: null,
+  isServing: false,
   deploymentRouteHttps: false,
   commitMessage: null,
   errorMessage: null,

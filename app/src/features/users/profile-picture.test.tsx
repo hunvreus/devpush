@@ -58,30 +58,59 @@ test('picture removal can be undone before saving and controls lock during proce
   }
 })
 
-test('without storage the provider picture has no upload or removal controls', async () => {
+test('without storage pictures keep their size and can be removed and restored', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   const host = document.createElement('div')
   const root = createRoot(host)
+  const onFile = vi.fn()
+  function Example() {
+    const [image, setImage] = useState<string | null>(
+      'https://provider.test/avatar',
+    )
+    return (
+      <ProfilePicture
+        image={image}
+        name="Ronan"
+        email="r@example.test"
+        disabled={false}
+        processing={false}
+        onFile={onFile}
+        onChange={setImage}
+      />
+    )
+  }
   try {
     await act(async () =>
       root.render(
         <ImageUploadsContext.Provider value={false}>
-          <ProfilePicture
-            image="https://provider.test/avatar"
-            name="Ronan"
-            email="r@example.test"
-            disabled={false}
-            processing={false}
-            onFile={vi.fn()}
-            onChange={vi.fn()}
-          />
+          <Example />
         </ImageUploadsContext.Provider>,
       ),
     )
-    expect(host.querySelector('button')).toBeNull()
+    expect(
+      host.querySelector('[aria-label="Upload profile picture"]'),
+    ).toBeNull()
+    const avatar = host.querySelector('[data-slot="avatar"]')!
+    expect(avatar.classList.contains('size-9')).toBe(true)
+    expect(avatar.parentElement!.classList.contains('flex')).toBe(true)
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>('[aria-label="Remove picture"]')!
+        .click(),
+    )
+    expect(host.querySelector('[aria-label="Reset picture"]')).not.toBeNull()
+    expect(host.querySelector('[aria-label="Remove picture"]')).toBeNull()
+    await act(async () =>
+      host
+        .querySelector<HTMLButtonElement>('[aria-label="Reset picture"]')!
+        .click(),
+    )
+    expect(host.querySelector('[aria-label="Remove picture"]')).not.toBeNull()
+    expect(onFile).not.toHaveBeenCalled()
     expect(host.querySelector('input')).toBeNull()
     expect(host.textContent).toContain('R')
   } finally {
     await act(async () => root.unmount())
+    vi.unstubAllGlobals()
   }
 })

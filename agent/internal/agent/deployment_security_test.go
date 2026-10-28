@@ -165,32 +165,6 @@ func TestResolvedComposeRiskWarnings(t *testing.T) {
 	}
 }
 
-func TestScrubLegacyCheckoutCredentials(t *testing.T) {
-	repoDir := t.TempDir()
-	gitDir := filepath.Join(repoDir, ".git")
-	if err := os.Mkdir(gitDir, 0750); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(gitDir, "config")
-	original := "[remote \"origin\"]\n\turl = https://x-access-token:secret-token@github.com/acme/app.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n"
-	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := scrubCheckoutCredential(repoDir); err != nil {
-		t.Fatal(err)
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(content), "secret-token") || !strings.Contains(string(content), "https://github.com/acme/app.git") || !strings.Contains(string(content), "fetch =") {
-		t.Fatalf("unexpected config %s", content)
-	}
-	if err := scrubCheckoutCredential(repoDir); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestPruneDeploymentDirectoriesRetainsMountsAndFailsClosed(t *testing.T) {
 	root := t.TempDir()
 	mounted := filepath.Join(root, "deployments", "mounted")

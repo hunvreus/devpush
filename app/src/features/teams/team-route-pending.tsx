@@ -28,7 +28,7 @@ import {
   canManageTeamSettings,
   canManageTeamMembers,
 } from '#devpush/lib/team-role'
-import { TeamSettings } from './team-settings'
+import { createDeferredModule } from '#devpush/lib/deferred-module'
 import { Input } from '#devpush/components/ui/input'
 import { DeploymentListPending } from '#devpush/features/deployments/deployment-list'
 import { useParams, useRouterState, useHydrated } from '@tanstack/react-router'
@@ -59,6 +59,8 @@ import { displayNameFromSlug } from '#devpush/lib/display-name'
 import { getTeamPendingSection } from './pending-section'
 import { teamSettingsNavigationItems } from './navigation'
 import { TeamHeading } from './team-heading'
+
+export const teamSettingsModule = createDeferredModule(() => import('./team-settings'))
 
 function useCachedTeamContext() {
   const params = useParams({ strict: false })
@@ -216,9 +218,10 @@ export function TeamSettingsPending() {
     enabled: false,
   })
   const section = useHydrated() ? sectionResult : undefined
-  if (context && section?.section === 'settings')
+  const module = teamSettingsModule.useModule(Boolean(context && section?.section === 'settings'))
+  if (context && section?.section === 'settings' && module)
     return (
-      <TeamSettings
+      <module.TeamSettings
         team={context.team}
         currentUserId={context.userContext.user.id}
         isDefaultTeam={

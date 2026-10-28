@@ -39,7 +39,7 @@ test('unsupported targets cannot generate executable commands', () => {
   expect(() =>
     buildDatabaseBackupCommand({
       service: 'db',
-      engine: 'needs_configuration',
+      engine: 'unsupported' as never,
       database: '',
     }),
   ).toThrow()

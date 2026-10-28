@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-export async function smokeAssets(origin, html) {
+export async function smokeAssets(origin, html, { production = false } = {}) {
   const stylesheetLinks = [...html.matchAll(/<link\b[^>]*>/g)]
     .map(
       ([link]) =>
@@ -15,10 +15,19 @@ export async function smokeAssets(origin, html) {
     const response = await fetch(url, { headers: { accept: 'text/css' } })
     assert.equal(response.status, 200, `Missing stylesheet: ${url.pathname}`)
     assert.match(response.headers.get('content-type'), /text\/css/)
+    if (production && url.pathname.startsWith('/assets/')) {
+      assert.match(response.headers.get('cache-control') ?? '', /max-age=31536000/)
+      assert.match(response.headers.get('cache-control') ?? '', /immutable/)
+    }
     styles += await response.text()
   }
   assert.match(styles, /--background/, 'Application theme is missing')
   const favicon = await fetch(`${origin}/favicon.svg`)
   assert.equal(favicon.status, 200)
   assert.match(await favicon.text(), /<svg/)
+  if (production) {
+    const missing = await fetch(`${origin}/assets/missing-asset-test.js`)
+    assert.equal(missing.status, 404)
+    assert.doesNotMatch(missing.headers.get('cache-control') ?? '', /max-age=31536000/)
+  }
 }

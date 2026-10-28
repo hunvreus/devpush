@@ -5,7 +5,7 @@ import {
   Outlet,
   createFileRoute,
   useParams,
-  useRouterState,
+  useChildMatches,
 } from '@tanstack/react-router'
 
 import { DeploymentsPage } from '#devpush/features/deployments/deployments-page'
@@ -40,8 +40,7 @@ export const Route = createFileRoute(
     )
   },
   validateSearch,
-  pendingMs: 150,
-  pendingMinMs: 200,
+  pendingMs: 0,
   pendingComponent: DeploymentsPending,
   component: DeploymentsRoute,
   head: ({ params }) =>
@@ -56,9 +55,7 @@ function DeploymentsRoute() {
   const params = useParams({
     from: '/$teamSlug/projects/$projectName/deployments',
   })
-  const isIndex = useRouterState({
-    select: (state) => state.location.pathname.endsWith('/deployments'),
-  })
+  const isIndex = useChildMatches({ select: (matches) => matches.length === 0 })
 
   if (!isIndex) return <Outlet />
 

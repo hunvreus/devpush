@@ -1,6 +1,15 @@
 import { PublicError } from '#devpush/lib/public-error'
 import { listBackupStorage } from '#devpush/server/backups/storage'
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  ne,
+  sql,
+} from 'drizzle-orm'
 
 import { db } from '#devpush/server/db'
 import {
@@ -61,11 +70,17 @@ async function requireProjectIdentity({
   userId,
   teamSlug,
   projectName,
+  includeEnvVars = false,
+  includeComposeMetadata = false,
 }: {
   userId: string
   teamSlug: string
   projectName: string
+  includeEnvVars?: boolean
+  includeComposeMetadata?: boolean
 }) {
+  const { envVarsEncrypted, composeMetadata, ...projectColumns } =
+    getTableColumns(projects)
   const rows = await db
     .select({
       team: {
@@ -76,9 +91,22 @@ async function requireProjectIdentity({
         image: teams.avatarPath,
         role: teamMembers.role,
       },
-      project: projects,
+      project: {
+        ...projectColumns,
+        envVarsEncrypted: includeEnvVars
+          ? envVarsEncrypted
+          : sql<string | null>`null`,
+        composeMetadata: includeComposeMetadata
+          ? composeMetadata
+          : sql<typeof projects.$inferSelect.composeMetadata>`null`,
+      },
       environment: environments,
-      server: servers,
+      server: {
+        id: servers.id,
+        name: servers.name,
+        status: servers.status,
+        lastSeenAt: servers.lastSeenAt,
+      },
     })
     .from(teamMembers)
     .innerJoin(teams, eq(teams.id, teamMembers.teamId))
@@ -133,7 +161,13 @@ export async function getProjectContext({
   scope?: ProjectContextScope
 }): Promise<ProjectContext> {
   const [row, userContext] = await Promise.all([
-    requireProjectIdentity({ userId, teamSlug, projectName }),
+    requireProjectIdentity({
+      userId,
+      teamSlug,
+      projectName,
+      includeEnvVars: scope === 'settings' || scope === 'full',
+      includeComposeMetadata: ['settings', 'backups', 'full'].includes(scope),
+    }),
     getUserContext(userId),
   ])
   const team = {
@@ -175,7 +209,15 @@ export async function getProjectContext({
         ),
       )
       .orderBy(asc(environments.position), asc(environments.createdAt)),
-    db.select().from(aliases).where(eq(aliases.projectId, row.project.id)),
+    db
+      .select()
+      .from(aliases)
+      .where(
+        and(
+          eq(aliases.projectId, row.project.id),
+          ne(aliases.type, 'deployment'),
+        ),
+      ),
     settingsRequested
       ? db.select().from(domains).where(eq(domains.projectId, row.project.id))
       : Promise.resolve([]),
@@ -198,9 +240,21 @@ export async function getProjectContext({
           .limit(1)
       : Promise.resolve([]),
   ])
-  const projectEnvironments = environmentRows.map((environment) =>
-    mapEnvironmentConfig(environment, row.project.defaultServerId),
-  )
+  const projectEnvironments = environmentRows.map((environment) => ({
+    ...mapEnvironmentConfig(environment, row.project.defaultServerId),
+    defaultHost:
+      aliasRows.find(
+        (alias) =>
+          alias.environmentId === environment.id &&
+          alias.type === 'environment',
+      )?.hostname ?? null,
+    defaultRouteHttps:
+      aliasRows.find(
+        (alias) =>
+          alias.environmentId === environment.id &&
+          alias.type === 'environment',
+      )?.https ?? true,
+  }))
   const backupData = backupRows
     ? mapProjectBackupRows(backupRows, projectEnvironments)
     : { backupConfigs: [], backupRuns: [], backupRestores: [] }
@@ -284,7 +338,29 @@ export async function getProjectSectionContext({
   projectName: string
   scope: ProjectSectionContext['scope']
 }): Promise<ProjectSectionContext> {
-  const row = await requireProjectIdentity({ userId, teamSlug, projectName })
+  if (scope === 'settings') {
+    const context = await getProjectContext({
+      userId,
+      teamSlug,
+      projectName,
+      scope: 'settings',
+    })
+    return {
+      scope,
+      projectId: context.project.id,
+      context,
+      composeMetadata: context.composeMetadata,
+      domains: context.domains,
+      envVars: context.envVars,
+    }
+  }
+
+  const row = await requireProjectIdentity({
+    userId,
+    teamSlug,
+    projectName,
+    includeComposeMetadata: scope === 'backups',
+  })
 
   if (scope === 'overview') {
     const [projectDeployments, runtimeRows] = await Promise.all([
@@ -322,23 +398,6 @@ export async function getProjectSectionContext({
       scope,
       projectId: row.project.id,
       deployments: await listProjectDeployments(row.project.id),
-    }
-  }
-
-  if (scope === 'settings') {
-    const context = await getProjectContext({
-      userId,
-      teamSlug,
-      projectName,
-      scope: 'settings',
-    })
-    return {
-      scope,
-      projectId: context.project.id,
-      context,
-      composeMetadata: context.composeMetadata,
-      domains: context.domains,
-      envVars: context.envVars,
     }
   }
 
@@ -454,15 +513,44 @@ function mapProjectBackupRows(
   }
 }
 
+const deploymentSummarySelection = {
+  deployment: {
+    id: deployments.id,
+    serverId: deployments.serverId,
+    status: deployments.status,
+    phase: deployments.phase,
+    trigger: deployments.trigger,
+    gitSha: deployments.gitSha,
+    gitBranch: deployments.gitBranch,
+    repoFullName: deployments.repoFullName,
+    commitMeta: deployments.commitMeta,
+    errorMessage: deployments.errorMessage,
+    createdAt: deployments.createdAt,
+    startedAt: deployments.startedAt,
+    finishedAt: deployments.finishedAt,
+  },
+  environment: {
+    name: environments.name,
+    slug: environments.slug,
+    color: environments.color,
+  },
+  project: { id: projects.id, name: projects.name },
+  server: {
+    id: servers.id,
+    name: servers.name,
+    status: servers.status,
+    lastSeenAt: servers.lastSeenAt,
+  },
+  deploymentAlias: { hostname: aliases.hostname, https: aliases.https },
+  serving:
+    sql<boolean>`exists(select 1 from aliases as live_alias where live_alias.environment_id = ${deployments.environmentId} and live_alias.type = 'environment' and live_alias.deployment_id = ${deployments.id})`.mapWith(
+      Boolean,
+    ),
+}
+
 async function listProjectDeployments(projectId: string) {
   const rows = await db
-    .select({
-      deployment: deployments,
-      environment: environments,
-      project: projects,
-      server: servers,
-      deploymentAlias: aliases,
-    })
+    .select(deploymentSummarySelection)
     .from(deployments)
     .innerJoin(environments, eq(environments.id, deployments.environmentId))
     .innerJoin(projects, eq(projects.id, environments.projectId))
@@ -489,13 +577,7 @@ export async function listTeamDeployments({
   limit?: number
 }): Promise<Array<DeploymentSummary>> {
   const deploymentRows = await db
-    .select({
-      deployment: deployments,
-      environment: environments,
-      project: projects,
-      server: servers,
-      deploymentAlias: aliases,
-    })
+    .select(deploymentSummarySelection)
     .from(deployments)
     .innerJoin(environments, eq(environments.id, deployments.environmentId))
     .innerJoin(projects, eq(projects.id, environments.projectId))
@@ -526,15 +608,9 @@ export async function getDeploymentSectionContext({
   deploymentId: string
 }): Promise<DeploymentSectionContext> {
   const row = await requireProjectIdentity({ userId, teamSlug, projectName })
-  const [deploymentRows, latestDeployments] = await Promise.all([
+  const [deploymentRows, latestDeployments, visitAliases] = await Promise.all([
     db
-      .select({
-        deployment: deployments,
-        environment: environments,
-        project: projects,
-        server: servers,
-        deploymentAlias: aliases,
-      })
+      .select(deploymentSummarySelection)
       .from(deployments)
       .innerJoin(environments, eq(environments.id, deployments.environmentId))
       .innerJoin(projects, eq(projects.id, environments.projectId))
@@ -551,6 +627,19 @@ export async function getDeploymentSectionContext({
       )
       .limit(1),
     listProjectDeployments(row.project.id),
+    db
+      .select({
+        type: aliases.type,
+        hostname: aliases.hostname,
+        https: aliases.https,
+      })
+      .from(aliases)
+      .where(
+        and(
+          eq(aliases.projectId, row.project.id),
+          eq(aliases.deploymentId, deploymentId),
+        ),
+      ),
   ])
   const deploymentRow = deploymentRows.at(0)
 
@@ -562,6 +651,7 @@ export async function getDeploymentSectionContext({
     projectId: row.project.id,
     latestDeployments,
     deployment: mapDeployment(deploymentRow),
+    visitAliases,
   }
 }
 
@@ -789,4 +879,31 @@ function parseRestoreContents(value: unknown) {
       targetService:
         typeof item.targetService === 'string' ? item.targetService : undefined,
     }))
+}
+
+// Resolve only after joining current membership; the public opaque ID grants no access.
+export async function resolveUnavailableDeployment(
+  userId: string,
+  deploymentId: string,
+) {
+  const [row] = await db
+    .select({ teamSlug: teams.slug, projectName: projects.slug })
+    .from(deployments)
+    .innerJoin(environments, eq(environments.id, deployments.environmentId))
+    .innerJoin(
+      projects,
+      and(
+        eq(projects.id, environments.projectId),
+        eq(projects.status, 'active'),
+      ),
+    )
+    .innerJoin(teams, eq(teams.id, projects.teamId))
+    .innerJoin(
+      teamMembers,
+      and(eq(teamMembers.teamId, teams.id), eq(teamMembers.userId, userId)),
+    )
+    .where(eq(deployments.id, deploymentId))
+    .limit(1)
+  if (!row) throw new PublicError('DEPLOYMENT_NOT_FOUND')
+  return row
 }

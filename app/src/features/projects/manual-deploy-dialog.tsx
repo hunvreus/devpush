@@ -1,5 +1,8 @@
 import { manualDeployOptionsQueryOptions } from '#devpush/lib/manual-deploy-options-query'
-import { afterMutation } from '#devpush/lib/action-feedback'
+import {
+  afterMutation,
+  mutationErrorOptions,
+} from '#devpush/lib/action-feedback'
 import { useRouter } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -9,6 +12,7 @@ import {
   LoaderIcon,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { FieldError } from '#devpush/components/ui/field'
 
 import {
@@ -245,8 +249,9 @@ export function ManualDeployDialog({
         'The action completed, but opening the next page failed. Please reload.',
       )
     } catch (error) {
-      setSubmitError(
+      toast.error(
         getPublicErrorMessage(error, 'Unable to deploy. Please try again.'),
+        ...mutationErrorOptions(error),
       )
     } finally {
       setIsDeploying(false)

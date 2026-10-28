@@ -19,7 +19,6 @@ export const Route = createFileRoute('/$teamSlug/')({
       }),
     ),
   pendingMs: 150,
-  pendingMinMs: 200,
   pendingComponent: TeamOverviewPending,
   component: TeamHomeRoute,
   head: ({ params }) => pageHead('Overview', params.teamSlug),

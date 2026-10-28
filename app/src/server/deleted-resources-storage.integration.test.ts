@@ -10,13 +10,9 @@ import {
   deletedResourceRetentionMs,
   pruneDeletedResources,
 } from './deleted-resources'
-import {
-  encryptExistingProviderTokens,
-  readProviderToken,
-} from './auth/provider-tokens'
 
 test.each(['D1', 'libSQL'] as const)(
-  'final cleanup and provider-token rewrite work on %s',
+  'final cleanup works on %s',
   async (target) => {
     const d1 = target === 'D1' ? await createD1TestStores() : undefined
     const client =
@@ -61,23 +57,6 @@ test.each(['D1', 'libSQL'] as const)(
         teams: 1,
         users: 0,
       })
-      await store.run(
-        sql`insert into user (id, name, username, email) values ('u', 'Owner', 'owner', 'owner@example.test')`,
-      )
-      await store.run(
-        sql`insert into account (id, account_id, user_id, provider_id, access_token, refresh_token, id_token) values ('a', 'provider-user', 'u', 'github', 'gho_plain', 'refresh-plain', 'header.payload.signature')`,
-      )
-      expect(await encryptExistingProviderTokens({ store })).toEqual({
-        checked: 1,
-        encrypted: 1,
-      })
-      const [row] = await store.select().from(schema.account)
-      expect(row!.accessToken).not.toBe('gho_plain')
-      expect(await readProviderToken(row!.accessToken!)).toBe('gho_plain')
-      expect(await readProviderToken(row!.refreshToken!)).toBe('refresh-plain')
-      expect(await readProviderToken(row!.idToken!)).toBe(
-        'header.payload.signature',
-      )
     } finally {
       await d1?.runtime.dispose()
       libsql?.close()

@@ -83,8 +83,11 @@ export async function requestAgentCertificate(
           }
         : { headers: { 'Cache-Control': 'no-store' } },
     )
-  } catch {
-    console.error('Agent certificate provider failed.', { serverId: server.id })
+  } catch (error) {
+    console.error('Agent certificate provider failed.', {
+      serverId: server.id,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    })
     throw new AgentRequestError(
       503,
       'Certificate service is temporarily unavailable.',

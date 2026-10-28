@@ -115,7 +115,7 @@ function TeamHeader({
 }: TeamHeaderProps) {
   const queryClient = useQueryClient()
   const pathname = useRouterState({
-    select: (state) => state.location.pathname,
+    select: (state) => (state.resolvedLocation ?? state.location).pathname,
   })
   const params = useParams({ strict: false })
   const teamSlug =

@@ -10,7 +10,6 @@ export const Route = createFileRoute('/$teamSlug/servers/$serverId')({
   loader: ({ context, params }) =>
     context.queryClient.fetchQuery(serverContextQueryOptions(params)),
   pendingMs: 150,
-  pendingMinMs: 200,
   pendingComponent: ServerDetailPending,
   component: TeamServerRoute,
   head: ({ loaderData, params }) =>

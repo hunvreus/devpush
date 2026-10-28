@@ -71,11 +71,7 @@ function restoreContents(
       artifact.type === 'database'
         ? databaseArtifactTarget(artifact.objectKey, run.databaseTargets ?? [])
         : undefined
-    if (
-      artifact.type !== 'volume' &&
-      (!database || database.engine === 'needs_configuration')
-    )
-      continue
+    if (artifact.type !== 'volume' && !database) continue
     const name = getComposeArtifactName(artifact, projectId, run.environmentId)
     // Local and remote copies share the same generated filename. Keep one target,
     // preferring the recorded local copy; remote-only contents remain restorable.

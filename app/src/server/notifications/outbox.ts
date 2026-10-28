@@ -33,6 +33,8 @@ export type OperationalObservation = {
 export async function observeOperationalNotification(
   input: OperationalObservation,
 ) {
+  const from = config.EMAIL_FROM
+  if (!from) return
   const current = await db
     .select()
     .from(notificationIncidents)
@@ -119,7 +121,7 @@ export async function observeOperationalNotification(
       : 'The previously reported issue has been resolved.'
     const url = new URL(incident.path, config.DEVPUSH_BASE_URL).toString()
     const payload = {
-      from: config.EMAIL_FROM,
+      from,
       to: recipientUser.email,
       subject,
       text: `${message}\n\nView details: ${url}`,
@@ -245,12 +247,7 @@ export async function deliverOperationalNotifications(
     }
     try {
       // Persist the complete provider payload and window before the first call.
-      // Legacy unsent records acquire the sender now; attempted legacy records
-      // without a reconstructable payload are quarantined by the migration.
-      const payload = {
-        ...row.payload,
-        from: row.payload.from ?? config.EMAIL_FROM,
-      }
+      const payload = row.payload
       const held = await db
         .update(notificationOutbox)
         .set({

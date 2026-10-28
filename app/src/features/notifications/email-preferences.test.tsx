@@ -149,7 +149,7 @@ test('workspace mute saves immediately and prevents duplicate changes while pend
   expect(toggle.hasAttribute('disabled')).toBe(true)
   expect(
     view.node.querySelector('[aria-label="Saving notification preference"]'),
-  ).not.toBeNull()
+  ).toBeNull()
   expect(view.node.textContent).not.toContain('Cancel')
   await act(async () => finish({ muted: true }))
   expect(toggle.getAttribute('aria-checked')).toBe('true')
