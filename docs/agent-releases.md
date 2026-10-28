@@ -11,7 +11,7 @@ The app package does not contain agent executables. Its `agent-release.json` pin
 
 `devpush-agent version --json` reports a running agent's version, protocol, capabilities and platform.
 
-Published binaries, checksums and the app package are attached to the matching [GitHub Release](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.2).
+Published binaries, checksums and the app package are attached to the matching [GitHub Release](https://github.com/hunvreus/devpush/releases/tag/v1.0.0-beta.3).
 
 ## Download behavior
 
@@ -47,7 +47,7 @@ Pushing a `v{version}` tag runs the release workflow. The workflow:
 4. Attaches the binaries, manifest, checksums and app package tarball to a GitHub Release.
 5. Downloads the public agent assets and verifies their published checksums.
 
-Tags with a prerelease suffix (for example, `v1.0.0-beta.2`) produce prereleases and do not replace the latest stable release.
+Tags with a prerelease suffix (for example, `v1.0.0-beta.3`) produce prereleases and do not replace the latest stable release.
 
 The workflow rejects mismatched tags or pins and never overwrites an existing release. It does not publish to npm or deploy the dashboard.
 

@@ -4,7 +4,7 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
-## [1.0.0-beta.2] - 2026-10-28
+## [1.0.0-beta.3] - 2026-10-28
 
 ### Changed
 

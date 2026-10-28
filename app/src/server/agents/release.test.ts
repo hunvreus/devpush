@@ -10,6 +10,6 @@ test('the pinned shared binary supports the control-plane protocol and capabilit
   const release = validateAgentRelease(manifest)
   expect(release.protocolVersion).toBe(currentAgentProtocolVersion)
   expect(release.capabilities).toEqual(
-    expect.arrayContaining(currentAgentCapabilities),
+    expect.arrayContaining([...currentAgentCapabilities]),
   )
 })
