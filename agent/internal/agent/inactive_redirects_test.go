@@ -15,11 +15,17 @@ import (
 
 func TestInactiveRedirects(t *testing.T) {
 	runner := NewRunner(Config{StateDir: t.TempDir(), BaseURL: "https://dashboard.example"}, nil)
+	if err := runner.syncInactiveRedirects(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(runner.certificateDirectory(), "dynamic", "inactive-redirects.yaml")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("empty redirect configuration exists: %v", err)
+	}
 	job := deploymentJob{ID: "deployment-1", FallbackHost: "old.example.test", Routes: []route{{Host: "old.example.test", HTTPS: true}, {Host: "custom.example.test"}}}
 	if err := runner.rememberInactiveRedirect(job); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(runner.certificateDirectory(), "dynamic", "inactive-redirects.yaml")
 	body := readFile(t, path)
 	if !strings.Contains(body, "old.example.test") || strings.Contains(body, "custom.example.test") {
 		t.Fatalf("unexpected redirect hosts: %s", body)
@@ -58,8 +64,8 @@ func TestInactiveRedirects(t *testing.T) {
 	if err := runner.syncInactiveRedirects(); err != nil {
 		t.Fatal(err)
 	}
-	if body := readFile(t, path); strings.Contains(body, "dashboard.example") {
-		t.Fatalf("disabled redirects remain: %s", body)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("disabled redirect configuration remains: %v", err)
 	}
 	runner.cfg.DisableInactiveRedirects = false
 	if err := runner.syncInactiveRedirects(); err != nil {
@@ -148,6 +154,7 @@ func TestInactiveRedirectsWithRealTraefik(t *testing.T) {
 	}
 	// Docker Desktop/Lima bind mounts do not consistently forward macOS fsnotify
 	// events. Trigger the change inside Linux, as the production agent does.
-	runTestCommand(t, "", "docker", "exec", name, "sh", "-c", `printf '%s' '{"http":{"middlewares":{},"routers":{}}}' > /config/dynamic/inactive-redirects.yaml`)
+	runTestCommand(t, "", "docker", "exec", name, "sh", "-c", `touch /config/dynamic/notify.yaml && rm /config/dynamic/notify.yaml`)
 	check("old.example.test", 404, "")
+	check("live.example.test", 302, "https://live.example/")
 }

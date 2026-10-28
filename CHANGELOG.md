@@ -4,6 +4,16 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.6] - 2026-10-28
+
+### Changed
+
+- Search admin users and allowlist rules as you type; style the ban action as destructive.
+
+### Fixed
+
+- Omit empty inactive-deployment redirect configuration so Traefik can load managed HTTPS certificates on fresh servers.
+
 ## [1.0.0-beta.5] - 2026-10-28
 
 ### Fixed

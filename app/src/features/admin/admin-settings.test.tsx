@@ -59,6 +59,7 @@ vi.mock('#devpush/components/ui/dropdown-menu', () => ({
 let close: (() => Promise<void>) | undefined
 afterEach(async () => {
   await close?.()
+  vi.useRealTimers()
   vi.resetAllMocks()
   vi.unstubAllGlobals()
 })
@@ -335,7 +336,8 @@ test('allowlist navigation keeps the applied search and search starts from page 
     )!.set!.call(input, 'another.com')
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  await click('Search', section)
+  expect(section.querySelector('button[type=submit]')).toBeNull()
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 350)))
   expect(mocks.changeAllowlist).toHaveBeenLastCalledWith({
     allowlistQuery: 'another.com',
     allowlistPage: 1,
@@ -366,9 +368,28 @@ test('user search queries the server from page one and paging preserves the appl
     userQuery: 'person',
     userPage: 3,
   })
-  await click('Search', section)
+  mocks.changeAllowlist.mockClear()
+  vi.useFakeTimers()
+  const input = section.querySelector<HTMLInputElement>(
+    '[aria-label="Search users"]',
+  )!
+  const type = async (value: string) =>
+    act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )!.set!.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  await type('a')
+  await act(async () => vi.advanceTimersByTime(200))
+  await type('another')
+  await act(async () => vi.advanceTimersByTime(299))
+  expect(mocks.changeAllowlist).not.toHaveBeenCalled()
+  await act(async () => vi.advanceTimersByTime(1))
+  expect(mocks.changeAllowlist).toHaveBeenCalledTimes(1)
   expect(mocks.changeAllowlist).toHaveBeenLastCalledWith({
-    userQuery: 'person',
+    userQuery: 'another',
     userPage: 1,
   })
 })

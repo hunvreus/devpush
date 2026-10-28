@@ -117,6 +117,14 @@ func (runner *Runner) syncInactiveRedirects() error {
 		}
 	}
 	path := filepath.Join(dynamic, "inactive-redirects.yaml")
+	// Traefik rejects empty middleware/router maps and discards the entire file
+	// provider configuration, including certificates from adjacent files.
+	if len(routers) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
 	// JSON is valid YAML; encoding it avoids interpolating untrusted hostnames into YAML.
 	body, err := json.Marshal(map[string]any{"http": map[string]any{"routers": routers, "middlewares": middlewares}})
 	if err != nil {

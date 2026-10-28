@@ -155,6 +155,28 @@ export function AdminSettings({
     setAllowlistQuery(overview.allowlistPagination.query)
   }, [overview.allowlistPagination.query])
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const search: Parameters<typeof onSearchChange>[0] = {}
+      if (userQuery !== overview.userPagination.query) {
+        search.userQuery = userQuery
+        search.userPage = 1
+      }
+      if (allowlistQuery !== overview.allowlistPagination.query) {
+        search.allowlistQuery = allowlistQuery
+        search.allowlistPage = 1
+      }
+      if (Object.keys(search).length) onSearchChange(search)
+    }, 300)
+    return () => window.clearTimeout(timeout)
+  }, [
+    userQuery,
+    allowlistQuery,
+    overview.userPagination.query,
+    overview.allowlistPagination.query,
+    onSearchChange,
+  ])
+
   async function refresh() {
     await afterMutation(
       () => router.invalidate(),
@@ -548,13 +570,7 @@ export function AdminSettings({
             </Empty>
           ) : (
             <>
-              <form
-                className="flex items-center gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  onSearchChange({ userQuery, userPage: 1 })
-                }}
-              >
+              <div className="flex items-center gap-2">
                 <InputGroup className="mr-auto max-w-72">
                   <InputGroupAddon>
                     <SearchIcon />
@@ -566,10 +582,7 @@ export function AdminSettings({
                     onChange={(event) => setUserQuery(event.target.value)}
                   />
                 </InputGroup>
-                <Button type="submit" variant="outline">
-                  Search
-                </Button>
-              </form>
+              </div>
               {overview.users.length === 0 ? (
                 <Empty className="min-h-40">
                   <EmptyHeader>
@@ -688,7 +701,7 @@ export function AdminSettings({
                                         <TooltipTrigger asChild>
                                           <AlertDialogTrigger asChild>
                                             <Button
-                                              variant="ghost"
+                                              variant="destructive"
                                               size="icon-sm"
                                               type="button"
                                               aria-label="Ban user"
@@ -857,13 +870,7 @@ export function AdminSettings({
           ) : (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    onSearchChange({ allowlistQuery, allowlistPage: 1 })
-                  }}
-                  className="flex items-center gap-2"
-                >
+                <div className="flex items-center gap-2">
                   <InputGroup className="max-w-72">
                     <InputGroupAddon>
                       <SearchIcon />
@@ -877,10 +884,7 @@ export function AdminSettings({
                       }
                     />
                   </InputGroup>
-                  <Button type="submit" variant="outline">
-                    Search
-                  </Button>
-                </form>
+                </div>
                 {allowlistActions}
               </div>
               {overview.allowlist.length === 0 ? (
