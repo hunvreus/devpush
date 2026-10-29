@@ -4,6 +4,8 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.10] - 2026-10-29
+
 ### Changed
 
 - Clarify MCP consent with a separate app identity, aligned log-access fields and app branding above the card. Default to the system theme when no preference is saved.
