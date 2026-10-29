@@ -88,6 +88,50 @@ async function oauthRequest(
     }),
   )
 }
+describe('desktop MCP client registration', () => {
+  test.each([
+    'http://localhost:55820/callback',
+    'http://127.0.0.1:55820/callback',
+    'http://[::1]:55820/callback',
+  ])('accepts a public client without application_type at %s', async (uri) => {
+    const response = await oauthRequest('/oauth2/register', {
+      client_name: 'Claude Code compatibility test',
+      redirect_uris: [uri],
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+    })
+    expect(response.status).toBe(201)
+    const registered = await response.json()
+    expect(registered.application_type).toBe('native')
+    expect(registered.redirect_uris).toEqual([uri])
+  })
+
+  test.each([
+    { redirect_uris: ['http://localhost.evil.example/callback'] },
+    { redirect_uris: ['http://localhost.:55820/callback'] },
+    { redirect_uris: ['http://127.1:55820/callback'] },
+    { redirect_uris: ['http://localhost:55820/callback#fragment'] },
+    {
+      redirect_uris: [
+        'http://localhost:55820/callback',
+        'http://example.com/callback',
+      ],
+    },
+    {
+      redirect_uris: ['http://localhost:55820/callback'],
+      application_type: 'web',
+    },
+  ])('preserves redirect restrictions for %j', async (metadata) => {
+    const response = await oauthRequest('/oauth2/register', {
+      client_name: 'Invalid redirect test',
+      token_endpoint_auth_method: 'none',
+      ...metadata,
+    })
+    expect(response.status).toBe(400)
+  })
+})
+
 async function authorize(
   preset: 'read' | 'manage' = 'read',
   includeLogs = false,

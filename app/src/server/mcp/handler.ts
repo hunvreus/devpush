@@ -119,6 +119,7 @@ function createDevpushMcpHandler(principal: ApiPrincipal, requestId: string) {
                 console.error('MCP operation failed', {
                   requestId,
                   operation: operation.id,
+                  ...safeErrorDiagnostics(error),
                 })
               return {
                 isError: true,

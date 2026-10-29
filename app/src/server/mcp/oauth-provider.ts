@@ -47,7 +47,6 @@ const options = {
   ],
   allowDynamicClientRegistration: true,
   allowUnauthenticatedClientRegistration: true,
-  clientRegistrationDefaultApplicationType: 'infer' as const,
   clientRegistrationRequirePKCE: true,
   // Provider-owned opaque tokens allow immediate token-family revocation.
   // Locally verified JWTs remain valid after refresh-token replay otherwise.
@@ -104,13 +103,38 @@ const options = {
       throw new APIError('FORBIDDEN', { message: 'Invalid MCP authorization.' })
     return { devpush_grant_id: referenceId }
   },
-}
+} satisfies Parameters<typeof oauthProvider>[0]
 
 function mcpOAuthBridge() {
   return {
     id: 'devpush-mcp-authorization',
     hooks: {
       before: [
+        {
+          matcher: (ctx) => ctx.path === '/oauth2/register',
+          handler: createAuthMiddleware(async (ctx) => {
+            const body = ctx.body
+            // Desktop MCP clients omit application_type. Infer native only for
+            // public clients whose callbacks all use exact HTTP loopback hosts;
+            // the provider still validates each URI and requires PKCE.
+            if (
+              body?.application_type === undefined &&
+              body?.token_endpoint_auth_method === 'none' &&
+              Array.isArray(body.redirect_uris) &&
+              body.redirect_uris.length > 0 &&
+              body.redirect_uris.every(
+                (uri: unknown) =>
+                  typeof uri === 'string' &&
+                  /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?(?:\/|$)/i.test(
+                    uri,
+                  ),
+              )
+            )
+              return {
+                context: { body: { ...body, application_type: 'native' } },
+              }
+          }),
+        },
         {
           matcher: (ctx) => ctx.path === '/oauth2/authorize',
           handler: createAuthMiddleware(async (ctx) => {

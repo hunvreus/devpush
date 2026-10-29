@@ -4,8 +4,7 @@ Outstanding work only. Private extension work belongs in its own repository.
 
 ## Release verification
 
-- Verify remote drain and backup/restore against the final release candidate.
-- Verify real Claude OAuth and a second MCP client on Node and Workers.
+- Verify Claude browser sign-in against the deployed OAuth registration fix; API-key clients and Node/Worker authorization smoke checks pass.
 
 ## Reliability and operations
 

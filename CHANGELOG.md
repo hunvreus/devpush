@@ -4,7 +4,15 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.9] - 2026-10-29
+
+### Fixed
+
+- Allow desktop MCP clients such as Claude Code to register HTTP loopback callbacks when they omit their application type. Remote redirect and PKCE restrictions remain enforced.
+
 ### Changed
+
+- Clarify the production MCP endpoint, Claude Code connection and available tools.
 
 - Update the installation checkout to the current published beta.
 - Use the current logo on orange for website and app social previews, matching the app icons; version branding URLs to refresh cached assets.

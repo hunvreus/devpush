@@ -151,7 +151,6 @@ export async function smokeMcp({
     body: JSON.stringify({
       client_name: 'Worker MCP assistant',
       redirect_uris: ['http://127.0.0.1:9021/callback'],
-      application_type: 'native',
       token_endpoint_auth_method: 'none',
       grant_types: ['authorization_code', 'refresh_token'],
     }),
