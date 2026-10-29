@@ -122,6 +122,27 @@ assertPublicPaths(
     .filter((path) => path && !path.endsWith('/')),
   { packageContents: true },
 )
+// Exercise npm's automatic peer resolution without explicit framework pins.
+// A clean install must resolve successfully without --force or --legacy-peer-deps.
+const npmDirectory = resolve(directory, 'npm-install')
+mkdirSync(npmDirectory)
+writeFileSync(
+  resolve(npmDirectory, 'package.json'),
+  JSON.stringify({ name: 'devpush-npm-consumer', private: true }),
+)
+await run(
+  'npm-peer-resolution',
+  'npm',
+  [
+    'install',
+    archive,
+    '--package-lock-only',
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+  ],
+  npmDirectory,
+)
 writeFileSync(
   resolve(directory, 'package.json'),
   JSON.stringify(
@@ -357,5 +378,8 @@ console.log(`${scope} package proof passed. Logs: ${logs}`)
 if (process.env.DEVPUSH_PACKAGE_ARTIFACT_DIR) {
   const output = resolve(process.env.DEVPUSH_PACKAGE_ARTIFACT_DIR)
   mkdirSync(output, { recursive: true })
-  copyFileSync(archive, resolve(output, `${metadata.name}-${metadata.version}.tgz`))
+  copyFileSync(
+    archive,
+    resolve(output, `${metadata.name}-${metadata.version}.tgz`),
+  )
 }

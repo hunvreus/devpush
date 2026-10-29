@@ -23,15 +23,19 @@ async function main() {
   const integrity = 'sha512-' + createHash('sha512').update(readFileSync(archive)).digest('base64');
   const published = () => packageIsPublished({ version, integrity });
   if (!await published()) {
+    const started = Date.now();
     const result = spawnSync('npm', ['publish', archive, '--access', 'public', '--provenance', '--tag', version.includes('-') ? 'beta' : 'latest'], { stdio: 'inherit' });
+    console.log(`npm publish completed in ${Math.round((Date.now() - started) / 1000)}s.`);
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error('npm publication failed.');
   }
+  const availabilityStarted = Date.now();
   for (let attempt = 0; ; attempt++) {
     if (await published()) break;
     if (attempt >= 40) throw new Error('npm has not finished processing the package; retry this release workflow after it becomes available.');
     await delay(15000);
   }
+  console.log(`Registry availability verified in ${Math.round((Date.now() - availabilityStarted) / 1000)}s.`);
   console.log(`npm serves the verified devpush@${version} package.`);
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

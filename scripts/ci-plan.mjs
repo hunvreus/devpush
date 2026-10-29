@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 export function planChecks(paths, { packageChanged = false } = {}) {
   const agent = paths.some(path => /^(agent\/|go\.work(?:\.sum)?$|scripts\/(?:build-agent|agent-release)\.mjs$)/.test(path));
   const image = agent || packageChanged || paths.some(path => /^(deploy\/|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|package\.json$|app\/src\/package\/|app\/scripts\/|scripts\/validate-production-image\.sh$)/.test(path));
-  return { agent, image };
+  const application = paths.some(path => !/^(?:docs\/|[^/]+\.md$|app\/README\.md$)/.test(path));
+  return { agent, image, application };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));

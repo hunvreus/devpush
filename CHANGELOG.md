@@ -4,6 +4,16 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.13] - 2026-10-29
+
+### Fixed
+
+- Allow clean npm installations to resolve compatible React versions without forced peer overrides.
+
+### Changed
+
+- Run unit and database suites in parallel, skip application builds for documentation-only changes, and report publication timing separately from registry availability.
+
 ## [1.0.0-beta.12] - 2026-10-29
 
 ### Changed

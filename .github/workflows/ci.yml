@@ -19,6 +19,7 @@ jobs:
     outputs:
       agent: ${{ steps.plan.outputs.agent }}
       image: ${{ steps.plan.outputs.image }}
+      application: ${{ steps.plan.outputs.application }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -27,6 +28,8 @@ jobs:
         run: node scripts/ci-plan.mjs
 
   validate:
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
     runs-on: ubuntu-24.04
     env:
       DEVPUSH_BASE_URL: http://localhost:7429
@@ -45,16 +48,74 @@ jobs:
       - run: pnpm release:check
       - run: pnpm lint
       - run: pnpm docs:check
-      - run: pnpm test
-        env:
-          DEVPUSH_RUN_DOCKER_TESTS: '1'
       - run: pnpm build
       - run: pnpm smoke:node
       - run: pnpm smoke:dev
+      - run: pnpm audit:dependencies
+
+  documentation:
+    needs: changes
+    if: needs.changes.outputs.application != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm docs:check
+
+  unit:
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      DEVPUSH_BASE_URL: http://localhost:7429
+      DEVPUSH_SECRET_ENCRYPTION_KEY: ci-secret-encryption-key
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+        env:
+          DEVPUSH_RUN_DOCKER_TESTS: '1'
+
+  integration:
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, libsql]
+    env:
+      DEVPUSH_BASE_URL: http://localhost:7429
+      DEVPUSH_SECRET_ENCRYPTION_KEY: ci-secret-encryption-key
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm --dir app db:migrate
       - run: pnpm test:integration
+        if: matrix.database == 'sqlite'
       - run: pnpm --dir app test:integration:libsql
-      - run: pnpm audit:dependencies
+        if: matrix.database == 'libsql'
 
   production-image:
     needs: changes
@@ -65,6 +126,8 @@ jobs:
       - run: bash scripts/validate-production-image.sh
 
   package-consumer:
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -87,6 +150,8 @@ jobs:
           retention-days: 30
 
   worker:
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
     runs-on: ubuntu-24.04
     services:
       libsql-main:

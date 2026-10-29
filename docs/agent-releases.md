@@ -45,8 +45,8 @@ Push the release commit to `main`, then a matching `v{version}` tag. GitHub Acti
 2. Builds and verifies agent binaries only when the release introduces a new agent pin; otherwise verifies the existing pinned downloads.
 3. Creates the GitHub Release and publishes the tested package to npm using OIDC.
 
-CI runs agent tests when agent inputs change and image checks when packaging or
-image inputs change. Publication does not repeat the full CI suite. Run focused
+CI runs unit and database suites in parallel. Documentation-only commits run
+documentation checks; agent and image checks run when their inputs change. Publication does not repeat the full CI suite. Run focused
 checks locally; CI owns the complete release gate.
 
 Prereleases use npm's `beta` tag and do not replace the latest stable GitHub

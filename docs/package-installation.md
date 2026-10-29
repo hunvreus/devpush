@@ -16,7 +16,9 @@ Use Node.js 22.12+ and pnpm 10.17+. Install devpush:
 pnpm add --save-exact devpush
 ```
 
-Install its peer dependencies and Vite, plus Wrangler if you target Workers. Then create `vite.config.mjs`:
+npm can also install the package with `npm install --save-exact devpush`. Compatible
+React 19 versions are supported; the package declares its other framework peer
+versions. Install any missing peers, plus Wrangler if you target Workers. Then create `vite.config.mjs`:
 
 ```js
 import { devpush } from 'devpush/vite'
