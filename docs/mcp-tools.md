@@ -4,11 +4,9 @@ description: All MCP tool names, arguments, permissions and results.
 
 # MCP tool reference
 
-[Connect your assistant](/docs/mcp/) before using these tools. Your client discovers the tools permitted by your grant and current team role. Workspace-wide tools are hidden from project-restricted connections. Log access is separate.
+[Connect your assistant](/docs/mcp/) and select its permissions first. Each tool below lists its arguments and links to the full input constraints and JSON result.
 
-Arguments are JSON objects. Required arguments are marked **required**; all others are optional. Each entry links to the full field constraints and result shape in the API reference. MCP combines REST path, query and body fields into one argument object and uses `idempotencyKey` instead of an HTTP header. Results are returned as structured JSON and JSON text.
-
-For deployment, backup and restore writes, acceptance queues work: inspect the returned deployment, backup or job ID to determine success. Destructive tools require their documented confirmation argument.
+Arguments are one JSON object, combining REST path, query and body fields. Use `idempotencyKey` for writes. Arguments marked **required** must be supplied; confirmation values are shown explicitly. Deployment, backup and restore calls queue work: follow the returned resource/job ID to check success.
 
 ## Projects
 
