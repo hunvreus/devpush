@@ -4,6 +4,11 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+### Changed
+
+- Update the installation checkout to the current published beta.
+- Use the current logo on orange for website and app social previews, matching the app icons; version branding URLs to refresh cached assets.
+
 ## [1.0.0-beta.8] - 2026-10-29
 
 ### Changed

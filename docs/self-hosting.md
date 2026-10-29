@@ -20,7 +20,7 @@ You need Node.js 22.12+, pnpm 10.17+, a stable dashboard URL and at least one si
 Start with a source checkout:
 
 ```sh
-git clone --branch v1.0.0-beta.4 https://github.com/hunvreus/devpush.git
+git clone --branch v1.0.0-beta.8 https://github.com/hunvreus/devpush.git
 cd devpush
 ```
 

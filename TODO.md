@@ -2,15 +2,14 @@
 
 Outstanding work only. Private extension work belongs in its own repository.
 
-## Before beta release
+## Release verification
 
-- Revoke or confirm revocation of the historical infrastructure credential found by secret scanning.
-
-- Run remote upgrade/drain and backup/restore proofs against the release candidate.
+- Verify remote drain and backup/restore against the final release candidate.
 - Verify real Claude OAuth and a second MCP client on Node and Workers.
-- Publish the updated website/docs; replace comparison placeholders and the old demo.
 
 ## Reliability and operations
+
+- Confirm revocation of the historical infrastructure credential found by secret scanning.
 
 - Recover open browser tabs cleanly when a deployment changes server-function bundles during navigation.
 - Load-test concurrent deployments, log ingestion and database recovery on D1/libSQL.

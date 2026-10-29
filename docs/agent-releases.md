@@ -48,7 +48,7 @@ Create the release commit with its version, changelog and generated agent manife
 5. Downloads the public agent assets and verifies their published checksums.
 6. Publishes the verified app package to npm through trusted publishing.
 
-Tags with a prerelease suffix (for example, `v1.0.0-beta.4`) produce prereleases and do not replace the latest stable release.
+Tags with a prerelease suffix (for example, `v1.0.0-beta.8`) produce prereleases and do not replace the latest stable release.
 
 The workflow rejects mismatched tags or pins and never overwrites an existing release. If npm publication fails after the GitHub Release succeeds, run the Release workflow manually with the existing tag to retry npm alone. Dashboard deployment is separate.
 

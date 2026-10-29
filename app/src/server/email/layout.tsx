@@ -48,7 +48,7 @@ export function EmailLayout({
                 width="32"
                 height="32"
                 src={new URL(
-                  '/logo-email.png',
+                  '/logo-email.png?v=2',
                   config.BETTER_AUTH_URL,
                 ).toString()}
               />

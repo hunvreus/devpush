@@ -21,7 +21,7 @@ import appCss from '../styles.css?url'
 
 const appName = 'devpush'
 const appDescription = 'Docker Compose deployments through devpush agents.'
-const socialImage = '/social.png'
+const socialImage = '/social.png?v=2'
 
 type RouterContext = {
   queryClient: QueryClient
@@ -98,12 +98,12 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       {
         rel: 'icon',
         type: 'image/svg+xml',
-        href: '/favicon.svg',
+        href: '/favicon.svg?v=2',
       },
       {
         rel: 'apple-touch-icon',
         sizes: '180x180',
-        href: '/apple-touch-icon.png',
+        href: '/apple-touch-icon.png?v=2',
       },
     ],
   }),
