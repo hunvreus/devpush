@@ -16,9 +16,9 @@ export function verifyAgentRelease({
   const pkg = JSON.parse(
     readFileSync(resolve(root, "app/package.json"), "utf8"),
   );
-  if (pkg.version !== release.version || (tag && tag !== `v${release.version}`))
+  if (tag && tag !== `v${pkg.version}`)
     throw new Error(
-      "Release tag, application version and agent pin must match.",
+      "Release tag must match the application version.",
     );
   if (
     process.env.GITHUB_REPOSITORY &&

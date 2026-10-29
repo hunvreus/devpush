@@ -3,6 +3,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { assertPublicPaths } from '../../scripts/validate-public-files.mjs'
 import { createHash } from 'node:crypto'
 import {
+  copyFileSync,
   lstatSync,
   existsSync,
   mkdirSync,
@@ -351,3 +352,10 @@ const scope = process.argv.includes('--development-only')
     ? 'Node'
     : 'Node and Workers'
 console.log(`${scope} package proof passed. Logs: ${logs}`)
+
+// Publish exactly the archive installed and tested by the independent consumer.
+if (process.env.DEVPUSH_PACKAGE_ARTIFACT_DIR) {
+  const output = resolve(process.env.DEVPUSH_PACKAGE_ARTIFACT_DIR)
+  mkdirSync(output, { recursive: true })
+  copyFileSync(archive, resolve(output, `${metadata.name}-${metadata.version}.tgz`))
+}

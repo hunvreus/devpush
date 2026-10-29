@@ -14,7 +14,7 @@
     "audit:dependencies": "pnpm audit --audit-level=high",
     "typecheck": "pnpm --dir app typecheck",
     "lint": "pnpm --dir app lint",
-    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs scripts/setup-hetzner.test.mjs scripts/local-stop.test.mjs scripts/local-secrets.test.mjs scripts/local-vm.test.mjs scripts/scheduler.test.mjs scripts/production-compose.test.mjs app/scripts/github-app.test.mjs scripts/agent-release.test.mjs scripts/validate-config.test.mjs scripts/validate-public-files.test.mjs",
+    "test": "pnpm --dir app test && node --test scripts/setup-config.test.mjs scripts/setup-hetzner.test.mjs scripts/local-stop.test.mjs scripts/local-secrets.test.mjs scripts/local-vm.test.mjs scripts/scheduler.test.mjs scripts/production-compose.test.mjs app/scripts/github-app.test.mjs scripts/agent-release.test.mjs scripts/ci-plan.test.mjs scripts/release-ci.test.mjs scripts/publish-package.test.mjs scripts/validate-config.test.mjs scripts/validate-public-files.test.mjs",
     "test:integration": "pnpm --dir app test:integration",
     "smoke:deploy": "pnpm --dir app smoke:deploy",
     "smoke:node": "pnpm --dir app smoke:node",

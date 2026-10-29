@@ -59,4 +59,4 @@ Keep files flat and organize the sidebar through `docs/docs.json`. Page filename
 
 ## Branches
 
-Use `main` for integration and short-lived branches for changes. Publish releases from version tags; no permanent release branch is required. A maintenance branch is only needed when supporting an older release alongside newer development. See [Agent releases](/docs/agent-releases/) for the build and publication process.
+Use `main` for integration and short-lived branches for changes. Run focused checks locally and let GitHub CI gate publication. Publish releases from version tags; no permanent release branch is required. A maintenance branch is only needed when supporting an older release alongside newer development. See [Agent releases](/docs/agent-releases/) for the build and publication process.

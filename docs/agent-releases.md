@@ -11,7 +11,7 @@ The app package does not contain agent executables. Its `agent-release.json` pin
 
 `devpush-agent version --json` reports a running agent's version, protocol, capabilities and platform.
 
-Published binaries, checksums and the app package are attached to their matching [GitHub Release](https://github.com/hunvreus/devpush/releases).
+Agent binaries and checksums belong to the release recorded in the pin. App-only releases reuse that agent release; their [GitHub Release](https://github.com/hunvreus/devpush/releases) contains the app package.
 
 ## Download behavior
 
@@ -21,7 +21,11 @@ On Node, `DEVPUSH_AGENT_BINARY_DIR` overrides release downloads with trusted cus
 
 ## Prepare a release
 
-Set the application version in `app/package.json`. Use the compiler pinned in `agent/go.mod` and `app/agent-release.json`:
+Set the app version in `app/package.json` and update the changelog. For app-only
+changes, leave `app/agent-release.json` unchanged.
+
+If agent source or build inputs changed, use the compiler pinned in `agent/go.mod`
+and regenerate the agent pin:
 
 ```sh
 pnpm agent:release:prepare
@@ -29,29 +33,33 @@ pnpm agent:release:verify
 pnpm agent:test
 ```
 
-Preparation does the following:
-
-- Builds both Linux binaries with CGO and VCS/build-path stamping disabled.
-- Reads protocol and capability metadata from the real agent CLI.
-- Writes the pin, `bin/agent-release.json` and `bin/SHA256SUMS`.
-
-Verification requires matching artifacts for both architectures. The Docker agent builder uses the same compiler. Commit the source changes and the generated pin together.
+Preparation builds both Linux binaries, reads their protocol/capabilities and
+writes the pin and checksums. Commit agent changes and the generated pin together.
+The release workflow rejects changed agent source with an old pin.
 
 ## Publish
 
-Create the release commit with its version, changelog and generated agent manifest, then push a matching `v{version}` tag. GitHub Actions handles publication; no manual `npm publish` is needed. The workflow:
+Push the release commit to `main`, then a matching `v{version}` tag. GitHub Actions:
 
-1. Builds with the pinned compiler.
-2. Runs both binaries, using QEMU for ARM64, and checks their metadata and hashes.
-3. Runs the app and agent checks.
-4. Attaches the binaries, manifest, checksums and app package tarball to a GitHub Release.
-5. Downloads the public agent assets and verifies their published checksums.
-6. Publishes the verified app package to npm through trusted publishing.
+1. Waits for successful CI on that exact commit and reuses the package CI tested.
+2. Builds and verifies agent binaries only when the release introduces a new agent pin; otherwise verifies the existing pinned downloads.
+3. Creates the GitHub Release and publishes the tested package to npm using OIDC.
 
-Tags with a prerelease suffix (for example, `v1.0.0-beta.8`) produce prereleases and do not replace the latest stable release.
+CI runs agent tests when agent inputs change and image checks when packaging or
+image inputs change. Publication does not repeat the full CI suite. Run focused
+checks locally; CI owns the complete release gate.
 
-The workflow rejects mismatched tags or pins and never overwrites an existing release. If npm publication fails after the GitHub Release succeeds, run the Release workflow manually with the existing tag to retry npm alone. Dashboard deployment is separate.
+Prereleases use npm's `beta` tag and do not replace the latest stable GitHub
+release. Stable releases use `latest`. No manual `npm publish` is needed.
 
-If an installation has no local binaries, publish the release before you enroll servers. Don't rename the manifest URLs unless you rebuild the release artifacts.
+The workflow never overwrites a release. To retry npm publication or the downstream
+deployment after a partial failure, run **Release** manually with its existing tag.
+Retries verify that npm serves the exact tested archive before continuing.
 
-npm authenticates GitHub Actions through OIDC, without a stored npm token. Prereleases use the `beta` npm tag; stable releases use `latest`. The package trusts `hunvreus/devpush`, workflow `release.yml`, with direct publishing enabled.
+The optional downstream deployment is configured with `HOSTED_DEPLOY_TOKEN`,
+restricted to Actions write access on the private consumer repository. Once npm
+serves the package, the release dispatches that consumer's checks and deployment.
+Application credentials and Cloudflare deployment remain in the consumer repository.
+
+Publish the pinned agent assets before enrolling servers. Installers verify their
+checksums; changing manifest URLs without rebuilding is unsupported.

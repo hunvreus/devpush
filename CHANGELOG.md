@@ -4,6 +4,10 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+### Changed
+
+- Reuse the CI-tested package for publication, retain unchanged agent releases and automatically hand published packages to hosted deployment.
+
 ## [1.0.0-beta.11] - 2026-10-29
 
 ### Changed
