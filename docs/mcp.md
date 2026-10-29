@@ -6,7 +6,7 @@ description: Connect an assistant to devpush and use it to inspect servers, depl
 
 Connect an assistant to **`https://app.devpu.sh/mcp`** to manage devpush through conversation. For self-hosting, use `https://YOUR-DEVPUSH-HOST/mcp`. Copy the exact URL from **Account → Connected apps**. The marketing site at `devpu.sh` is not the MCP endpoint.
 
-See the [MCP tool reference](/docs/mcp-tools/) for every tool's name, arguments, permissions and result.
+See the [MCP tools](/docs/mcp-tools/) for every tool's name, arguments, permissions and result.
 
 ## Connect your client
 

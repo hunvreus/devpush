@@ -147,9 +147,9 @@ function fields(schema: Schema, prefix = '', condition = ''): string[][] {
   }
   return rows
 }
-function table(rows: string[][]) {
+function table(rows: string[][], firstColumn = 'Field') {
   return rows.length
-    ? '| Field | Type | Required | Details |\n| --- | --- | --- | --- |\n' +
+    ? `| ${firstColumn} | Type | Required | Details |\n| --- | --- | --- | --- |\n` +
         rows.map((row) => `| ${row.join(' | ')} |`).join('\n') +
         '\n'
     : 'None.\n'
@@ -208,8 +208,10 @@ function createApiReference() {
   const documents: Record<string, string> = {}
   let index =
     '---\ndescription: Every REST endpoint, required permission and corresponding MCP tool.\n---\n\n# API reference\n\nBase URL: **`https://app.devpu.sh/api/v1`**. For self-hosting, replace the host with your dashboard URL. Authenticate with a bearer API key; see the [API guide](/docs/api/) for setup, errors, pagination and retries.\n\nSelect an endpoint below for its inputs and response fields. Tables use `[]` for array items and `.*` for record keys. A nested field is required only when its parent object or variant is present. Unknown request fields are rejected.\n\nThe [OpenAPI JSON](https://app.devpu.sh/api/v1/openapi.json) is also available for scripts and code generation.\n\n'
-  let tools =
-    '---\ndescription: All MCP tool names, arguments, permissions and results.\n---\n\n# MCP tool reference\n\n[Connect your assistant](/docs/mcp/) and select its permissions first. Each tool below lists its arguments and links to the full input constraints and JSON result.\n\nArguments are one JSON object, combining REST path, query and body fields. Use `idempotencyKey` for writes. Arguments marked **required** must be supplied; confirmation values are shown explicitly. Deployment, backup and restore calls queue work: follow the returned resource/job ID to check success.\n\n'
+  const tools =
+    '---\ndescription: All MCP tool names, arguments, permissions and results.\n---\n\n# MCP tools\n\n[Connect your assistant](/docs/mcp/) and select its permissions first. Each tool below lists its arguments and links to the full input constraints and JSON result.\n\nArguments are one JSON object, combining REST path, query and body fields. Use `idempotencyKey` for writes. Argument tables show required fields, defaults and confirmation values. Deployment, backup and restore calls queue work: follow the returned resource/job ID to check success.\n\n'
+  let toolIndex = '## Tool index\n\n'
+  let toolDetails = ''
   for (const group of [
     ...groups,
     { slug: 'api-operations', title: 'Identity', match: /^get_identity$/ },
@@ -235,25 +237,46 @@ function createApiReference() {
     else index += operations.map(endpoint).join('')
     const available = operations.filter((operation) => operation.mcp)
     if (!available.length) continue
-    tools += `## ${group.title}\n\n`
+    toolIndex +=
+      `**${group.title}**\n\n| Tool | Purpose |\n| --- | --- |\n` +
+      available
+        .map(
+          (operation) =>
+            `| [${code(operation.id)}](#${operation.id}) | ${cell(operation.description.split('. ')[0]!.replace(/\.$/, ''))} |`,
+        )
+        .join('\n') +
+      '\n\n'
+    toolDetails += `## ${group.title}\n\n`
     for (const operation of available) {
       const input =
         operation.destructive && !('confirmation' in operation.input.shape)
           ? operation.input.extend({ confirmation: z.literal(operation.id) })
           : operation.input
-      tools +=
-        `### ${operation.id}\n\n${operation.description}\n\n**Permission:** ${code(operation.scope)} · ${role(operation)}${operation.requiresWholeTeam ? ' · Workspace-wide access required' : ''}.\n\n**Arguments:** ` +
-        Object.entries(input.shape)
-          .map(
-            ([name, schema]) =>
-              `${code(name)} (${code(type(z.toJSONSchema(schema, { io: 'input' }) as Schema))}${schema.isOptional() ? '' : ', **required**'}${'value' in schema ? `, ${code(JSON.stringify(schema.value))}` : ''})`,
-          )
-          .join('; ') +
-        `.\n\n[Full inputs and result](${link(operation)}).\n\n`
+      toolDetails +=
+        `### ${operation.id}\n\n${operation.description}\n\n**Permission:** ${code(operation.scope)} · ${role(operation)}${operation.requiresWholeTeam ? ' · Workspace-wide access required' : ''}.\n\n` +
+        table(
+          Object.entries(input.shape).map(([name, schema]) => {
+            const json = z.toJSONSchema(schema, { io: 'input' }) as Schema
+            const details = {
+              ...(json.description ? { description: json.description } : {}),
+              ...('default' in json ? { default: json.default } : {}),
+              ...('const' in json ? { const: json.const } : {}),
+              ...(json.enum ? { enum: json.enum } : {}),
+            }
+            return [
+              code(name),
+              code(type(json)),
+              schema.isOptional() ? 'No' : 'Yes',
+              notes(details),
+            ]
+          }),
+          'Argument',
+        ) +
+        `\n[Full inputs and result](${link(operation)}).\n\n`
     }
   }
   documents['api-operations.md'] = index
-  documents['mcp-tools.md'] = tools
+  documents['mcp-tools.md'] = tools + toolIndex + toolDetails
   return Object.fromEntries(
     Object.entries(documents).map(([name, content]) => [
       name,
