@@ -40,6 +40,8 @@ Check the callback host on consent screens. Cloud-hosted assistants cannot reach
 
 Tools are shown only when your grant and current team role permit them.
 
+Use **Read only** to inspect resources, **Deploy** to deploy or roll back, and **Manage** to configure resources or run backups. Backup changes and restores require an owner/admin role. Select workspace-wide access to list servers; log access is a separate option.
+
 | Area | Actions |
 | --- | --- |
 | Servers | List servers, inspect connection and agent metadata, read resource metrics. |

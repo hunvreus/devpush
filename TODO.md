@@ -2,10 +2,6 @@
 
 Outstanding work only. Private extension work belongs in its own repository.
 
-## Release verification
-
-- Verify Claude browser sign-in against the deployed OAuth registration fix; API-key clients and Node/Worker authorization smoke checks pass.
-
 ## Reliability and operations
 
 - Confirm revocation of the historical infrastructure credential found by secret scanning.
