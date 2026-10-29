@@ -25,7 +25,20 @@ test('consent identifies the client without fetching its favicon and leaves logs
     />,
   )
   expect(wrapper.textContent).toContain('ChatGPT')
-  expect(wrapper.textContent).toContain('Returns to chatgpt.com')
+  expect(
+    wrapper.querySelector('section[aria-label="Requesting app"]')?.textContent,
+  ).toContain('chatgpt.com')
+  expect(
+    wrapper
+      .querySelector('section[aria-label="Requesting app"]')
+      ?.getAttribute('aria-describedby'),
+  ).toBe('client-identity-notice')
+  const settingsLink = wrapper.querySelector(
+    'a[href="/settings#connected-apps"]',
+  )
+  expect(settingsLink?.getAttribute('target')).toBe('_blank')
+  expect(settingsLink?.getAttribute('rel')).toBe('noopener noreferrer')
+  expect(wrapper.textContent).not.toContain('Returns to')
   expect(wrapper.querySelector('img')).toBeNull()
   const checkbox = wrapper.querySelector('#consent-logs')!
   expect(checkbox.getAttribute('aria-checked')).toBe('false')

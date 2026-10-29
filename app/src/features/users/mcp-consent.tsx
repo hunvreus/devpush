@@ -1,6 +1,6 @@
 import { ApiScopeSelection } from './api-scope-selection'
 import { useState } from 'react'
-import { ShieldCheckIcon, LoaderIcon, AppWindowIcon } from 'lucide-react'
+import { LoaderIcon, AppWindowIcon } from 'lucide-react'
 import {
   Card,
   CardHeader,
@@ -45,6 +45,31 @@ function ConsentLogo() {
   )
 }
 
+function ConsentFootnote() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Expires in 30 days. Revoke anytime in{' '}
+      <a
+        href="/settings#connected-apps"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-4 hover:text-foreground"
+      >
+        Connected apps<span className="sr-only"> (opens in a new tab)</span>
+      </a>
+      .
+    </p>
+  )
+}
+
+function ClientIdentityNotice() {
+  return (
+    <p id="client-identity-notice" className="text-xs text-muted-foreground">
+      App identity supplied by the client; not verified by devpush.
+    </p>
+  )
+}
+
 export function McpConsentPending() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
@@ -61,13 +86,20 @@ export function McpConsentPending() {
           </CardHeader>
           <CardContent>
             <FieldGroup>
-              <div className="flex items-center gap-3 rounded-lg border p-3">
-                <AppWindowIcon className="size-5 shrink-0 text-muted-foreground" />
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-28" />
-                  <Skeleton className="h-3 w-36" />
+              <section
+                aria-label="Requesting app"
+                aria-describedby="client-identity-notice"
+                className="space-y-2"
+              >
+                <div className="flex items-center gap-3">
+                  <AppWindowIcon className="size-5 shrink-0 text-muted-foreground" />
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-3 w-36" />
+                  </div>
                 </div>
-              </div>
+                <ClientIdentityNotice />
+              </section>
               <Field>
                 <FieldLabel>Scope</FieldLabel>
                 {['API access team', 'API access project'].map((label) => (
@@ -87,11 +119,7 @@ export function McpConsentPending() {
                 </Select>
                 <Skeleton className="h-3 w-full" />
               </Field>
-              <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                <ShieldCheckIcon className="size-4 shrink-0" />
-                Access follows your current permissions and expires in 30 days.
-                You can revoke this connection in Account → Connected apps.
-              </p>
+              <ConsentFootnote />
             </FieldGroup>
           </CardContent>
           <CardFooter className="justify-end gap-2">
@@ -153,19 +181,24 @@ export function McpConsent({ context }: { context: Consent }) {
           </CardHeader>
           <CardContent>
             <FieldGroup>
-              <div className="flex items-center gap-3 rounded-lg border p-3">
-                <AppWindowIcon className="size-5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0">
-                  <p className="break-words text-sm font-medium">
-                    {context.clientName}
-                  </p>
-                  <p className="break-all text-xs text-muted-foreground">
-                    {context.redirectHost
-                      ? `Returns to ${context.redirectHost}`
-                      : `Client ID: ${context.clientId}`}
-                  </p>
+              <section
+                aria-label="Requesting app"
+                aria-describedby="client-identity-notice"
+                className="space-y-2"
+              >
+                <div className="flex items-center gap-3">
+                  <AppWindowIcon className="size-5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium">
+                      {context.clientName}
+                    </p>
+                    <p className="break-all text-xs text-muted-foreground">
+                      {context.redirectHost ?? `Client ID: ${context.clientId}`}
+                    </p>
+                  </div>
                 </div>
-              </div>
+                <ClientIdentityNotice />
+              </section>
               <ApiScopeSelection
                 userId={context.userId}
                 teamId={teamId}
@@ -219,15 +252,7 @@ export function McpConsent({ context }: { context: Consent }) {
                   </FieldContent>
                 </Field>
               ) : null}
-              <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                <ShieldCheckIcon className="size-4 shrink-0" />
-                Access follows your current permissions and expires in 30 days.
-                You can revoke this connection in Account → Connected apps.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                App names are supplied by their developers and aren’t verified
-                by devpush.
-              </p>
+              <ConsentFootnote />
               <FieldError>{error}</FieldError>
             </FieldGroup>
           </CardContent>

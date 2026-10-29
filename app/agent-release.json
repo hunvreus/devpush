@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "hunvreus/devpush",
-  "version": "1.0.0-beta.10",
+  "version": "1.0.0-beta.11",
   "goVersion": "go1.27.3",
   "protocolVersion": 1,
   "capabilities": [
@@ -21,16 +21,16 @@
       "os": "linux",
       "arch": "amd64",
       "filename": "devpush-agent-linux-amd64",
-      "url": "https://github.com/hunvreus/devpush/releases/download/v1.0.0-beta.10/devpush-agent-linux-amd64",
-      "sha256": "47ee824d89bc0b0dfead4d15adcadd71865a9a0f441b7c88784e98da924cd8c1",
+      "url": "https://github.com/hunvreus/devpush/releases/download/v1.0.0-beta.11/devpush-agent-linux-amd64",
+      "sha256": "af6a30b3facff2b2cdd129885103296868216271dc429ad1bb991a70b982ace6",
       "size": 8212604
     },
     {
       "os": "linux",
       "arch": "arm64",
       "filename": "devpush-agent-linux-arm64",
-      "url": "https://github.com/hunvreus/devpush/releases/download/v1.0.0-beta.10/devpush-agent-linux-arm64",
-      "sha256": "3284fe7c184631e0204e26304a7b5524607fccbca48d18fc653d39d4574068b8",
+      "url": "https://github.com/hunvreus/devpush/releases/download/v1.0.0-beta.11/devpush-agent-linux-arm64",
+      "sha256": "8552b8ff4ec0aafc895bf57cd6659a9275f7fa9eae43e55d7ce406d7bc2a3823",
       "size": 7536764
     }
   ]

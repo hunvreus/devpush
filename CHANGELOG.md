@@ -4,6 +4,12 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.11] - 2026-10-29
+
+### Changed
+
+- Simplify MCP consent identity and expiry information, keeping the client trust notice beside the requesting app and linking directly to connection settings.
+
 ## [1.0.0-beta.10] - 2026-10-29
 
 ### Changed
