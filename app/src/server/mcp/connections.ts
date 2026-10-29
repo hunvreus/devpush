@@ -39,6 +39,18 @@ async function readConsentQuery(oauthQuery: string) {
   return query
 }
 
+function clientMetadataUrl(value: string | undefined) {
+  if (!value || value.length > 2048) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password
+      ? url
+      : null
+  } catch {
+    return null
+  }
+}
+
 export async function getMcpConsent({
   oauthQuery,
   headers,
@@ -65,8 +77,15 @@ export async function getMcpConsent({
   const settings = await getApiKeySettings(session.user.id)
   return {
     userId: session.user.id,
+    account: {
+      name: session.user.name,
+      email: session.user.email,
+      image: session.user.image ?? null,
+    },
     clientId,
     clientName: client.client_name || clientId,
+    clientHost: clientMetadataUrl(client.client_uri)?.host ?? null,
+    clientLogoUrl: clientMetadataUrl(client.logo_uri)?.href ?? null,
     redirectHost: (() => {
       const redirect = query.get('redirect_uri')
       if (!redirect) return null

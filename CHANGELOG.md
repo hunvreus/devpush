@@ -4,7 +4,11 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.12] - 2026-10-29
+
 ### Changed
+
+- Simplify MCP authorization with a clear connection heading, signed-in account identity and compact permission controls.
 
 - Reuse the CI-tested package for publication, retain unchanged agent releases while keeping consumer deployments independent.
 

@@ -1,14 +1,13 @@
 import { ApiScopeSelection } from './api-scope-selection'
 import { useState } from 'react'
-import { LoaderIcon, AppWindowIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { LoaderIcon, ArrowRightLeftIcon } from 'lucide-react'
+import { Card, CardContent } from '#devpush/components/ui/card'
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from '#devpush/components/ui/card'
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+} from '#devpush/components/ui/avatar'
 import { Button } from '#devpush/components/ui/button'
 import {
   Field,
@@ -34,103 +33,133 @@ import type { getMcpConsentAction } from '#devpush/server/mcp/functions'
 import { completeMcpConsentAction } from '#devpush/server/mcp/functions'
 
 type Consent = NonNullable<Awaited<ReturnType<typeof getMcpConsentAction>>>
-function ConsentLogo() {
+function RequestingAppIcon({ src, name }: { src: string; name: string }) {
+  const [loaded, setLoaded] = useState(false)
   return (
-    <div
-      className="mx-auto mb-6 flex size-8 items-center justify-center rounded-lg bg-orange-600 text-white"
-      aria-label="devpush"
-    >
-      <LogoMark className="size-5 shrink-0" />
-    </div>
-  )
-}
-
-function ConsentFootnote() {
-  return (
-    <p className="text-xs text-muted-foreground">
-      Expires in 30 days. Revoke anytime in{' '}
-      <a
-        href="/settings#connected-apps"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline underline-offset-4 hover:text-foreground"
+    <>
+      <Avatar
+        size="lg"
+        className={loaded ? 'rounded-lg after:rounded-lg' : 'hidden'}
       >
-        Connected apps<span className="sr-only"> (opens in a new tab)</span>
-      </a>
-      .
-    </p>
+        <AvatarImage
+          src={src}
+          alt={name}
+          className="rounded-lg"
+          referrerPolicy="no-referrer"
+          onLoadingStatusChange={(status) => setLoaded(status === 'loaded')}
+        />
+      </Avatar>
+      {loaded ? (
+        <ArrowRightLeftIcon
+          className="size-4 text-muted-foreground"
+          aria-hidden="true"
+        />
+      ) : null}
+    </>
   )
 }
 
-function ClientIdentityNotice() {
+function ConsentLayout({
+  clientName,
+  clientLogoUrl,
+  children,
+  pending = false,
+}: {
+  clientName?: string
+  clientLogoUrl?: string | null
+  children: ReactNode
+  pending?: boolean
+}) {
   return (
-    <p id="client-identity-notice" className="text-xs text-muted-foreground">
-      App identity supplied by the client; not verified by devpush.
-    </p>
+    <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <div
+        className="w-full max-w-md space-y-6"
+        aria-busy={pending || undefined}
+      >
+        <header className="space-y-4 text-center">
+          <div
+            className="flex items-center justify-center gap-3"
+            aria-label="App connection"
+          >
+            {!pending && clientLogoUrl ? (
+              <RequestingAppIcon
+                key={clientLogoUrl}
+                src={clientLogoUrl}
+                name={clientName ?? 'Requesting app'}
+              />
+            ) : null}
+            <div
+              className="flex size-10 items-center justify-center rounded-lg bg-orange-600 text-white"
+              aria-label="devpush"
+            >
+              <LogoMark className="w-6" />
+            </div>
+          </div>
+          <h1 className="flex min-h-14 items-center justify-center text-lg font-medium text-balance break-words">
+            {clientName
+              ? `${clientName} is requesting access to your devpush account`
+              : 'Authorize access to devpush'}
+          </h1>
+        </header>
+        {children}
+      </div>
+    </main>
   )
 }
 
 export function McpConsentPending() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <div className="w-full max-w-md" aria-busy="true">
-        <ConsentLogo />
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Connect to devpush
-            </CardTitle>
-            <CardDescription>
-              Choose what this app can access on your behalf.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <section
-                aria-label="Requesting app"
-                aria-describedby="client-identity-notice"
-                className="space-y-2"
-              >
-                <div className="flex items-center gap-3">
-                  <AppWindowIcon className="size-5 shrink-0 text-muted-foreground" />
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-3 w-36" />
-                  </div>
-                </div>
-                <ClientIdentityNotice />
-              </section>
-              <Field>
-                <FieldLabel>Scope</FieldLabel>
-                {['API access team', 'API access project'].map((label) => (
-                  <Select key={label} disabled>
-                    <SelectTrigger aria-label={label}>
-                      <Skeleton className="h-4 w-32" />
-                    </SelectTrigger>
-                  </Select>
-                ))}
-              </Field>
-              <Field>
-                <FieldLabel>Access</FieldLabel>
-                <Select disabled>
-                  <SelectTrigger aria-label="Authorized access">
+    <ConsentLayout pending>
+      <Card>
+        <CardContent>
+          <FieldGroup>
+            <div className="flex items-center gap-3 border-b pb-5">
+              <Skeleton className="size-8 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-3 w-40" />
+              </div>
+            </div>
+            <Skeleton className="h-10 w-full" />
+            <Field>
+              <FieldLabel>Scope</FieldLabel>
+              {['API access team', 'API access projects'].map((label) => (
+                <Select key={label} disabled>
+                  <SelectTrigger aria-label={label} className="w-full">
                     <Skeleton className="h-4 w-32" />
                   </SelectTrigger>
                 </Select>
-                <Skeleton className="h-3 w-full" />
-              </Field>
-              <ConsentFootnote />
-            </FieldGroup>
-          </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button variant="ghost" disabled>
-              Deny
-            </Button>
-            <Button disabled>Authorize</Button>
-          </CardFooter>
-        </Card>
+              ))}
+            </Field>
+            <Field>
+              <FieldLabel>Access</FieldLabel>
+              <Select disabled>
+                <SelectTrigger
+                  aria-label="Authorized access"
+                  className="w-full"
+                >
+                  <Skeleton className="h-4 w-32" />
+                </SelectTrigger>
+              </Select>
+              <Skeleton className="h-4 w-full" />
+            </Field>
+            <div className="flex gap-2" aria-hidden="true">
+              <Skeleton className="size-4 shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            </div>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" disabled>
+          Cancel
+        </Button>
+        <Button disabled>Authorize</Button>
       </div>
-    </main>
+    </ConsentLayout>
   )
 }
 export function McpConsent({ context }: { context: Consent }) {
@@ -140,11 +169,12 @@ export function McpConsent({ context }: { context: Consent }) {
     context.requestedPermissions[0] ?? 'read',
   )
   const [includeLogs, setIncludeLogs] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [pendingAction, setPendingAction] = useState<boolean | null>(null)
+  const busy = pendingAction !== null
   const [error, setError] = useState<string | null>(null)
   async function complete(accepted: boolean) {
     if (busy) return
-    setBusy(true)
+    setPendingAction(accepted)
     setError(null)
     try {
       const result = await completeMcpConsentAction({
@@ -165,114 +195,122 @@ export function McpConsent({ context }: { context: Consent }) {
           'Unable to complete authorization. Please try again.',
         ),
       )
-      setBusy(false)
+      setPendingAction(null)
     }
   }
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <div className="w-full max-w-md">
-        <ConsentLogo />
-        <Card>
-          <CardHeader>
-            <CardTitle>Connect to devpush</CardTitle>
-            <CardDescription>
-              Choose what this app can access on your behalf.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <section
-                aria-label="Requesting app"
-                aria-describedby="client-identity-notice"
-                className="space-y-2"
-              >
-                <div className="flex items-center gap-3">
-                  <AppWindowIcon className="size-5 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0">
-                    <p className="break-words text-sm font-medium">
-                      {context.clientName}
-                    </p>
-                    <p className="break-all text-xs text-muted-foreground">
-                      {context.redirectHost ?? `Client ID: ${context.clientId}`}
-                    </p>
-                  </div>
-                </div>
-                <ClientIdentityNotice />
-              </section>
-              <ApiScopeSelection
-                userId={context.userId}
-                teamId={teamId}
-                projectId={projectId}
-                initialTeams={context.teams}
-                disabled={busy}
-                onChange={(team, project) => {
-                  setTeamId(team)
-                  setProjectId(project)
-                }}
-              />
-              <Field>
-                <FieldLabel>Access</FieldLabel>
-                <Select
-                  value={preset}
-                  onValueChange={(value) => setPreset(value as typeof preset)}
-                  disabled={busy}
-                >
-                  <SelectTrigger aria-label="Authorized access">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {context.requestedPermissions.map((permission) => (
-                      <SelectItem key={permission} value={permission}>
-                        {apiKeyPresets[permission].label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FieldDescription>
-                  {apiKeyPresets[preset].description}
-                </FieldDescription>
-              </Field>
-              {context.allowLogs ? (
-                <Field orientation="horizontal">
-                  <Checkbox
-                    id="consent-logs"
-                    aria-describedby="consent-logs-description"
-                    checked={includeLogs}
-                    onCheckedChange={(value) => setIncludeLogs(value === true)}
-                    disabled={busy}
-                  />
-                  <FieldContent>
-                    <FieldLabel htmlFor="consent-logs">
-                      Allow access to logs
-                    </FieldLabel>
-                    <FieldDescription id="consent-logs-description">
-                      Include deployment and application logs, which may contain
-                      sensitive information.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
-              ) : null}
-              <ConsentFootnote />
-              <FieldError>{error}</FieldError>
-            </FieldGroup>
-          </CardContent>
-          <CardFooter className="justify-end gap-2">
-            <Button
-              variant="ghost"
+    <ConsentLayout
+      clientName={context.clientName}
+      clientLogoUrl={context.clientLogoUrl}
+    >
+      <Card>
+        <CardContent>
+          <FieldGroup>
+            <section
+              aria-label="Signed-in account"
+              className="flex items-center gap-3 border-b pb-5"
+            >
+              <Avatar>
+                <AvatarImage
+                  src={context.account.image ?? undefined}
+                  alt={context.account.name}
+                />
+                <AvatarFallback>
+                  {context.account.name.trim().charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {context.account.name}
+                </p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {context.account.email}
+                </p>
+              </div>
+            </section>
+            <p className="text-sm">
+              {context.clientName}
+              {context.clientHost ? ` by ${context.clientHost}` : ''} is
+              requesting the following access (expires in 30 days):
+            </p>
+            <ApiScopeSelection
+              userId={context.userId}
+              teamId={teamId}
+              projectId={projectId}
+              initialTeams={context.teams}
               disabled={busy}
-              onClick={() => void complete(false)}
-            >
-              Deny
-            </Button>
-            <Button
-              disabled={busy || !teamId}
-              onClick={() => void complete(true)}
-            >
-              {busy ? <LoaderIcon className="animate-spin" /> : null}Authorize
-            </Button>
-          </CardFooter>
-        </Card>
+              onChange={(team, project) => {
+                setTeamId(team)
+                setProjectId(project)
+              }}
+            />
+            <Field>
+              <FieldLabel>Access</FieldLabel>
+              <Select
+                value={preset}
+                onValueChange={(value) => setPreset(value as typeof preset)}
+                disabled={busy}
+              >
+                <SelectTrigger
+                  aria-label="Authorized access"
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {context.requestedPermissions.map((permission) => (
+                    <SelectItem key={permission} value={permission}>
+                      {apiKeyPresets[permission].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                {apiKeyPresets[preset].description}
+              </FieldDescription>
+            </Field>
+            {context.allowLogs ? (
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="consent-logs"
+                  aria-describedby="consent-logs-description"
+                  checked={includeLogs}
+                  onCheckedChange={(value) => setIncludeLogs(value === true)}
+                  disabled={busy}
+                />
+                <FieldContent>
+                  <FieldLabel htmlFor="consent-logs">
+                    Allow access to logs
+                  </FieldLabel>
+                  <FieldDescription id="consent-logs-description">
+                    Deployment and application logs may contain sensitive
+                    information.
+                  </FieldDescription>
+                </FieldContent>
+              </Field>
+            ) : null}
+            <FieldError>{error}</FieldError>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          disabled={busy}
+          onClick={() => void complete(false)}
+        >
+          {pendingAction === false ? (
+            <LoaderIcon className="animate-spin" />
+          ) : null}
+          Cancel
+        </Button>
+        <Button disabled={busy || !teamId} onClick={() => void complete(true)}>
+          {pendingAction === true ? (
+            <LoaderIcon className="animate-spin" />
+          ) : null}
+          Authorize
+        </Button>
       </div>
-    </main>
+    </ConsentLayout>
   )
 }

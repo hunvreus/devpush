@@ -139,6 +139,8 @@ async function authorize(
   const ids = await seed()
   const registration = await oauthRequest('/oauth2/register', {
     client_name: 'Test assistant',
+    client_uri: 'https://assistant.example/',
+    logo_uri: 'https://assistant.example/logo.png',
     redirect_uris: ['http://127.0.0.1:9000/callback'],
     application_type: 'native',
     token_endpoint_auth_method: 'none',
@@ -173,7 +175,14 @@ async function authorize(
   expect(location).toContain('/oauth/consent?')
   const oauthQuery = new URL(location!, 'http://localhost:7429').search.slice(1)
   const context = await getMcpConsent({ oauthQuery, headers: ids.headers })
+  expect(context?.account).toEqual({
+    name: 'MCP user',
+    email: ids.userId + '@example.invalid',
+    image: null,
+  })
   expect(context?.clientName).toBe('Test assistant')
+  expect(context?.clientHost).toBe('assistant.example')
+  expect(context?.clientLogoUrl).toBe('https://assistant.example/logo.png')
   expect(context?.redirectHost).toBe('127.0.0.1:9100')
   expect(context?.requestedPermissions).toEqual(
     preset === 'manage' ? ['read', 'manage'] : ['read'],
