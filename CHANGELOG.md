@@ -6,6 +6,8 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ### Changed
 
+- Clarify MCP consent with a separate app identity, aligned log-access fields and app branding above the card. Default to the system theme when no preference is saved.
+
 - Separate API and MCP guides from schema-generated endpoint and tool references; add collapsible reference navigation.
 
 ## [1.0.0-beta.9] - 2026-10-29

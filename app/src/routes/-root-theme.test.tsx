@@ -53,3 +53,33 @@ test('global toasts share the selected theme even outside the normal route conte
     await act(async () => root.unmount())
   }
 })
+
+test('the app defaults to the system theme when no preference is saved', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+  }))
+  const root = createRoot(document)
+  const Document = (
+    Route.options as unknown as {
+      shellComponent: ComponentType<{ children: ReactNode }>
+    }
+  ).shellComponent
+  try {
+    await act(async () =>
+      root.render(
+        <Document>
+          <main>Consent</main>
+        </Document>,
+      ),
+    )
+    expect(
+      document.querySelector('[data-testid="toast-theme"]')?.textContent,
+    ).toBe('system')
+    expect(document.documentElement.classList.contains('light')).toBe(true)
+  } finally {
+    await act(async () => root.unmount())
+  }
+})
