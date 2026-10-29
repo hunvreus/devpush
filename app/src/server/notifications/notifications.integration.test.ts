@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { db, closeDb } from '#devpush/server/db'
+import { countMutations } from '#devpush/test/mutation-audit'
 import { config } from '#devpush/server/config'
 import {
   teams,
@@ -11,6 +12,7 @@ import {
   notificationOutbox,
   notificationIncidents,
   notificationMutes,
+  notificationScanCursors,
   servers,
   environments,
   deployments,
@@ -403,9 +405,12 @@ test('domain and backup source scans generate alerts and repeated scans do not r
   expect(send).toHaveBeenCalledTimes(4)
   await maintainOperationalNotifications()
   expect(send).toHaveBeenCalledTimes(4)
-  const before = await db.all(sql`select total_changes()`)
-  await maintainOperationalNotifications()
-  expect(await db.all(sql`select total_changes()`)).toEqual(before)
+  expect(
+    await countMutations(
+      [notificationIncidents, notificationOutbox, notificationScanCursors],
+      () => maintainOperationalNotifications(),
+    ),
+  ).toBe(0)
 })
 
 test('a later initiating member receives their failure without resending to owners, and both actors receive recovery', async () => {

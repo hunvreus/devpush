@@ -56,7 +56,7 @@ jobs:
           node scripts/verify-agent-release.mjs --tag "$GITHUB_REF_NAME" --runtime
       - run: pnpm typecheck && pnpm lint && pnpm docs:check && pnpm build
       - run: pnpm smoke:node
-      - run: pnpm test && pnpm test:integration && pnpm test:package
+      - run: pnpm test && pnpm test:integration && pnpm --dir app test:integration:libsql && pnpm test:package
       - run: pnpm validate:production
       - run: mkdir -p release && pnpm --dir app pack --pack-destination ../release
       - name: Publish the verified release assets
