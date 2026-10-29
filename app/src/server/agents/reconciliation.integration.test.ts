@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
 import { closeDb, db } from '#devpush/server/db'
@@ -30,6 +30,128 @@ afterAll(async () => {
 })
 
 describe('agent runtime reconciliation', () => {
+  test('an hour of unchanged heartbeats stays within the runtime write budget', async () => {
+    const { projectId, serverId } = await createFixture()
+    const environmentId = crypto.randomUUID()
+    touchedEnvironmentIds.push(environmentId)
+    await db.insert(environments).values({
+      id: environmentId,
+      projectId,
+      serverId,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      runtimeId: 'dp_budget',
+    })
+    const start = Date.parse('2026-06-01T00:00:00Z')
+    const report = (offset: number) =>
+      reconcileReportedRuntimes({
+        serverId,
+        runtimeIds: ['dp_budget'],
+        now: new Date(start + offset),
+      })
+    const changes = async () => {
+      const [row] = await db.all(sql`select total_changes() as count`)
+      return Number(
+        Array.isArray(row) ? row[0] : (row as { count: number }).count,
+      )
+    }
+    await report(0)
+    touchedObservationIds.push(
+      ...(
+        await db
+          .select()
+          .from(agentRuntimeObservations)
+          .where(eq(agentRuntimeObservations.serverId, serverId))
+      ).map((row) => row.id),
+    )
+    const before = await changes()
+    for (let offset = 30_000; offset <= 3_600_000; offset += 30_000)
+      await report(offset)
+    const writes = (await changes()) - before
+    expect(writes).toBeLessThanOrEqual(12)
+    // Previously both the observation and ownership timestamp were rewritten
+    // on every heartbeat: 240 row mutations for this same hour.
+    console.info(
+      `Runtime write budget: ${writes} row mutations / hour (previously 240)`,
+    )
+  })
+
+  test('unchanged runtime reports avoid writes while service changes remain immediate', async () => {
+    const { projectId, serverId } = await createFixture()
+    const environmentId = crypto.randomUUID()
+    touchedEnvironmentIds.push(environmentId)
+    await db.insert(environments).values({
+      id: environmentId,
+      projectId,
+      serverId,
+      name: 'Production',
+      slug: 'production',
+      branch: 'main',
+      runtimeId: 'dp_stable',
+    })
+    const services = [
+      {
+        name: 'web',
+        containerName: 'web-1',
+        state: 'running',
+        health: 'healthy',
+        restartCount: 0,
+        startedAt: null,
+        exitCode: 0,
+      },
+    ]
+    const start = new Date('2026-06-01T00:00:00Z')
+    const report = (seconds: number, current = services) =>
+      reconcileReportedRuntimes({
+        serverId,
+        runtimeIds: ['dp_stable'],
+        runtimes: [{ runtimeId: 'dp_stable', services: current }],
+        now: new Date(start.getTime() + seconds * 1000),
+      })
+    await report(0)
+    const observations = await db
+      .select()
+      .from(agentRuntimeObservations)
+      .where(eq(agentRuntimeObservations.serverId, serverId))
+    touchedObservationIds.push(...observations.map((row) => row.id))
+    const changes = async () =>
+      JSON.stringify(await db.all(sql`select total_changes()`))
+    const before = await changes()
+    await report(30)
+    expect(await changes()).toBe(before)
+    await report(31, [{ ...services[0]!, restartCount: 1 }])
+    const [changed] = await db
+      .select()
+      .from(agentRuntimeObservations)
+      .where(eq(agentRuntimeObservations.serverId, serverId))
+    expect(changed?.services).toMatchObject([{ restartCount: 1 }])
+    await report(60, [{ ...services[0]!, restartCount: 1 }])
+    expect(
+      (
+        await db
+          .select()
+          .from(agentRuntimeObservations)
+          .where(eq(agentRuntimeObservations.serverId, serverId))
+      )[0]?.firstSeenAt,
+    ).toEqual(start)
+    await db
+      .update(environments)
+      .set({ serverId: null })
+      .where(eq(environments.id, environmentId))
+    expect(await report(660)).toEqual([])
+    expect(await report(720)).toEqual([])
+    expect(await report(1260)).toEqual(['dp_stable'])
+    touchedJobIds.push(
+      ...(
+        await db
+          .select()
+          .from(agentJobs)
+          .where(eq(agentJobs.serverId, serverId))
+      ).map((row) => row.id),
+    )
+  })
+
   test('reusing a runtime resets cleanup and starts a fresh volume retention window', async () => {
     const { projectId, serverId } = await createFixture()
     const environmentId = crypto.randomUUID()
@@ -70,7 +192,8 @@ describe('agent runtime reconciliation', () => {
     expect(observation).toMatchObject({
       cleanupQueuedAt: null,
       purgeQueuedAt: null,
-      firstSeenAt: now,
+      firstSeenAt: old,
+      orphanedAt: null,
     })
     await db
       .update(environments)
@@ -81,6 +204,13 @@ describe('agent runtime reconciliation', () => {
         serverId,
         runtimeIds: ['dp_reused'],
         now: new Date('2026-06-01T00:11:00Z'),
+      }),
+    ).toEqual([])
+    expect(
+      await reconcileReportedRuntimes({
+        serverId,
+        runtimeIds: ['dp_reused'],
+        now: new Date('2026-06-01T00:21:00Z'),
       }),
     ).toEqual(['dp_reused'])
     const jobs = await db

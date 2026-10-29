@@ -1,6 +1,7 @@
 import { notificationRows } from './query'
 import { createHash, randomUUID } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import { db } from '#devpush/server/db'
 import { config } from '#devpush/server/config'
 import {
@@ -32,6 +33,8 @@ export type OperationalObservation = {
 }
 export async function observeOperationalNotification(
   input: OperationalObservation,
+  sourceGuard: SQL = sql`1`,
+  repairRecipients = false,
 ) {
   const from = config.EMAIL_FROM
   if (!from) return
@@ -64,20 +67,44 @@ export async function observeOperationalNotification(
     path: input.path,
     updatedAt: input.at,
   }
+  const unchanged =
+    previous &&
+    Object.entries(value).every(([key, item]) =>
+      key === 'updatedAt'
+        ? previous.updatedAt === input.at || (!input.failed && !previous.active)
+        : previous[key as keyof typeof previous] === item,
+    )
+  if (unchanged && !repairRecipients) return
   // Repeated observations repair any crash between saving the incident and its recipients.
-  await db
-    .insert(notificationIncidents)
-    .values(value)
-    .onConflictDoUpdate({
-      target: notificationIncidents.id,
-      set: value,
-      where: sql`${notificationIncidents.updatedAt} <= ${input.at}`,
-    })
-  const [incident] = await db
-    .select()
-    .from(notificationIncidents)
-    .where(eq(notificationIncidents.id, input.id))
-    .limit(1)
+  if (!unchanged)
+    await db
+      .insert(notificationIncidents)
+      // INSERT ... SELECT applies the source snapshot guard to first incidents
+      // as well as updates; a stale server scan cannot create a false outage.
+      .select(
+        sql`select ${value.id}, ${value.teamId}, ${value.projectId}, ${value.category},
+      ${value.sourceId}, ${value.revision}, ${Number(value.active)}, ${value.actorId},
+      ${value.title}, ${value.message}, ${value.path}, ${value.updatedAt} where ${sourceGuard}`,
+      )
+      .onConflictDoUpdate({
+        target: notificationIncidents.id,
+        set: value,
+        where: sql`(${sourceGuard}) and ${notificationIncidents.updatedAt} <= ${input.at} and (
+        ${notificationIncidents.updatedAt} <> ${input.at}
+        or ${notificationIncidents.active} <> ${input.failed}
+        or ${notificationIncidents.revision} <> ${revision}
+        or ${notificationIncidents.actorId} is not ${value.actorId}
+        or ${notificationIncidents.title} <> ${input.title}
+        or ${notificationIncidents.message} <> ${input.message}
+        or ${notificationIncidents.path} <> ${input.path})`,
+      })
+  const [incident] = unchanged
+    ? [previous]
+    : await db
+        .select()
+        .from(notificationIncidents)
+        .where(eq(notificationIncidents.id, input.id))
+        .limit(1)
   if (
     !incident ||
     incident.revision !== revision ||
@@ -115,10 +142,14 @@ export async function observeOperationalNotification(
     if (!recipientUser) continue
     const subject = input.failed
       ? incident.title
-      : `Recovered: ${incident.title}`
+      : incident.category === 'deployments'
+        ? incident.title.replace(/^Deployment failed/, 'Deployment recovered')
+        : `Recovered: ${incident.title}`
     const message = input.failed
       ? incident.message
-      : 'The previously reported issue has been resolved.'
+      : incident.category === 'deployments'
+        ? 'A later deployment succeeded after the previously reported failure.'
+        : 'The previously reported issue has been resolved.'
     const url = new URL(incident.path, config.DEVPUSH_BASE_URL).toString()
     const payload = {
       from,
@@ -305,31 +336,55 @@ export async function repairOperationalRecipients() {
   const rows = await db
     .select()
     .from(notificationIncidents)
-    .where(sql`${notificationIncidents.id}>${cursor?.afterId ?? ''}`)
+    .where(
+      sql`${notificationIncidents.id}>${cursor?.afterId ?? ''}
+      and ${notificationIncidents.updatedAt}>=${Date.now() - 86_400_000}
+      and ((${notificationIncidents.active}=1 and exists(
+        select 1 from team_members m join user u on u.id=m.user_id
+        where m.team_id=${notificationIncidents.teamId} and u.status='active'
+          and (m.role in ('owner','admin') or u.id=${notificationIncidents.actorId})
+          and not exists(select 1 from notification_outbox o
+            where o.incident_id=${notificationIncidents.id} and o.revision=${notificationIncidents.revision}
+              and o.user_id=u.id and o.recovery=0)))
+      or (${notificationIncidents.active}=0 and exists(
+        select 1 from notification_outbox failure
+        where failure.incident_id=${notificationIncidents.id} and failure.revision=${notificationIncidents.revision}
+          and failure.recovery=0 and failure.delivered_at is not null
+          and not exists(select 1 from notification_outbox recovery
+            where recovery.incident_id=failure.incident_id and recovery.revision=failure.revision
+              and recovery.user_id=failure.user_id and recovery.recovery=1))))`,
+    )
     .orderBy(notificationIncidents.id)
     .limit(100)
   for (const incident of rows) {
     if (incident.updatedAt >= Date.now() - 86_400_000)
-      await observeOperationalNotification({
-        id: incident.id,
-        sourceId: incident.sourceId,
-        teamId: incident.teamId,
-        projectId: incident.projectId,
-        category: incident.category as NotificationCategory,
-        failed: incident.active,
-        revision: incident.revision,
-        at: incident.updatedAt,
-        title: incident.title,
-        message: incident.message,
-        path: incident.path,
-        actorId: incident.actorId,
-      })
+      await observeOperationalNotification(
+        {
+          id: incident.id,
+          sourceId: incident.sourceId,
+          teamId: incident.teamId,
+          projectId: incident.projectId,
+          category: incident.category as NotificationCategory,
+          failed: incident.active,
+          revision: incident.revision,
+          at: incident.updatedAt,
+          title: incident.title,
+          message: incident.message,
+          path: incident.path,
+          actorId: incident.actorId,
+        },
+        sql`1`,
+        true,
+      )
   }
+  const afterId = rows.length === 100 ? rows.at(-1)!.id : ''
+  if (afterId === (cursor?.afterId ?? '')) return
   await db
     .insert(notificationScanCursors)
-    .values({ source, afterId: rows.length === 100 ? rows.at(-1)!.id : '' })
+    .values({ source, afterId })
     .onConflictDoUpdate({
       target: notificationScanCursors.source,
-      set: { afterId: rows.length === 100 ? rows.at(-1)!.id : '' },
+      set: { afterId },
+      where: sql`${notificationScanCursors.afterId} is not ${afterId}`,
     })
 }

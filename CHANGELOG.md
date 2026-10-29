@@ -4,6 +4,18 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+## [1.0.0-beta.8] - 2026-10-29
+
+### Changed
+
+- Reduce idle agent polling queries, unchanged runtime writes and notification scan bookkeeping without reducing monitoring frequency.
+- Store connected heartbeat spans, batch notification source queries, and use bounded long polling for idle agents.
+
+### Fixed
+
+- Describe deployment recovery emails clearly and direct failure emails to deployment details when agent logs are unavailable.
+- Start orphan cleanup grace at the first confirmed unassigned observation and prevent stale server scans from overriding a newer heartbeat.
+
 ## [1.0.0-beta.7] - 2026-10-29
 
 ### Fixed

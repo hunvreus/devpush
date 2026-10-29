@@ -570,6 +570,7 @@ export const serverHeartbeats = sqliteTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     observedAt: integer('observed_at', { mode: 'timestamp_ms' }).notNull(),
+    lastObservedAt: integer('last_observed_at', { mode: 'timestamp_ms' }),
     agentVersion: text('agent_version'),
     publicAddress: text('public_address'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -775,6 +776,7 @@ export const agentRuntimeObservations = sqliteTable(
     runtimeId: text('runtime_id').notNull(),
     services: text('services', { mode: 'json' }),
     firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    orphanedAt: integer('orphaned_at', { mode: 'timestamp_ms' }),
     lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
     cleanupQueuedAt: integer('cleanup_queued_at', { mode: 'timestamp_ms' }),
     purgeQueuedAt: integer('purge_queued_at', { mode: 'timestamp_ms' }),

@@ -14,6 +14,7 @@ import {
 } from 'drizzle-orm'
 
 import { db } from '#devpush/server/db'
+import type { AtomicStore } from '#devpush/server/db/atomic'
 import { config } from '#devpush/server/config'
 import {
   serverAvailabilityWindows,
@@ -49,7 +50,11 @@ export async function pruneServerMonitoring(now = new Date()) {
             db
               .select({ id: table.id })
               .from(table)
-              .where(lt(table.observedAt, cutoff))
+              .where(
+                name === 'heartbeats'
+                  ? sql`coalesce(${serverHeartbeats.lastObservedAt}, ${table.observedAt}) < ${cutoff.getTime()}`
+                  : lt(table.observedAt, cutoff),
+              )
               .orderBy(table.observedAt, table.id)
               .limit(1000),
           ),
@@ -91,6 +96,7 @@ type ServerWindow = {
 type HeartbeatRow = {
   serverId: string
   observedAt: Date
+  lastObservedAt?: Date | null
 }
 
 type AvailabilityWindow = {
@@ -98,24 +104,42 @@ type AvailabilityWindow = {
   endedAt: Date | null
 }
 
-export async function recordServerHeartbeat({
-  serverId,
-  observedAt,
-  agentVersion,
-  publicAddress,
-}: {
-  serverId: string
-  observedAt: Date
-  agentVersion: string | null
-  publicAddress: string | null
-}) {
-  await db.insert(serverHeartbeats).values({
-    id: randomUUID(),
+export async function recordServerHeartbeat(
+  {
     serverId,
     observedAt,
     agentVersion,
     publicAddress,
-  })
+  }: {
+    serverId: string
+    observedAt: Date
+    agentVersion: string | null
+    publicAddress: string | null
+  },
+  store: AtomicStore = db,
+) {
+  const now = observedAt.getTime()
+  const cutoff = now - serverDisconnectedAfterMs
+  // Keep connected spans instead of appending indexed rows every 30 seconds.
+  // The batch serializes competing reports; stale reports never shorten a span.
+  const tail = sql`select id from server_heartbeats where server_id = ${serverId}
+    order by observed_at desc limit 1`
+  await store.batch([
+    store.run(sql`insert into server_heartbeats
+      (id, server_id, observed_at, last_observed_at, agent_version, public_address)
+      select ${randomUUID()}, ${serverId}, ${now}, ${now}, ${agentVersion}, ${publicAddress}
+      where not exists(select 1 from server_heartbeats where id = (${tail})
+        and coalesce(last_observed_at, observed_at) >= ${cutoff})`),
+    store.run(sql`update server_heartbeats set last_observed_at = ${now},
+      agent_version = ${agentVersion}, public_address = ${publicAddress}
+      where id = (${tail}) and coalesce(last_observed_at, observed_at) < ${now}
+        and coalesce(last_observed_at, observed_at) >= ${cutoff}`),
+    // Out-of-order arrival can extend the beginning, but routine reports must
+    // not touch the indexed start column.
+    store.run(sql`update server_heartbeats set last_observed_at=coalesce(last_observed_at,observed_at), observed_at = ${now}
+      where id = (${tail}) and observed_at > ${now}
+        and observed_at <= ${now + serverDisconnectedAfterMs}`),
+  ])
 }
 
 export async function listServerMonitoringSummaries(
@@ -143,19 +167,13 @@ export async function listServerMonitoringSummaries(
         .select({
           serverId: serverHeartbeats.serverId,
           observedAt: serverHeartbeats.observedAt,
+          lastObservedAt: serverHeartbeats.lastObservedAt,
         })
         .from(serverHeartbeats)
         .where(
           and(
             sql`${serverHeartbeats.serverId} in (select value from json_each(${JSON.stringify(serverIds)}))`,
-            gte(
-              serverHeartbeats.observedAt,
-              new Date(
-                now.getTime() -
-                  availabilityWindowMaxMs -
-                  serverDisconnectedAfterMs,
-              ),
-            ),
+            sql`coalesce(${serverHeartbeats.lastObservedAt}, ${serverHeartbeats.observedAt}) >= ${now.getTime() - availabilityWindowMaxMs - serverDisconnectedAfterMs}`,
           ),
         ),
       db
@@ -262,7 +280,7 @@ export function calculateHeartbeatAvailability({
   now,
 }: {
   availabilityWindows: Array<AvailabilityWindow>
-  heartbeats: Array<Pick<HeartbeatRow, 'observedAt'>>
+  heartbeats: Array<Pick<HeartbeatRow, 'observedAt' | 'lastObservedAt'>>
   now: Date
 }) {
   const windowStart = now.getTime() - availabilityWindowMaxMs
@@ -288,7 +306,8 @@ export function calculateHeartbeatAvailability({
       .map((heartbeat) => ({
         start: Math.max(heartbeat.observedAt.getTime(), windowStart),
         end: Math.min(
-          heartbeat.observedAt.getTime() + serverDisconnectedAfterMs,
+          (heartbeat.lastObservedAt ?? heartbeat.observedAt).getTime() +
+            serverDisconnectedAfterMs,
           now.getTime(),
         ),
       }))

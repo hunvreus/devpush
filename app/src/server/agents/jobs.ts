@@ -92,6 +92,20 @@ export async function claimNextAgentJob({
   createAccessToken?: InstallationAccessTokenFactory
 }): Promise<AgentJob | null> {
   const server = await requireAgentServer({ serverId, token })
+  // An idle agent polls frequently. Avoid the claim/recovery query chain when
+  // there is nothing to claim or recover. A racing enqueue is seen next poll;
+  // all actual claims still use their atomic authorization and state guards.
+  const [work] = await db
+    .select({
+      needed: sql<number>`exists(select 1 from ${agentJobs}
+      where server_id = ${serverId} and status in ('queued', 'running'))
+      or exists(select 1 from ${deployments}
+      where server_id = ${serverId} and status in ('queued', 'running'))`,
+    })
+    .from(servers)
+    .where(eq(servers.id, serverId))
+    .limit(1)
+  if (!work?.needed) return null
   if (server.status !== 'deleted')
     await recoverStaleCleanupJobs(db, { serverId, now: new Date() })
   await Promise.all([
@@ -137,6 +151,7 @@ export async function claimNextAgentJob({
     backupTypes.length > 0
       ? await claimNextBackupJob({
           serverId,
+          teamId: server.teamId,
           types: backupTypes,
         })
       : null
@@ -157,18 +172,13 @@ export async function claimNextAgentJob({
 
 async function claimNextBackupJob({
   serverId,
+  teamId,
   types,
 }: {
   serverId: string
+  teamId: string
   types: Array<'backup' | 'restore' | 'backup_cleanup'>
 }): Promise<AgentBackupJob | AgentBackupCleanupJob | AgentRestoreJob | null> {
-  const [owner] = await db
-    .select({ teamId: servers.teamId })
-    .from(servers)
-    .where(eq(servers.id, serverId))
-    .limit(1)
-  if (!owner) return null
-  const teamId = owner.teamId
   let claimed: typeof agentJobs.$inferSelect | null = null
   // A lost compare-and-set means another request consumed this candidate.
   // Read the next one immediately instead of delaying it until another poll.
@@ -215,7 +225,7 @@ async function claimNextBackupJob({
       if (!isWorkspacePolicyRefusal(error)) throw error
       // Skip productive work but continue looking for retention cleanup.
       return types.includes('backup_cleanup')
-        ? claimNextBackupJob({ serverId, types: ['backup_cleanup'] })
+        ? claimNextBackupJob({ serverId, teamId, types: ['backup_cleanup'] })
         : null
     }
   }
@@ -667,7 +677,8 @@ export async function failStaleQueuedDeployments(
   now = new Date(),
 ) {
   const cutoff = new Date(
-    now.getTime() - serverConfig.DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS * 60 * 60 * 1000,
+    now.getTime() -
+      serverConfig.DEVPUSH_DEPLOYMENT_QUEUE_TTL_HOURS * 60 * 60 * 1000,
   )
   const changed = await db
     .update(deployments)

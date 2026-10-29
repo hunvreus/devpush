@@ -729,7 +729,7 @@ export async function recordAgentHeartbeat({
 
   const now = new Date()
   if (server.status !== 'deleted') {
-    const updates = {
+    const reportedUpdates = {
       status: 'connected' as const,
       ...(auth.credentialType === 'pending'
         ? {
@@ -761,6 +761,17 @@ export async function recordAgentHeartbeat({
       lastSeenAt: now,
       updatedAt: sql`case when ${servers.status} <> 'connected' or ${Number(auth.credentialType === 'pending')} = 1 then ${now.getTime()} else ${servers.updatedAt} end`,
     }
+    // Do not touch unchanged indexed status/credential columns on every beat.
+    // Keep the credential and lifecycle guards in the UPDATE itself.
+    const updates = Object.fromEntries(
+      Object.entries(reportedUpdates).filter(
+        ([key, value]) =>
+          key === 'lastSeenAt' ||
+          key === 'updatedAt' ||
+          JSON.stringify(value) !==
+            JSON.stringify(server[key as keyof typeof server]),
+      ),
+    ) as typeof reportedUpdates
 
     const updated = await db
       .update(servers)

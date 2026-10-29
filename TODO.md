@@ -21,7 +21,6 @@ Outstanding work only. Private extension work belongs in its own repository.
 - Add connectivity preflight to remote-agent tests.
 - Support encryption-key rotation with multi-key reads and an audited rewrite.
 - Package an init/migrate CLI; add GitHub Actions setup for Cloudflare bindings and secrets.
-- Retire obsolete remote test resources after checking consumers.
 - Support control-plane ownership transfer for servers with deployments.
 
 ## API and MCP

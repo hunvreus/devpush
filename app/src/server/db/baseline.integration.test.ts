@@ -169,11 +169,18 @@ test.each(['SQLite', 'D1'] as const)(
 )
 
 test('SQLite migration journals apply each migration once after a second run', async () => {
-  for (const [store, count] of [
-    [main.db, 2],
-    [logs.db, 2],
-  ] as const)
+  for (const [store, folder] of [
+    [main.db, 'migrations-sqlite'],
+    [logs.db, 'migrations-logs'],
+  ] as const) {
+    const journal = JSON.parse(
+      readFileSync(
+        new URL(`./${folder}/meta/_journal.json`, import.meta.url),
+        'utf8',
+      ),
+    ) as { entries: unknown[] }
     expect(
       await rows(store, sql`select count(*) from __drizzle_migrations`),
-    ).toEqual([[count]])
+    ).toEqual([[journal.entries.length]])
+  }
 })

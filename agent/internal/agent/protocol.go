@@ -1,6 +1,7 @@
 package agent
 
 type agentRequest struct {
+	WaitSeconds     int              `json:"waitSeconds,omitempty"`
 	RoutingAddress  string           `json:"routingAddress,omitempty"`
 	PublicIpv4      string           `json:"publicIpv4,omitempty"`
 	PublicIpv6      string           `json:"publicIpv6,omitempty"`

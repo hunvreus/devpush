@@ -1,0 +1,1 @@
+ALTER TABLE `server_heartbeats` ADD `last_observed_at` integer;

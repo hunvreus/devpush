@@ -936,6 +936,62 @@ func TestRunAgentLoopsKeepsHeartbeatsRunningDuringAJob(t *testing.T) {
 	}
 }
 
+func TestDrainWaitsForPendingJobResponse(t *testing.T) {
+	received := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input agentRequest
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			return
+		}
+		if input.WaitSeconds != 20 {
+			t.Errorf("wait = %d, want 20", input.WaitSeconds)
+		}
+		close(received)
+		select {
+		case <-release:
+			_, _ = w.Write([]byte(`{"job":null}`))
+		case <-r.Context().Done():
+			t.Error("drain discarded the pending job response")
+		}
+	}))
+	defer server.Close()
+	cfg := Config{BaseURL: server.URL, AgentID: "server", Token: "credential", StateDir: t.TempDir()}
+	runner := NewRunner(cfg, nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	finished := make(chan struct{})
+	go func() { defer close(finished); runner.claimAndRunJob(ctx) }()
+	select {
+	case <-received:
+	case <-ctx.Done():
+		t.Fatal("claim did not start")
+	}
+	drained := make(chan error, 1)
+	go func() { drained <- Drain(ctx, cfg) }()
+	select {
+	case err := <-drained:
+		t.Fatalf("drain skipped the pending response: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	once.Do(func() { close(release) })
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("drain did not finish")
+	}
+	<-finished
+	if runner.httpClient.Timeout != 15*time.Second {
+		t.Fatal("poll changed shared HTTP timeout")
+	}
+}
+
 func TestHeartbeatOmitsRuntimeIDsWhenDiscoveryFails(t *testing.T) {
 	tempDir := workspaceTempDir(t, "agent-runtime-heartbeat-")
 	binDir := filepath.Join(tempDir, "bin")

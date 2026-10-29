@@ -1,6 +1,7 @@
 import { recordServerMetrics } from '#devpush/test/server-metrics'
 import { createClient } from '@libsql/client'
 import { migrateLibsql } from '#devpush/server/db/migrate-libsql'
+import { createD1TestStores } from '#devpush/test/d1'
 import { openLibsql } from '#devpush/server/db/libsql-connection'
 import * as metricDbSchema from '#devpush/server/db/schema'
 import { fileURLToPath } from 'node:url'
@@ -20,6 +21,7 @@ import {
 import {
   listServerMetricSeries,
   listServerMonitoringSummaries,
+  calculateHeartbeatAvailability,
   recordServerHeartbeat,
   pruneServerMonitoring,
 } from '#devpush/server/servers/monitoring'
@@ -39,6 +41,157 @@ afterAll(async () => {
 })
 
 describe('server monitoring integration', () => {
+  test('compressed spans match raw heartbeat availability across varied gaps and disabled periods', async () => {
+    const { serverId } = await createFixture()
+    let time = Date.parse('2026-06-01T00:00:00Z')
+    let seed = 17
+    const raw = []
+    const gaps = [15_000, 30_000, 60_000, 120_000, 150_000, 300_000]
+    for (let index = 0; index < 100; index++) {
+      seed = (seed * 16807) % 2147483647
+      time += gaps[seed % gaps.length]!
+      const observedAt = new Date(time)
+      raw.push({ observedAt })
+      await recordServerHeartbeat({
+        serverId,
+        observedAt,
+        agentVersion: 'test',
+        publicAddress: null,
+      })
+    }
+    const spans = await db
+      .select()
+      .from(serverHeartbeats)
+      .where(eq(serverHeartbeats.serverId, serverId))
+    touchedHeartbeatIds.push(...spans.map((row) => row.id))
+    const input = {
+      availabilityWindows: [
+        { startedAt: raw[0]!.observedAt, endedAt: raw[30]!.observedAt },
+        { startedAt: raw[45]!.observedAt, endedAt: null },
+      ],
+      now: new Date(time + 90_000),
+    }
+    expect(
+      calculateHeartbeatAvailability({ ...input, heartbeats: spans }),
+    ).toEqual(calculateHeartbeatAvailability({ ...input, heartbeats: raw }))
+  })
+
+  test('D1 extends migrated heartbeat rows and preserves the original availability', async () => {
+    const fixture = await createD1TestStores()
+    try {
+      const store = fixture.main
+      await store
+        .insert(teams)
+        .values({ id: 'span-team', name: 'Team', slug: 'span-team' })
+      await store.insert(servers).values({
+        id: 'span-server',
+        teamId: 'span-team',
+        name: 'Server',
+        handle: 'server',
+      })
+      const start = Date.parse('2026-06-01T00:00:00Z')
+      await store.insert(serverHeartbeats).values({
+        id: 'old-row',
+        serverId: 'span-server',
+        observedAt: new Date(start),
+      })
+      for (let offset = 30_000; offset <= 600_000; offset += 30_000)
+        await recordServerHeartbeat(
+          {
+            serverId: 'span-server',
+            observedAt: new Date(start + offset),
+            agentVersion: 'test',
+            publicAddress: null,
+          },
+          store,
+        )
+      const rows = await store.select().from(serverHeartbeats)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.id).toBe('old-row')
+      expect(rows[0]?.lastObservedAt?.getTime()).toBe(start + 600_000)
+    } finally {
+      await fixture.runtime.dispose()
+    }
+  })
+
+  test('concurrent reports preserve a single span and its earliest/latest times', async () => {
+    const { serverId } = await createFixture()
+    const start = Date.parse('2026-06-01T00:00:00Z')
+    await Promise.all(
+      [1000, 0, 2000, 500, 1500].map((offset) =>
+        recordServerHeartbeat({
+          serverId,
+          observedAt: new Date(start + offset),
+          agentVersion: 'test',
+          publicAddress: null,
+        }),
+      ),
+    )
+    const spans = await db
+      .select()
+      .from(serverHeartbeats)
+      .where(eq(serverHeartbeats.serverId, serverId))
+    touchedHeartbeatIds.push(...spans.map((row) => row.id))
+    expect(spans).toHaveLength(1)
+    expect(spans[0]?.observedAt.getTime()).toBe(start)
+    expect(spans[0]?.lastObservedAt?.getTime()).toBe(start + 2000)
+  })
+
+  test('compacts connected reports, preserves gaps and retains active spans past the retention cutoff', async () => {
+    const { serverId } = await createFixture()
+    const start = new Date('2026-06-01T00:00:00Z')
+    const beat = (offset: number) =>
+      recordServerHeartbeat({
+        serverId,
+        observedAt: new Date(start.getTime() + offset),
+        agentVersion: 'test',
+        publicAddress: '192.0.2.1',
+      })
+    for (let offset = 0; offset <= 600_000; offset += 30_000) await beat(offset)
+    let spans = await db
+      .select()
+      .from(serverHeartbeats)
+      .where(eq(serverHeartbeats.serverId, serverId))
+    expect(spans).toHaveLength(1)
+    expect(spans[0]?.lastObservedAt).toEqual(
+      new Date(start.getTime() + 600_000),
+    )
+    await beat(590_000)
+    await beat(900_000)
+    spans = await db
+      .select()
+      .from(serverHeartbeats)
+      .where(eq(serverHeartbeats.serverId, serverId))
+    touchedHeartbeatIds.push(...spans.map((row) => row.id))
+    expect(spans).toHaveLength(2)
+    expect(
+      spans.find((row) => row.observedAt.getTime() === start.getTime())
+        ?.lastObservedAt,
+    ).toEqual(new Date(start.getTime() + 600_000))
+    const summary = await listServerMonitoringSummaries(
+      [{ id: serverId, createdAt: start }],
+      new Date(start.getTime() + 960_000),
+    )
+    expect(summary.get(serverId)?.availabilityPercent).toBeCloseTo(81.25)
+    // Model a continuously refreshed span that began more than seven days ago.
+    const fresh = new Date('2026-06-10T00:00:00Z')
+    await db
+      .update(serverHeartbeats)
+      .set({ lastObservedAt: fresh })
+      .where(eq(serverHeartbeats.id, spans[0]!.id))
+    await pruneServerMonitoring(fresh)
+    const retained = await db
+      .select()
+      .from(serverHeartbeats)
+      .where(eq(serverHeartbeats.serverId, serverId))
+    expect(retained).toHaveLength(1)
+    const current = await listServerMonitoringSummaries(
+      [{ id: serverId, createdAt: start }],
+      fresh,
+    )
+    expect(current.get(serverId)?.availabilityPercent).toBe(100)
+  })
+
   test('stores idempotent metric batches through libSQL', async () => {
     const client = createClient({ url: ':memory:' })
     try {

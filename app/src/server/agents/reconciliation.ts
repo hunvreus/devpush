@@ -37,7 +37,14 @@ export async function reconcileReportedRuntimes({
   return reconcileRuntimeState(db, {
     serverId,
     runtimeIds: normalized,
-    runtimes,
+    runtimes: runtimes.map((runtime) => ({
+      ...runtime,
+      services: [...runtime.services].sort(
+        (a, b) =>
+          a.name.localeCompare(b.name) ||
+          a.containerName.localeCompare(b.containerName),
+      ),
+    })),
     now,
   })
 }

@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { claimNextAgentJob } from '#devpush/server/agents/jobs'
+import { waitForAgentJob } from '#devpush/server/agents/job-wait'
 import {
   handleAgentRequest,
   nextAgentJobSchema,
@@ -14,12 +15,17 @@ export const Route = createFileRoute('/api/agents/jobs/next')({
           request,
           nextAgentJobSchema,
           async (payload) => ({
-            job: await claimNextAgentJob({
-              serverId: payload.serverId,
-              token: payload.token,
-              protocolVersion: payload.protocolVersion,
-              capabilities: payload.capabilities,
-            }),
+            job: await waitForAgentJob(
+              () =>
+                claimNextAgentJob({
+                  serverId: payload.serverId,
+                  token: payload.token,
+                  protocolVersion: payload.protocolVersion,
+                  capabilities: payload.capabilities,
+                }),
+              payload.waitSeconds,
+              request.signal,
+            ),
           }),
           'Unable to claim agent job.',
         )

@@ -31,6 +31,8 @@ Queue admission records the commit, settings and encrypted variable snapshot. Cl
 
 Protocol compatibility uses `protocolVersion` and capabilities, not the release string. Update request schemas and Go types together; flag any required coordinated upgrade. Agent credentials are separate from user API keys. The canonical wire definitions live in the [control-plane protocol](https://github.com/hunvreus/devpush/blob/main/app/src/server/agents/protocol.ts) and [Go protocol types](https://github.com/hunvreus/devpush/blob/main/agent/internal/agent/protocol.go), rather than a second field catalog in docs.
 
+Idle job requests may wait up to 20 seconds, checking work and authorization every five seconds. This reduces HTTP requests, not the work-check interval. Cloudflare deployments enable `enable_request_signal` so disconnects cancel idle waits. Shutdown cancels idle requests. Drain waits for an in-flight claim response before finishing; executing jobs retain their existing recovery and completion rules.
+
 Completion/log outboxes survive restarts. Pending completion delivery and interrupted volume-restore recovery run before new claims. Never discard an outbox, journal or recovery archive to unblock work. A failed or interrupted job may already have changed external state; it must not be silently replayed.
 
 ## Extensions

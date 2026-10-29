@@ -15,6 +15,20 @@
       "when": 1793105303539,
       "tag": "0001_agent_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793233520100,
+      "tag": "0002_heartbeat_spans",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793233914887,
+      "tag": "0003_runtime_orphan_transitions",
+      "breakpoints": true
     }
   ]
 }

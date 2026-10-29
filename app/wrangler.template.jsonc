@@ -3,7 +3,7 @@
   "name": "devpush",
   "main": "src/server.ts",
   "compatibility_date": "2026-08-29",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
   "d1_databases": [
     {
       "binding": "DEVPUSH_DATABASE",

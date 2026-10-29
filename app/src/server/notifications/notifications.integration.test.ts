@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { db, closeDb } from '#devpush/server/db'
 import { config } from '#devpush/server/config'
@@ -106,7 +106,9 @@ async function fixture() {
 test('failure recipients are owners/admins and the identified actor, deduplicated across repeated observations', async () => {
   const f = await fixture()
   await observeOperationalNotification(f.incident)
+  const before = await db.all(sql`select total_changes()`)
   await observeOperationalNotification(f.incident)
+  expect(await db.all(sql`select total_changes()`)).toEqual(before)
   await deliverOperationalNotifications()
   expect(send).toHaveBeenCalledTimes(3)
   await deliverOperationalNotifications()
@@ -136,7 +138,9 @@ test('recovery reaches only recipients whose failure email was delivered', async
   await deliverOperationalNotifications()
   expect(send).toHaveBeenCalledTimes(4)
   expect(
-    send.mock.calls.filter((call) => call[0].subject.startsWith('Recovered:')),
+    send.mock.calls.filter((call) =>
+      call[0].subject.startsWith('Deployment recovered'),
+    ),
   ).toHaveLength(2)
 })
 test('workspace and project mutes filter operational delivery, not other members', async () => {
@@ -336,6 +340,46 @@ test('server disconnect grace, disk warning hysteresis and recovery use persiste
   await deliverOperationalNotifications()
   expect(send).toHaveBeenCalledTimes(6)
 })
+
+test('stale offline scans cannot override a newer heartbeat and healthy scans make no writes', async () => {
+  const f = await sourceFixture()
+  const lastSeenAt = Date.now() - 360_000
+  await db
+    .update(servers)
+    .set({ lastSeenAt: new Date(lastSeenAt) })
+    .where(eq(servers.id, f.serverId))
+  await observeServerNotifications(f.serverId)
+  const recoveredAt = Date.now()
+  await db
+    .update(servers)
+    .set({ lastSeenAt: new Date(recoveredAt) })
+    .where(eq(servers.id, f.serverId))
+  await observeServerNotifications(f.serverId, recoveredAt + 1)
+  const before = await db.all(sql`select total_changes()`)
+  await observeServerNotifications(f.serverId, recoveredAt + 1000)
+  await observeServerNotifications(f.serverId, recoveredAt + 360_000, {
+    id: f.serverId,
+    teamId: f.teamId,
+    name: 'Server',
+    handle: 'server',
+    teamSlug: f.teamId,
+    status: 'connected',
+    lastSeenAt: recoveredAt - 1000,
+    diskUsed: null,
+    diskTotal: null,
+    metricAt: null,
+    metricId: null,
+  })
+  expect(await db.all(sql`select total_changes()`)).toEqual(before)
+  expect(
+    (
+      await db
+        .select()
+        .from(notificationIncidents)
+        .where(eq(notificationIncidents.id, `server:${f.serverId}`))
+    )[0]?.active,
+  ).toBe(false)
+})
 test('domain and backup source scans generate alerts and repeated scans do not resend', async () => {
   const f = await sourceFixture()
   await db.insert(domains).values({
@@ -359,6 +403,9 @@ test('domain and backup source scans generate alerts and repeated scans do not r
   expect(send).toHaveBeenCalledTimes(4)
   await maintainOperationalNotifications()
   expect(send).toHaveBeenCalledTimes(4)
+  const before = await db.all(sql`select total_changes()`)
+  await maintainOperationalNotifications()
+  expect(await db.all(sql`select total_changes()`)).toEqual(before)
 })
 
 test('a later initiating member receives their failure without resending to owners, and both actors receive recovery', async () => {

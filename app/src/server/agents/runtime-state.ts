@@ -38,7 +38,10 @@ export async function reconcileRuntimeState(
       values ${sql.join(rows, sql`, `)} on conflict(server_id, runtime_id) do update set
       last_seen_at = excluded.last_seen_at, updated_at = excluded.updated_at,
       services = case when runtime_id in (select value from json_each(${reportedServices}))
-        then excluded.services else services end`),
+        then excluded.services else services end
+      where last_seen_at <= excluded.last_seen_at and (last_seen_at <= ${now - 5 * 60_000}
+        or (runtime_id in (select value from json_each(${reportedServices}))
+          and services is not excluded.services))`),
     )
   }
   // Decide whether a runtime is still needed inside the same write batch that
@@ -76,7 +79,7 @@ export async function reconcileRuntimeState(
   const cleanup = queue(
     cleanupId,
     'deprovision',
-    sql`ob.cleanup_queued_at is null and ob.first_seen_at <= ${now - 10 * 60 * 1000}
+    sql`ob.cleanup_queued_at is null and ob.orphaned_at <= ${now - 10 * 60 * 1000}
       and ob.runtime_id in (select value from json_each(${JSON.stringify(input.runtimeIds)}))`,
     'devpush detected a Compose runtime that is no longer assigned.',
   )
@@ -96,12 +99,26 @@ export async function reconcileRuntimeState(
     where server_id = ${input.serverId} and runtime_id in (
       select runtime.value from ${agentJobs} as job, json_each(job.payload, '$.runtimeIds') as runtime where job.id = ${purgeId})
     returning runtime_id`)
-  // A reused runtime starts a new orphan lifecycle when it is detached again.
-  // Pending cleanup alone is not ownership and must not reset the grace period.
+  // Record ownership transitions, not every healthy observation. Grace starts
+  // when a heartbeat first confirms a reported runtime is unassigned.
+  const markOrphans = store.run(sql`update ${agentRuntimeObservations} as ob
+    set orphaned_at = ${now}, updated_at = ${now}
+    where ob.server_id = ${input.serverId} and ob.orphaned_at is null
+      and ob.runtime_id in (select value from json_each(${JSON.stringify(input.runtimeIds)}))
+      and not (${needed})`)
   const resetOwned = store.run(sql`update ${agentRuntimeObservations} as ob
-    set cleanup_queued_at = null, purge_queued_at = null, first_seen_at = ${now}, updated_at = ${now}
-    where ob.server_id = ${input.serverId} and (${needed})`)
-  const tail = [resetOwned, cleanup, markCleanup, purge, markPurge] as const
+    set cleanup_queued_at = null, purge_queued_at = null, orphaned_at = null, updated_at = ${now}
+    where ob.server_id = ${input.serverId} and (${needed})
+      and (ob.cleanup_queued_at is not null or ob.purge_queued_at is not null
+        or ob.orphaned_at is not null)`)
+  const tail = [
+    resetOwned,
+    markOrphans,
+    cleanup,
+    markCleanup,
+    purge,
+    markPurge,
+  ] as const
   const [first, ...rest] = observations
   const results = first
     ? await store.batch([first, ...rest, ...tail])

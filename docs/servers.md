@@ -20,6 +20,8 @@ Add a server in **Servers**, run its generated command and wait for **Connected*
 
 The details page shows connection state, agent version, addresses and resource charts. Charts cover 24 hours; raw metrics default to seven-day retention. Runtime logs retain 24 hours and are not an archive.
 
+Agents report every 30 seconds. Heartbeat history stores connected spans without reducing outage precision. Runtime service changes are saved immediately; unchanged snapshots refresh every five minutes. Orphan runtime cleanup waits at least ten minutes after a heartbeat first confirms it is unassigned.
+
 Disabling a server rejects agent authentication but leaves application containers running. It can also prevent active work from reporting results. Use [drain](/docs/agent-maintenance/#updates-and-draining) for routine maintenance instead.
 
 ## Routing addresses

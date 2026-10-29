@@ -3,7 +3,7 @@ import { required } from '#devpush/test/required'
 import * as realtime from '#devpush/server/realtime/service'
 import { createHash } from 'node:crypto'
 
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 import { claimDeployment } from './claims'
 import * as ClaimsModule from './claims'
@@ -37,7 +37,10 @@ import {
   getProjectLogsSectionContext,
   getDeploymentLogsContext,
 } from '#devpush/server/projects/context'
-import { currentAgentCapabilities } from './compatibility'
+import {
+  currentAgentCapabilities,
+  currentAgentProtocolVersion,
+} from './compatibility'
 import {
   claimNextAgentJob,
   claimNextDeploymentJob,
@@ -75,6 +78,52 @@ afterAll(async () => {
 })
 
 describe('agent deployment jobs', () => {
+  test('idle polls skip claim writes and pick up work added before the next poll', async () => {
+    const f = await createFixture()
+    await db
+      .update(deployments)
+      .set({ status: 'succeeded' })
+      .where(eq(deployments.id, f.deploymentId))
+    const before = await db.all(sql`select total_changes() as changes`)
+    const update = vi.spyOn(db, 'update')
+    try {
+      expect(
+        await claimNextAgentJob({
+          serverId: f.serverId,
+          token: f.token,
+          protocolVersion: currentAgentProtocolVersion,
+          capabilities: [...currentAgentCapabilities],
+        }),
+      ).toBeNull()
+      expect(update).not.toHaveBeenCalled()
+      expect(await db.all(sql`select total_changes() as changes`)).toEqual(before)
+      const jobId = crypto.randomUUID()
+      touchedAgentJobIds.push(jobId)
+      await db.insert(agentJobs).values({
+        id: jobId,
+        serverId: f.serverId,
+        type: 'purge',
+        status: 'queued',
+        payload: {
+          schemaVersion: 1,
+          runtimeIds: ['dp_orphan'],
+          removeVolumes: true,
+          reason: 'Unassigned runtime',
+        },
+      })
+      expect(
+        await claimNextAgentJob({
+          serverId: f.serverId,
+          token: f.token,
+          protocolVersion: currentAgentProtocolVersion,
+          capabilities: [...currentAgentCapabilities],
+        }),
+      ).toMatchObject({ id: jobId, type: 'purge' })
+    } finally {
+      update.mockRestore()
+    }
+  })
+
   test('expires old queued deployments without an agent and never claims them', async () => {
     const f = await createFixture()
     await db

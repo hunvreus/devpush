@@ -1,6 +1,9 @@
+import { readProjectObservations } from './project-observations'
+import type { ProjectObservations } from './project-observations'
 import { deferBackgroundTask } from '#devpush/server/runtime/background'
 import { notificationRows } from './query'
 import { eq, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
 import { db } from '#devpush/server/db'
 import { config } from '#devpush/server/config'
 import { notificationScanCursors } from '#devpush/server/db/schema'
@@ -17,30 +20,23 @@ type ProjectSource = {
   name: string
   teamSlug: string
 }
-async function projectSource(id: string) {
-  const [row] = await notificationRows<ProjectSource>(
-    sql`select p.id,p.team_id as teamId,p.slug,p.name,t.slug as teamSlug from projects p join teams t on t.id=p.team_id where p.id=${id} and p.status='active' and t.status='active'`,
+function projectSources(filter: SQL) {
+  return notificationRows<ProjectSource>(
+    sql`select p.id,p.team_id as teamId,p.slug,p.name,t.slug as teamSlug from projects p join teams t on t.id=p.team_id where ${filter} and p.status='active' and t.status='active' order by p.id limit 100`,
     ['id', 'teamId', 'slug', 'name', 'teamSlug'],
   )
-  return row
 }
-export async function observeProjectNotifications(projectId: string) {
-  const p = await projectSource(projectId)
+export async function observeProjectNotifications(
+  projectId: string,
+  source?: ProjectSource,
+  prefetched?: ProjectObservations,
+) {
+  const p = source ?? (await projectSources(sql`p.id=${projectId}`))[0]
   if (!p) return
   const path = `/${encodeURIComponent(p.teamSlug)}/projects/${encodeURIComponent(p.slug)}`
-  const deployments = await notificationRows<{
-    id: string
-    environmentId: string
-    status: string
-    finishedAt: number
-    actorId: string | null
-    commitMeta: string
-  }>(
-    sql`
-    select d.id,d.environment_id as environmentId,d.status,d.finished_at as finishedAt,d.created_by_user_id as actorId,d.commit_meta as commitMeta
-    from deployments d join environments e on e.id=d.environment_id where e.project_id=${p.id} and e.status='active'
-      and d.status in ('failed','succeeded') and d.id=(select x.id from deployments x where x.environment_id=d.environment_id order by x.created_at desc,x.id desc limit 1)`,
-    ['id', 'environmentId', 'status', 'finishedAt', 'actorId', 'commitMeta'],
+  const observations = prefetched ?? (await readProjectObservations([p.id]))
+  const deployments = observations.deployments.filter(
+    (row) => row.projectId === p.id,
   )
   for (const d of deployments) {
     if (!d.finishedAt || d.finishedAt < Date.now() - 86_400_000) continue
@@ -54,11 +50,18 @@ export async function observeProjectNotifications(projectId: string) {
         sender = null
       }
       if (typeof sender === 'string' && /^\d+$/.test(sender)) {
-        const linked = await notificationRows<{ userId: string }>(
-          sql`select a.user_id as userId from account a join team_members m on m.user_id=a.user_id where a.provider_id='github' and a.account_id=${sender} and m.team_id=${p.teamId}`,
-          ['userId'],
-        )
-        actorId = linked.length === 1 ? linked[0]!.userId : null
+        const key = `${p.teamId}:${sender}`
+        if (!observations.actors.has(key)) {
+          const linked = await notificationRows<{ userId: string }>(
+            sql`select a.user_id as userId from account a join team_members m on m.user_id=a.user_id where a.provider_id='github' and a.account_id=${sender} and m.team_id=${p.teamId}`,
+            ['userId'],
+          )
+          observations.actors.set(
+            key,
+            linked.length === 1 ? linked[0]!.userId : null,
+          )
+        }
+        actorId = observations.actors.get(key) ?? null
       }
     }
     await observeOperationalNotification({
@@ -71,23 +74,12 @@ export async function observeProjectNotifications(projectId: string) {
       revision: d.id,
       at: d.finishedAt,
       title: `Deployment failed: ${p.name}`,
-      message: `A deployment of ${p.name} failed. Open the deployment logs for details.`,
+      message: `A deployment of ${p.name} failed. Open the deployment details for the reason and any available logs.`,
       path: `${path}/deployments/${encodeURIComponent(d.id)}`,
       actorId,
     })
   }
-  const backups = await notificationRows<{
-    id: string
-    environmentId: string
-    configId: string | null
-    status: string
-    finishedAt: number
-  }>(
-    sql`
-    select b.id,b.environment_id as environmentId,b.config_id as configId,b.status,b.finished_at as finishedAt from backup_runs b
-    where b.project_id=${p.id} and b.status in ('failed','succeeded') and b.id=(select x.id from backup_runs x where x.environment_id=b.environment_id and coalesce(x.config_id,'')=coalesce(b.config_id,'') order by x.created_at desc,x.id desc limit 1)`,
-    ['id', 'environmentId', 'configId', 'status', 'finishedAt'],
-  )
+  const backups = observations.backups.filter((row) => row.projectId === p.id)
   for (const b of backups.filter(
     (backup) =>
       backup.finishedAt && backup.finishedAt >= Date.now() - 86_400_000,
@@ -105,15 +97,7 @@ export async function observeProjectNotifications(projectId: string) {
       message: `A backup of ${p.name} failed. Check its storage destination and backup details.`,
       path: `${path}/backups`,
     })
-  const domains = await notificationRows<{
-    id: string
-    hostname: string
-    status: string
-    updatedAt: number
-  }>(
-    sql`select id,hostname,status,updated_at as updatedAt from domains where project_id=${p.id} and status in ('active','failed')`,
-    ['id', 'hostname', 'status', 'updatedAt'],
-  )
+  const domains = observations.domains.filter((row) => row.projectId === p.id)
   for (const d of domains.filter(
     (domain) => domain.updatedAt >= Date.now() - 86_400_000,
   ))
@@ -130,10 +114,7 @@ export async function observeProjectNotifications(projectId: string) {
       message: `Domain verification or HTTPS configuration for ${d.hostname} failed. Open routing settings for details.`,
       path: `${path}/settings#domains`,
     })
-  const restores = await notificationRows<{ id: string; finishedAt: number }>(
-    sql`select id,finished_at as finishedAt from agent_jobs where project_id=${p.id} and type='restore' and status in ('failed','abandoned') and finished_at>${Date.now() - 86_400_000}`,
-    ['id', 'finishedAt'],
-  )
+  const restores = observations.restores.filter((row) => row.projectId === p.id)
   for (const r of restores)
     await observeOperationalNotification({
       id: `restore:${r.id}`,
@@ -149,27 +130,26 @@ export async function observeProjectNotifications(projectId: string) {
       path: `${path}/backups`,
     })
 }
-export async function observeServerNotifications(
-  serverId: string,
-  now = Date.now(),
-) {
-  const [s] = await notificationRows<{
-    id: string
-    teamId: string
-    name: string
-    handle: string
-    teamSlug: string
-    status: string
-    lastSeenAt: number | null
-    diskUsed: number | null
-    diskTotal: number | null
-    metricAt: number | null
-  }>(
+type ServerSource = {
+  id: string
+  teamId: string
+  name: string
+  handle: string
+  teamSlug: string
+  status: string
+  lastSeenAt: number | null
+  diskUsed: number | null
+  diskTotal: number | null
+  metricAt: number | null
+  metricId: string | null
+}
+function serverSources(filter: SQL) {
+  return notificationRows<ServerSource>(
     sql`
     select s.id,s.team_id as teamId,s.name,s.handle,t.slug as teamSlug,s.status,s.last_seen_at as lastSeenAt,
-      m.disk_used_bytes as diskUsed,m.disk_total_bytes as diskTotal,m.observed_at as metricAt
-    from servers s join teams t on t.id=s.team_id left join server_metrics m on m.id=(select x.id from server_metrics x where x.server_id=s.id order by x.observed_at desc limit 1)
-    where s.id=${serverId} and s.status in ('connected','disconnected') and t.status='active'`,
+      m.disk_used_bytes as diskUsed,m.disk_total_bytes as diskTotal,m.observed_at as metricAt,m.id as metricId
+    from servers s join teams t on t.id=s.team_id left join server_metrics m on m.id=(select x.id from server_metrics x where x.server_id=s.id order by x.observed_at desc,x.id desc limit 1)
+    where ${filter} and s.status in ('connected','disconnected') and t.status='active' order by s.id limit 100`,
     [
       'id',
       'teamId',
@@ -181,25 +161,37 @@ export async function observeServerNotifications(
       'diskUsed',
       'diskTotal',
       'metricAt',
+      'metricId',
     ],
   )
+}
+export async function observeServerNotifications(
+  serverId: string,
+  now = Date.now(),
+  source?: ServerSource,
+) {
+  const s = source ?? (await serverSources(sql`s.id=${serverId}`))[0]
   if (!s || !s.lastSeenAt || now - s.lastSeenAt > 86_400_000) return
   const path = `/${encodeURIComponent(s.teamSlug)}/servers/${encodeURIComponent(s.id)}`
   // A five-minute grace period avoids alerts for short network interruptions.
   const offline = now - s.lastSeenAt >= 300_000
-  await observeOperationalNotification({
-    id: `server:${s.id}`,
-    sourceId: s.id,
-    teamId: s.teamId,
-    projectId: null,
-    category: 'servers',
-    failed: offline,
-    revision: String(s.lastSeenAt),
-    at: now,
-    title: `Server disconnected: ${s.name}`,
-    message: `${s.name} has not contacted devpush for at least five minutes. Existing applications may still be running.`,
-    path,
-  })
+  await observeOperationalNotification(
+    {
+      id: `server:${s.id}`,
+      sourceId: s.id,
+      teamId: s.teamId,
+      projectId: null,
+      category: 'servers',
+      failed: offline,
+      revision: String(s.lastSeenAt),
+      at: offline ? s.lastSeenAt + 300_000 : s.lastSeenAt,
+      title: `Server disconnected: ${s.name}`,
+      message: `${s.name} has not contacted devpush for at least five minutes. Existing applications may still be running.`,
+      path,
+    },
+    sql`exists(select 1 from servers where id=${s.id} and last_seen_at=${s.lastSeenAt}
+    and status in ('connected','disconnected'))`,
+  )
   if (
     s.metricAt &&
     now - s.metricAt < 300_000 &&
@@ -209,19 +201,23 @@ export async function observeServerNotifications(
     const ratio = s.diskUsed / s.diskTotal
     // Recovery hysteresis prevents repeated notifications around the warning threshold.
     if (ratio >= 0.9 || ratio < 0.85)
-      await observeOperationalNotification({
-        id: `disk:${s.id}`,
-        sourceId: s.id,
-        teamId: s.teamId,
-        projectId: null,
-        category: 'servers',
-        failed: ratio >= 0.9,
-        revision: String(s.metricAt),
-        at: now,
-        title: `Low disk space: ${s.name}`,
-        message: `Disk usage on ${s.name} is at least 90%. Free space to avoid failed deployments and backups.`,
-        path,
-      })
+      await observeOperationalNotification(
+        {
+          id: `disk:${s.id}`,
+          sourceId: s.id,
+          teamId: s.teamId,
+          projectId: null,
+          category: 'servers',
+          failed: ratio >= 0.9,
+          revision: String(s.metricAt),
+          at: s.metricAt,
+          title: `Low disk space: ${s.name}`,
+          message: `Disk usage on ${s.name} is at least 90%. Free space to avoid failed deployments and backups.`,
+          path,
+        },
+        sql`${s.metricId} = (select id from server_metrics where server_id=${s.id}
+        order by observed_at desc,id desc limit 1)`,
+      )
   }
 }
 async function scan(source: 'projects' | 'servers') {
@@ -230,30 +226,29 @@ async function scan(source: 'projects' | 'servers') {
     .from(notificationScanCursors)
     .where(eq(notificationScanCursors.source, source))
     .limit(1)
-  const table = sql.identifier(source)
-  const rows = await notificationRows<{ id: string }>(
-    sql`select id from ${table} where id>${cursor?.afterId ?? ''} and status ${source === 'projects' ? sql`='active'` : sql`in ('connected','disconnected')`} order by id limit 100`,
-    ['id'],
-  )
+  const rows =
+    source === 'projects'
+      ? await projectSources(sql`p.id > ${cursor?.afterId ?? ''}`)
+      : await serverSources(sql`s.id > ${cursor?.afterId ?? ''}`)
+  const observations =
+    source === 'projects' && rows.length
+      ? await readProjectObservations(rows.map((row) => row.id))
+      : undefined
   for (const row of rows) {
-    if (source === 'projects') await observeProjectNotifications(row.id)
-    else await observeServerNotifications(row.id)
-    // Advance only after successful observation, so failures are retried.
-    await db
-      .insert(notificationScanCursors)
-      .values({ source, afterId: row.id })
-      .onConflictDoUpdate({
-        target: notificationScanCursors.source,
-        set: { afterId: row.id },
-      })
+    if ('slug' in row)
+      await observeProjectNotifications(row.id, row, observations)
+    else await observeServerNotifications(row.id, Date.now(), row)
   }
-  if (rows.length < 100)
+  // Commit once per completed page. A failed page is replayed idempotently.
+  const afterId = rows.length === 100 ? rows.at(-1)!.id : ''
+  if (afterId !== (cursor?.afterId ?? ''))
     await db
       .insert(notificationScanCursors)
-      .values({ source, afterId: '' })
+      .values({ source, afterId })
       .onConflictDoUpdate({
         target: notificationScanCursors.source,
-        set: { afterId: '' },
+        set: { afterId },
+        where: sql`${notificationScanCursors.afterId} is not ${afterId}`,
       })
 }
 export async function maintainOperationalNotifications() {

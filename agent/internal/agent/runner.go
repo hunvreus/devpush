@@ -411,6 +411,7 @@ func (runner *Runner) claimAndRunJob(ctx context.Context) {
 
 	var response nextJobResponse
 	err = runner.post(ctx, "/api/agents/jobs/next", agentRequest{
+		WaitSeconds:     20,
 		ServerID:        runner.cfg.AgentID,
 		Token:           runner.currentCredential(),
 		AgentVersion:    Version,
@@ -802,7 +803,15 @@ func (runner *Runner) postWithStatus(ctx context.Context, path string, payload a
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("User-Agent", "devpush-agent/"+Version)
 
-	result, err := runner.httpClient.Do(request)
+	client := runner.httpClient
+	if path == "/api/agents/jobs/next" {
+		// The hub may hold an idle claim for 20 seconds. Other requests retain
+		// their existing timeout; never mutate the client used by heartbeats.
+		pollClient := *client
+		pollClient.Timeout = 30 * time.Second
+		client = &pollClient
+	}
+	result, err := client.Do(request)
 	if err != nil {
 		return err
 	}

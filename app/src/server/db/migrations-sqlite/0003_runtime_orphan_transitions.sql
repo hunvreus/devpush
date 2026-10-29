@@ -1,0 +1,1 @@
+ALTER TABLE `agent_runtime_observations` ADD `orphaned_at` integer;
