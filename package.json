@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.17.1",
   "scripts": {
-    "docs:check": "node --test scripts/validate-docs.test.mjs && node scripts/validate-docs.mjs",
+    "docs:check": "pnpm docs:api --check && node --test scripts/validate-docs.test.mjs && node scripts/validate-docs.mjs",
     "configure": "node scripts/setup.mjs",
     "secrets:pull": "node scripts/local-secrets.mjs",
     "dev": "pnpm --dir app dev",
@@ -43,7 +43,8 @@
     "test:package": "pnpm --dir app test:package",
     "agent:release:prepare": "GOCACHE=$PWD/.tmp/go-build-cache node scripts/agent-release.mjs",
     "agent:release:verify": "node scripts/verify-agent-release.mjs",
-    "release:check": "node scripts/validate-public-files.mjs"
+    "release:check": "node scripts/validate-public-files.mjs",
+    "docs:api": "pnpm --dir app exec tsx scripts/api-reference.ts"
   },
   "devDependencies": {
     "@clack/prompts": "^1.7.0",

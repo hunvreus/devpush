@@ -1,66 +1,44 @@
 ---
-description: Create API keys, connect assistants and automate deployments.
+description: Authenticate REST requests, deploy an application and handle results and errors.
 ---
 
-# API and AI assistants
+# API guide
 
-Use the REST API at `/api/v1` or connect an assistant to `/mcp`. Both enforce your current team permissions. Saved variable values and agent credentials are never returned; log access is separate because output may contain secrets.
+Use the REST API to automate devpush from scripts and integrations. The hosted base URL is **`https://app.devpu.sh/api/v1`**; self-hosted installations use their dashboard host followed by `/api/v1`.
 
-## Create an API key
+For every endpoint and its fields, see the [API reference](/docs/api-operations/). To connect an AI assistant, use the [MCP guide](/docs/mcp/).
 
-Open **Account → API keys → Create API key**. Select the team, optional project, Read only/Deploy/Manage access, log permission and expiry. The default lifetime is 30 days.
+## Create a key
 
-Copy the value once into your integration's secret manager. **Revoke** stops access; **Rotate** immediately invalidates the previous key. Removing a membership invalidates its credentials; rejoining does not revive them.
+Open **Account → API keys → Create API key**. Select a team, optional projects, access level, log permission and expiry. Copy the key once into your integration's secret manager.
+
+| Access | Allows |
+| --- | --- |
+| Read only | Inspect projects, servers, deployments and backups. |
+| Deploy | Read resources and deploy, redeploy or roll back. |
+| Manage | Configure resources and run or restore backups, subject to your team role. |
+
+Log access is separate because output may contain secrets. Server and backup-storage operations require workspace-wide access. Backup changes and restores require an owner/admin role. Saved variable values and agent credentials are never returned.
+
+**Revoke** stops access; **Rotate** immediately invalidates the previous key. Keys never exceed their issued permissions or your current membership. Removing a membership invalidates its credentials; rejoining does not revive them.
+
+## Make a request
+
+REST accepts bearer API keys, not browser cookies or MCP OAuth tokens. Set these values in your shell without committing the key:
 
 ```sh
+export DEVPUSH_URL="https://app.devpu.sh"
+export DEVPUSH_API_KEY="YOUR_API_KEY"
+
 curl "$DEVPUSH_URL/api/v1/projects?limit=25" \
   -H "Authorization: Bearer $DEVPUSH_API_KEY"
 ```
 
-REST accepts API keys, not browser cookies or MCP OAuth tokens. The [operation reference](/docs/api-operations/) lists scopes and supported actions. Your installation's `/api/v1/openapi.json` supplies the actual request/response schemas.
+Lists return `items` and `nextCursor`. Pass the cursor as the next request's `cursor` query parameter until it is `null`, including after an empty filtered page. Pages default to 25 items, maximum 100. IDs are opaque: use values returned by the API.
 
-## Connect an assistant
+## Deploy and follow progress
 
-Use **`https://app.devpu.sh/mcp`** for the hosted app. For a self-hosted installation, use `https://YOUR-DEVPUSH-HOST/mcp`. Copy the exact URL from **Account → Connected apps** and add it to a client supporting remote HTTP MCP. The marketing site at `devpu.sh` is not the MCP endpoint.
-
-For Claude Code:
-
-```sh
-claude mcp add --transport http devpush https://app.devpu.sh/mcp
-```
-
-Replace the URL for self-hosting. Open Claude Code, run `/mcp`, select devpush and authenticate in the browser. Then open a fresh Claude Code session. Start with a read, such as “List my devpush servers and their current resource usage.”
-
-- **Browser sign-in:** approve the team, optional project and permissions. Manage/revoke the resulting 30-day grant in Connected apps.
-- **API key:** supply `Authorization: Bearer KEY` if the client supports custom headers. Manage it under API keys; it does not create a Connected apps entry.
-
-Check the callback host on consent screens. Cloud-hosted assistants cannot reach localhost. Node and Workers support dynamic client registration; metadata-discovery-only clients work on Node, not Workers. Changing `DEVPUSH_MCP_URL` requires OAuth clients to reconnect.
-
-## Available tools
-
-Tools are shown only when your grant and current team role permit them.
-
-Use **Read only** to inspect resources, **Deploy** to deploy or roll back, and **Manage** to configure resources or run backups. Backup changes and restores require an owner/admin role. Select workspace-wide access to list servers; log access is a separate option.
-
-| Area | Actions |
-| --- | --- |
-| Servers | List servers, inspect connection and agent metadata, read resource metrics. |
-| Deployments | Deploy, redeploy, roll back, inspect status and read permitted logs. |
-| Backups | Manage policies, run backups, inspect runs/artifacts and restore with explicit confirmation. |
-| Projects | Create, rename or delete projects; manage runtime configuration, routes, environments and server assignments. |
-| Variables and domains | List variable names and write values without reading secrets; inspect domains and generated aliases. |
-
-MCP does not provide arbitrary SSH/shell access, cloud-server provisioning, server enrollment or custom-domain creation. These remain separate workflows. Backup/restore requires an enrolled server and configured policy; accepting a tool call queues work, so check the returned job status. See the [operation reference](/docs/api-operations/) for the complete list.
-
-## Requests and pagination
-
-Send JSON for writes. Lists return `items` and `nextCursor`; follow cursors until null, including after empty filtered pages. Pages default to 25 items, maximum 100. Request bodies are limited to 128 KiB; unknown fields are rejected.
-
-Keys and OAuth grants never exceed their issued scopes/role or current membership. Project-restricted credentials cannot manage whole-team resources. See [operations](/docs/api-operations/) for additional owner/admin requirements.
-
-## Writes and retries
-
-Every REST write needs a unique `Idempotency-Key`; MCP uses `idempotencyKey`. Reuse the same key and identical payload when retrying the same action. Different input returns `IDEMPOTENCY_CONFLICT`. Replay records last at least 24 hours, not indefinitely.
+Use a Deploy or Manage key. Obtain a project ID from [List projects](/docs/api-projects/#list-projects) and an environment ID from [List environments](/docs/api-projects/#list-environments). The branch must match that environment's branch rule.
 
 ```sh
 curl "$DEVPUSH_URL/api/v1/projects/PROJECT_ID/deployments" \
@@ -70,12 +48,54 @@ curl "$DEVPUSH_URL/api/v1/projects/PROJECT_ID/deployments" \
   --data '{"environmentId":"ENVIRONMENT_ID","branch":"main"}'
 ```
 
-Acceptance is not execution success: retain the returned deployment/job ID and poll its status. When an outcome is uncertain, inspect history before creating a new action.
+Example HTTP 202 response:
 
-Configuration writes require the latest `settingsVersion`. HTTP 409 `SETTINGS_CONFLICT` means read current settings and review changes before resubmitting. Destructive actions require the confirmations in their schemas.
+```json
+{
+  "deploymentId": "deployment_123",
+  "statusUrl": "/api/v1/deployments/deployment_123"
+}
+```
+
+Acceptance queues work; it does not mean the deployment succeeded. Poll the returned `statusUrl` on the same dashboard host:
+
+```sh
+curl "$DEVPUSH_URL/api/v1/deployments/deployment_123" \
+  -H "Authorization: Bearer $DEVPUSH_API_KEY"
+```
+
+`queued` and `running` are in progress. `succeeded`, `failed` and `canceled` are terminal. Backup and restore operations follow the same pattern with backup/job IDs; see [Backups and jobs](/docs/api-backups/).
+
+## Writes and retries
+
+Send JSON for writes. Every write requires an **`Idempotency-Key` header**. Reuse the same key and identical payload when retrying one action; generate a new key for a new action. Different input with the same key returns `IDEMPOTENCY_CONFLICT`. Replay records last at least 24 hours.
+
+Configuration writes require the latest `settingsVersion` from a read of that resource. On HTTP 409 `SETTINGS_CONFLICT`, reload and review current settings before resubmitting. Destructive operations require the confirmation fields listed in the reference. Request bodies are limited to 128 KiB; unknown fields are rejected.
 
 ## Errors and limits
 
-Errors contain `error.code`, `message` and `requestId`. Keep the request ID when reporting failures. Honor `Retry-After` on HTTP 429. Resource budgets allow 120 reads/minute per membership and 20 writes/minute per membership and operation. Transport limits also apply.
+Failures return this shape; keep `requestId` when reporting an issue:
 
-Logs have bounded pages and may be truncated or removed by retention. Do not treat the API as an archival log drain.
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "The resource was not found.",
+    "requestId": "request_123"
+  }
+}
+```
+
+| Status | What to do |
+| --- | --- |
+| 400 / 422 | Correct invalid input; validation errors may include `fieldErrors`. |
+| 401 | Check whether the key is missing, expired or revoked. |
+| 403 | Check the key's scope, project restrictions and current team role. |
+| 404 | Check the resource ID and your access. |
+| 409 | Resolve a settings, idempotency or resource-state conflict before retrying. |
+| 429 | Wait for `Retry-After` before retrying. |
+| 500 | Keep the request ID. Before retrying a write, inspect its outcome and reuse its idempotency key. |
+
+Resource budgets allow 120 reads/minute per membership and 20 writes/minute per membership and operation. Transport limits also apply. Logs have bounded pages and retention; do not use the API as an archival log drain.
+
+The [OpenAPI JSON](https://app.devpu.sh/api/v1/openapi.json) provides the machine-readable request/response schemas. Self-hosted installations expose it at the same path on their dashboard host.

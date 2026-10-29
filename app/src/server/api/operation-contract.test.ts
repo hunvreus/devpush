@@ -5,42 +5,44 @@ import {
   publicApiOperations,
 } from './operation-contract'
 import {
+  publicErrorResponseSchema,
   publicDeploymentSchema,
   publicProjectSchema,
   publicServerSchema,
 } from '#devpush/lib/public-api-schema'
 
 describe('public management API contracts', () => {
-  test('the published operation reference matches the live operation catalog', () => {
-    const reference = readFileSync(
-      new URL('../../../../docs/api-operations.md', import.meta.url),
+  test('the guide request and response examples validate against the public contracts', () => {
+    const guide = readFileSync(
+      new URL('../../../../docs/api.md', import.meta.url),
       'utf8',
     )
-    const entries = [
-      ...reference.matchAll(
-        /^\| `((?:GET|POST|PUT|PATCH|DELETE) [^`]+)` \| `([^`]+)` \| (Yes|No) \| (.*?) \|$/gm,
-      ),
-    ]
-    expect(entries).toHaveLength(publicApiOperations.length)
-    const documented = new Map(
-      entries.map((entry) => [
-        entry[1],
-        {
-          scope: entry[2],
-          mcp: entry[3] === 'Yes',
-          description: entry[4],
-        },
-      ]),
+    const examples = [...guide.matchAll(/^```json\n([\s\S]*?)^```/gm)].map(
+      (match) => JSON.parse(match[1]!),
     )
-    expect(documented.size).toBe(publicApiOperations.length)
-    for (const operation of publicApiOperations)
-      expect(
-        documented.get(`${operation.method} /api/v1${operation.path}`),
-      ).toEqual({
-        scope: operation.scope,
-        mcp: operation.mcp,
-        description: operation.description,
-      })
+    expect(examples).toHaveLength(2)
+    const deploy = publicApiOperations.find(
+      (operation) => operation.id === 'deploy',
+    )!
+    expect(deploy.output.safeParse(examples[0]).success).toBe(true)
+    expect(publicErrorResponseSchema.safeParse(examples[1]).success).toBe(true)
+    const body = JSON.parse(guide.match(/--data '([^']+)'/)![1]!)
+    expect(
+      deploy.input.safeParse({
+        ...body,
+        projectId: 'PROJECT_ID',
+        idempotencyKey: 'example-request-1',
+      }).success,
+    ).toBe(true)
+    const mcp = readFileSync(
+      new URL('../../../../docs/mcp.md', import.meta.url),
+      'utf8',
+    )
+    const backup = publicApiOperations.find(
+      (operation) => operation.id === 'run_backup',
+    )!
+    const args = JSON.parse(mcp.match(/^```json\n([\s\S]*?)^```/m)![1]!)
+    expect(backup.input.safeParse(args).success).toBe(true)
   })
 
   test('the generated OpenAPI documents each implemented operation exactly once', () => {

@@ -1,64 +1,115 @@
 ---
-description: Supported REST endpoints, required scopes and MCP availability.
+description: Every REST endpoint, required permission and corresponding MCP tool.
 ---
 
-# Public API operations
+# API reference
 
-See [API and assistants](/docs/api/) for authentication and retries. Your installation's `/api/v1/openapi.json` provides request/response schemas. The table is checked against the implemented catalog.
+Base URL: **`https://app.devpu.sh/api/v1`**. For self-hosting, replace the host with your dashboard URL. Authenticate with a bearer API key; see the [API guide](/docs/api/) for setup, errors, pagination and retries.
 
-Scopes do not override team roles. “Administrator” means a team owner/admin; unrestricted access excludes project-restricted credentials. REST writes require `Idempotency-Key`; MCP uses `idempotencyKey` and the tool's confirmation fields.
+Select an endpoint below for its inputs and response fields. Tables use `[]` for array items and `.*` for record keys. A nested field is required only when its parent object or variant is present. Unknown request fields are rejected.
 
-| Endpoint | Required scope | MCP tool | Behavior |
+The [OpenAPI JSON](https://app.devpu.sh/api/v1/openapi.json) is also available for scripts and code generation.
+
+## Projects
+
+| Endpoint | Permission | MCP tool |
+| --- | --- | --- |
+| [`GET /api/v1/github/installations`](/docs/api-projects/#list-github-installations) | `projects:write` | — |
+| [`GET /api/v1/github/repositories`](/docs/api-projects/#list-github-repositories) | `projects:write` | — |
+| [`GET /api/v1/projects`](/docs/api-projects/#list-projects) | `projects:read` | [`list_projects`](/docs/mcp-tools/#list_projects) |
+| [`GET /api/v1/projects/{projectId}`](/docs/api-projects/#get-project) | `projects:read` | [`get_project`](/docs/mcp-tools/#get_project) |
+| [`GET /api/v1/projects/{projectId}/environments`](/docs/api-projects/#list-environments) | `projects:read` | [`list_environments`](/docs/mcp-tools/#list_environments) |
+| [`GET /api/v1/projects/{projectId}/configuration`](/docs/api-projects/#get-project-configuration) | `projects:read` | [`get_project_configuration`](/docs/mcp-tools/#get_project_configuration) |
+| [`GET /api/v1/projects/{projectId}/variables`](/docs/api-projects/#list-variables) | `projects:read` | [`list_variables`](/docs/mcp-tools/#list_variables) |
+| [`GET /api/v1/projects/{projectId}/domains`](/docs/api-projects/#list-domains) | `projects:read` | [`list_domains`](/docs/mcp-tools/#list_domains) |
+| [`GET /api/v1/projects/{projectId}/aliases`](/docs/api-projects/#list-aliases) | `projects:read` | [`list_aliases`](/docs/mcp-tools/#list_aliases) |
+| [`PATCH /api/v1/projects/{projectId}`](/docs/api-projects/#rename-project) | `projects:write` | [`rename_project`](/docs/mcp-tools/#rename_project) |
+| [`PATCH /api/v1/projects/{projectId}/variables`](/docs/api-projects/#update-variables) | `secrets:write` | [`update_variables`](/docs/mcp-tools/#update_variables) |
+| [`PUT /api/v1/projects/{projectId}/configuration`](/docs/api-projects/#update-project-configuration) | `projects:write` | [`update_project_configuration`](/docs/mcp-tools/#update_project_configuration) |
+| [`DELETE /api/v1/projects/{projectId}`](/docs/api-projects/#delete-project) | `projects:write` | [`delete_project`](/docs/mcp-tools/#delete_project) |
+| [`POST /api/v1/projects`](/docs/api-projects/#create-project) | `projects:write` | [`create_project`](/docs/mcp-tools/#create_project) |
+| [`PUT /api/v1/projects/{projectId}/environments`](/docs/api-projects/#update-environments) | `projects:write` | [`update_environments`](/docs/mcp-tools/#update_environments) |
+| [`PUT /api/v1/projects/{projectId}/environment-servers`](/docs/api-projects/#update-environment-servers) | `projects:write` | [`update_environment_servers`](/docs/mcp-tools/#update_environment_servers) |
+
+## Deployments and logs
+
+| Endpoint | Permission | MCP tool |
+| --- | --- | --- |
+| [`GET /api/v1/projects/{projectId}/deployments`](/docs/api-deployments/#list-deployments) | `deployments:read` | [`list_deployments`](/docs/mcp-tools/#list_deployments) |
+| [`GET /api/v1/deployments/{deploymentId}`](/docs/api-deployments/#get-deployment) | `deployments:read` | [`get_deployment`](/docs/mcp-tools/#get_deployment) |
+| [`GET /api/v1/deployments/{deploymentId}/logs`](/docs/api-deployments/#read-deployment-logs) | `logs:read` | [`read_deployment_logs`](/docs/mcp-tools/#read_deployment_logs) |
+| [`GET /api/v1/projects/{projectId}/runtime-logs`](/docs/api-deployments/#read-runtime-logs) | `logs:read` | [`read_runtime_logs`](/docs/mcp-tools/#read_runtime_logs) |
+| [`POST /api/v1/projects/{projectId}/deployments`](/docs/api-deployments/#deploy) | `deployments:write` | [`deploy`](/docs/mcp-tools/#deploy) |
+| [`POST /api/v1/deployments/{deploymentId}/redeploy`](/docs/api-deployments/#redeploy) | `deployments:write` | [`redeploy`](/docs/mcp-tools/#redeploy) |
+| [`POST /api/v1/deployments/{deploymentId}/rollback`](/docs/api-deployments/#rollback) | `deployments:write` | [`rollback`](/docs/mcp-tools/#rollback) |
+| [`GET /api/v1/projects/{projectId}/deploy-options`](/docs/api-deployments/#get-deployment-options) | `deployments:read` | [`get_deployment_options`](/docs/mcp-tools/#get_deployment_options) |
+
+## Servers
+
+| Endpoint | Permission | MCP tool |
+| --- | --- | --- |
+| [`GET /api/v1/servers`](/docs/api-servers/#list-servers) | `servers:read` | [`list_servers`](/docs/mcp-tools/#list_servers) |
+| [`GET /api/v1/servers/{serverId}`](/docs/api-servers/#get-server) | `servers:read` | [`get_server`](/docs/mcp-tools/#get_server) |
+| [`GET /api/v1/servers/{serverId}/metrics`](/docs/api-servers/#read-server-metrics) | `servers:read` | [`read_server_metrics`](/docs/mcp-tools/#read_server_metrics) |
+| [`PATCH /api/v1/servers/{serverId}`](/docs/api-servers/#rename-server) | `servers:write` | — |
+| [`POST /api/v1/servers`](/docs/api-servers/#create-server) | `servers:write` | — |
+| [`POST /api/v1/servers/{serverId}/enable`](/docs/api-servers/#enable-server) | `servers:write` | — |
+| [`POST /api/v1/servers/{serverId}/disable`](/docs/api-servers/#disable-server) | `servers:write` | — |
+| [`DELETE /api/v1/servers/{serverId}`](/docs/api-servers/#delete-server) | `servers:write` | — |
+| [`GET /api/v1/servers/{serverId}/delete-diagnostic`](/docs/api-servers/#get-server-delete-diagnostic) | `servers:write` | — |
+
+## Backups and jobs
+
+| Endpoint | Permission | MCP tool |
+| --- | --- | --- |
+| [`GET /api/v1/projects/{projectId}/backup-policies/{policyId}`](/docs/api-backups/#get-backup-policy) | `backups:read` | [`get_backup_policy`](/docs/mcp-tools/#get_backup_policy) |
+| [`GET /api/v1/projects/{projectId}/backups`](/docs/api-backups/#list-backups) | `backups:read` | [`list_backups`](/docs/mcp-tools/#list_backups) |
+| [`GET /api/v1/backups/{backupRunId}`](/docs/api-backups/#get-backup) | `backups:read` | [`get_backup`](/docs/mcp-tools/#get_backup) |
+| [`GET /api/v1/backups/{backupRunId}/artifacts`](/docs/api-backups/#list-backup-artifacts) | `backups:read` | [`list_backup_artifacts`](/docs/mcp-tools/#list_backup_artifacts) |
+| [`GET /api/v1/projects/{projectId}/backup-policies`](/docs/api-backups/#list-backup-policies) | `backups:read` | [`list_backup_policies`](/docs/mcp-tools/#list_backup_policies) |
+| [`GET /api/v1/backup-storage`](/docs/api-backups/#list-backup-storage) | `backups:read` | [`list_backup_storage`](/docs/mcp-tools/#list_backup_storage) |
+| [`GET /api/v1/jobs/{jobId}`](/docs/api-backups/#get-job) | `backups:read` | [`get_job`](/docs/mcp-tools/#get_job) |
+| [`GET /api/v1/jobs/{jobId}/logs`](/docs/api-backups/#read-job-logs) | `logs:read` | [`read_job_logs`](/docs/mcp-tools/#read_job_logs) |
+| [`POST /api/v1/projects/{projectId}/backups`](/docs/api-backups/#run-backup) | `backups:write` | [`run_backup`](/docs/mcp-tools/#run_backup) |
+| [`POST /api/v1/backups/{backupRunId}/restore`](/docs/api-backups/#restore-backup) | `backups:restore` | [`restore_backup`](/docs/mcp-tools/#restore_backup) |
+| [`POST /api/v1/projects/{projectId}/backup-policies`](/docs/api-backups/#create-backup-policy) | `backups:write` | [`create_backup_policy`](/docs/mcp-tools/#create_backup_policy) |
+| [`PUT /api/v1/projects/{projectId}/backup-policies/{policyId}`](/docs/api-backups/#update-backup-policy) | `backups:write` | [`update_backup_policy`](/docs/mcp-tools/#update_backup_policy) |
+| [`DELETE /api/v1/projects/{projectId}/backup-policies/{policyId}`](/docs/api-backups/#delete-backup-policy) | `backups:write` | [`delete_backup_policy`](/docs/mcp-tools/#delete_backup_policy) |
+| [`POST /api/v1/backup-storage`](/docs/api-backups/#create-backup-storage) | `backups:write` | — |
+| [`PUT /api/v1/backup-storage/{storageId}`](/docs/api-backups/#update-backup-storage) | `backups:write` | — |
+| [`DELETE /api/v1/backup-storage/{storageId}`](/docs/api-backups/#delete-backup-storage) | `backups:write` | — |
+
+## Identity
+
+| Endpoint | Permission | MCP tool |
+| --- | --- | --- |
+| [`GET /api/v1/identity`](/docs/api-operations/#get-identity) | `projects:read` | [`get_identity`](/docs/mcp-tools/#get_identity) |
+
+## Get identity
+
+`GET /api/v1/identity`
+
+Read the authenticated user, selected team, and effective credential scopes.
+
+**Permission:** `projects:read` · Team member.
+
+**MCP:** [`get_identity`](/docs/mcp-tools/#get_identity).
+
+**Query parameters**
+
+None.
+
+**Response:** HTTP 200.
+
+| Field | Type | Required | Details |
 | --- | --- | --- | --- |
-| `GET /api/v1/backup-storage` | `backups:read` | Yes | List team storage destination metadata without access keys. Unavailable to project-restricted credentials. |
-| `POST /api/v1/backup-storage` | `backups:write` | No | Create a team backup destination. Secret access keys are write-only. Requires current administrator role. |
-| `DELETE /api/v1/backup-storage/{storageId}` | `backups:write` | No | Delete an unreferenced backup destination. Policies, active backups, and retained remote artifacts prevent deletion. |
-| `PUT /api/v1/backup-storage/{storageId}` | `backups:write` | No | Rename or rotate credentials of a team backup destination. Bucket, region, and endpoint are immutable. |
-| `GET /api/v1/backups/{backupRunId}` | `backups:read` | Yes | Read backup status by immutable backup run ID. |
-| `GET /api/v1/backups/{backupRunId}/artifacts` | `backups:read` | Yes | List restore artifact identifiers, types, sizes, and checksums. Object keys and credentials are excluded. |
-| `POST /api/v1/backups/{backupRunId}/restore` | `backups:restore` | Yes | Queue a destructive restore into the current environment. Requires administrator role and explicit confirmation. |
-| `GET /api/v1/deployments/{deploymentId}` | `deployments:read` | Yes | Read deployment status by immutable deployment ID. |
-| `GET /api/v1/deployments/{deploymentId}/logs` | `logs:read` | Yes | Read bounded build or control log entries. Application output may contain secrets. |
-| `POST /api/v1/deployments/{deploymentId}/redeploy` | `deployments:write` | Yes | Queue the recorded commit and runtime settings with current routing. |
-| `POST /api/v1/deployments/{deploymentId}/rollback` | `deployments:write` | Yes | Queue a successful recorded commit and runtime settings with current routing. |
-| `GET /api/v1/github/installations` | `projects:write` | No | List one provider page of linked GitHub installations available when creating projects. Requires unrestricted team management access. |
-| `GET /api/v1/github/repositories` | `projects:write` | No | List one provider page of repositories with push access in a linked installation. Continue with nextCursor even when a filtered page is empty. |
-| `GET /api/v1/identity` | `projects:read` | Yes | Read the authenticated user, selected team, and effective credential scopes. |
-| `GET /api/v1/jobs/{jobId}` | `backups:read` | Yes | Read an asynchronous backup or restore job status without its credential-bearing payload. |
-| `GET /api/v1/jobs/{jobId}/logs` | `logs:read` | Yes | Read bounded backup or restore output. Logs may contain application secrets. |
-| `GET /api/v1/projects` | `projects:read` | Yes | List authorized active projects using a bounded cursor. |
-| `POST /api/v1/projects` | `projects:write` | Yes | Create a Compose project from a repository accessible to the owner’s linked GitHub account. Browser GitHub connection and installation consent must already be complete. |
-| `GET /api/v1/projects/{projectId}` | `projects:read` | Yes | Read public project metadata. Secret values and private configuration snapshots are excluded. |
-| `PATCH /api/v1/projects/{projectId}` | `projects:write` | Yes | Rename a project using its current settings version. Resource IDs stay unchanged. |
-| `DELETE /api/v1/projects/{projectId}` | `projects:write` | Yes | Delete a project and optionally queue deployed runtime removal. Requires current administrator role and the project name as confirmation. |
-| `GET /api/v1/projects/{projectId}/aliases` | `projects:read` | Yes | List generated deployment, branch, and environment aliases. |
-| `GET /api/v1/projects/{projectId}/backup-policies` | `backups:read` | Yes | List policy identifiers and enabled state. Database connection secrets are excluded. |
-| `POST /api/v1/projects/{projectId}/backup-policies` | `backups:write` | Yes | Create a backup policy. Requires current administrator role. |
-| `GET /api/v1/projects/{projectId}/backup-policies/{policyId}` | `backups:read` | Yes | Read a backup policy without commands or storage credentials. |
-| `DELETE /api/v1/projects/{projectId}/backup-policies/{policyId}` | `backups:write` | Yes | Remove a backup policy without deleting retained backup runs. Requires current administrator role. |
-| `PUT /api/v1/projects/{projectId}/backup-policies/{policyId}` | `backups:write` | Yes | Replace a backup policy using its current settings version. Requires current administrator role. |
-| `GET /api/v1/projects/{projectId}/backups` | `backups:read` | Yes | List backup status metadata. Storage credentials and internal manifests are excluded. |
-| `POST /api/v1/projects/{projectId}/backups` | `backups:write` | Yes | Queue a manual run of an enabled backup policy. |
-| `GET /api/v1/projects/{projectId}/configuration` | `projects:read` | Yes | Read the supported Compose runtime configuration and routes. |
-| `PUT /api/v1/projects/{projectId}/configuration` | `projects:write` | Yes | Replace Compose runtime configuration and routes with settings version protection. Host lifecycle command changes require their separate administrator scope. |
-| `GET /api/v1/projects/{projectId}/deploy-options` | `deployments:read` | Yes | List one provider page of matching branches and recent commits only for the selected branch. Continue with nextCursor to reach later matching branches, including after empty filtered pages. |
-| `GET /api/v1/projects/{projectId}/deployments` | `deployments:read` | Yes | List deployment metadata. Build snapshots and variable values are excluded. |
-| `POST /api/v1/projects/{projectId}/deployments` | `deployments:write` | Yes | Queue a deployment from a matching GitHub branch. Requires a unique idempotencyKey; returns acceptance, not execution success. |
-| `GET /api/v1/projects/{projectId}/domains` | `projects:read` | Yes | List custom domains and their verification status. |
-| `PUT /api/v1/projects/{projectId}/environment-servers` | `projects:write` | Yes | Update default and per-environment server assignments, regenerating environment aliases. Unspecified environment assignments are preserved. |
-| `GET /api/v1/projects/{projectId}/environments` | `projects:read` | Yes | List the active environments for a project. |
-| `PUT /api/v1/projects/{projectId}/environments` | `projects:write` | Yes | Replace environment definitions with project settings version protection. Omitted server assignments are preserved. Production is required. |
-| `GET /api/v1/projects/{projectId}/runtime-logs` | `logs:read` | Yes | Read bounded runtime output from current environment server assignments. Application output may contain secrets. |
-| `GET /api/v1/projects/{projectId}/variables` | `projects:read` | Yes | List variable names and environment scopes. Values are never returned. |
-| `PATCH /api/v1/projects/{projectId}/variables` | `secrets:write` | Yes | Patch write-only variables. Omitted values are preserved; deleted names are removed only in their chosen environment scope. |
-| `GET /api/v1/servers` | `servers:read` | Yes | List team server metadata. Unavailable to project-restricted credentials. |
-| `POST /api/v1/servers` | `servers:write` | No | Create a pending server. Enrollment credentials are generated separately in the browser. |
-| `GET /api/v1/servers/{serverId}` | `servers:read` | Yes | Read server metadata. Enrollment and agent credentials are excluded. |
-| `PATCH /api/v1/servers/{serverId}` | `servers:write` | No | Rename a server. Requires current team administrator role. |
-| `DELETE /api/v1/servers/{serverId}` | `servers:write` | No | Delete a server using its name as confirmation. Existing deployment cancellation is an explicit option. |
-| `GET /api/v1/servers/{serverId}/delete-diagnostic` | `servers:write` | No | Read counts of active project and environment assignments affected by server deletion. |
-| `POST /api/v1/servers/{serverId}/disable` | `servers:write` | No | Disable a server using its name as confirmation. Requires current administrator role. |
-| `POST /api/v1/servers/{serverId}/enable` | `servers:write` | No | Enable a disabled server. Requires current administrator role. |
-| `GET /api/v1/servers/{serverId}/metrics` | `servers:read` | Yes | Read bounded host metric samples. |
-
-Personal-account changes, installation administration, team membership/invitations/ownership, avatar uploads, custom-domain creation and verification, repository settings and enrollment credential issuance remain browser workflows in this version. They are not exposed through this API or MCP. The host-agent protocol remains separate.
+| `user` | `object` | Yes | — |
+| `user.id` | `string` | Yes | Min 1; max 128 characters. |
+| `user.name` | `string` | Yes | — |
+| `user.username` | `string` | Yes | — |
+| `team` | `object` | Yes | — |
+| `team.id` | `string` | Yes | Min 1; max 128 characters. |
+| `team.name` | `string` | Yes | — |
+| `team.slug` | `string` | Yes | — |
+| `scopes` | `string[]` | Yes | — |
+| `projectIds` | `string[] or null` | Yes | Each item: Min 1; max 128 characters. |

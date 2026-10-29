@@ -53,7 +53,7 @@ Generate migrations for changed schemas, commit SQL and Drizzle metadata, and ru
 
 See [Background work](/docs/production-operations/#background-work) for scheduling on both targets.
 
-Edit pages in `docs/`, update `docs/docs.json` and run `pnpm docs:check`. Temporary review notes belong in `.tmp/`, not documentation.
+Edit guides in `docs/` and update `docs/docs.json`. API/MCP reference pages are generated from the operation schemas: run `pnpm docs:api` after changing a contract, then `pnpm docs:check`. Temporary review notes belong in `.tmp/`, not documentation.
 
 Keep files flat and organize the sidebar through `docs/docs.json`. Page filenames determine public URLs; renaming a file requires a website redirect. Documentation-only edits need no app release.
 

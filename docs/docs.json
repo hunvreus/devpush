@@ -37,8 +37,44 @@
       "label": "Reference",
       "items": [
         "configuration",
-        "api",
-        "api-operations"
+        {
+          "type": "submenu",
+          "label": "API & MCP guides",
+          "items": [
+            "api",
+            "mcp"
+          ]
+        },
+        {
+          "type": "submenu",
+          "label": "API reference",
+          "items": [
+            {
+              "slug": "api-operations",
+              "label": "Overview"
+            },
+            {
+              "slug": "api-projects",
+              "label": "Projects"
+            },
+            {
+              "slug": "api-deployments",
+              "label": "Deployments and logs"
+            },
+            {
+              "slug": "api-servers",
+              "label": "Servers"
+            },
+            {
+              "slug": "api-backups",
+              "label": "Backups and jobs"
+            }
+          ]
+        },
+        {
+          "slug": "mcp-tools",
+          "label": "MCP tools"
+        }
       ]
     },
     {

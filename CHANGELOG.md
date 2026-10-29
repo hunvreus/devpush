@@ -4,6 +4,10 @@ User-facing changes to devpush. Release dates are added when versions are publis
 
 ## [Unreleased]
 
+### Changed
+
+- Separate API and MCP guides from schema-generated endpoint and tool references; add collapsible reference navigation.
+
 ## [1.0.0-beta.9] - 2026-10-29
 
 ### Fixed

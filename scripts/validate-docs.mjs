@@ -30,6 +30,7 @@ function visit(items) {
   for (const item of items) {
     if (typeof item === "string") entries.push(item);
     else if (item.items) visit(item.items);
+    else if (item.slug) entries.push(item.slug);
   }
 }
 visit(menu);
