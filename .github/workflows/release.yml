@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing GitHub release tag to retry npm publication and hosted deployment
+        description: Existing GitHub release tag to retry npm publication
         required: true
         type: string
   push:
@@ -112,7 +112,3 @@ jobs:
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'devpush-*.tgz' --dir release
       - name: Publish and wait until npm serves the verified package
         run: node scripts/publish-package.mjs
-      - name: Start hosted checks and deployment
-        env:
-          HOSTED_DEPLOY_TOKEN: ${{ secrets.HOSTED_DEPLOY_TOKEN }}
-        run: node scripts/notify-hosted.mjs

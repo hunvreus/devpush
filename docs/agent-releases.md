@@ -52,14 +52,11 @@ checks locally; CI owns the complete release gate.
 Prereleases use npm's `beta` tag and do not replace the latest stable GitHub
 release. Stable releases use `latest`. No manual `npm publish` is needed.
 
-The workflow never overwrites a release. To retry npm publication or the downstream
-deployment after a partial failure, run **Release** manually with its existing tag.
+The workflow never overwrites a release. To retry npm publication after a partial failure, run **Release** manually with its existing tag.
 Retries verify that npm serves the exact tested archive before continuing.
 
-The optional downstream deployment is configured with `HOSTED_DEPLOY_TOKEN`,
-restricted to Actions write access on the private consumer repository. Once npm
-serves the package, the release dispatches that consumer's checks and deployment.
-Application credentials and Cloudflare deployment remain in the consumer repository.
+Consumer applications update their package pin and deploy separately. Publishing
+a core release does not deploy a consumer.
 
 Publish the pinned agent assets before enrolling servers. Installers verify their
 checksums; changing manifest URLs without rebuilding is unsupported.
