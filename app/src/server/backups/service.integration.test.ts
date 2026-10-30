@@ -1427,6 +1427,22 @@ describe('backup service integration', () => {
         now: new Date('2030-07-09T02:30:45.000Z'),
       }),
     ).resolves.toEqual([])
+    const [scheduled] = await db
+      .select()
+      .from(backupConfigs)
+      .where(eq(backupConfigs.id, config.id))
+    expect(scheduled!.nextCheckAt.toISOString()).toBe(
+      '2030-07-10T02:30:00.000Z',
+    )
+    await db
+      .update(backupConfigs)
+      .set({ schedule: { cron: '0 3 * * *' } })
+      .where(eq(backupConfigs.id, config.id))
+    const [edited] = await db
+      .select()
+      .from(backupConfigs)
+      .where(eq(backupConfigs.id, config.id))
+    expect(edited!.nextCheckAt.getTime()).toBe(0)
   })
 
   test('does not queue backups for deleted servers', async () => {
@@ -2107,6 +2123,79 @@ test('a malformed schedule cannot abort another workspace backup', async () => {
     touchedAgentJobIds.push(...queued.map((job) => job.agentJobId))
     expect(queued).toHaveLength(1)
     expect(errorLog).toHaveBeenCalledOnce()
+  } finally {
+    errorLog.mockRestore()
+  }
+})
+
+test('a refused scheduled backup waits until the next cron occurrence', async () => {
+  const f = await createProjectEnvironment()
+  const policy = await createBackupPolicyFixture({
+    projectId: f.projectId,
+    environmentId: f.environmentId,
+    enabled: true,
+    schedule: { cron: '30 2 * * *' },
+    destination: { bucket: 'review' },
+  })
+  touchedBackupConfigIds.push(policy.id)
+  workspacePolicy.denied.add(f.teamId)
+  const read = async () =>
+    (
+      await db
+        .select()
+        .from(backupConfigs)
+        .where(eq(backupConfigs.id, policy.id))
+    )[0]!
+  await queueDueBackupSchedules({ now: new Date('2030-07-09T02:30:00Z') })
+  expect((await read()).nextCheckAt.toISOString()).toBe(
+    '2030-07-10T02:30:00.000Z',
+  )
+  await queueDueBackupSchedules({ now: new Date('2030-07-09T02:31:00Z') })
+  expect((await read()).nextCheckAt.toISOString()).toBe(
+    '2030-07-10T02:30:00.000Z',
+  )
+})
+
+test('invalid backup settings skip an occurrence and a settings edit resets the cursor', async () => {
+  const f = await createProjectEnvironment()
+  const policy = await createBackupPolicyFixture({
+    projectId: f.projectId,
+    environmentId: f.environmentId,
+    enabled: true,
+    schedule: { cron: '30 2 * * *' },
+    destination: { bucket: 'review' },
+  })
+  touchedBackupConfigIds.push(policy.id)
+  await db
+    .update(backupConfigs)
+    .set({ retention: { invalid: true } })
+    .where(eq(backupConfigs.id, policy.id))
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    await queueDueBackupSchedules({ now: new Date('2030-07-09T02:30:00Z') })
+    const [invalid] = await db
+      .select()
+      .from(backupConfigs)
+      .where(eq(backupConfigs.id, policy.id))
+    expect(invalid!.nextCheckAt.toISOString()).toBe('2030-07-10T02:30:00.000Z')
+    await db
+      .update(backupConfigs)
+      .set({
+        retention: policy.retention,
+        settingsVersion: policy.settingsVersion + 1,
+      })
+      .where(eq(backupConfigs.id, policy.id))
+    const [row] = await db
+      .select()
+      .from(backupConfigs)
+      .where(eq(backupConfigs.id, policy.id))
+    expect(row!.nextCheckAt.getTime()).toBe(0)
+    const queued = await queueDueBackupSchedules({
+      now: new Date('2030-07-10T02:30:00Z'),
+    })
+    touchedBackupRunIds.push(...queued.map((job) => job.backupRunId))
+    touchedAgentJobIds.push(...queued.map((job) => job.agentJobId))
+    expect(queued).toHaveLength(1)
   } finally {
     errorLog.mockRestore()
   }

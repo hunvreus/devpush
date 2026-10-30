@@ -83,3 +83,22 @@ func TestRoutingAddressConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestJobPollInterval(t *testing.T) {
+	t.Setenv("DEVPUSH_BASE_URL", "https://devpush.example")
+	t.Setenv("DEVPUSH_AGENT_TOKEN", "token")
+	for _, value := range []string{"0s", "-1s", "61s", "bad"} {
+		t.Setenv("DEVPUSH_JOB_POLL_INTERVAL", value)
+		if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing")); err == nil {
+			t.Fatalf("accepted %s", value)
+		}
+	}
+	t.Setenv("DEVPUSH_JOB_POLL_INTERVAL", "5s")
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.pollInterval().Seconds() != 5 {
+		t.Fatal(cfg.pollInterval())
+	}
+}

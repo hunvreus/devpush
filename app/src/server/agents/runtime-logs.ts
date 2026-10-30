@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 
 import { db, logsDb } from '#devpush/server/db'
 import { runtimeLogs } from '#devpush/server/db/log-schema'
@@ -8,10 +8,7 @@ import { deployments, environments, projects } from '#devpush/server/db/schema'
 import { getPluginServices } from '#devpush/server/plugins/services.server'
 import { admitRuntimeLogs, reserveLogBudget } from '#devpush/server/logs/budget'
 import { requireAgentServer } from '#devpush/server/servers/service'
-import {
-  runtimeLogRetentionMs,
-  runtimeLogPruneBatchSize,
-} from '#devpush/server/logs/retention'
+import { runtimeLogPruneBatchSize } from '#devpush/server/logs/retention'
 
 export type RuntimeLogLine = {
   runtimeId: string
@@ -161,7 +158,6 @@ export async function recordRuntimeLogs({
   await pruneRuntimeLogs({
     serverId,
     runtimeIds: Array.from(new Set(rows.map((row) => row.runtimeId))),
-    now: new Date(),
   })
 
   return {
@@ -264,34 +260,18 @@ async function listAllowedRuntimes({
 async function pruneRuntimeLogs({
   serverId,
   runtimeIds,
-  now,
 }: {
   serverId: string
   runtimeIds: Array<string>
-  now: Date
 }) {
   if (runtimeIds.length === 0) {
     return
   }
 
-  const cutoff = new Date(now.getTime() - runtimeLogRetentionMs)
-
   for (const runtimeId of runtimeIds) {
     const scope = and(
       eq(runtimeLogs.serverId, serverId),
       eq(runtimeLogs.runtimeId, runtimeId),
-    )
-    // Bound cleanup work independently of how long the agent was disconnected.
-    await logsDb.delete(runtimeLogs).where(
-      inArray(
-        runtimeLogs.id,
-        logsDb
-          .select({ id: runtimeLogs.id })
-          .from(runtimeLogs)
-          .where(and(scope, lt(runtimeLogs.observedAt, cutoff)))
-          .orderBy(runtimeLogs.observedAt, runtimeLogs.id)
-          .limit(runtimeLogPruneBatchSize),
-      ),
     )
     await logsDb
       .delete(runtimeLogs)

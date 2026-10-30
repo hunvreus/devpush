@@ -41,3 +41,5 @@ Database restores do not have automatic volume rollback. Inspect the database af
 ## Verify your backups
 
 Check backup/restore activity and logs, not just the schedule. Test recovery before relying on a policy. Disabling backups prevents new changes/runs/restores, while history remains readable and queued work/cleanup can finish.
+
+Scheduled policies are checked in bounded batches. If a scheduler pass is delayed, an overdue policy runs once; missed intervals are not replayed individually. Editing or enabling a policy recalculates its next run. A policy refusal or invalid backup configuration skips that occurrence and is checked again at the next scheduled time. An invalid cron expression waits for a policy edit.

@@ -56,7 +56,7 @@ import {
   projects,
   servers,
 } from '#devpush/server/db/schema'
-import { isCronDue } from '#devpush/lib/backup-cron'
+import { isCronDue, nextCronRun } from '#devpush/lib/backup-cron'
 
 const s3DestinationSchema = z.object({
   storageId: z.string().optional(),
@@ -753,16 +753,36 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
         eq(environments.status, 'active'),
         inArray(servers.status, ['connected', 'disconnected']),
         lte(backupConfigs.createdAt, now),
+        lte(backupConfigs.nextCheckAt, now),
       ),
     )
+    .orderBy(backupConfigs.nextCheckAt, backupConfigs.id)
+    .limit(100)
 
   const queued: Array<{ backupRunId: string; agentJobId: string }> = []
 
   for (const row of configRows) {
+    let nextCheckAt = new Date('9999-01-01')
     try {
       const schedule = backupScheduleSchema.parse(row.config.schedule)
 
-      if (!isCronDue(schedule.cron, now)) {
+      nextCheckAt = nextCronRun(schedule.cron, now) ?? nextCheckAt
+      // Compare the settings version so a concurrent edit keeps its reset cursor.
+      const advanceSchedule = () =>
+        db
+          .update(backupConfigs)
+          .set({ nextCheckAt })
+          .where(
+            and(
+              eq(backupConfigs.id, row.config.id),
+              eq(backupConfigs.settingsVersion, row.config.settingsVersion),
+            ),
+          )
+      if (
+        row.config.nextCheckAt.getTime() === 0 &&
+        !isCronDue(schedule.cron, now)
+      ) {
+        await advanceSchedule()
         continue
       }
 
@@ -770,6 +790,8 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
         continue
       }
 
+      const scheduledAt =
+        row.config.nextCheckAt.getTime() > 0 ? row.config.nextCheckAt : now
       const queuedJob = await queueEnvironmentBackup({
         actor: { kind: 'system', source: 'backup.schedule' },
         projectId: row.config.projectId,
@@ -778,10 +800,11 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
         manifest: {
           trigger: 'schedule',
           schedule,
-          scheduledAt: now.toISOString(),
+          scheduledAt: scheduledAt.toISOString(),
         },
-        scheduleKey: `${row.config.id}:${toUtcMinute(now)}`,
+        scheduleKey: `${row.config.id}:${toUtcMinute(scheduledAt)}`,
       })
+      await advanceSchedule()
       if (!queuedJob) {
         continue
       }
@@ -791,6 +814,22 @@ export async function queueDueBackupSchedules({ now = new Date() } = {}) {
         agentJobId: queuedJob.agentJobId,
       })
     } catch (error) {
+      // Refusals and invalid configuration skip this occurrence. Only transient
+      // errors retry next minute; an invalid cron waits for a policy edit.
+      await db
+        .update(backupConfigs)
+        .set({
+          nextCheckAt:
+            isWorkspacePolicyRefusal(error) || error instanceof z.ZodError
+              ? nextCheckAt
+              : new Date(now.getTime() + 60_000),
+        })
+        .where(
+          and(
+            eq(backupConfigs.id, row.config.id),
+            eq(backupConfigs.settingsVersion, row.config.settingsVersion),
+          ),
+        )
       if (isWorkspacePolicyRefusal(error)) continue
       console.error('Scheduled backup admission failed', {
         policyId: row.config.id,

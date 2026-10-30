@@ -251,10 +251,16 @@ async function scan(source: 'projects' | 'servers') {
         where: sql`${notificationScanCursors.afterId} is not ${afterId}`,
       })
 }
-export async function maintainOperationalNotifications() {
+export async function maintainOperationalNotifications({
+  repairProjects = Math.floor(Date.now() / 60_000) % 5 === 0,
+} = {}) {
   if (!config.EMAIL_FROM || !config.RESEND_API_KEY) return
-  await Promise.all([scan('projects'), scan('servers')])
-  await repairOperationalRecipients()
+  // Completion hooks deliver immediately; this bounded pass repairs missed hooks.
+  await Promise.all([
+    scan('servers'),
+    ...(repairProjects ? [scan('projects')] : []),
+  ])
+  if (repairProjects) await repairOperationalRecipients()
   await deliverOperationalNotifications()
 }
 /** Best-effort immediate pass; durable source state and the scheduled scan repair interruptions. */

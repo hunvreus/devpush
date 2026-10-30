@@ -116,3 +116,44 @@ function matchesCronPart(
 
   return false
 }
+
+/** Next matching UTC minute, skipping nonmatching days and hours. */
+export function nextCronRun(cron: string, after: Date): Date | null {
+  if (!isValidCron(cron)) return null
+  const [minute, hour, dom, month, dow] = cron.trim().split(/\s+/) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ]
+  const candidate = new Date(after)
+  candidate.setUTCSeconds(0, 0)
+  candidate.setUTCMinutes(candidate.getUTCMinutes() + 1)
+  const limitYear = candidate.getUTCFullYear() + 8
+  while (candidate.getUTCFullYear() < limitYear) {
+    const dayMatches =
+      dom === '*'
+        ? matchesCronPart(dow, candidate.getUTCDay(), 0, 7)
+        : dow === '*'
+          ? matchesCronPart(dom, candidate.getUTCDate(), 1, 31)
+          : matchesCronPart(dom, candidate.getUTCDate(), 1, 31) ||
+            matchesCronPart(dow, candidate.getUTCDay(), 0, 7)
+    if (
+      !matchesCronPart(month, candidate.getUTCMonth() + 1, 1, 12) ||
+      !dayMatches
+    ) {
+      candidate.setUTCDate(candidate.getUTCDate() + 1)
+      candidate.setUTCHours(0, 0, 0, 0)
+      continue
+    }
+    if (!matchesCronPart(hour, candidate.getUTCHours(), 0, 23)) {
+      candidate.setUTCHours(candidate.getUTCHours() + 1, 0, 0, 0)
+      continue
+    }
+    if (matchesCronPart(minute, candidate.getUTCMinutes(), 0, 59))
+      return candidate
+    candidate.setUTCMinutes(candidate.getUTCMinutes() + 1)
+  }
+  return null
+}

@@ -95,7 +95,7 @@ export async function claimNextAgentJob({
   const server = await requireAgentServer({ serverId, token })
   const now = Date.now()
   // Running work is not claimable. Only enter recovery when its deadline is
-  // actually due; long polls otherwise repeat this entire chain during builds.
+  // actually due; idle polls should avoid the recovery chain.
   // Authorization is still checked on every pass and claims remain atomic.
   const [work] = await db
     .select({

@@ -942,13 +942,15 @@ func TestDrainWaitsForPendingJobResponse(t *testing.T) {
 	var once sync.Once
 	defer once.Do(func() { close(release) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var input agentRequest
+		var input struct {
+			WaitSeconds int `json:"waitSeconds"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Error(err)
 			return
 		}
-		if input.WaitSeconds != 20 {
-			t.Errorf("wait = %d, want 20", input.WaitSeconds)
+		if input.WaitSeconds != 0 {
+			t.Errorf("wait = %d, want 0", input.WaitSeconds)
 		}
 		close(received)
 		select {

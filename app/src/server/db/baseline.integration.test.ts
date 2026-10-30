@@ -105,6 +105,7 @@ test.each(['SQLite', 'D1'] as const)(
       'backup_configs_storage_update',
       'backup_runs_storage_insert',
       'backup_runs_storage_update',
+      'backup_schedule_reset',
       'backup_storage_referenced_delete',
       'backup_storage_settings_version',
       'projects_settings_version',

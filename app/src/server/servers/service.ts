@@ -816,7 +816,19 @@ export async function recordAgentHeartbeat({
       : await recordAgentMetricSamples(server.id, metricSamples ?? [], now)
 
   const deploymentServices = getPluginServices()
-  if (deploymentServices.serverLifecycle) {
+  const addressesChanged = Object.entries(
+    mergePublicAddresses(server, {
+      publicIpv4,
+      publicIpv6,
+      routingAddress,
+    }),
+  ).some(([key, value]) => value !== server[key as keyof typeof server])
+  const reconcileDue =
+    server.status !== 'connected' ||
+    addressesChanged ||
+    Math.floor(now.getTime() / 300_000) !==
+      Math.floor((server.lastSeenAt?.getTime() ?? 0) / 300_000)
+  if (deploymentServices.serverLifecycle && reconcileDue) {
     const current = await pluginContext.readServer(server.id)
     if (current) {
       try {
@@ -1080,6 +1092,7 @@ async function findServerForCredential(token: string, heartbeat = false) {
       // these columns, every supplied field appears changed on every beat.
       ...(heartbeat
         ? {
+            lastSeenAt: servers.lastSeenAt,
             agentVersion: servers.agentVersion,
             agentProtocolVersion: servers.agentProtocolVersion,
             agentCapabilities: servers.agentCapabilities,

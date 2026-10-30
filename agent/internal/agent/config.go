@@ -9,9 +9,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
+	JobPollInterval          time.Duration
 	DisableInactiveRedirects bool
 	RoutingAddress           string
 	AgentID                  string
@@ -73,6 +75,14 @@ func LoadConfig(path string) (Config, error) {
 		}
 	}
 
+	pollEvery := jobPollInterval
+	if value := firstNonEmpty(os.Getenv("DEVPUSH_JOB_POLL_INTERVAL"), values["DEVPUSH_JOB_POLL_INTERVAL"]); value != "" {
+		pollEvery, err = time.ParseDuration(value)
+		if err != nil || pollEvery < time.Second || pollEvery > time.Minute {
+			return Config{}, errors.New("DEVPUSH_JOB_POLL_INTERVAL must be between 1s and 1m")
+		}
+	}
+
 	disableRedirects := false
 	if value := firstNonEmpty(os.Getenv("DEVPUSH_DISABLE_INACTIVE_REDIRECTS"), values["DEVPUSH_DISABLE_INACTIVE_REDIRECTS"]); value != "" {
 		disableRedirects, err = strconv.ParseBool(value)
@@ -82,6 +92,7 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	cfg := Config{
+		JobPollInterval:          pollEvery,
 		DisableInactiveRedirects: disableRedirects,
 		RoutingAddress:           firstNonEmpty(os.Getenv("DEVPUSH_ROUTING_ADDRESS"), values["DEVPUSH_ROUTING_ADDRESS"]),
 		AgentID:                  firstNonEmpty(os.Getenv("DEVPUSH_AGENT_ID"), values["DEVPUSH_AGENT_ID"]),
@@ -157,4 +168,11 @@ func firstNonEmpty(values ...string) string {
 	}
 
 	return ""
+}
+
+func (cfg Config) pollInterval() time.Duration {
+	if cfg.JobPollInterval > 0 {
+		return cfg.JobPollInterval
+	}
+	return jobPollInterval
 }

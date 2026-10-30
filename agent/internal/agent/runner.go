@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,11 +49,13 @@ var (
 	registerRetryMax      = 30 * time.Second
 	heartbeatInterval     = 30 * time.Second
 	heartbeatTimeout      = 20 * time.Second
-	jobPollInterval       = 5 * time.Second
+	jobPollInterval       = 10 * time.Second
 	errDeploymentCanceled = errors.New("deployment canceled")
 )
 
 type Runner struct {
+	jobPollFailures   int
+	nextJobPollAt     time.Time
 	certificateNextAt time.Time
 	discoverAddress   func(context.Context, string, string) (string, error)
 	addressMu         sync.RWMutex
@@ -199,7 +202,7 @@ func (runner *Runner) Run(ctx context.Context) error {
 	runAgentLoops(
 		ctx,
 		heartbeatInterval,
-		jobPollInterval,
+		runner.cfg.pollInterval(),
 		func(loopCtx context.Context) {
 			heartbeatCtx, cancel := context.WithTimeout(loopCtx, heartbeatTimeout)
 			defer cancel()
@@ -264,16 +267,17 @@ func runAgentLoops(
 		}
 	}()
 
-	ticker := time.NewTicker(jobEvery)
-	defer ticker.Stop()
+	timer := time.NewTimer(jobEvery)
+	defer timer.Stop()
 	job(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			<-heartbeatDone
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			job(ctx)
+			timer.Reset(jobEvery + time.Duration(rand.Int64N(int64(jobEvery/5)+1)) - jobEvery/10)
 		}
 	}
 }
@@ -395,6 +399,9 @@ func (runner *Runner) sendHeartbeat(ctx context.Context) {
 }
 
 func (runner *Runner) claimAndRunJob(ctx context.Context) {
+	if time.Now().Before(runner.nextJobPollAt) {
+		return
+	}
 	lock, err := runner.lockJob()
 	if err != nil {
 		return
@@ -411,7 +418,6 @@ func (runner *Runner) claimAndRunJob(ctx context.Context) {
 
 	var response nextJobResponse
 	err = runner.post(ctx, "/api/agents/jobs/next", agentRequest{
-		WaitSeconds:     20,
 		ServerID:        runner.cfg.AgentID,
 		Token:           runner.currentCredential(),
 		AgentVersion:    Version,
@@ -419,9 +425,14 @@ func (runner *Runner) claimAndRunJob(ctx context.Context) {
 		Capabilities:    Capabilities,
 	}, &response)
 	if err != nil {
+		runner.jobPollFailures++
+		delay := runner.cfg.pollInterval() * time.Duration(1<<min(runner.jobPollFailures, 5))
+		runner.nextJobPollAt = time.Now().Add(min(delay, 5*time.Minute))
 		runner.log.Warn("claim job failed", "error", err)
 		return
 	}
+	runner.jobPollFailures = 0
+	runner.nextJobPollAt = time.Time{}
 	if response.Job == nil {
 		return
 	}

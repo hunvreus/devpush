@@ -403,12 +403,12 @@ test('domain and backup source scans generate alerts and repeated scans do not r
   await observeProjectNotifications(f.projectId)
   await deliverOperationalNotifications()
   expect(send).toHaveBeenCalledTimes(4)
-  await maintainOperationalNotifications()
+  await maintainOperationalNotifications({ repairProjects: true })
   expect(send).toHaveBeenCalledTimes(4)
   expect(
     await countMutations(
       [notificationIncidents, notificationOutbox, notificationScanCursors],
-      () => maintainOperationalNotifications(),
+      () => maintainOperationalNotifications({ repairProjects: true }),
     ),
   ).toBe(0)
 })

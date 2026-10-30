@@ -874,6 +874,9 @@ export const backupConfigs = sqliteTable(
       .notNull()
       .default('s3'),
     schedule: text('schedule', { mode: 'json' }).notNull(),
+    nextCheckAt: integer('next_check_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`0`),
     destination: text('destination', { mode: 'json' }).notNull(),
     retention: text('retention', { mode: 'json' }).notNull(),
     volumes: text('volumes', { mode: 'json' })
@@ -891,6 +894,7 @@ export const backupConfigs = sqliteTable(
   },
   (table) => [
     ...enumChecks(table),
+    index('backup_configs_due_idx').on(table.enabled, table.nextCheckAt),
     index('backup_configs_environment_idx').on(table.environmentId),
     index('backup_configs_project_idx').on(table.projectId),
   ],

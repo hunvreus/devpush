@@ -1,3 +1,4 @@
+import { pruneExpiredRuntimeLogs } from '#devpush/server/logs/retention'
 import { required } from '#devpush/test/required'
 import { createHash } from 'node:crypto'
 
@@ -374,7 +375,7 @@ describe('runtime log ingestion', () => {
     )
   })
 
-  test('prunes runtime logs older than 24 hours during ingestion', async () => {
+  test('scheduled maintenance prunes old runtime logs after ingestion', async () => {
     const { projectId, environmentId, serverId, token } = await createFixture()
     const oldObservedAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
     const currentObservedAt = new Date()
@@ -411,6 +412,8 @@ describe('runtime log ingestion', () => {
         },
       ],
     })
+
+    await pruneExpiredRuntimeLogs()
 
     const rows = await logsDb
       .select({

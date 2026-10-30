@@ -125,6 +125,7 @@ The installer writes `/etc/devpush/agent.env`. Process environment values take p
 | `DEVPUSH_GIT_CLONE_BASE_URL` | Clone origin; default `https://github.com`. Testing-only; keep the default for normal installations. |
 | `DOCKER_HOST` | Optional Docker endpoint. Access to it is host-level privilege. |
 | `DEVPUSH_DISABLE_INACTIVE_REDIRECTS` | Set `true` to keep inactive deployment URLs at a local 404 instead of redirecting to the dashboard. Default `false`; restart the agent after changing it. |
+| `DEVPUSH_JOB_POLL_INTERVAL` | Agent job check interval (`1s`–`1m`); default `10s`. Idle checks return immediately. Failed checks back off to at most five minutes. |
 | `DEVPUSH_RUNTIME_LOG_QUEUE_BYTES` | Runtime-log queue budget; default 128 MiB. |
 
 To move a host to another installation, [switch an empty server](/docs/agent-maintenance/#switch-an-empty-server). Editing the URL is not enough.

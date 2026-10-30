@@ -3,7 +3,6 @@ import { PublicError } from '#devpush/lib/public-error'
 import { metricSampleSchema } from '#devpush/server/servers/metric-history-schema'
 import { notifyAgentMutation } from '#devpush/server/realtime/agent-events'
 import { z } from 'zod'
-import { maxAgentJobWaitSeconds } from './job-wait'
 
 import type {
   BackupCleanupJobPayload,
@@ -72,9 +71,6 @@ const agentCredentialsSchema = z.object({
 
 export const nextAgentJobSchema = agentCredentialsSchema
   .merge(agentMetadataSchema)
-  .extend({
-    waitSeconds: z.number().int().min(0).max(maxAgentJobWaitSeconds).default(0),
-  })
 
 export const agentJobStatusSchema = agentCredentialsSchema.extend({
   deploymentId: z.string().min(1),
