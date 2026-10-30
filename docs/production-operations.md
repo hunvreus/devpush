@@ -38,7 +38,7 @@ Back up both databases and uploads, review migrations, check out the new release
 
 All services run as UID/GID 1000. Existing volumes/bind mounts must grant that user access; do not make them world-writable. Run one app instance with SQLite on a local filesystem, never a network share.
 
-The migrator applies the shipped main/log migration histories before startup. Never edit applied migrations or run schema push in production. Retired pre-release histories require a fresh installation; updating code does not reset data.
+The migrator applies the shipped main/log migration histories before startup. Never edit applied migrations or run schema push in production.
 
 For a prebuilt image, set `DEVPUSH_PRODUCTION_IMAGE` to its reviewed tag/digest, run Compose `pull`, then `up -d --no-build` using the same file/env flags. To roll back a schema-changing release, stop the app, restore pre-upgrade databases and use the previous image tag/digest.
 

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { switchServerControlPlane } from './switch'
 import { required } from '#devpush/test/required'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
 import { closeDb, db } from '#devpush/server/db'
@@ -183,6 +183,28 @@ describe('server service integration', () => {
     expect(observed?.lastSeenAt!.getTime()).toBeGreaterThan(baseline.getTime())
     expect(observed?.hostUptimeSeconds).toBe(123)
     expect(observed?.settingsVersion).toBe(1)
+    // Fail if an unchanged metadata column is written, even to the same value.
+    const trigger = sql.identifier(
+      `unchanged_metadata_${crypto.randomUUID().replaceAll('-', '')}`,
+    )
+    await db.run(sql`create trigger ${trigger} before update of agent_version on servers
+      when old.id = ${sql.raw(`'${server.id.replaceAll("'", "''")}'`)}
+      begin select raise(abort, 'Unchanged metadata was rewritten'); end`)
+    try {
+      await recordAgentHeartbeat({
+        serverId: server.id,
+        token,
+        publicAddress: null,
+        agentVersion: 'test-version',
+        system: { uptimeSeconds: 124 },
+      })
+      expect(
+        (await db.select().from(servers).where(eq(servers.id, server.id)))[0]
+          ?.hostUptimeSeconds,
+      ).toBe(124)
+    } finally {
+      await db.run(sql`drop trigger ${trigger}`)
+    }
     await db
       .update(servers)
       .set({ status: 'disconnected' })

@@ -25,6 +25,13 @@ export async function smokeAssets(origin, html, { production = false } = {}) {
   const favicon = await fetch(`${origin}/favicon.svg`)
   assert.equal(favicon.status, 200)
   assert.match(await favicon.text(), /<svg/)
+  const browserIcon = await fetch(`${origin}/favicon.ico`)
+  assert.equal(browserIcon.status, 200)
+  assert.deepEqual(
+    [...new Uint8Array(await browserIcon.arrayBuffer()).slice(0, 4)],
+    [0, 0, 1, 0],
+    'Browser favicon must be a static ICO asset, not an SSR response',
+  )
   if (production) {
     const missing = await fetch(`${origin}/assets/missing-asset-test.js`)
     assert.equal(missing.status, 404)

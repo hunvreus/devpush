@@ -3,6 +3,8 @@ import type { AtomicStore } from '#devpush/server/db/atomic'
 import type { agentJobs } from '#devpush/server/db/schema'
 import type { AgentCleanupCompletion } from './protocol'
 
+export const cleanupJobTimeoutMs = 60 * 60 * 1000
+
 export async function recoverStaleCleanupJobs(
   store: AtomicStore,
   input: {
@@ -13,7 +15,7 @@ export async function recoverStaleCleanupJobs(
 ) {
   const now = input.now.getTime()
   const stale = sql`server_id = ${input.serverId} and type in ('deprovision','purge') and status = 'running'
-    and (claimed_at is null or claimed_at < ${now - 60 * 60 * 1000})
+    and (claimed_at is null or claimed_at < ${now - cleanupJobTimeoutMs})
     ${input.cleanupJobId ? sql`and id <> ${input.cleanupJobId}` : sql``}`
   await store.batch([
     store.run(sql`update agent_jobs set status = 'abandoned', error_message = 'Cleanup stopped reporting after its final attempt.',

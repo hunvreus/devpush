@@ -1,12 +1,10 @@
 import { withPluginScope } from '#devpush/server/plugins/scope'
 import { withBackgroundTasks } from '#devpush/server/runtime/background'
-import { connectWorkspaceUpdates } from '#devpush/server/realtime/service'
 import handler from '@tanstack/react-start/server-entry'
 
 import { assertRuntimeSecurity, config } from '#devpush/server/config'
 import { withDatabaseScope } from '#devpush/server/db'
 import { withSecurityHeaders } from '#devpush/server/http/security-headers'
-import { runScheduledTasks } from '#devpush/server/scheduled-tasks'
 import { resolveProxyRequest } from '#devpush/server/http/proxy-request'
 
 export { WorkspaceUpdates } from '#devpush/server/realtime/workspace-object'
@@ -22,7 +20,10 @@ export default {
             (promise) => context?.waitUntil(promise),
             () =>
               new URL(request.url).pathname === '/api/workspaces/updates'
-                ? connectWorkspaceUpdates(request)
+                ? import('#devpush/server/realtime/service').then(
+                    ({ connectWorkspaceUpdates }) =>
+                      connectWorkspaceUpdates(request),
+                  )
                 : handler.fetch(request),
           ),
         (promise) => context?.waitUntil(promise),
@@ -39,6 +40,8 @@ export default {
       withPluginScope(() =>
         withDatabaseScope(
           async () => {
+            const { runScheduledTasks } =
+              await import('#devpush/server/scheduled-tasks')
             await withBackgroundTasks(
               (promise) => context.waitUntil(promise),
               () =>

@@ -720,7 +720,7 @@ export async function recordAgentHeartbeat({
   system?: HostDetailsInput
   metricSamples?: Array<AgentMetricSample>
 }): Promise<AgentRegistration> {
-  const auth = await requireAgentCredential(token)
+  const auth = await requireAgentCredential(token, { heartbeat: true })
   const server = auth.server
 
   if (server.id !== serverId) {
@@ -1061,7 +1061,7 @@ function validateServerMachineName(name: string) {
   }
 }
 
-async function findServerForCredential(token: string) {
+async function findServerForCredential(token: string, heartbeat = false) {
   const tokenHash = hashToken(token)
   const rows = await db
     .select({
@@ -1076,6 +1076,21 @@ async function findServerForCredential(token: string) {
       enrollmentTokenExpiresAt: servers.enrollmentTokenExpiresAt,
       agentCredentialHash: servers.agentCredentialHash,
       pendingAgentCredentialHash: servers.pendingAgentCredentialHash,
+      // Compare heartbeat metadata against the actual stored values. Without
+      // these columns, every supplied field appears changed on every beat.
+      ...(heartbeat
+        ? {
+            agentVersion: servers.agentVersion,
+            agentProtocolVersion: servers.agentProtocolVersion,
+            agentCapabilities: servers.agentCapabilities,
+            hostname: servers.hostname,
+            operatingSystem: servers.operatingSystem,
+            kernelVersion: servers.kernelVersion,
+            architecture: servers.architecture,
+            cpuCoreCount: servers.cpuCoreCount,
+            hostUptimeSeconds: servers.hostUptimeSeconds,
+          }
+        : {}),
     })
     .from(servers)
     .where(
@@ -1112,9 +1127,12 @@ async function findServerForCredential(token: string) {
 
 async function requireAgentCredential(
   token: string,
-  { cleanupJobId }: { cleanupJobId?: string } = {},
+  {
+    cleanupJobId,
+    heartbeat,
+  }: { cleanupJobId?: string; heartbeat?: boolean } = {},
 ) {
-  const auth = await findServerForCredential(token)
+  const auth = await findServerForCredential(token, heartbeat)
 
   if (auth.credentialType === 'enrollment') {
     throw new AgentRequestError(

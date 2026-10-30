@@ -285,14 +285,3 @@ export function notifyAfterProjectUpdate(projectId: string) {
     }
   })
 }
-export function notifyAfterServerUpdate(serverId: string) {
-  if (!config.EMAIL_FROM || !config.RESEND_API_KEY) return
-  deferBackgroundTask(async () => {
-    try {
-      await observeServerNotifications(serverId)
-      await deliverOperationalNotifications(5)
-    } catch {
-      console.warn('Server notification pass deferred to scheduled retry.')
-    }
-  })
-}

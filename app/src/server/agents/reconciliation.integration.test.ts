@@ -1,5 +1,5 @@
 import { eq, inArray, sql } from 'drizzle-orm'
-import { afterAll, afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest'
 
 import { closeDb, db } from '#devpush/server/db'
 import {
@@ -22,6 +22,7 @@ const touchedTeamIds: Array<string> = []
 const touchedUserIds: Array<string> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await cleanupRows()
 })
 
@@ -115,12 +116,31 @@ describe('agent runtime reconciliation', () => {
       .from(agentRuntimeObservations)
       .where(eq(agentRuntimeObservations.serverId, serverId))
     touchedObservationIds.push(...observations.map((row) => row.id))
+    // Deleted environments and already-purged runtimes leave observation rows.
+    // Those rows must not disable the fast path for the healthy runtime.
+    for (const purged of [false, true]) {
+      const id = crypto.randomUUID()
+      touchedObservationIds.push(id)
+      await db.insert(agentRuntimeObservations).values({
+        id,
+        serverId,
+        runtimeId: purged ? 'dp_old_purged' : 'dp_old_deleted',
+        firstSeenAt: start,
+        lastSeenAt: start,
+        orphanedAt: purged ? start : null,
+        cleanupQueuedAt: purged ? start : null,
+        purgeQueuedAt: purged ? start : null,
+      })
+    }
     const changes = async () =>
       JSON.stringify(await db.all(sql`select total_changes()`))
     const before = await changes()
+    const batch = vi.spyOn(db, 'batch')
     await report(30)
     expect(await changes()).toBe(before)
+    expect(batch).not.toHaveBeenCalled()
     await report(31, [{ ...services[0]!, restartCount: 1 }])
+    expect(batch).toHaveBeenCalledTimes(1)
     const [changed] = await db
       .select()
       .from(agentRuntimeObservations)

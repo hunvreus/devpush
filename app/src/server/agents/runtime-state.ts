@@ -25,6 +25,47 @@ export async function reconcileRuntimeState(
     input.runtimes.map((runtime) => [runtime.runtimeId, runtime.services]),
   )
   const reportedServices = JSON.stringify([...services.keys()])
+  const needed = sql`exists(select 1 from ${environments} as env join ${projects} as project on project.id = env.project_id
+      where env.runtime_id = ob.runtime_id and env.status = 'active'
+        and coalesce(env.server_id, project.default_server_id) = ${input.serverId})
+    or exists(select 1 from ${deployments} as deployment
+      where deployment.runtime_id = ob.runtime_id and deployment.server_id = ${input.serverId}
+        and deployment.status in ('queued', 'running'))`
+  const reported = JSON.stringify(
+    input.runtimeIds.map((runtimeId) => ({
+      runtimeId,
+      services: services.has(runtimeId)
+        ? JSON.stringify(services.get(runtimeId))
+        : undefined,
+    })),
+  )
+  // Healthy reports normally change nothing. One read avoids constructing and
+  // executing the reconciliation batch; refresh timestamps every five minutes.
+  // Any ownership, service or cleanup change falls through to the atomic batch.
+  const [unchanged] = await store.all(sql`select
+    not exists(select 1 from json_each(${reported}) as report
+      left join ${agentRuntimeObservations} as ob on ob.server_id = ${input.serverId}
+        and ob.runtime_id = json_extract(report.value, '$.runtimeId')
+      where ob.id is null or ob.last_seen_at <= ${now - 5 * 60_000}
+        or (json_type(report.value, '$.services') is not null
+          and ob.services is not json_extract(report.value, '$.services')))
+    and not exists(select 1 from ${agentRuntimeObservations} as ob
+      where ob.server_id = ${input.serverId} and
+        (((ob.orphaned_at is not null or ob.cleanup_queued_at is not null
+            or ob.purge_queued_at is not null) and (${needed}))
+          or (ob.runtime_id in (select json_extract(value, '$.runtimeId') from json_each(${reported}))
+            and (ob.orphaned_at is not null or ob.cleanup_queued_at is not null
+              or ob.purge_queued_at is not null or not (${needed})))
+          or (ob.cleanup_queued_at <= ${now - cleanupVolumeRetentionMs}
+            and ob.purge_queued_at is null and not (${needed})))) as unchanged`)
+  if (
+    Number(
+      Array.isArray(unchanged)
+        ? unchanged[0]
+        : (unchanged as { unchanged: number } | undefined)?.unchanged,
+    ) === 1
+  )
+    return []
   const observations = []
   for (let offset = 0; offset < input.runtimeIds.length; offset += 8) {
     const rows = input.runtimeIds.slice(offset, offset + 8).map(
@@ -46,12 +87,6 @@ export async function reconcileRuntimeState(
   }
   // Decide whether a runtime is still needed inside the same write batch that
   // enqueues cleanup. Assignment or deployment changes cannot race this check.
-  const needed = sql`exists(select 1 from ${environments} as env join ${projects} as project on project.id = env.project_id
-      where env.runtime_id = ob.runtime_id and env.status = 'active'
-        and coalesce(env.server_id, project.default_server_id) = ${input.serverId})
-    or exists(select 1 from ${deployments} as deployment
-      where deployment.runtime_id = ob.runtime_id and deployment.server_id = ${input.serverId}
-        and deployment.status in ('queued', 'running'))`
   const orphan = sql`substr(ob.runtime_id, 1, 3) = 'dp_'
     and not (${needed})
     and not exists(select 1 from ${agentJobs} as job

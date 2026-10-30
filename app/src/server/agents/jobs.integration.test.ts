@@ -78,6 +78,105 @@ afterAll(async () => {
 })
 
 describe('agent deployment jobs', () => {
+  test('polling expires queued backup work before it can be claimed', async () => {
+    const f = await createBackupCleanupFixture()
+    await db
+      .update(deployments)
+      .set({ status: 'succeeded' })
+      .where(eq(deployments.serverId, f.serverId))
+    await db
+      .update(agentJobs)
+      .set({
+        status: 'queued',
+        claimedAt: null,
+        availableAt: new Date(Date.now() - 26 * 3600000),
+      })
+      .where(eq(agentJobs.id, f.jobId))
+    expect(
+      await claimNextAgentJob({
+        serverId: f.serverId,
+        token: f.token,
+        protocolVersion: currentAgentProtocolVersion,
+        capabilities: [...currentAgentCapabilities],
+      }),
+    ).toBeNull()
+    expect(
+      (await db.select().from(agentJobs).where(eq(agentJobs.id, f.jobId)))[0]
+        ?.status,
+    ).toBe('failed')
+  })
+
+  test('polls during running deployments only authenticate and check for work, and still reject revoked credentials', async () => {
+    const f = await createFixture()
+    await db
+      .update(deployments)
+      .set({ status: 'running', startedAt: new Date() })
+      .where(eq(deployments.id, f.deploymentId))
+    const select = vi.spyOn(db, 'select')
+    const update = vi.spyOn(db, 'update')
+    const batch = vi.spyOn(db, 'batch')
+    for (let pass = 0; pass < 4; pass++) {
+      expect(
+        await claimNextAgentJob({
+          serverId: f.serverId,
+          token: f.token,
+          protocolVersion: currentAgentProtocolVersion,
+          capabilities: [...currentAgentCapabilities],
+        }),
+      ).toBeNull()
+    }
+    expect(select).toHaveBeenCalledTimes(8)
+    expect(update).not.toHaveBeenCalled()
+    expect(batch).not.toHaveBeenCalled()
+    await db
+      .update(servers)
+      .set({ agentCredentialHash: null })
+      .where(eq(servers.id, f.serverId))
+    await expect(
+      claimNextAgentJob({ serverId: f.serverId, token: f.token }),
+    ).rejects.toThrow('Invalid or expired agent credential')
+  })
+
+  test('polling still expires stale running work and recovers abandoned cleanup attempts', async () => {
+    const f = await createFixture()
+    await db
+      .update(deployments)
+      .set({ status: 'running', startedAt: new Date(Date.now() - 4 * 3600000) })
+      .where(eq(deployments.id, f.deploymentId))
+    const jobId = crypto.randomUUID()
+    touchedAgentJobIds.push(jobId)
+    await db.insert(agentJobs).values({
+      id: jobId,
+      serverId: f.serverId,
+      type: 'purge',
+      status: 'running',
+      claimedAt: new Date(Date.now() - 2 * 3600000),
+      attempt: 1,
+      payload: {
+        schemaVersion: 1,
+        runtimeIds: ['dp_orphan'],
+        removeVolumes: false,
+        reason: 'Unassigned runtime',
+      },
+    })
+    expect(
+      await claimNextAgentJob({
+        serverId: f.serverId,
+        token: f.token,
+        protocolVersion: currentAgentProtocolVersion,
+        capabilities: [...currentAgentCapabilities],
+      }),
+    ).toMatchObject({ id: jobId, type: 'purge', attempt: 2 })
+    expect(
+      (
+        await db
+          .select()
+          .from(deployments)
+          .where(eq(deployments.id, f.deploymentId))
+      )[0]?.status,
+    ).toBe('failed')
+  })
+
   test('idle polls skip claim writes and pick up work added before the next poll', async () => {
     const f = await createFixture()
     await db
@@ -96,7 +195,9 @@ describe('agent deployment jobs', () => {
         }),
       ).toBeNull()
       expect(update).not.toHaveBeenCalled()
-      expect(await db.all(sql`select total_changes() as changes`)).toEqual(before)
+      expect(await db.all(sql`select total_changes() as changes`)).toEqual(
+        before,
+      )
       const jobId = crypto.randomUUID()
       touchedAgentJobIds.push(jobId)
       await db.insert(agentJobs).values({

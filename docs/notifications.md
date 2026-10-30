@@ -29,4 +29,6 @@ A team mute includes all its projects. A project mute leaves team-wide server al
 
 Repeated failures in one incident do not repeatedly email the same recipient. Server alerts wait five minutes without contact. Disk alerts start at 90% usage and recover below 85%. A failure resolved before delivery is discarded.
 
+Server and disk alerts, including recovery, are checked by the minute scheduler rather than on every heartbeat. Large installations are scanned in batches.
+
 Email delivery requires [operator configuration](/docs/configuration/#authentication). Messages are retried after temporary failures, with membership and preferences rechecked before sending. Address changes discard pending messages to the old mailbox. Resend acceptance is tracked; downstream bounces are not.

@@ -13,10 +13,10 @@ For the guided setup, see [Installation](/docs/self-hosting/).
 Use Node.js 22.12+ and pnpm 10.17+. Install devpush:
 
 ```sh
-pnpm add --save-exact devpush
+pnpm add devpush
 ```
 
-npm can also install the package with `npm install --save-exact devpush`. Compatible
+npm can also install the package with `npm install devpush`. Compatible
 React 19 versions are supported; the package declares its other framework peer
 versions. Install any missing peers, plus Wrangler if you target Workers. Then create `vite.config.mjs`:
 
@@ -80,7 +80,8 @@ Register plugins with `devpush({ plugins })`. For the plugin API, see [Developme
 
 ## Upgrades
 
-Pin the exact package version and commit the lockfile. To upgrade:
+For production, pin the exact package version and commit the lockfile so upgrades
+are deliberate. To upgrade:
 
 1. Review the release notes.
 2. Back up the databases.

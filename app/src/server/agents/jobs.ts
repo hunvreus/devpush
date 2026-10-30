@@ -10,6 +10,7 @@ import { config as serverConfig } from '#devpush/server/config'
 import {
   recoverStaleCleanupJobs,
   finishContainerCleanup,
+  cleanupJobTimeoutMs,
 } from './container-cleanup-state'
 import {
   failStaleAgentJob,
@@ -92,26 +93,43 @@ export async function claimNextAgentJob({
   createAccessToken?: InstallationAccessTokenFactory
 }): Promise<AgentJob | null> {
   const server = await requireAgentServer({ serverId, token })
-  // An idle agent polls frequently. Avoid the claim/recovery query chain when
-  // there is nothing to claim or recover. A racing enqueue is seen next poll;
-  // all actual claims still use their atomic authorization and state guards.
+  const now = Date.now()
+  // Running work is not claimable. Only enter recovery when its deadline is
+  // actually due; long polls otherwise repeat this entire chain during builds.
+  // Authorization is still checked on every pass and claims remain atomic.
   const [work] = await db
     .select({
-      needed: sql<number>`exists(select 1 from ${agentJobs}
-      where server_id = ${serverId} and status in ('queued', 'running'))
+      queued: sql<number>`exists(select 1 from ${agentJobs}
+      where server_id = ${serverId} and status = 'queued' and available_at <= ${now})
       or exists(select 1 from ${deployments}
-      where server_id = ${serverId} and status in ('queued', 'running'))`,
+      where server_id = ${serverId} and status = 'queued')`,
+      stale: sql<number>`exists(select 1 from ${agentJobs}
+      where server_id = ${serverId} and status = 'running' and
+        (claimed_at is null or claimed_at < ${now} - case
+          when type in ('deprovision','purge') then ${cleanupJobTimeoutMs}
+          else ${backupJobTimeoutMs} end))
+      or exists(select 1 from ${agentJobs}
+      where server_id = ${serverId} and status = 'queued'
+        and type in ('backup', 'restore', 'backup_cleanup')
+        and available_at < ${now - backupJobTimeoutMs})
+      or exists(select 1 from ${deployments}
+      where server_id = ${serverId} and status = 'running' and
+        (started_at < ${now - deploymentTimeoutMs} or
+          (started_at < ${now - lostAgentTimeoutMs} and
+            (${servers.lastSeenAt} is null or ${servers.lastSeenAt} < ${now - lostAgentTimeoutMs}))))`,
     })
     .from(servers)
     .where(eq(servers.id, serverId))
     .limit(1)
-  if (!work?.needed) return null
-  if (server.status !== 'deleted')
-    await recoverStaleCleanupJobs(db, { serverId, now: new Date() })
-  await Promise.all([
-    failStaleRunningDeployments(serverId),
-    failStaleAgentJobs(serverId),
-  ])
+  if (!work?.queued && !work?.stale) return null
+  if (work.stale) {
+    if (server.status !== 'deleted')
+      await recoverStaleCleanupJobs(db, { serverId, now: new Date(now) })
+    await Promise.all([
+      failStaleRunningDeployments(serverId),
+      failStaleAgentJobs(serverId),
+    ])
+  }
 
   if (protocolVersion !== currentAgentProtocolVersion) {
     return null

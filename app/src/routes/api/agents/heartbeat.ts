@@ -1,4 +1,3 @@
-import { notifyAfterServerUpdate } from '#devpush/server/notifications/observe'
 import { createFileRoute } from '@tanstack/react-router'
 
 import { getRequestPublicAddress } from '#devpush/server/http/request-ip'
@@ -31,7 +30,6 @@ export const Route = createFileRoute('/api/agents/heartbeat')({
               system: payload.system,
               metricSamples: payload.metricSamples,
             })
-            await notifyAfterServerUpdate(payload.serverId)
             return result
           },
           'Unable to record agent heartbeat.',

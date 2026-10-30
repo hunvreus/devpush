@@ -40,6 +40,8 @@ Validation builds without changing production. Deployment validates the configur
 
 Check `/api/health`, sign in and test an application deployment. Update separately configured OAuth callbacks to the public origin. Test uploads only when storage is enabled.
 
+Monitor CPU time and invocation outcomes in Workers Observability, including agent polling and scheduled runs. The Free plan has a small per-invocation CPU allowance; background work counts too. A successful health check alone does not establish that your workload fits the [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
+
 ## Updates and recovery
 
 For D1, follow [Cloudflare’s Time Travel and backup guide](https://developers.cloudflare.com/d1/reference/time-travel/) for **both** databases before upgrading. For libSQL, use provider backups. Then check out the reviewed revision, install dependencies and deploy again. Migrations are forward-only: rolling back the Worker does not roll back its databases.
