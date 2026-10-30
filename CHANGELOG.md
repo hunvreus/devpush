@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [1.0.1] - 2026-10-30
+## [1.0.2] - 2026-10-30
 
 ### Changed
 
@@ -11,7 +11,7 @@
 
 ### Fixed
 
-- Added a static favicon for browsers requesting `/favicon.ico`.
+- Added a static favicon for browsers requesting `/favicon.ico` and fixed static asset delivery when installed from npm on Node.
 
 ## [1.0.0] - 2026-10-29
 

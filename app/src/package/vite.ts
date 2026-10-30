@@ -284,6 +284,7 @@ export function devpush(options: DevpushOptions = {}) {
             : [
                 nitro({
                   features: { websocket: true },
+                  publicAssets: [{ dir: resolve(packageRoot, 'public') }],
                   plugins: [
                     resolve(
                       source,
