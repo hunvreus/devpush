@@ -1,6 +1,6 @@
 {
   "name": "devpush",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "type": "module",
   "imports": {
     "#devpush/*": {
@@ -56,6 +56,7 @@
     "@better-auth/drizzle-adapter": "1.7.7",
     "@better-auth/oauth-provider": "1.7.7",
     "@better-auth/utils": "0.4.2",
+    "@clack/prompts": "1.7.0",
     "@cloudflare/vite-plugin": "1.62.4",
     "@fontsource-variable/inter": "5.2.8",
     "@fontsource/ibm-plex-mono": "5.3.0",
@@ -72,6 +73,7 @@
     "clsx": "2.1.1",
     "input-otp": "1.4.2",
     "jose": "6.2.3",
+    "jsonc-parser": "3.3.1",
     "lucide-react": "0.545.0",
     "next-themes": "0.4.6",
     "nitro": "npm:nitro-nightly@3.0.1-20260821-005124-e36e7a60",
@@ -146,7 +148,8 @@
     "wrangler.template.jsonc",
     "!src/**/*.test.*",
     "!src/test",
-    "!public/uploads"
+    "!public/uploads",
+    "!src/cli"
   ],
   "license": "MIT",
   "repository": {
@@ -168,5 +171,8 @@
     "vite": "8.1.6"
   },
   "description": "Deploy Docker Compose applications to your own servers with a git push.",
-  "homepage": "https://devpu.sh"
+  "homepage": "https://devpu.sh",
+  "bin": {
+    "devpush": "dist/package/cli.mjs"
+  }
 }

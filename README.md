@@ -14,7 +14,7 @@ Run the dashboard on **Cloudflare Workers** or **Node**. A small Linux agent man
 - [Deploy your first app](docs/getting-started.md) once your dashboard is running.
 - [Read the documentation](docs/index.md) for configuration and operations.
 
-The guided installation uses a source checkout. To compose devpush into your own project, install the [npm package](https://www.npmjs.com/package/devpush) and follow [Package integration](docs/package-installation.md).
+Install with `npx devpush@latest init`. The wizard creates a standalone project using the [npm package](https://www.npmjs.com/package/devpush), configures your target and offers to deploy. For an existing project, see [Package integration](docs/package-installation.md).
 
 Compose is required; Dockerfiles can be used within it. Updates happen in place and do not guarantee zero downtime. Only deploy trusted code: Docker workloads can access their host.
 

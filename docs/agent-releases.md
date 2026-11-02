@@ -17,7 +17,7 @@ Agent binaries and checksums belong to the release recorded in the pin. App-only
 
 Installers and update timers call the dashboard's download endpoint. The endpoint redirects to the pinned GitHub Release asset, and the installer verifies the pinned checksum. Object storage is not involved. If the pinned release is unavailable, installation readiness fails.
 
-On Node, `DEVPUSH_AGENT_BINARY_DIR` overrides release downloads with trusted custom or offline builds. Both Linux architectures must be present. Checksums are calculated from the local files, and these files are not treated as official releases. Docker sets this directory to `/repo/bin` and serves the binaries built into the image. Workers always use the release.
+On Node, `DEVPUSH_AGENT_BINARY_DIR` overrides release downloads with trusted custom or offline builds. Both Linux architectures must be present. Checksums are calculated from the local files, and these files are not treated as official releases. Generated Docker installations use the pinned release. Custom images can bundle both Linux binaries and set this directory instead. Workers always use the release.
 
 ## Prepare a release
 

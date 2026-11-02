@@ -61,7 +61,7 @@ Start from `node_modules/devpush/wrangler.template.jsonc`. In your own `wrangler
 - Keep the template's compatibility flags, Durable Object migration and cron.
 - Configure your public origin and authentication variables and secrets.
 
-[Install on Cloudflare](/docs/cloudflare-deployment/) describes the bindings. Its setup wizard runs only from a source checkout. After you review the target account and both database bindings, run:
+[Install on Cloudflare](/docs/cloudflare-deployment/) describes the bindings. For an automatically generated standalone project, use `npx devpush@latest init --target cloudflare`. After you review the target account and both database bindings, run:
 
 ```sh
 pnpm exec wrangler d1 migrations apply devpush --remote --config wrangler.jsonc

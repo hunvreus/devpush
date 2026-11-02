@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  seroval: 1.6.9
+  seroval: 1.7.6
   source-map-js: 1.2.2
   sharp: 0.35.5
   browserslist: 4.28.7
@@ -15,6 +15,7 @@ overrides:
   minimatch>brace-expansion: 5.0.12
   xmlbuilder2>js-yaml: 4.3.2
   undici: 7.30.1
+  seroval-plugins: 1.7.6
 
 importers:
 
@@ -50,6 +51,9 @@ importers:
       '@better-auth/utils':
         specifier: 0.4.2
         version: 0.4.2
+      '@clack/prompts':
+        specifier: 1.7.0
+        version: 1.7.0
       '@cloudflare/vite-plugin':
         specifier: 1.62.4
         version: 1.62.4(@types/node@22.19.21)(vite@8.1.6(@types/node@22.19.21)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(wrangler@4.146.0(@cloudflare/workers-types@5.20261012.1)(@types/node@22.19.21))
@@ -98,6 +102,9 @@ importers:
       jose:
         specifier: 6.2.3
         version: 6.2.3
+      jsonc-parser:
+        specifier: 3.3.1
+        version: 3.3.1
       lucide-react:
         specifier: 0.545.0
         version: 0.545.0(react@19.2.7)
@@ -4383,27 +4390,15 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  seroval-plugins@1.5.4:
-    resolution: {integrity: sha512-S0xQPhUTefAhNvNWFg0c1J8qJArHt5KdtJ/cFAofo06KD1MVSeFWyl4iiu+ApDIuw0WhjpOfCdgConOfAnLgkw==}
-    engines: {node: '>=10'}
+  seroval-plugins@1.7.6:
+    resolution: {integrity: sha512-/TPCAd6q5stAZnugD2fsvNKtM2UpgwrS8/fO1cXTgPC0EqCsGB+UfkEEsToFCfg35CDTMlWkppfr/zWnLJGpBA==}
+    engines: {node: '>=20'}
     peerDependencies:
-      seroval: 1.6.9
+      seroval: 1.7.6
 
-  seroval-plugins@1.5.6:
-    resolution: {integrity: sha512-HXuLAX2pu/UByPpaeo/TaMfvMIi+1QqIoPJYCcAtU8QkVNwgR6MPlGuCQTErV1JwraaMbYaWVIBX7mppzGLATQ==}
-    engines: {node: '>=10'}
-    peerDependencies:
-      seroval: 1.6.9
-
-  seroval-plugins@1.6.9:
-    resolution: {integrity: sha512-kiDK/Tb8IWZ61WEU8pA2PDmAuw37gKph9Y77OZlD56mg0Y2g0Bg7gZ1HeHhs5d40w+nRoUq/wj08V26ilbez9g==}
-    engines: {node: '>=10'}
-    peerDependencies:
-      seroval: 1.6.9
-
-  seroval@1.6.9:
-    resolution: {integrity: sha512-UeEzHwAK+yl0YLbsvROV1t5yMYEwZZ0CfKYxDvUgS2fO9Vxdf8djqVIB+OuVpuawRNPqw68LE1Du/GMsW2ZPqA==}
-    engines: {node: '>=10'}
+  seroval@1.7.6:
+    resolution: {integrity: sha512-oKNe6A8I3lSA5J0xg9xsrWCWDpET6CFhCMVuIsCmqrjNpBXzQXDAAQI5UfuC4Ner4DIR+VAtSw7TC0AmRMqFFQ==}
+    engines: {node: '>=20'}
 
   set-cookie-parser@3.1.2:
     resolution: {integrity: sha512-5/r/lTwbJ3zQ+qwdUFZYeRNqda7P5HD8zQKqlSjdGt1/S0cjLAphHusj4Y58ahDtWn/g32xrIS58/ikOvwl0Lw==}
@@ -7144,15 +7139,15 @@ snapshots:
     dependencies:
       '@tanstack/history': 1.162.0
       cookie-es: 3.1.1
-      seroval: 1.6.9
-      seroval-plugins: 1.5.4(seroval@1.6.9)
+      seroval: 1.7.6
+      seroval-plugins: 1.7.6(seroval@1.7.6)
 
   '@tanstack/router-core@1.171.34':
     dependencies:
       '@tanstack/history': 1.162.4
       cookie-es: 3.1.1
-      seroval: 1.6.9
-      seroval-plugins: 1.6.9(seroval@1.6.9)
+      seroval: 1.7.6
+      seroval-plugins: 1.7.6(seroval@1.7.6)
 
   '@tanstack/router-generator@1.167.17':
     dependencies:
@@ -7240,7 +7235,7 @@ snapshots:
       '@tanstack/router-core': 1.171.34
       '@tanstack/start-fn-stubs': 1.162.0
       '@tanstack/start-storage-context': 1.167.36
-      seroval: 1.6.9
+      seroval: 1.7.6
 
   '@tanstack/start-fn-stubs@1.162.0': {}
 
@@ -7259,7 +7254,7 @@ snapshots:
       lightningcss: 1.33.0
       pathe: 2.0.3
       picomatch: 4.0.7
-      seroval: 1.6.9
+      seroval: 1.7.6
       source-map: 0.7.6
       srvx: 0.11.22
       tinyglobby: 0.2.17
@@ -7291,7 +7286,7 @@ snapshots:
       '@tanstack/start-storage-context': 1.167.36
       fetchdts: 0.1.7
       h3-v2: h3@2.0.1-rc.20(crossws@0.4.12(srvx@0.12.7))
-      seroval: 1.6.9
+      seroval: 1.7.6
     transitivePeerDependencies:
       - crossws
 
@@ -8928,20 +8923,11 @@ snapshots:
 
   semver@7.8.5: {}
 
-  seroval-plugins@1.5.4(seroval@1.6.9):
+  seroval-plugins@1.7.6(seroval@1.7.6):
     dependencies:
-      seroval: 1.6.9
+      seroval: 1.7.6
 
-  seroval-plugins@1.5.6(seroval@1.6.9):
-    dependencies:
-      seroval: 1.6.9
-    optional: true
-
-  seroval-plugins@1.6.9(seroval@1.6.9):
-    dependencies:
-      seroval: 1.6.9
-
-  seroval@1.6.9: {}
+  seroval@1.7.6: {}
 
   set-cookie-parser@3.1.2: {}
 
@@ -8999,8 +8985,8 @@ snapshots:
   solid-js@1.9.13:
     dependencies:
       csstype: 3.2.3
-      seroval: 1.6.9
-      seroval-plugins: 1.5.6(seroval@1.6.9)
+      seroval: 1.7.6
+      seroval-plugins: 1.7.6(seroval@1.7.6)
     optional: true
 
   sonner@2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7):

@@ -1,33 +1,45 @@
 ---
-description: Choose where to run the dashboard and prepare installation.
+description: Install devpush with one command.
 ---
 
 # Installation
 
-Install the dashboard first, then [connect servers and deploy apps](/docs/getting-started/). Application containers run on Linux servers regardless of where the dashboard runs.
+Run the dashboard on Docker Compose or Cloudflare Workers. Your apps run on your Linux servers.
 
-Choose your dashboard target:
+## Install
 
-- [Cloudflare Workers](/docs/cloudflare-deployment/): Worker and two D1 databases, with optional R2 for image uploads.
-- [Docker Compose](/docs/production-operations/): Node app, persistent databases and uploads. You provide its HTTPS reverse proxy.
-
-Both also support remote libSQL/Turso databases. Neither option provisions your application servers.
-
-## Prepare
-
-You need Node.js 22.12+, pnpm 10.17+, a stable dashboard URL and at least one sign-in method: Resend email codes, Google or GitHub. Repository access and push events require a GitHub App. The setup wizard helps configure these.
-
-Start with a source checkout:
+You need **Node.js 22.12+ and npm**, plus Docker Compose or a Cloudflare account.
 
 ```sh
-git clone --branch v1.0.0 https://github.com/hunvreus/devpush.git
-cd devpush
+npx devpush@latest init
 ```
 
-Then follow your chosen target guide. To use devpush as a dependency in your own project, see [Package integration](/docs/package-installation/).
+The wizard creates a `devpush` folder, installs the package and walks you through setup:
+
+1. Choose Docker Compose or Cloudflare Workers.
+2. Set your dashboard URL and administrator email.
+3. Configure sign-in and your GitHub App.
+4. Review and approve deployment.
+
+**Docker needs an HTTPS reverse proxy.** Cloudflare can use a `workers.dev` URL or your own domain.
+
+See [Docker setup](/docs/production-operations/) or [Cloudflare setup](/docs/cloudflare-deployment/) for requirements and details.
+
+## Next
+
+Open your dashboard, sign in and [deploy your first app](/docs/getting-started/).
+
+To resume setup:
+
+```sh
+cd devpush
+npm run configure
+```
+
+To deploy later, run `npm run deploy`.
 
 ## Before opening access
 
-Set `DEVPUSH_ADMIN_EMAIL`, configure the [allowlist](/docs/accounts-and-teams/#installation-administration) and check `/api/health`. An empty allowlist permits everyone. Keep database backups and installation secrets outside the host.
+Keep installation secrets and database backups safe. Restrict access with the [allowlist](/docs/accounts-and-teams/#installation-administration). Deploy only trusted code; Docker access can expose the host.
 
-Deploy only trusted repositories. Docker workloads can access their host; use separate servers for mutually untrusted code. Do not commit generated configuration, credentials, database files or agent enrollment commands.
+For an existing project, see [Package integration](/docs/package-installation/).

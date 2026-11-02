@@ -8,9 +8,7 @@ if (process.env.DEVPUSH_DATABASE_URL || process.env.DEVPUSH_LOG_DATABASE_URL) {
   )
 }
 
-const require = createRequire(
-  new URL('../.output/server/index.mjs', import.meta.url),
-)
+const require = createRequire(import.meta.url)
 const Sqlite = require('better-sqlite3')
 const directory = process.env.DEVPUSH_DB_BACKUP_DIR || '/backups'
 const days = Number(process.env.BACKUP_RETENTION_DAYS || 7)

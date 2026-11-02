@@ -277,6 +277,60 @@ writeFileSync(
 )
 await run('install', 'pnpm', ['install', '--prefer-offline'])
 await run('consumer-types', 'pnpm', ['exec', 'tsc', '--noEmit'])
+await run('cli-help', 'pnpm', ['exec', 'devpush', '--help'])
+await run('cli-scaffold', 'pnpm', [
+  'exec',
+  'devpush',
+  'init',
+  'cli-installation',
+  '--target',
+  'cloudflare',
+  '--no-install',
+])
+await run('cli-node-scaffold', 'pnpm', [
+  'exec',
+  'devpush',
+  'init',
+  'cli-node',
+  '--target',
+  'docker',
+  '--no-install',
+])
+const cliNode = resolve(directory, 'cli-node')
+const cliMigrations = resolve(directory, 'cli-migrations')
+mkdirSync(cliMigrations)
+await run(
+  'cli-node-migrate',
+  process.execPath,
+  [resolve(directory, 'node_modules/devpush/dist/package/cli.mjs'), 'migrate'],
+  cliMigrations,
+)
+assert(existsSync(resolve(cliMigrations, '.data/devpush.sqlite')))
+if (!process.argv.includes('--development-only')) {
+  const cliManifest = JSON.parse(
+    readFileSync(resolve(cliNode, 'package.json'), 'utf8'),
+  )
+  cliManifest.dependencies.devpush = `file:${archive}`
+  writeFileSync(
+    resolve(cliNode, 'package.json'),
+    JSON.stringify(cliManifest, null, 2),
+  )
+  await run(
+    'cli-node-install',
+    'npm',
+    ['install', '--no-audit', '--no-fund'],
+    cliNode,
+  )
+  await run('cli-node-build', 'npm', ['run', 'build'], cliNode)
+  await run(
+    'cli-node-smoke',
+    process.execPath,
+    [resolve(app, 'scripts/smoke-node.mjs')],
+    app,
+    { DEVPUSH_SMOKE_APP_DIR: cliNode, DEVPUSH_SMOKE_PLUGINS: '0' },
+  )
+}
+
 const installed = resolve(directory, 'node_modules/devpush')
 const before = digest(resolve(installed, 'src'))
 await run('migrate', process.execPath, [

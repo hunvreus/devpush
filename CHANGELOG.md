@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-02
+
+### Added
+
+- Add `npx devpush@latest init` to create, configure and deploy standalone Docker Compose or Cloudflare installations using the npm package, without a source checkout. Generated projects retain the repository’s dependency overrides for npm installs, including matching serializer and stream-plugin versions.
+
 ## [1.0.3] - 2026-10-30
 
 ### Changed

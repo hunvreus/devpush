@@ -45,13 +45,19 @@ export function createCloudflareConfig({
               binding: "DEVPUSH_DATABASE",
               database_id: databaseId || "",
               database_name: databaseName,
-              migrations_dir: "src/server/db/migrations-sqlite",
+              migrations_dir:
+                template.d1_databases?.find(
+                  (item) => item.binding === "DEVPUSH_DATABASE",
+                )?.migrations_dir || "src/server/db/migrations-sqlite",
             },
             {
               binding: "DEVPUSH_LOG_DATABASE",
               database_id: logDatabaseId || "",
               database_name: logDatabaseName,
-              migrations_dir: "src/server/db/migrations-logs",
+              migrations_dir:
+                template.d1_databases?.find(
+                  (item) => item.binding === "DEVPUSH_LOG_DATABASE",
+                )?.migrations_dir || "src/server/db/migrations-logs",
             },
           ],
         }
@@ -144,7 +150,7 @@ export async function getCloudflareWorkersSubdomain({
   const missing = body?.errors?.some((error) => error?.code === 10007);
   if (missing) {
     throw new Error(
-      `This Cloudflare account has no workers.dev subdomain. Create one at https://dash.cloudflare.com/${accountId}/workers/onboarding, then rerun \`pnpm configure\`.`,
+      `This Cloudflare account has no workers.dev subdomain. Create one at https://dash.cloudflare.com/${accountId}/workers/onboarding, then rerun setup.`,
     );
   }
 
