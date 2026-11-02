@@ -10,14 +10,14 @@ Includes environments, custom domains and HTTPS, encrypted variables, logs, serv
 
 ## Get started
 
-[Use the hosted dashboard](https://app.devpu.sh) or [self-host devpush](https://devpu.sh/docs/self-hosting/).
-
-To use this package in your own project:
-
 ```sh
-pnpm add devpush
+npx devpush@latest init
 ```
 
-Follow [Package integration](https://devpu.sh/docs/package-installation/) to configure your dashboard, databases and authentication, then build and deploy. Installing the package alone does not start a dashboard.
+Choose Docker Compose or Cloudflare Workers. The wizard configures your dashboard and offers to deploy it. See [Installation](https://devpu.sh/docs/self-hosting/) for requirements.
+
+You can also [use the hosted dashboard](https://app.devpu.sh).
+
+For an existing project, install `devpush` and follow [Package integration](https://devpu.sh/docs/package-installation/).
 
 [Documentation](https://devpu.sh/docs/) · [Source and contributing](https://github.com/hunvreus/devpush) · [MIT license](https://github.com/hunvreus/devpush/blob/main/LICENSE.md)

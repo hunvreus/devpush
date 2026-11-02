@@ -174,5 +174,11 @@
   "homepage": "https://devpu.sh",
   "bin": {
     "devpush": "dist/package/cli.mjs"
-  }
+  },
+  "keywords": [
+    "docker-compose",
+    "deployment",
+    "self-hosted",
+    "cli"
+  ]
 }
